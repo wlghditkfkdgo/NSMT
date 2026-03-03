@@ -25,3 +25,13 @@ conda activate snn_jelly
 
 *(Optional) If you prefer using `pip`, you can also install the dependencies via the requirements file (if provided):*
 `pip install -r requirements.txt`
+
+
+```
+* **Python:** 3.10.18
+* **PyTorch:** 1.12.0 (with CUDA 11.3.1)
+* **SpikingJelly:** 0.0.0.0.14
+* **NumPy:** 1.26.4
+* **Scikit-learn:** 1.7.1
+* **Timm:** 1.0.19
+```
