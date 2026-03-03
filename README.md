@@ -1,4 +1,4 @@
-# Bio-inspired Spiking Memory Transformer for time series classification
+# Fast Spikes, Slow Trends: Neuro-Inspired Spiking Memory Transformer for Time-Series Analysis
 
 ```
 - pytorch==2.3.1
