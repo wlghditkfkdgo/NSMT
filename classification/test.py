@@ -6,7 +6,6 @@ from torcheval.metrics import MulticlassAccuracy, MulticlassF1Score, MulticlassP
 import os
 from sys import stdout
 
-
 # snn
 from spikingjelly.clock_driven import functional
 from syops import get_model_complexity_info
@@ -15,15 +14,19 @@ from syops import get_model_complexity_info
 from timm import create_model
 from timm.optim.optim_factory import create_optimizer_v2
 
-from .config import set_random_seed, parse_arguments, Config
-from .utils import get_pred, get_scheduler, get_class_weights, get_energy_consumption, tsne_visual, plot_eval
-from .dataloader import create_loader
-import classification.model as model
-from classification.model import TemporalBlock
+from config import set_random_seed, parse_arguments, Config
+from utils import get_pred, get_scheduler, get_class_weights, get_energy_consumption, tsne_visual, plot_eval
+# from dataloader import create_loader
+from data_provider.data_factory import data_provider
+
+import model as model
+from load_model import LOAD_MODEL
+import numpy as np
+from sklearn.manifold import TSNE
+import matplotlib.pyplot as plt
 
 def load_model(args):
-    saved_model_path = os.path.join(args.save_result_path, "model_state", f"{args.best_fold}_{args.saved_epoch[-1]:03d}+model.pt")
-    # model_checkpoint = torch.load(saved_model_path, map_location=args.device)
+    saved_model_path = os.path.join(args.save_result_path, "model_state", f"best+model.pt")
     
     spikformer = create_model(
         'spikformer',
@@ -36,13 +39,13 @@ def load_model(args):
         drop_block_rate=None,
         gating=args.gating,
         train_mode='training',
-        window_size=args.window_size,
+        seq_len=args.seq_len,
         data_patch_size=args.data_patch_size,
         embed_dim=args.embed_dim,
         num_heads=args.num_heads,
         num_classes=args.num_classes,
         qkv_bias=False, 
-        mlp_ratios=args.mlp_emb,
+        mlp_ratios=args.mlp_ratios,
         depths=args.num_layers, 
         sr_ratios=1,
         time_num_layers=args.time_num_layers,
@@ -54,6 +57,7 @@ def load_model(args):
         tau=args.tau,
         spk_encoding=args.spk_encoding,
         attn=args.attn, 
+        keep_ratio=args.keep_ratio,
     )
 
     spikformer = spikformer.to(args.device)
@@ -65,170 +69,61 @@ def load_model(args):
     return spikformer
 
 
-class PathEval(nn.Module):
-    def __init__(self, args, train_loader, test_loader, class_num_samples, model=None, path=['time', 'data']):
-        super().__init__()
-        
-        self.time_steps = args.time_steps
-        self.num_classes = args.num_classes
-        self.bias = args.bias
-        self.device = args.device
-        self.weight_decay = args.weight_decay
-        self.spk_encoding = args.spk_encoding
-        
-        self.scheduler = "reduce"
-        self.save_log_path = args.save_log_path
-        self.path = path
-        
-        self.train_loader = train_loader
-        self.test_loader = test_loader
-        
-        self.total_epoch = 50
-        
-        if model is None:
-            self.model = load_model(args)
-        
-        self.cal_weights = get_class_weights(class_num_samples=class_num_samples)
-        
-    def path_eval(self):
-        
-        self.model.head = nn.Linear(self.time_steps, self.num_classes, bias=self.bias).to(self.device)
-        
-        self.set_requires_grad()
+def tsne_plot_2d(features, labels, save_path=None, title="t-SNE (2D)", random_state=42):
+    """
+    features: [N, D] (np.ndarray or torch.Tensor)
+    labels:   [N,]   (np.ndarray or torch.Tensor)
+    save_path: 저장 경로 (예: 'tsne.png'), None이면 화면 표시
+    """
+    # torch 텐서면 numpy로 변환
+    try:
+        import torch
+        if isinstance(features, torch.Tensor):
+            features = features.detach().cpu().numpy()
+        if isinstance(labels, torch.Tensor):
+            labels = labels.detach().cpu().numpy()
+    except ImportError:
+        pass
 
-        criterion = nn.CrossEntropyLoss(weight=self.cal_weights).to(self.device)
-        optimizer = create_optimizer_v2(self.model.parameters(), opt='adamw', lr=1e-2)
-        scheduler = get_scheduler(self.scheduler, optimizer)
+    features = np.asarray(features)
+    labels   = np.asarray(labels)
 
-        self.embeddings = []
-        self.actual = []
-        
-        print(f"{self.path} path evaluation start.")
-        time_acc = self._path_evaluation(criterion, optimizer, scheduler)
-        
-        self.log_csv(time_acc)
-        
-        savefig_path = self.set_figsave_path()
-        tsne_visual(feature=self.embeddings, actual_label=self.actual, metric='euclidean', save_path=savefig_path, num_classes=self.num_classes) 
-        
-        print(f"Final tsne result saved to `{savefig_path}`")
-        
-    def set_log_path(self):
-        return self.save_log_path + f'/only+{self.path}+result.csv'
+    # 간단한 검증
+    assert features.ndim == 2, f"features shape must be [N, D], got {features.shape}"
+    assert labels.ndim == 1 and labels.shape[0] == features.shape[0], f"labels must be [N,] and match N, got {labels.shape} and features shape {features.shape}"
+
+    # t-SNE 실행 (perplexity는 N보다 작아야 함)
+    from sklearn.manifold import TSNE
+    N = features.shape[0]
+    perp = max(5, min(30, N - 1))  # 아주 단순한 안전 설정
+    tsne = TSNE(n_components=2, init="pca", learning_rate="auto",
+                random_state=random_state)
+    X2 = tsne.fit_transform(features)
+
+    # 시각화
+    plt.figure(figsize=(8, 6))
+    for ul in np.unique(labels):
+        m = labels == ul
+        plt.scatter(X2[m, 0], X2[m, 1], s=10, alpha=0.75, label=str(ul))
+    plt.title(title)
+    plt.xticks([]); plt.yticks([])
+    # 클래스 수가 적으면 범례 표시
+    if len(np.unique(labels)) <= 20:
+        plt.legend(title="Class", markerscale=2, frameon=False)
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
+        plt.close()
+    else:
+        plt.show()
+
+
+def evaluation(args:Config, model=None):
     
-    def set_figsave_path(self):
-        return self.save_log_path + f'/tsne_result_{self.path}_only_emb.png'
+    criterion = nn.CrossEntropyLoss().to(args.device)
     
-    def set_requires_grad(self):
-        # freeze
-        for name, params in self.model.named_parameters():
-            params.requires_grad = False if not name == 'head.weight' else True
-        
-        for params in self.model.head.parameters():
-            params.requires_grad = True
-            
-    def log_csv(self, time_acc):
-        
-        log_path = self.set_log_path()
-        
-        if not isinstance(time_acc, float):
-            time_acc = time_acc.mean()
-        
-        with open(log_path, 'w', encoding='utf-8') as log_csv:
-            print("final_epoch", "overall_acc", sep=", ", end="\n", file=log_csv)
-            print(f"{self.total_epoch}", f"{time_acc:.6f}", sep=", ", end="\n", file=log_csv)
-            
-    def get_forward_path(self):
-        
-        if self.path == 'time' :
-            return getattr(self.model, '_time_stream')
-        elif self.path == 'data' :
-            return getattr(self.model, '_fusing')
-            
-    def _forward_path(self, data):
-        
-        forward_path = self.get_forward_path()
-        out = forward_path(data) # [T B 1 D]
-        if isinstance(out, tuple):
-            out = out[0]
-        # feature = out.mean(2).mean(-1).transpose(0, 1).contiguous()
-        feature = out.mean(2).mean(-1).transpose(0, 1).contiguous()
-        out = self.model.head(feature)
-        
-        return out, feature
-    
-    def _path_evaluation(self, criterion, optimizer, scheduler=None):
-        
-        tot_acc = MulticlassAccuracy(num_classes=self.num_classes, average=None).to(self.device)
-
-        for epoch in range(self.total_epoch):
-            epoch_loss = 0
-            
-            self.model.train()
-            self.model.train_mode = 'testing'
-            # train
-            for data, label in self.train_loader:
-                data = data.to(self.device)
-                label = label.to(self.device)
-                
-                x = getattr(self.model, '_input_encoding')(data)
-                out, _ = self._forward_path(x)
-                
-                loss = criterion(out, label)
-                epoch_loss += loss.item()
-                
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-            
-                functional.reset_net(self.model)
-                
-            epoch_loss /= len(self.train_loader)
-                
-            # test
-            epoch_test_loss = 0
-            self.model.eval()
-            with torch.no_grad():
-                for data, label in self.test_loader:
-                    data = data.to(self.device)
-                    label = label.to(self.device)
-                    
-                    x = getattr(self.model, '_input_encoding')(data)
-                    out, feature = self._forward_path(x)
-
-                    loss = criterion(out, label)
-                    epoch_test_loss += loss.item()
-
-                    functional.reset_net(self.model)
-
-                    pred = get_pred(out)
-                    tot_acc.update(pred, label)
-                    
-                    if epoch == (self.total_epoch - 1): 
-                        self.embeddings += feature.cpu().numpy().tolist()
-                        self.actual += label.cpu().numpy().tolist()
-                        
-                    
-            epoch_test_loss /= len(self.test_loader)
-            
-            print(f"{'epoch':15s}{epoch:>10d}")
-            print(f"{'epoch_test_loss':15s}{epoch_test_loss:>10.5f}")
-            print(f"{'overall_acc':15s}{tot_acc.compute().mean().clone():>10.5f}")
-
-            if self.scheduler == 'reduce':
-                scheduler.step(epoch_test_loss)
-            elif scheduler is None:
-                pass
-            else:
-                scheduler.step()
-
-        return tot_acc.compute()
-    
-
-def evaluation(args:Config, criterion, model=None):
-    
-    loader, _ = create_loader(train=False, batch_size=args.batch_size, num_classes=args.num_classes, data_root=args.test_data_root, data_window_size=args.window_size, segment_len=args.segment_len, num_workers=args.num_workers)
-
+    _, loader = data_provider(args, flag='TEST')
 
     overall_acc = MulticlassAccuracy(num_classes=args.num_classes).to(args.device)
     acc = MulticlassAccuracy(num_classes=args.num_classes, average=None).to(args.device)
@@ -237,34 +132,35 @@ def evaluation(args:Config, criterion, model=None):
     re = MulticlassRecall(num_classes=args.num_classes, average='macro').to(args.device)
     
     if model is None:
-        spikformer = load_model(args)
-        
-    else:
-        spikformer = model
+        model = LOAD_MODEL[args.model](args, False)
 
-    spikformer.eval()
-    spikformer.train_mode = 'testing'
+    model.eval()
+    model.train_mode = 'testing'
 
-    if hasattr(spikformer, 'weak_decoder'): delattr(spikformer, 'weak_decoder')
-    if hasattr(spikformer, 'replay') : delattr(spikformer, 'replay')
+    # if hasattr(spikformer, 'weak_decoder'): delattr(spikformer, 'weak_decoder')
+    # if hasattr(spikformer, 'replay') : delattr(spikformer, 'replay')
  
     
+
     with torch.no_grad():
         epoch_loss = 0
         sim = 0
-        for data, label in loader:
-            data = data.to(args.device)
-            label = label.to(args.device)
+        all_features = []
+        all_labels = []
+        for batch in loader:
+            data = batch[0].float().to(args.device)
+            label = batch[1].long().squeeze(-1).to(args.device)
                 
-            output = spikformer(data)
+            output = model(data)
             if isinstance(output, tuple):
-                
-                output, org_x, rec_x = output
+                output, feature = output
+                all_features.append(feature.transpose(0,1).mean(1).mean(1).flatten(1).detach().cpu())
+                all_labels.append(label.detach().cpu())
 
             loss = criterion(output, label)
             epoch_loss += loss.item()
             
-            functional.reset_net(spikformer)
+            functional.reset_net(model)
 
             pred = get_pred(output)
             
@@ -273,15 +169,21 @@ def evaluation(args:Config, criterion, model=None):
             f1.update(pred, label)
             pre.update(pred, label)
             re.update(pred, label)
+
+        # t-SNE plot after all batches
+        if all_features:
+            all_features = torch.cat(all_features, dim=0).numpy()
+            all_labels = torch.cat(all_labels, dim=0).numpy()
+            tsne_plot_2d(all_features, all_labels, save_path=os.path.join(args.save_log_path, "tsne_plot.png"))
             
         input_res = data[0].shape
         
         model_info_per_layer_path = os.path.join(args.save_log_path, 'model+info+per+layer.txt') 
         file_out = open(model_info_per_layer_path, 'w', encoding='utf-8')
        
-        spikformer.train_mode = 'testing'
+        model.train_mode = 'testing'
         ops, params, fr = get_model_complexity_info(
-                                    model=spikformer,
+                                    model=model,
                                     input_res=(input_res,), 
                                     dataloader=loader,
                                     as_strings=False,
@@ -342,31 +244,10 @@ def evaluation(args:Config, criterion, model=None):
     # print(f"Final tsne result saved to `{savefig_path}`")
 
 def test(args, test, only_path_test):
-
-    # TODO: data loader
-    test_loader, class_num_samples = create_loader(train=False, num_classes=args.num_classes, batch_size=args.batch_size, data_root=args.test_data_root, data_window_size=args.window_size, num_workers=args.num_workers) 
     
     # TODO: criterion
-    cal_weights = get_class_weights(class_num_samples=class_num_samples)
-    criterion = nn.CrossEntropyLoss(weight=cal_weights).to(args.device)
 
-    if test:
-        evaluation(args=args, loader=test_loader, criterion=criterion)
-    
-    if only_path_test:
-        loader, class_num_samples = create_loader(train=True, batch_size=args.batch_size, num_classes=args.num_classes, data_root=args.train_data_root, train_val_ratio=args.train_val_ratio, data_window_size=args.window_size, sampling=args.sampling, num_workers=args.num_workers)
-        
-        if isinstance(loader, tuple):
-            train_loader, test_loader = loader[0], loader[1]
-        else:
-            train_loader = loader
-            
-        data_path = PathEval(args, train_loader, test_loader, class_num_samples, path='data')
-        time_path = PathEval(args, train_loader, test_loader, class_num_samples, path='time')
-        
-        data_path.path_eval()
-        time_path.path_eval()
-
+    evaluation(args=args)
     
         
 if __name__ == '__main__':

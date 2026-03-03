@@ -1,7 +1,7 @@
 import os
 
 # os.environ['CUBLAS_WORKSPACE_CONFIG'] =':4096:8'
-
+os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"
 import torch
 import pandas as pd
 from scipy.io import arff
@@ -14,11 +14,13 @@ import argparse
 import random
 
 import torch.backends
+from timm.utils import random_seed
 
 
 def set_random_seed(seed):
+    random_seed(seed, 0)
     torch.manual_seed(seed)
-    torch.random.initial_seed()  
+    # torch.random.initial_seed()  
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed) # if use multi-gpu
     torch.backends.cudnn.deterministic = True # reduce operation speed
@@ -28,7 +30,6 @@ def set_random_seed(seed):
     random.seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)
     # os.environ['TF_ENABLE_ONEDNN_OPTS'] = "0"
-    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"
     # torch.cuda.set_rng_state(seed)
     # torch.set_rng_state(seed)
     torch.use_deterministic_algorithms(True)
@@ -39,16 +40,18 @@ def set_seed_worker(worker_id):
     random.seed(worker_seed)
     torch.manual_seed(worker_seed)
 
-
 # def parse_arguments(args):
 def parse_arguments():
     
     parser = argparse.ArgumentParser(description='the hyperparameters for training')
     
-    parser.add_argument('--model', default='myModel')
+    parser.add_argument('--model', dest='model', default='myModel')
+    
     parser.add_argument('--seed', dest='seed', type=int, default=42)
     parser.add_argument('--config', dest='config', default=None, help='If you have config file, input the file path')
     parser.add_argument('--saved_epoch', dest='saved_epoch', nargs='+', type=int, default=[1, ], help='The epoch number saved as check point')
+
+    parser.add_argument('--snr_list', dest='snr_list', nargs='+', type=int, default=[100, ])
     
     save_arg = parser.add_argument_group("save information")
     save_arg.add_argument('--tag', dest='tag', nargs='+')
@@ -58,8 +61,8 @@ def parse_arguments():
     save_arg.add_argument('--save_patience', dest='save_log_patience', nargs='?', type=int, default=2)
     
     save_arg.add_argument('--test', dest='test', action='store_true', help='If true, model is tested after training.')
+    save_arg.add_argument('--analysis', dest='analysis', action='store_true')
     save_arg.add_argument('--tsne', dest='tsne', action='store_true', help='If true, the emb of model is visualized.')
-    save_arg.add_argument('--only_path_test', dest='only_path_test', action='store_true', help='If true, the time path of model is tested.')
     
     train_arg = parser.add_argument_group("training parameters")
     train_arg.add_argument('-nd', '--num_device', dest='num_device', nargs='?', type=int, choices=[0, 1, 2, 3], default=0, help='Device number : [0, 1, 2, 3] (default: %(default)s)')
@@ -69,70 +72,52 @@ def parse_arguments():
     train_arg.add_argument('-lr', '--learning_rate', dest='lr', nargs='?', type=float, default=1e-4, help='Learning rate')
     train_arg.add_argument('--max_lr', dest='max_lr', nargs='?', type=float, default=0.001, help='maximum learning rate in cosine lr scheduler')
     train_arg.add_argument('--scheduler', dest='scheduler', nargs='?', type=str, choices=['step', 'lambda', 'exponential', 'cosine', 'reduce'], default='reduce', help='scheduler (default: %(default)s)')
-    train_arg.add_argument('--weight_decay', dest='weight_decay', nargs='?', type=int, default=1e-4)
+    train_arg.add_argument('--weight_decay', dest='weight_decay', nargs='?', type=int, default=6e-2)
     train_arg.add_argument('--num_workers', dest='num_workers', nargs='?', type=int, default=8)
+    train_arg.add_argument('--patience', dest='patience', nargs='?', type=int, default=3)
+    train_arg.add_argument('--perm', dest='perm', action='store_true')
 
     model_arg = parser.add_argument_group("Transformer parameters")
     model_arg.add_argument('--alpha', dest='alpha', nargs='?', type=float, default=0.1, help='hyperparameter for gating')
     model_arg.add_argument('-emb', '--embedding_dim', dest='embed_dim', nargs='?', type=int, default=256, help='d_model in transformer')
-    model_arg.add_argument('-nh', '--num_heads', dest='num_heads', type=int, default=8, help='num of heads in self-attention layer')
+    model_arg.add_argument('-nh', '--num_heads', dest='num_heads', type=int, default=16, help='num of heads in self-attention layer')
     model_arg.add_argument('--layers', dest='num_layers', nargs='?', type=int, default=1, help='number of encoder layers')
-    model_arg.add_argument('--time_layers', dest='time_num_layers', nargs='?', type=int, default=2, help='number of layers in neocortex')
-    # model_arg.add_argument('--num_patches', dest='num_patches', type=int, default=64, help='number of patches in Data Stream (default: %(default)s)')
+    model_arg.add_argument('--time_layers', dest='time_num_layers', nargs='?', type=float, default=2, help='number of layers in neocortex')
     model_arg.add_argument('--patch_size', dest='patch_size', type=int, default=16, help='patch size in data stream')
     model_arg.add_argument('--mlp_ratios', dest='mlp_ratios', type=float, default=4)
-    model_arg.add_argument('--patch_stride', dest='stride', type=int, default=9)
+    model_arg.add_argument('--max_ratio', dest='max_ratio', type=int, default=2)
     model_arg.add_argument('--connect_f', dest='connect_f', nargs='?', choices=['ADD', 'AND', 'IAND'], default='IAND', help='the types of residual connection in SNN')
     model_arg.add_argument('--gating', dest='gating', default='original', help='gating type')
-    model_arg.add_argument('--attn', dest='attn', nargs='?', default='MSSA', choices=['SSA'],)
-    model_arg.add_argument('--keep_ratio', nargs='?', type=float, default=0.15)
+    model_arg.add_argument('--keep_ratio', dest='keep_ratio', nargs='?', type=float, default=0.25, help='keep_ratio in DCT')
     
     snn_arg = parser.add_argument_group("snn parameters")
-    snn_arg.add_argument('-T', '--time_steps', dest='time_steps', nargs='?', type=int, default=4, help='Total time steps for SNN simulation (default: %(default)s)')
     snn_arg.add_argument('-b', '--bias', dest='bias', action=argparse.BooleanOptionalAction, help='spiking neuron bias (option: `--no-bias`)')
     snn_arg.add_argument('-spk', '--spk_encoding', dest='spk_encoding', action='store_true', help='spike encoding')
     snn_arg.add_argument('--tau', dest='tau', type=float, default=2.0)
     
     data_arg = parser.add_argument_group("data arguments")
-    # data_arg.add_argument('--train_data_root', nargs='?', type=str, default='../data/5class_mitbih_train_7_187.csv', help='The root of train data root saved \n\t default: %(default)s')
-    # # data_arg.add_argument('--train_data_root', nargs='?', type=str, default='./data/aami_4cls_mitbih_train_denoise_180.csv', help='The root of train data root saved \n\t default: %(default)s')
-    # data_arg.add_argument('--test_data_root', nargs='?', type=str, default='../data/5class_mitbih_test_3_187.csv', help='The root of test data root saved \n\t default: %(default)s')
-    # data_arg.add_argument('--sampling', dest='sampling', choices=['avg', 'min', 'cut', 'smote', 'None'], default='None')
-    # data_arg.add_argument('--ratio', dest='train_val_ratio', nargs='+', type=float, default=None, help='ratio for splitting training and validation(test) dataset (default:%(default)s)')
-    # data_arg.add_argument('--n_folds', dest='n_folds', type=int, default=2)
-    # data_arg.add_argument('--best_folds', dest='best_folds', type=int, default=0)
-    data_arg.add_argument('--num_classes', dest='num_classes', type=int, default=5)
-    data_arg.add_argument('--seq_len', type=int, default=96, help='input sequence length')
-    data_arg.add_argument('--num_channels', dest='num_channels', type=int, default=1)
-    data_arg.add_argument('--segment_len', dest='segment_len', type=int, default=0)
     data_arg.add_argument('--data', help='The name of dataset')
-    data_arg.add_argument('--task_name', default='classification')
-    data_arg.add_argument('--root_path', type=str, default='dataset',
+    data_arg.add_argument('--task_name', default='forecasting')
+    data_arg.add_argument('--freq', type=str, default='h',
+                        help='freq for time features encoding, options:[s:secondly, t:minutely, h:hourly, d:daily, b:business days, w:weekly, m:monthly], you can also use more detailed freq like 15min or 3h')
+    data_arg.add_argument('--root_path', type=str, default='data/ETT-small',
                         help='root path of the data file')
-    
-    data_arg.add_argument('--augmentation_ratio', type=int, default=0, help="How many times to augment")
-    data_arg.add_argument('--jitter', default=False, action="store_true", help="Jitter preset augmentation")
-    data_arg.add_argument('--scaling', default=False, action="store_true", help="Scaling preset augmentation")
-    data_arg.add_argument('--permutation', default=False, action="store_true",
-                        help="Equal Length Permutation preset augmentation")
-    data_arg.add_argument('--randompermutation', default=False, action="store_true",
-                        help="Random Length Permutation preset augmentation")
-    data_arg.add_argument('--magwarp', default=False, action="store_true", help="Magnitude warp preset augmentation")
-    data_arg.add_argument('--timewarp', default=False, action="store_true", help="Time warp preset augmentation")
-    data_arg.add_argument('--windowslice', default=False, action="store_true", help="Window slice preset augmentation")
-    data_arg.add_argument('--windowwarp', default=False, action="store_true", help="Window warp preset augmentation")
-    data_arg.add_argument('--rotation', default=False, action="store_true", help="Rotation preset augmentation")
-    data_arg.add_argument('--spawner', default=False, action="store_true", help="SPAWNER preset augmentation")
-    data_arg.add_argument('--dtwwarp', default=False, action="store_true", help="DTW warp preset augmentation")
-    data_arg.add_argument('--shapedtwwarp', default=False, action="store_true", help="Shape DTW warp preset augmentation")
-    data_arg.add_argument('--wdba', default=False, action="store_true", help="Weighted DBA preset augmentation")
-    data_arg.add_argument('--discdtw', default=False, action="store_true",
-                        help="Discrimitive DTW warp preset augmentation")
-    data_arg.add_argument('--discsdtw', default=False, action="store_true",
-                        help="Discrimitive shapeDTW warp preset augmentation")
-    data_arg.add_argument('--extra_tag', type=str, default="", help="Anything extra")
-    
     data_arg.add_argument('--data_path', type=str, default='ETTh1.csv', help='data file')
+    data_arg.add_argument('--embed', type=str, default='timeF',
+                        help='time features encoding, options:[timeF, fixed, learned]')
+    data_arg.add_argument('--features', type=str, default='M',
+                        help='forecasting task, options:[M, S, MS]; M:multivariate predict multivariate, S:univariate predict univariate, MS:multivariate predict univariate')
+    data_arg.add_argument('--target', type=str, default='OT', help='target feature in S or MS task')
+    data_arg.add_argument('--c_in', type=int, default=1)
+    # forecasting lengths
+    data_arg.add_argument('--seq_len', type=int, default=96, help='input sequence length')
+    data_arg.add_argument('--label_len', type=int, default=48, help='start token length')
+    data_arg.add_argument('--pred_len', type=int, default=96, help='prediction sequence length')
+    data_arg.add_argument('--seasonal_patterns', type=str, default='Monthly', help='subset for M4')
+    data_arg.add_argument('--sampling', dest='sampling', choices=['avg', 'min', 'cut', 'smote', 'None'], default='None')
+    data_arg.add_argument('--ratio', dest='train_val_ratio', nargs='+', type=float, default=None, help='ratio for splitting training and validation(test) dataset (default:%(default)s)')
+    data_arg.add_argument('--n_folds', dest='n_folds', type=int, default=1)
+    data_arg.add_argument('--best_folds', dest='best_folds', type=int, default=0)
     config = parser.parse_args()
     
     return config
@@ -144,18 +129,20 @@ class Config():
     
     def set_args(self, args:argparse.ArgumentParser):
         
+        args.dataset = args.data_path.split('.')[0]
+        
         tag = ""
         if args.tag is not None:
             for t in args.tag:
                 tag = tag + f"+{t}"
                 
-        tag_args = ["model", "keep_ratio", "patch_size", "time_num_layers", "embed_dim", "num_heads", "alpha", "mlp_ratios", "epoch", "lr", "gating"]
+        tag_args = ["model", "dataset", "seq_len", "pred_len", "patch_size", "keep_ratio", "embed_dim", "num_heads", "alpha", "mlp_ratios", "time_num_layers", "gating", "lr"]
         
         for ktag in tag_args:
             vtag = getattr(args, ktag)
             tag = tag + f"+{ktag}+{vtag}"
             
-        self.save_result_path = os.path.join(os.getcwd(), args.log_dir, self.date, self.date + tag)
+        self.save_result_path = os.path.join(os.getcwd(), args.log_dir, args.dataset, self.date, self.date + tag)
         
         self.save_log_path = os.path.join(self.save_result_path, 'log')
         os.makedirs(self.save_log_path, exist_ok=True)

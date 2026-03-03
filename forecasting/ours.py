@@ -1,27 +1,26 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
 from spikingjelly.clock_driven.neuron import MultiStepLIFNode, surrogate
 
-from timm.models.registry import register_model
+from timm.models import register_model
 from timm.models.vision_transformer import _cfg 
-from timm.models.layers import trunc_normal_
-# from timm.optim.optim_factory import create_optimizer_v2
-
-# from timm.models import create_model
+from timm.layers import trunc_normal_
 from timm.utils import *
-
-# from encoder import Embedding, Block, TemporalBlock
-from layers import SpkEncoder, SpikLinearLayer, SpikLinearMaxLayer, MLP, SSA_rel_scl, MutualCrossAttention
-from positional import tAPE
-from utils import random_masking_3D
 from einops import rearrange
 
+from scipy.linalg import hadamard
+
+import matplotlib.pyplot as plt
+import numpy as np
 import math
 
+from layers import SpkEncoder, SpikLinearLayer
+from utils import RelBias1DDeterministicFn
+from positional import tAPE
+from layers import SSA_rel_scl, MLP, MutualCrossAttention, SpikLinearLayer, SpikLinearMaxLayer, SpikTimeLinearLayer
 
-__all__ = ['mymodel']
+__all__ = ['myModel']
 
 def dct_matrix(T: int, device=None, dtype=torch.float32):
     device = device or 'cpu'
@@ -110,7 +109,7 @@ def lowpass_memory(x_bin: torch.Tensor,
         x_lp = (x_lp > thresh).to(x.dtype)
 
     return x_lp, Xc_lp, mask
-
+        
 
 class Decoder(nn.Module):
     def __init__(self, embed_dim, d_out=None, d_ff=2, tau=2.0, bias=False) -> None:
@@ -147,91 +146,73 @@ class Decoder(nn.Module):
         
         return rec_x
     
-
 class Embedding(nn.Module):
-    def __init__(self, num_patches, pe=False, patch_size=63, stride=2, embed_dim=128, in_channel=3, dropout=0, bias=False, tau=2.0) -> None:
+    def __init__(self, num_patches, pe=False, patch_size=63, stride=2, embed_dim=128, dropout=0, bias=False, tau=2.0,\
+                 rpe_kernel_size: int = 3,
+                 rpe_depthwise: bool = True,
+                 rpe_rebinarize: bool = True) -> None:
         super().__init__()
         
         self.num_patches = num_patches
         # self.patch_size = patch_size
         # in_channel = patch_size
-        
+        self.rpe_rebinarize = rpe_rebinarize
         self.stride = stride
         self.embed_dim = embed_dim
         self.pe = pe
         
-        self.emb_conv = nn.Conv1d(in_channel, embed_dim, kernel_size=patch_size, stride=stride, bias=bias)
+        self.emb_linear = nn.Linear(patch_size, embed_dim, bias=bias)
         self.emb_bn = nn.BatchNorm1d(embed_dim)
-        # self.emb_lif_neo = MultiStepLIFNode(tau=tau, detach_reset=True, backend='cupy', surrogate_function=surrogate.Sigmoid())
-        self.emb_lif_hippo = MultiStepLIFNode(tau=tau, detach_reset=True, backend='cupy', surrogate_function=surrogate.Sigmoid())
-        
+        self.emb_lif = MultiStepLIFNode(tau=tau, detach_reset=True, backend='cupy', surrogate_function=surrogate.Sigmoid())
         # positional encoding
-        if pe:
-            self.tape = tAPE(embed_dim, max_len=num_patches)
-            self.ape_lif = MultiStepLIFNode(tau=tau, detach_reset=True, backend='cupy', surrogate_function=surrogate.Sigmoid())
-        
         # Residual dropout
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, x:torch.tensor, con_out=False): 
-        T, B, _,_ = x.shape
-        
-        x = self.emb_conv(x.flatten(0, 1))
-        x = self.emb_bn(x)
-        x = x.reshape(T, B, self.embed_dim, -1).contiguous() # [T B N D]
-        org_x = x.clone().detach().transpose(-1, -2).transpose(0, 2)
-
-        x = x.flatten(3).contiguous() # [T B D N] 
-        
-        # x_neo = self.emb_lif_neo(x.reshape(T, B, self.embed_dim, -1))
-        # # x_neo = x_neo.transpose(0, 3).contiguous()
-        # x_neo = x_neo.transpose(-1, -2).contiguous()  # [N B T D] 
-        # # x_neo = self.emb_spkLinear_neo(x_neo)
-        
-        x_hippo = x
-        if self.pe : x_hippo = self.tape(x_hippo)
-        x_hippo = self.emb_lif_hippo(x_hippo.reshape(T, B, self.embed_dim, -1).contiguous())
-        x_hippo = x_hippo.transpose(-1, -2).contiguous()  # [T B N D] 
-        # x_hippo = self.emb_spkLinear_hippo(x_hippo)
-        
-        if con_out:
-            return x_hippo, org_x
-        else:
-            return x_hippo
-    
-
-class TrEmbedding(nn.Module):
-    def __init__(self, num_patches, pe=False, patch_size=63, stride=2, embed_dim=128, in_channel=3, dropout=0, bias=False, tau=2.0) -> None:
-        super().__init__()
-        
-        self.num_patches = num_patches
-        # self.patch_size = patch_size
-        # in_channel = patch_size
-        
-        self.stride = stride
-        self.embed_dim = embed_dim
-        self.pe = pe
-        
-        self.emb_conv = nn.Conv1d(in_channel, embed_dim, kernel_size=patch_size, stride=stride, bias=bias)
-        self.emb_bn = nn.BatchNorm1d(embed_dim)
-        self.emb_lif_neo = MultiStepLIFNode(tau=tau, detach_reset=True, backend='cupy', surrogate_function=surrogate.Sigmoid())
-        
-        
+        # self.dropout = nn.Dropout(dropout)
 
     def forward(self, x:torch.tensor, pe=True): 
         T, B, _,_ = x.shape
-        
-        x = self.emb_conv(x.flatten(0, 1))
-        x = self.emb_bn(x)
-        x = x.reshape(T, B, self.embed_dim, -1).contiguous() # [T B N D]
-        self.org_x = x.clone().detach().transpose(-1, -2).transpose(0, 2)
-        x = x.flatten(3).contiguous() # [T B D N] 
-        
-        x = self.emb_lif_neo(x.reshape(T, B, self.embed_dim, -1).transpose(0, 3).contiguous().mean(3, keepdim=True))
-        x = x.transpose(-1, -2).contiguous()  # [N B T D] 
 
+        x = self.emb_linear(x.flatten(0, 1))
+        x = self.emb_bn(x.transpose(-1, -2).contiguous())
+        x = x.reshape(T, B, self.embed_dim, -1).contiguous() # [T B N D]
+        x = x.flatten(3).contiguous() # [T B D N] 
+        self.org_x = x.clone().detach().transpose(-1, -2).contiguous() 
+
+        
+        x = self.emb_lif(x.reshape(T, B, self.embed_dim, -1).contiguous())
+        x = x.transpose(-1, -2).contiguous()  # [T B N D] 
+        
         return x
 
+
+
+class HighFreqAmp(nn.Module):
+    def __init__(self, dim, tau=2.0, bias=False):
+        super().__init__()
+        self.down1 = SpikLinearMaxLayer(dim, dim, kernel_size=2, tau=tau, lif_bias=bias) #[D//8]
+        self.down2 = SpikLinearMaxLayer(dim // 2, dim // 2, kernel_size=2, tau=tau, lif_bias=bias) #[D//4]
+        self.down3 = SpikLinearMaxLayer(dim // 4, dim // 4, kernel_size=2, tau=tau, lif_bias=bias) #[D//2]
+        self.skip = SpikLinearLayer(dim, dim, tau=tau, lif_bias=bias)
+       
+        self.up1 = SpikLinearLayer(dim//8, dim, tau=tau, lif_bias=bias) #[D//1]self.max1 = SpikLinearLayer(dim, dim, tau=tau, lif_bias=bias) #[D//8]
+        # self.up2 = SpikLinearLayer(dim//4, dim, tau=tau, lif_bias=bias) #[D//4]
+        # self.up3 = SpikLinearLayer(dim//2, dim, tau=tau, lif_bias=bias) #[D//2]
+
+        # self.agg = SpikLinearLayer(dim // 8 + dim // 4 + dim // 2 + dim, dim, tau=tau, lif_bias=bias)
+        # self.agg = SpikLinearLayer(dim * 3, dim, tau=tau, lif_bias=bias)
+
+        
+    def forward(self, x):
+        x_skip = self.skip(x)
+        x = self.down1(x)
+        x = self.down2(x)
+        x = self.down3(x)
+
+        return x_skip * self.up1(x)
+
+        # return self.agg(torch.cat([x1, x2, x3], dim=-1))
+        # return x1 * x2 * x3
+
+    
 class Block(nn.Module):
     def __init__(self, T, dim, seq_len, num_heads, mlp_ratios=2., max_ratio=2, qkv_bias=False, qk_scale=None, drop=0., attn_drop=0.1,
                 drop_path=0.1, norm_layer=nn.LayerNorm, sr_ratio=1, lif_bias=False, tau=2.0, attn=False,
@@ -241,7 +222,9 @@ class Block(nn.Module):
         topk_ratio = None
         
         # self.high_freq = HighFreqAmp(dim) if not attn else SSA_rel_scl(dim=dim, seq_len=seq_len, num_heads=num_heads, pe=True, lif_bias=lif_bias, tau=tau, drop=attn_drop)
-        self.mca = MutualCrossAttention(dim=dim, out_seq=False, lif_bias=lif_bias, num_heads=num_heads, tau=tau, drop=drop)
+        self.mca = MutualCrossAttention(seq_len=seq_len, dim=dim, pe=False, out_seq=False, lif_bias=lif_bias, num_heads=num_heads, tau=tau, drop=drop)
+        self.time_recon = SpikLinearLayer(dim, dim)
+        # self.time_rec = SpikLinearLayer(dim, dim)
         mlp_hidden_dim = int(dim * mlp_ratios)
         mlp_input_dim = dim
         self.mlp = MLP(in_features=mlp_input_dim, hidden_features=mlp_hidden_dim, out_features=dim, drop=drop, lif_bias=lif_bias, tau=tau)
@@ -251,14 +234,15 @@ class Block(nn.Module):
     def forward(self, x: torch.Tensor, mx=None):
         T, B, N, D = x.shape
 
-        mx = (0.5 * mx + (1 - 0.5) * mx.detach()) # [1 B N D]
-        mx = mx.transpose(0, 2).contiguous() * x
+        mx = (0.05 * mx + (1 - 0.05) * mx.detach()) # [1 B N D]
+        mx = x * mx.transpose(0, 2).contiguous()
 
+        if mx.sum() < 500 : print(f"warning!{mx.sum()}")
         x = x * (1. - self.mca(x, mx))
         x = x * (1. - self.mlp(x))
         
         return x
-  
+
 class TemporalBlock(nn.Module):
     def __init__(self, T, num_layers=2, patch_size=[16, 32], embed_dim=[64, 128, 256], ratio=2, lif_bias=False, tau=2.0, num_heads=8, mutual=False, topk:int | None=None, topk_temperature:float = 1.0):
         super().__init__()
@@ -280,7 +264,7 @@ class TemporalBlock(nn.Module):
         
         # self.in_layer = 
         self.Mem = nn.ModuleList(
-            [SpikLinearLayer(embed_dim, embed_dim, lif_bias=lif_bias, tau=tau)
+            [SpikLinearLayer(embed_dim, embed_dim, lif_bias=lif_bias, tau=tau, spk='lif')
             for l in range(int(num_layers))])
         # self.Mem = SpikLinearLayer(hidden_dim, embed_dim, lif_bias=lif_bias, tau=tau, spk='lif')
         # self.mem = nn.parameter.Parameter(torch.randn((1, 1, hidden_dim, embed_dim)))
@@ -304,6 +288,7 @@ class TemporalBlock(nn.Module):
         # x = x.view(T, B, -1, D).contiguous()
         # x = self.out(x)
         # x_in = x.transpose(0, 2).contiguous()
+        # x = x.transpose(0, 2).contiguous()
         for i in range(self.num_layers):
             x = self.Mem[i](x)
         # x = x + self.bias(x)
@@ -311,35 +296,63 @@ class TemporalBlock(nn.Module):
 
         return x
 
+    @torch.no_grad()
+    def visualize_mem_heatmap(self, save_dir="./mem_viz", filename="mem_heatmap.png",
+                              title="self.mem heatmap", normalize=False):
+        """
+        self.mem: (1, 1, hidden_dim, embed_dim) -> heatmap: (hidden_dim, embed_dim)
+        """
+        import os
+        import matplotlib.pyplot as plt
+
+        os.makedirs(save_dir, exist_ok=True)
+        save_path = os.path.join(save_dir, filename)
+
+        mem2d = self.mem.detach().float().squeeze(0).squeeze(0)  # [hidden_dim, embed_dim]
+        if normalize:
+            # 행/열 정규화 등 원하는 방식으로 바꿔도 됨 (예: 전체 표준화)
+            m = mem2d.mean()
+            s = mem2d.std().clamp_min(1e-8)
+            mem2d = (mem2d - m) / s
+
+        mem_np = mem2d.cpu().numpy()
+
+        plt.figure(figsize=(10, 6))
+        plt.imshow(mem_np, aspect="auto")
+        plt.colorbar()
+        plt.title(title)
+        plt.xlabel("embed_dim")
+        plt.ylabel("hidden_dim")
+        plt.tight_layout()
+        plt.savefig(save_path, dpi=200)
+        plt.close()
+
+    
 
 
 class myModel(nn.Module):
-    def __init__(self, gating=['original', 'ablation'], 
+    def __init__(self, gating=['original', 'ablation', 'attn'], 
                  train_mode=['pretraining', 'training', 'testing', 'visual'], 
-                 seq_len=192,
-                data_patch_size=63, 
-                num_classes=2, 
+                patch_size=63, 
+                pred_len=0, 
+                seq_len=0,
                 time_num_layers=2,
                 embed_dim=[64, 128, 256], 
                 num_heads=[1, 2, 4], 
                 mlp_ratios=1, 
+                max_ratio=2,
                 qkv_bias=False, 
                 qk_scale=None,
+                keep_ratio=0.25,
                 drop_rate=0.1, 
                 attn_drop_rate=0., 
                 drop_path_rate=0., 
                 norm_layer=nn.LayerNorm,
                 depths=[6, 8, 6], 
                 sr_ratios=[8, 4, 2], 
-                T = 4, 
-                num_channels=3,
-                data_patching_stride=2, 
-                padding_patches=None, 
-                lif_bias=False, 
+                bias=False, 
                 tau=2.0, 
                 spk_encoding=False,
-                attn=['SSA', 'MSSA'],
-                keep_ratio=0.25,
                 pretrained=False, pretrained_cfg=None, pretrained_cfg_overlay=None,
                 **kwargs,
                 ):
@@ -347,21 +360,23 @@ class myModel(nn.Module):
         
         self.train_mode = train_mode
         self.gating = gating
+        self.pred_len = pred_len
         self.keep_ratio = keep_ratio
+        self.seq_len = seq_len
         
         # self.T = T  # time step
         self.spk_encoding = spk_encoding
-        self.patch_size = data_patch_size
-        self.stride = data_patch_size // 2
-        self.num_channels = num_channels
+        self.patch_size = patch_size
+        self.stride = patch_size // 2
         
-        self.num_patches = int((seq_len - data_patch_size) / (self.stride) + 1)
+        self.num_patches = int((seq_len - patch_size) / (self.stride) + 1)
+        self.padding_patch_layer = nn.ReplicationPad1d((0, self.stride))
+        self.num_patches = self.num_patches + 1
         self.T = self.num_patches
         
         print(f"len of tokens in sequence >> {self.num_patches}")
 
-
-        self.spk_encoder = SpkEncoder(T) if spk_encoding else None
+        self.spk_encoder = SpkEncoder(self.T) if spk_encoding else None
         
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depths)]  # stochastic depth decay rule
 
@@ -369,46 +384,44 @@ class myModel(nn.Module):
                                     patch_size=self.patch_size,
                                     embed_dim=embed_dim,
                                     stride=self.stride,
-                                    in_channel=num_channels,
                                     pe=False,
-                                    bias=lif_bias,
+                                    bias=bias,
                                     tau=tau
                                     )
         self.encoding_neo = Embedding(num_patches=self.num_patches,
                                     patch_size=self.patch_size,
                                     embed_dim=embed_dim,
                                     stride=self.stride,
-                                    in_channel=num_channels,
                                     pe=False,
-                                    bias=lif_bias,
+                                    bias=bias,
                                     tau=tau
                                     )
 
-        self.data_block = nn.ModuleList([Block(T=T,
-                    dim=embed_dim, seq_len=self.num_patches, num_heads=num_heads, mlp_ratios=mlp_ratios, qkv_bias=qkv_bias,
-                    qk_scale=qk_scale, drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[j],
-                    norm_layer=norm_layer, sr_ratio=sr_ratios, lif_bias=lif_bias, tau=tau, attn=(gating=='original'))
-                    for j in range(depths)])
 
+        # self.encoding_neo = SpikLinearLayer(patch_size, embed_dim, tau=tau, lif_bias=bias)
+        self.data_block = nn.ModuleList([Block(
+                    T=self.T, dim=embed_dim, seq_len=self.num_patches, num_heads=num_heads, mlp_ratios=mlp_ratios, max_ratio=max_ratio, qkv_bias=qkv_bias,
+                    qk_scale=qk_scale, drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[j],
+                    norm_layer=norm_layer, sr_ratio=sr_ratios, lif_bias=bias, tau=tau, attn=(self.gating == 'attn'),
+                    time_num_layers=time_num_layers, patch_size=self.patch_size)
+                    for j in range(depths)])
+        
         self.time_block = TemporalBlock(T=self.T,
                                         num_layers=time_num_layers,
-                                        patch_size=data_patch_size,
+                                        patch_size=patch_size,
                                         embed_dim=embed_dim,
-                                        lif_bias=lif_bias,
+                                        lif_bias=bias,
                                         num_heads=num_heads,
                                         tau=tau,
-                                        mutual=False)
-            
-        # init_weight = torch.Tensor(self.T, embed_dim)
-        # self.memory_slot = nn.parameter.Parameter(init_weight)
-        # stdv = 1. / math.sqrt(self.memory_slot.size(1))
-        # self.memory_slot.data.uniform_(-stdv, stdv)
+                                        mutual=False,
+                                        topk=16)
         
-        if ((self.train_mode == 'training') or (self.train_mode == 'pre_training')) : 
-            self.weak_decoder = Decoder(embed_dim=embed_dim, d_out=None, tau=tau, bias=lif_bias)
-            
-        self.head = nn.Linear(embed_dim, num_classes, bias=lif_bias) if num_classes > 0 else nn.Identity()
-        self.dropout = nn.Dropout(drop_rate)
+        if (self.train_mode == 'training'): 
+            self.weak_decoder = Decoder(embed_dim=embed_dim, d_out=self.patch_size, tau=tau, bias=bias)
+            # self.weak_decoder = Decoder(embed_dim=embed_dim, d_out=None, tau=tau, bias=bias)
+        
+        self.head = nn.Linear(embed_dim * self.num_patches, pred_len, bias=bias)
+        
         if gating == 'ablation':
             self._init_ablation()
 
@@ -418,7 +431,7 @@ class myModel(nn.Module):
             for module in self.modules():
                 if isinstance(module, nn.BatchNorm1d):
                     module.eval()
-
+    
     @torch.jit.ignore
     def _get_pos_embed(self, pos_embed, patch_embed, N):
         if N == self.patch_embed1.num_patches:
@@ -434,117 +447,108 @@ class myModel(nn.Module):
             trunc_normal_(m.weight, std=.02)
             if isinstance(m, nn.Linear) and m.bias is not None:
                 nn.init.constant_(m.bias, 0)
+                
         elif isinstance(m, nn.LayerNorm):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
             
-    def _gen_mask(self, x, mask_ratio=0.6) -> tuple:
-        """Generating boolean mask which have same dimension with `x`
-
-        Args:
-            x (torch.tensor): embedding matrix after PE ([T B N D])
-            
-
-        - Return:
-            x_data (torch.tensor): input for hippo.
-            temporal_emb (torch.tensor): input for neocortix.
-            
-        """
-        T, B, N, D = x.shape
         
-        x_masked, _, self.mask, _ = random_masking_3D(x.flatten(0, 1), mask_ratio=mask_ratio)
-        self.mask = self.mask.float().reshape(T, B, -1).contiguous().unsqueeze(-1) #[TB N]
-        x_masked = x_masked.reshape(T, B, N, -1).contiguous()
-        
-        # x_t = x.transpose(0, 2).contiguous().mean(2, keepdim=True) #[N B T D]
-        # x_t_masked, _, self.time_mask, _ = random_masking_3D(x_t.transpose(0, 2).contiguous().flatten(0, 1), mask_ratio=mask_ratio)
-        # self.time_mask = self.time_mask.float().reshape(-1, B, N).transpose(0, 2).contiguous().unsqueeze(-1) #[T B 1 1]
-        # x_t_masked = x_t_masked.reshape(1, B, -1, D).transpose(0, 2).contiguous()
-        x_t_masked = x_masked.transpose(0, 2).contiguous().mean(2, keepdim=True) #[N B T D]
-        
-        return x_masked, x_t_masked
-
     def forward(self, x):
-        # [B, L, C]
-        self.B, L, self.M = x.shape
-        org_data = x.clone().detach()
-        x = x.permute(0, 2, 1) #[B M L]
-
         
-        if self.keep_ratio > 0:
-            low_freq_x, _, _ = lowpass_memory(x, keep_ratio=self.keep_ratio, time_dim=2, center=True, rebinarize=False)
-            
+        self.B, L, self.M = x.shape
+        org_seq = x.clone().detach() #[B L C]
+        
+        self.means = x.mean(1, keepdim=True).detach()
+        x = x - self.means
+        self.stdev = torch.sqrt(torch.var(x, dim=1, keepdim=True, unbiased=False) + 1e-5).detach()
+        x /= self.stdev
+        
         if self.spk_encoding:
             x = self.spk_encoder(x)
-        else: 
+        else:
             x = (x.unsqueeze(0)).repeat(self.T, 1, 1, 1) 
             
-        # x = rearrange(x, 't b l c -> t b c l')
-        # patched_x = x.unfold(dimension=-1, size=self.patch_size, step=self.stride) 
-        # patched_x = rearrange(patched_x, 't b c n p -> t (b c) n p') # [T BC N P] 
-        # self.org_x = patched_x.clone().detach() # [T B N P]
+        x = rearrange(x, 't b l c -> t b c l')
+        x = rearrange(x, 't b c l -> t (b c) l') # [T BC N P] 
+        x = self.padding_patch_layer(x)
+        patched_x = x.unfold(dimension=-1, size=self.patch_size, step=self.stride) 
+        self.org_x = patched_x.clone().detach().transpose(0, 2).contiguous().mean(2, keepdim=True)
         
-        x_hippo = self.encoding(x) # [T B N D]
+            
+        if (self.train_mode == 'training') and (self.keep_ratio > 0) : 
+            keep_ratio=self.keep_ratio
+            low_freq_x, _, _ = lowpass_memory(x, keep_ratio=keep_ratio, time_dim=2, center=True, rebinarize=False) #[T BC D]
+            patched_low_freq_x = low_freq_x.unfold(dimension=-1, size=self.patch_size, step=self.stride)
+            self.org_x = patched_low_freq_x.clone().detach().transpose(0, 2).contiguous().mean(2, keepdim=True)
+            
+        # vis(x, low_freq_x, M=self.M, keep_ratio=keep_ratio)
+        x_hippo = self.encoding(patched_x)
 
-        x_neo, org_x = self.encoding_neo(x, con_out=True)
-        x_neo = x_neo.transpose(0, 2).contiguous().mean(2, keepdim=True)
-        self.org_x = org_x.mean(2, keepdim=True)
-
-        if self.keep_ratio > 0:
-            _, org_x = self.encoding_neo(low_freq_x.repeat(self.T, 1, 1, 1), con_out=True)
-            self.org_x = org_x.clone().detach().mean(2, keepdim=True)
-
-        x_neo = self.time_block(x_neo, org_data) 
+        # x_neo = x_hippo.transpose(0, 2).contiguous().mean(2, keepdim=True)
+        # if self.perm and self.training:
+        #     idx = torch.randperm(self.T, device=x.device)
+        #     patched_x = patched_x.index_select(2, idx)  
         
+
+        x_neo_emb = self.encoding_neo(patched_x.transpose(0, 2).contiguous().mean(2, keepdim=True)) #[T B N D]
+        x_neo = self.time_block(x_neo_emb, org_seq)
+
         for dblk in self.data_block:
-            # x_hippo = dblk(x_hippo, self.time_block(x_hippo.transpose(0, 2).contiguous().mean(2, keepdim=True)).clone().detach())
+            # x_hippo = dblk(x_hippo, self.time_block(x_hippo.transpose(0, 2).contiguous().mean(2, keepdim=True).clone().detach()))
             x_hippo = dblk(x_hippo, x_neo)
-        
+            # x_hippo = dblk(x_hippo, self.memory_slot(x_neo))
+
         if self.train_mode == 'training':
             
-            return self._training(x_hippo, x_neo) 
+            return self._training(x_hippo, x_neo)
             
         elif self.train_mode == 'testing':
 
             return self._testing(x_hippo)
-        
-        elif self.train_mode == 'visual':
 
-            return self._visualization(x_hippo, x_neo)
-        
-        else:
-            raise ValueError
         
         
     def _training(self, x_hippo, x_neo):
-        rec_x = self.weak_decoder(x_neo, x_hippo) #[T BxC 1 P]
-        
-        assert self.org_x.shape == rec_x.shape, f"original x_time' shape is {self.org_x.shape}, and reconstructed x_time' shape is {rec_x.shape}"
-        
-        z = self.head(x_hippo.mean(2)).mean(0)
-        
-        return z,\
-            x_hippo.clone().detach().transpose(0, 2).contiguous().mean(2, keepdim=True),\
-                x_neo, self.org_x,\
-                    rec_x
+        rec_x = self.weak_decoder(x_neo, x_hippo) #[T B 1 P]]
+        rec_x = rec_x.mean(2, keepdim=True)
+        rec_x = rearrange(rec_x, 't (b c) l p -> b c l t p', b=self.B, c=self.M)
+        self.org_x  = rearrange(self.org_x, 't (b c) l p -> b c l t p', b=self.B, c=self.M)
 
+        assert self.org_x.shape == rec_x.shape, f"original x_time' shape is {self.org_x.shape}, and reconstructed x_time' shape is {rec_x.shape}"
+
+        z = self.head(x_hippo.reshape(self.T, self.B * self.M, -1))
+        z = rearrange(z, 't (b c) l -> t b l c', b=self.B)
+
+        z = z * self.stdev
+        z = z + self.means.repeat(self.T, 1, 1, 1)
+        
+        return z, x_hippo.clone().transpose(0, 2).contiguous().mean(2, keepdim=True), x_neo, self.org_x, rec_x
+        # return z
     
     def _testing(self, x):
         
-        if self.gating == 'ablation':
-            return self.head(x.mean(2)).mean(0)
-        else:
-            return self.head(x.mean(2)).mean(0), x.clone().detach()
+        z = self.head(x.reshape(self.T, self.B * self.M, -1))
+
+        z = rearrange(z, 't (b c) l -> t b l c', b=self.B).contiguous()
+
+        z = z * self.stdev
+        z = z + self.means.repeat(self.T, 1, 1, 1)
+        return z
     
 
     # TODO
     def _init_ablation(self):
         
-        delattr(self, 'time_block')
+        if hasattr(self, 'time_block') : delattr(self, 'time_block')
+        if hasattr(self, 'encoding_neo') : delattr(self, 'encoding_neo')
         # delattr(self, 'gate_attn')
         if hasattr(self, 'weak_decoder'): delattr(self, 'weak_decoder')
         if hasattr(self, 'replay') : delattr(self, 'replay')
-    
+        
+    def init_testing(self):
+        
+        if hasattr(self, 'weak_decoder'): delattr(self, 'weak_decoder')
+        if hasattr(self, 'replay') : delattr(self, 'replay')
 
 @register_model
 def mymodel(pretrained=False, **kwargs):

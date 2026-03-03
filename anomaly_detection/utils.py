@@ -20,6 +20,7 @@ from tqdm import tqdm
 import os
 
 
+
 class RelBias1DDeterministicFn(torch.autograd.Function):
     @staticmethod
     def forward(ctx, table, rel_pos_idx):
@@ -53,8 +54,7 @@ class RelBias1DDeterministicFn(torch.autograd.Function):
             grad_table[k] = diag.sum(dim=1)  # (H,)
 
         return grad_table, None
-
-
+    
 class AutomaticWeightedLoss(nn.Module):
     """automatically weighted multi-task loss
     Params:
@@ -84,8 +84,7 @@ class AutomaticWeightedLoss(nn.Module):
         self.params.requires_grad = False
     def train(self):
         self.params.requires_grad = True
-        
-        
+    
 class CosineAnnealingWarmupRestarts(_LRScheduler):
     """
         optimizer (Optimizer): Wrapped optimizer.
@@ -226,9 +225,9 @@ def get_scheduler(scheduler:str, optimizer, **kargs):
         max_lr = kargs["max_lr"]
         max_epochs = kargs["max_epochs"]
         min_lr = kargs["min_lr"]
-        scheduler, _ = create_scheduler_v2(optimizer, sched='cosine', num_epochs=max_epochs, decay_epochs=int(max_epochs * 0.3), warmup_epochs=int(max_epochs * 0.2), cooldown_epochs=int(max_epochs * 0.1), min_lr=0, noise_pct=0.67, warmup_lr=0.00001)
+        scheduler, _ = create_scheduler_v2(optimizer, sched='cosine', num_epochs=max_epochs, decay_epochs=int(max_epochs * 0.3), warmup_epochs=int(max_epochs * 0.2), cooldown_epochs=int(max_epochs * 0.1), min_lr=min_lr, noise_pct=0.67, warmup_lr=0.00001)
         
-        # scheduler = CosineAnnealingWarmupRestarts(optimizer, first_cycle_steps=10, cycle_mult=1, min_lr=1e-8, max_lr=max_lr, gamma=1, warmup_steps=5)
+        # scheduler = CosineAnnealingWarmupRestarts(optimizer, first_cycle_steps=max_epochs, cycle_mult=1, min_lr=1e-6, max_lr=max_lr, gamma=1, warmup_steps=5)
         # scheduler = CosineAnnealingWarmupRestarts(optimizer, first_cycle_steps=100, cycle_mult=1, min_lr=1e-5, max_lr=max_lr, gamma=1, warmup_steps=5)
 
         # max_lr = kargs["max_lr"]
@@ -632,8 +631,8 @@ class EpochLog:
         self._logging(epoch, train_result=train_result, val_result=val_result)
         self._verbose(epoch, lr, train_result=train_result, val_result=val_result)
         
-        train_dict = {f"train_{k}": v if isinstance(v, float) else v.mean().item() for k, v in train_result.items()}
-        val_dict   = {f"val_{k}": v if isinstance(v, float) else v.mean().item() for k, v in val_result.items()}
+        train_dict = {f"train_{k}": v for k, v in train_result.items()}
+        val_dict   = {f"val_{k}": v for k, v in val_result.items()}
 
         row = {"epoch": int(epoch), **train_dict, **val_dict}
         df = pd.DataFrame([row])
@@ -655,12 +654,10 @@ class EpochLog:
     def _logging(self, epoch, train_result, val_result):
         
         for k, v in train_result.items():
-            value = v if isinstance(v, float) else v.mean()
-            self.train_writer.add_scalar(f'train/{k}', value, epoch)
+            self.train_writer.add_scalar(f'train_{self.kids}/{k}', v, epoch)
         
         for k, v in val_result.items():
-            value = v if isinstance(v, float) else v.mean()
-            self.val_writer.add_scalar(f'val/{k}', value, epoch)
+            self.val_writer.add_scalar(f'val_{self.kids}/{k}', v, epoch)
         
     def logging(self, **kwargs):
         
@@ -678,13 +675,8 @@ class EpochLog:
                 print(f"{'train_' + k:15s}{value:>15.5f}")
         if val_result is not None:
             for k, v in val_result.items():
-                if isinstance(v, float):
-                    print(f"{'val_' + k:15s}{v:>15.5f}")
-                else:
-                    print(bar)
-                    for c in range(len(v)):
-                        print(f"{'val_' + k + '_' + str(c):15s}{v[c]:>15.5f}")
-                    print(bar)
+                value = v if isinstance(v, float) else v.mean()
+                print(f"{'val_' + k:15s}{value:>15.5f}")
             print(bar) 
         # if num_classes > 0:
         #     for i in range(num_classes): print(f"{'val_' + 'acc' + '_' + str(i):15s}{val_result['acc'][i]:>15.5f}")
@@ -707,7 +699,7 @@ class EpochLog:
         
 
 class EarlyStopping:
-    def __init__(self, patience=7, verbose=False, delta=0):
+    def __init__(self, patience=3, verbose=False, delta=0):
         self.patience = patience
         self.verbose = verbose
         self.counter = 0
@@ -736,3 +728,31 @@ class EarlyStopping:
             print(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
         torch.save(model.state_dict(), path + '/' + 'checkpoint.pth')
         self.val_loss_min = val_loss
+
+
+def adjustment(gt, pred):
+    anomaly_state = False
+    for i in range(len(gt)):
+        if gt[i] == 1 and pred[i] == 1 and not anomaly_state:
+            anomaly_state = True
+            for j in range(i, 0, -1):
+                if gt[j] == 0:
+                    break
+                else:
+                    if pred[j] == 0:
+                        pred[j] = 1
+            for j in range(i, len(gt)):
+                if gt[j] == 0:
+                    break
+                else:
+                    if pred[j] == 0:
+                        pred[j] = 1
+        elif gt[i] == 0:
+            anomaly_state = False
+        if anomaly_state:
+            pred[i] = 1
+    return gt, pred
+
+
+def cal_accuracy(y_pred, y_true):
+    return np.mean(y_pred == y_true)

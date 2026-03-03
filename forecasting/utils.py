@@ -20,41 +20,6 @@ from tqdm import tqdm
 import os
 
 
-class RelBias1DDeterministicFn(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, table, rel_pos_idx):
-        """
-        table: (2N-1, H) learnable
-        rel_pos_idx: (N, N) long, values in [0, 2N-2]
-        return: (N, N, H)
-        """
-        ctx.save_for_backward(rel_pos_idx)
-        # indexing (forward는 OK, 문제는 backward였음)
-        return table[rel_pos_idx]  # (N, N, H)
-
-    @staticmethod
-    def backward(ctx, grad_out):
-        """
-        grad_out: (N, N, H)
-        return grad_table: (2N-1, H)
-        """
-        (rel_pos_idx,) = ctx.saved_tensors
-        N = rel_pos_idx.size(0)
-        H = grad_out.size(-1)
-
-        grad_table = grad_out.new_zeros((2 * N - 1, H))
-
-        # offset = j - i in [-(N-1), ..., (N-1)]
-        # index k = offset + (N-1) in [0, ..., 2N-2]
-        for offset in range(-(N - 1), N):
-            k = offset + (N - 1)
-            # grad_out.diagonal returns shape (H, L) when grad_out is (N,N,H)
-            diag = grad_out.diagonal(offset=offset, dim1=0, dim2=1)  # (H, L)
-            grad_table[k] = diag.sum(dim=1)  # (H,)
-
-        return grad_table, None
-
-
 class AutomaticWeightedLoss(nn.Module):
     """automatically weighted multi-task loss
     Params:
@@ -84,8 +49,7 @@ class AutomaticWeightedLoss(nn.Module):
         self.params.requires_grad = False
     def train(self):
         self.params.requires_grad = True
-        
-        
+    
 class CosineAnnealingWarmupRestarts(_LRScheduler):
     """
         optimizer (Optimizer): Wrapped optimizer.
@@ -226,9 +190,9 @@ def get_scheduler(scheduler:str, optimizer, **kargs):
         max_lr = kargs["max_lr"]
         max_epochs = kargs["max_epochs"]
         min_lr = kargs["min_lr"]
-        scheduler, _ = create_scheduler_v2(optimizer, sched='cosine', num_epochs=max_epochs, decay_epochs=int(max_epochs * 0.3), warmup_epochs=int(max_epochs * 0.2), cooldown_epochs=int(max_epochs * 0.1), min_lr=0, noise_pct=0.67, warmup_lr=0.00001)
+        scheduler, _ = create_scheduler_v2(optimizer, sched='cosine', num_epochs=max_epochs, decay_epochs=int(max_epochs * 0.3), warmup_epochs=int(max_epochs * 0.2), cooldown_epochs=int(max_epochs * 0.1), min_lr=min_lr, noise_pct=0.67, warmup_lr=0.00001)
         
-        # scheduler = CosineAnnealingWarmupRestarts(optimizer, first_cycle_steps=10, cycle_mult=1, min_lr=1e-8, max_lr=max_lr, gamma=1, warmup_steps=5)
+        # scheduler = CosineAnnealingWarmupRestarts(optimizer, first_cycle_steps=max_epochs, cycle_mult=1, min_lr=1e-6, max_lr=max_lr, gamma=1, warmup_steps=5)
         # scheduler = CosineAnnealingWarmupRestarts(optimizer, first_cycle_steps=100, cycle_mult=1, min_lr=1e-5, max_lr=max_lr, gamma=1, warmup_steps=5)
 
         # max_lr = kargs["max_lr"]
@@ -414,40 +378,73 @@ def print_epoch_info(epoch, lr, num_classes:int, train_result:dict, val_result:d
     print(bar)
     
     
-def random_masking_3D(xb, mask_ratio):
-    # xb: [bs x num_patch x dim]
-    # xb = xb.flatten(0, 1).contiguous()
-    bs, L, D = xb.shape
-    x = xb.clone()
+# def random_masking_3D(xb, mask_ratio):
+#     # xb: [bs x num_patch x dim]
+#     # xb = xb.flatten(0, 1).contiguous()
+#     bs, L, D = xb.shape
+#     x = xb.clone()
 
-    len_keep = int(L * (1 - mask_ratio))
+#     len_keep = int(L * (1 - mask_ratio))
 
-    noise = torch.rand(bs, L, device=xb.device)  # noise in [0, 1], bs x L
+#     noise = torch.rand(bs, L, device=xb.device)  # noise in [0, 1], bs x L
 
-    # sort noise for each sample
-    ids_shuffle = torch.argsort(noise, dim=1)  # ascend: small is keep, large is remove
-    ids_restore = torch.argsort(ids_shuffle, dim=1)  # ids_restore: [bs x L]
+#     # sort noise for each sample
+#     ids_shuffle = torch.argsort(noise, dim=1)  # ascend: small is keep, large is remove
+#     ids_restore = torch.argsort(ids_shuffle, dim=1)  # ids_restore: [bs x L]
 
-    # keep the first subset
-    ids_keep = ids_shuffle[:, :len_keep]  # ids_keep: [bs x len_keep]
-    x_kept = torch.gather(x, dim=1, index=ids_keep.unsqueeze(-1).repeat(1, 1, D))  # x_kept: [bs x len_keep x dim]
+#     # keep the first subset
+#     ids_keep = ids_shuffle[:, :len_keep]  # ids_keep: [bs x len_keep]
+#     x_kept = torch.gather(x, dim=1, index=ids_keep.unsqueeze(-1).repeat(1, 1, D))  # x_kept: [bs x len_keep x dim]
 
-    # removed x
-    x_removed = torch.zeros(bs, L - len_keep, D, device=xb.device)  # x_removed: [bs x (L-len_keep) x dim]
-    x_ = torch.cat([x_kept, x_removed], dim=1)  # x_: [bs x L x dim]
+#     # removed x
+#     x_removed = torch.zeros(bs, L - len_keep, D, device=xb.device)  # x_removed: [bs x (L-len_keep) x dim]
+#     x_ = torch.cat([x_kept, x_removed], dim=1)  # x_: [bs x L x dim]
 
-    # combine the kept part and the removed one
-    x_masked = torch.gather(x_, dim=1,
-                            index=ids_restore.unsqueeze(-1).repeat(1, 1, D))  # x_masked: [bs x num_patch x dim]
+#     # combine the kept part and the removed one
+#     x_masked = torch.gather(x_, dim=1,
+#                             index=ids_restore.unsqueeze(-1).repeat(1, 1, D))  # x_masked: [bs x num_patch x dim]
 
-    # generate the binary mask: 0 is keep, 1 is remove
-    mask = torch.ones([bs, L], device=x.device)  # mask: [bs x num_patch]
-    mask[:, :len_keep] = 0
-    # unshuffle to get the binary mask
-    mask = torch.gather(mask, dim=1, index=ids_restore)  # [bs x num_patch]
+#     # generate the binary mask: 0 is keep, 1 is remove
+#     mask = torch.ones([bs, L], device=x.device)  # mask: [bs x num_patch]
+#     mask[:, :len_keep] = 0
+#     # unshuffle to get the binary mask
+#     mask = torch.gather(mask, dim=1, index=ids_restore)  # [bs x num_patch]
     
-    return x_masked, x_kept, mask, ids_restore
+#     return x_masked, x_kept, mask, ids_restore
 
+class RelBias1DDeterministicFn(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, table, rel_pos_idx):
+        """
+        table: (2N-1, H) learnable
+        rel_pos_idx: (N, N) long, values in [0, 2N-2]
+        return: (N, N, H)
+        """
+        ctx.save_for_backward(rel_pos_idx)
+        # indexing (forward는 OK, 문제는 backward였음)
+        return table[rel_pos_idx]  # (N, N, H)
+
+    @staticmethod
+    def backward(ctx, grad_out):
+        """
+        grad_out: (N, N, H)
+        return grad_table: (2N-1, H)
+        """
+        (rel_pos_idx,) = ctx.saved_tensors
+        N = rel_pos_idx.size(0)
+        H = grad_out.size(-1)
+
+        grad_table = grad_out.new_zeros((2 * N - 1, H))
+
+        # offset = j - i in [-(N-1), ..., (N-1)]
+        # index k = offset + (N-1) in [0, ..., 2N-2]
+        for offset in range(-(N - 1), N):
+            k = offset + (N - 1)
+            # grad_out.diagonal returns shape (H, L) when grad_out is (N,N,H)
+            diag = grad_out.diagonal(offset=offset, dim1=0, dim2=1)  # (H, L)
+            grad_table[k] = diag.sum(dim=1)  # (H,)
+
+        return grad_table, None
 
 
 def create_temporal_proximity_mask(num_tokens: int, sharpness: float = 5.0, mode: str = "gaussian"):
@@ -632,8 +629,8 @@ class EpochLog:
         self._logging(epoch, train_result=train_result, val_result=val_result)
         self._verbose(epoch, lr, train_result=train_result, val_result=val_result)
         
-        train_dict = {f"train_{k}": v if isinstance(v, float) else v.mean().item() for k, v in train_result.items()}
-        val_dict   = {f"val_{k}": v if isinstance(v, float) else v.mean().item() for k, v in val_result.items()}
+        train_dict = {f"train_{k}": v for k, v in train_result.items()}
+        val_dict   = {f"val_{k}": v for k, v in val_result.items()}
 
         row = {"epoch": int(epoch), **train_dict, **val_dict}
         df = pd.DataFrame([row])
@@ -655,12 +652,10 @@ class EpochLog:
     def _logging(self, epoch, train_result, val_result):
         
         for k, v in train_result.items():
-            value = v if isinstance(v, float) else v.mean()
-            self.train_writer.add_scalar(f'train/{k}', value, epoch)
+            self.train_writer.add_scalar(f'train_{self.kids}/{k}', v, epoch)
         
         for k, v in val_result.items():
-            value = v if isinstance(v, float) else v.mean()
-            self.val_writer.add_scalar(f'val/{k}', value, epoch)
+            self.val_writer.add_scalar(f'val_{self.kids}/{k}', v, epoch)
         
     def logging(self, **kwargs):
         
@@ -674,17 +669,12 @@ class EpochLog:
         print(bar)
         print(f"{'epoch':15s}{epoch:>15d} (lr={lr})")
         for k, v in train_result.items():
-                value = v if isinstance(v, float) else v.mean()
-                print(f"{'train_' + k:15s}{value:>15.5f}")
+            value = v if isinstance(v, float) else v.mean()
+            print(f"{'train_' + k:15s}{value:>15.5f}")
         if val_result is not None:
             for k, v in val_result.items():
-                if isinstance(v, float):
-                    print(f"{'val_' + k:15s}{v:>15.5f}")
-                else:
-                    print(bar)
-                    for c in range(len(v)):
-                        print(f"{'val_' + k + '_' + str(c):15s}{v[c]:>15.5f}")
-                    print(bar)
+                value = v if isinstance(v, float) else v.mean()
+                print(f"{'val_' + k:15s}{value:>15.5f}")
             print(bar) 
         # if num_classes > 0:
         #     for i in range(num_classes): print(f"{'val_' + 'acc' + '_' + str(i):15s}{val_result['acc'][i]:>15.5f}")
@@ -736,3 +726,35 @@ class EarlyStopping:
             print(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
         torch.save(model.state_dict(), path + '/' + 'checkpoint.pth')
         self.val_loss_min = val_loss
+
+
+def mix_index(num_tokens):
+    
+    return np.random.permutation(range(num_tokens)).astype(np.longlong)
+
+import matplotlib.pyplot as plt
+import torch
+
+def vis(x, low_freq_x, M, keep_ratio):
+    # 예시: 첫 번째 배치의 첫 번째 채널 기준으로 시각화
+    T, B, L = x.shape
+    with torch.no_grad():
+        b_idx, c_idx = 0, 0
+
+        # x: [T, B*C, L] 형태
+        x_vis = x[:, b_idx * M + c_idx].cpu().numpy()
+        low_vis = low_freq_x[:, b_idx * M + c_idx].cpu().numpy()
+
+        # 시각화할 time step 선택 (예: 첫 번째 timestep)
+        t_idx = 0  
+        plt.figure(figsize=(10, 4))
+        plt.plot(x_vis[t_idx], label='Original (normalized)', alpha=0.6)
+        plt.plot(low_vis[t_idx], label='Low-frequency filtered', alpha=0.8)
+        plt.title(f'Sample Visualization (Batch={b_idx}, Channel={c_idx}, Time step={t_idx}, keep_ratio={keep_ratio})')
+        plt.xlabel('Sequence position')
+        plt.ylabel('Value')
+        plt.legend()
+        plt.grid(True)
+        plt.tight_layout()
+        plt.savefig('DCT_vis.png')
+        plt.close()

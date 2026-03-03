@@ -1,18 +1,11 @@
 import torch
 import torch.nn as nn
-
 # snn
 from spikingjelly.clock_driven.neuron import MultiStepLIFNode, surrogate
-# from spikingjelly.clock_driven import functional
-
 from einops import rearrange
 from spikingjelly.activation_based.encoding import PoissonEncoder
-from utils import create_temporal_proximity_mask
 
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-from utils import RelBias1DDeterministicFn
+from utils import create_temporal_proximity_mask, RelBias1DDeterministicFn
 
 
 __all__ = ['spikformer']
@@ -45,8 +38,9 @@ class SpikLinearLayer(nn.Module):
         
         return x
     
+
 class SpikLinearMaxLayer(nn.Module):
-    def __init__(self, in_dim, out_dim=None, kernel_size=2, spk='lif', tau=2.0, lif_bias=False):
+    def __init__(self, in_dim, out_dim=None, kernel_size=2, tau=2.0, lif_bias=False):
         super().__init__()
         
         self.in_dim = in_dim
@@ -55,9 +49,9 @@ class SpikLinearMaxLayer(nn.Module):
         
         self.linear = nn.Linear(in_dim, self.out_dim, bias=lif_bias)
         self.bn = nn.BatchNorm1d(self.out_dim)
-        self.max_pool = nn.MaxPool1d(kernel_size)
+        self.max_pool = nn.MaxPool1d(kernel_size, stride=kernel_size)
         self.spk_neuron = MultiStepLIFNode(tau=tau, detach_reset=True, backend='cupy', surrogate_function=surrogate.Sigmoid())
-      
+        
     def forward(self, x):
         
         x_shape = x.shape
@@ -69,17 +63,13 @@ class SpikLinearMaxLayer(nn.Module):
         x = self.spk_neuron(x.reshape(x_shape[0], x_shape[1], x_shape[2], -1).contiguous())
         
         return x
-    
-    
+
+
 class SpkEncoder(nn.Module):
     def __init__(self, time_steps) -> None:
         super().__init__()
         
         self.T = time_steps
-        # self.batch_size = batch_size
-        # self.seq_len = seq_len
-        # self.device = device
-        
         self.encoder = PoissonEncoder()
     
     def forward(self, x):
@@ -102,24 +92,24 @@ class MLP(nn.Module):
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
         
-        
-        self.fc1 = SpikLinearLayer(in_features, hidden_features)
-        self.fc2 = SpikLinearLayer(hidden_features, out_features)
+        self.spk_linear1 = SpikLinearLayer(in_features, hidden_features, lif_bias=lif_bias, tau=tau)
+        self.spk_linear2 = SpikLinearLayer(hidden_features, out_features, lif_bias=lif_bias, tau=tau)
 
         self.c_hidden = hidden_features
         self.c_output = out_features
         
         self.dropout = nn.Dropout(drop)
         
-        
 
     def forward(self, x):
-        T, B, N, C = x.shape
-        x = self.fc1(x)
-        x = self.fc2(x)
 
-        return x
+        x = self.spk_linear1(x)
+        x = self.spk_linear2(x)
+
+        return self.dropout(x)
     
+
+
 class SSA_rel_scl(nn.Module):
     def __init__(self, dim, seq_len, num_heads=8, pe=True, lif_bias=False, tau=2.0, topk_ratio=None, drop=0.1) -> None:
         super().__init__()
@@ -227,60 +217,44 @@ class SSA_rel_scl(nn.Module):
         return x
     
     
-    
-    
 class MutualCrossAttention(nn.Module):
-    def __init__(self, dim, out_seq=True, lif_bias=False, num_heads=8, tau=2.0, attn='MSSA', drop=0.1) -> None:
+    def __init__(self, dim, out_seq=True, lif_bias=False, num_heads=8, tau=2.0, drop=0.1) -> None:
         super().__init__()
         
         self.scale = dim ** -0.5
         self.num_heads = num_heads
         self.out_seq = out_seq
-        
-        self.attn = attn
         # matrix decomposition
 
         # self.q_lif1 = MultiStepLIFNode(tau=tau, detach_reset=True, backend='cupy')
         self.q_linear2 = nn.Linear(dim, dim, bias=lif_bias)
         self.q_bn2 = nn.BatchNorm1d(dim)
         self.q_lif2 = MultiStepLIFNode(tau=tau, detach_reset=True, backend='cupy', surrogate_function=surrogate.Sigmoid())
-
+    
         self.k_linear = nn.Linear(dim, dim, bias=lif_bias)
         self.k_bn = nn.BatchNorm1d(dim)
         self.k_lif = MultiStepLIFNode(tau=tau, detach_reset=True, backend='cupy', surrogate_function=surrogate.Sigmoid())
+        # self.k_lif = RecurrentSpikLinearLayer(tau=tau, detach_reset=True, backend='cupy', spk='plif')
 
         self.v_linear = nn.Linear(dim, dim, bias=lif_bias)
         self.v_bn = nn.BatchNorm1d(dim)
         self.v_lif = MultiStepLIFNode(tau=tau, detach_reset=True, backend='cupy', surrogate_function=surrogate.Sigmoid())
+        # self.v_lif = RecurrentSpikLinearLayer(tau=tau, detach_reset=True, backend='cupy', spk='plif')
         
         self.attn_lif = MultiStepLIFNode(tau=tau, detach_reset=True, backend='cupy', surrogate_function=surrogate.Sigmoid())
         
-        self.proj_linear = nn.Linear(dim, dim, bias=lif_bias)
-        self.proj_bn = nn.BatchNorm1d(dim)
-        self.proj_lif = MultiStepLIFNode(tau=tau, detach_reset=True, backend='cupy', surrogate_function=surrogate.Sigmoid())
-        
+        self.proj_linear = SpikLinearLayer(in_dim=dim, out_dim=dim, tau=tau, lif_bias=lif_bias)
         self.dropout = nn.Dropout(drop)
         
-    def visualize_attn_scores(self, attn_scores, title=None):
-        # --- attn_scores 시각화 코드 (디버깅용) ---
-        # 예시: 첫 번째 batch, head, query에 대한 attention map 시각화
-        attn_slice = attn_scores[0, 0, 0].detach().cpu().numpy()  # shape: [N, T']
-        plt.imshow(attn_slice, cmap='viridis', aspect='auto')
-        plt.title('Attention Scores (first batch/head/query)')
-        plt.xlabel('Key indices')
-        plt.ylabel('Query indices')
-        plt.colorbar()
-        title = title if title is not None else "Attention Scores Visualization"    
-        plt.savefig(title)
-        plt.close()
-        # ----------------------------
-        
+        self.mask = None
+    
     def forward(self, q:torch.Tensor, kv:torch.Tensor):
         T, B, Nq, D = q.shape
-        T, B, Nkv, D = kv.shape
         
-        # mask = create_temporal_proximity_mask(T).to(q.device)
-        # mask = mask.unsqueeze(0).unsqueeze(0).unsqueeze(0) # [1, 1, 1, T, T]
+            
+        kv = kv.transpose(0, 2).contiguous()
+        kv = kv.repeat(T, 1, 1, 1)
+        T, B, Nkv, D = kv.shape
         
         q = self.q_linear2(q.flatten(0, 1))
         q = self.q_lif2(self.q_bn2(q.transpose(-1,-2)).transpose(-1, -2).reshape(T, B, Nq, self.num_heads, D//self.num_heads).contiguous())
@@ -294,98 +268,62 @@ class MutualCrossAttention(nn.Module):
         v = self.v_linear(kv.flatten(0, 1))
         v = self.v_lif(self.v_bn(v.transpose(-1, -2).contiguous()).transpose(-1, -2).contiguous().reshape(T, B, Nkv, self.num_heads, D//self.num_heads).contiguous())
         v = v.transpose(-2, -3).contiguous()
+        # v = kv.reshape(T, B, Nkv, self.num_heads, D//self.num_heads).contiguous()
+        # v = v.transpose(-2, -3).contiguous()
         
-        k = k.transpose(0, 3).contiguous() #[1 B h T' D//h]
-        v = v.transpose(0, 3).contiguous()
+        # k = k.transpose(0, 3).contiguous() #[1 B h T' D//h]
+        # v = v.transpose(0, 3).contiguous()
         
-        self.attn_scores = (q @ k.transpose(-1, -2)) # [T B h N T']
+        self.attn_scores = (q @ k.transpose(-1, -2)) * self.scale # [T B h N T']
         
         # self.visualize_attn_scores(self.attn_scores.clone().detach())
         # self.visualize_attn_scores(mask.clone().detach(), title="Temporal_Proximity_Mask.png") 
-        
-        # self.attn_scores = self.attn_scores * mask
-        z = (self.attn_scores @ v) * self.scale # [T B h N D//h]
-        
-        z = z.permute(0, 1, 3, 2, 4).contiguous()
+
+        # self.attn_scores = self.attn_scores * self.mask
+        z = self.attn_scores @ v # [T B h N D//h]
+        z = z.permute(3, 1, 0, 2, 4).contiguous()
         z = z.reshape(T, B, -1, D).contiguous()
-        z = self.attn_lif(z.reshape(T, B, -1, D).contiguous())
-        z = z.flatten(0, 1)
-        z = self.proj_lif(self.proj_bn(self.proj_linear(z).transpose(-1, -2).contiguous()).transpose(-1, -2).contiguous().reshape(T, B, -1, D).contiguous())
-            
-        return self.dropout(z)
+        z = self.attn_lif(z)
+        z = self.proj_linear(z)
+        return z
     
-    
-class MemoryUpdate(nn.Module):
+class Consolidation(nn.Module):
     def __init__(self, dim, out_seq=True, lif_bias=False, tau=2.0) -> None:
         super().__init__()
         
         self.scale = dim ** -0.5
         self.out_seq = out_seq
         self.count = 0
-        # self.topk = dim // 2
 
-        # self.gate = nn.Linear(dim, dim, bias=lif_bias)
-        # self.gate = SpikLinearLayer(dim, dim, tau=tau, lif_bias=lif_bias)
-        self.gate_linear = nn.Linear(dim, dim, bias=lif_bias)
-        self.gate_bn = nn.BatchNorm1d(dim)
-        self.gate_lif = MultiStepLIFNode(tau=tau, detach_reset=True, backend='cupy')
-        
+        self.gate = SpikLinearLayer(dim, dim, tau=tau, lif_bias=lif_bias)
         self.proj = SpikLinearLayer(dim, dim, tau=tau, lif_bias=lif_bias)
-        # self.proj_linear = nn.Linear(dim, dim, bias=lif_bias)
-        # self.proj_bn = nn.BatchNorm1d(dim)
-        # self.proj_lif = MultiStepLIFNode(tau=tau, detach_reset=True, backend='cupy')  
-        # self.gate_lif = MultiStepLIFNode(tau=tau, detach_reset=True, backend='cupy')
         
     def forward(self, q:torch.Tensor, kv:torch.Tensor):
         T, B, Nq, D = q.shape
         T, B, Nkv, D = kv.shape
         
         topk = int(T * 0.5)
-        g = self.gate_linear(kv.flatten(0, 1)) # [T B N D]
-        g = g.reshape(T, B, Nkv, D).contiguous()
-        # g = kv
-        A = q.transpose(0, 2).contiguous() @ g.transpose(-1, -2).contiguous() # [T B T T']
+        # kv = kv.transpose(0, 2).contiguous()
+        g = self.gate(kv) 
+        g = g.mean(0, keepdim=True) #[1, B, N, D]
+        A = q.transpose(0, 2).contiguous() @ g.transpose(-1, -2).contiguous() # [1 B N T']
         A = A * self.scale
+        # A = torch.einsum('tbnd,tbmd->tbnm', q.transpose(0, 2)., g) * self.scale
         topk_val, topk_idx = A.topk(topk, dim=-1)
         
-        mask = torch.full_like(A, 1e-8)
-        mask.scatter_(-1, topk_idx, 1)
-        A = mask * A
-
-        # Call visualization function for debugging
-        # self.visualize_mask(mask.clone().detach())
-
-        update = A @ g #[T B T' D]
-        update = update.transpose(0, 2).contiguous()
-        # update = self.gate_bn(update.flatten(0, 1).transpose(-1, -2)).transpose(-1, -2).reshape(T, B, -1, D).contiguous()
-        # update = self.gate_lif(update)
-        update = self.proj(update).mean(2, keepdim=True) #[T B 1 D] 
-        return update
-
-    def visualize_mask(self, mask):
-        # --- mask 시각화 코드 (디버깅용) ---
-        mask_slice = mask[0, 0, 0].cpu().numpy()
-        if mask_slice.ndim == 2:
-            plt.imshow(mask_slice, cmap='gray')
-            plt.title('Mask Visualization (first batch/head/query)')
-            plt.xlabel('Top-k indices')
-            plt.ylabel('Query indices')
-            plt.colorbar()
-            plt.savefig("mask_visualization.png")
-            plt.close()
-        elif mask_slice.ndim == 1:
-            # Reshape 1D array to 2D for visualization
-            plt.imshow(mask_slice.reshape(1, -1), cmap='gray', aspect='auto')
-            plt.title('Mask Visualization (reshaped 1D array)')
-            plt.xlabel('Top-k indices')
-            plt.ylabel('Query indices')
-            plt.colorbar()
-            plt.savefig("mask_visualization.png")
-            plt.close()
+        if self.training:
+            mask = torch.full_like(A, 1e-8)
+            mask.scatter_(-1, topk_idx, 1)
+            A = mask * A
         else:
-            print(f"Cannot plot mask: expected 1D or 2D array, got shape {mask_slice.shape}")
-            plt.close()
-        # ----------------------------
+            mask = torch.zeros_like(A)
+            mask.scatter_(-1, topk_idx, 1)
+            A = mask * A
+            
+        # update = torch.einsum('tbnm,tbmd->tbnd', A, g)
+        update = A @ g #[1 B T' D]
+        update = update.transpose(0, 2).contiguous()
+        update = self.proj(update)
+
+        return update
     
-        # g = self.gate(kv)
-        
