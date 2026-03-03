@@ -28,10 +28,10 @@ conda activate snn_jelly
 
 
 ```
-* **Python:** 3.10.18
-* **PyTorch:** 1.12.0 (with CUDA 11.3.1)
-* **SpikingJelly:** 0.0.0.0.14
-* **NumPy:** 1.26.4
-* **Scikit-learn:** 1.7.1
-* **Timm:** 1.0.19
+-Python: 3.10.18
+-PyTorch: 1.12.0 (with CUDA 11.3.1)
+-SpikingJelly: 0.0.0.0.14
+-NumPy: 1.26.4
+-Scikit-learn: 1.7.1
+-timm: 1.0.19
 ```
