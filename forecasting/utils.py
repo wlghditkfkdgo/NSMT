@@ -19,6 +19,11 @@ from matplotlib import pyplot as plt
 from tqdm import tqdm
 import os
 
+def cyclic_shift_batch_dim1(x: torch.Tensor):
+    if x is None or x.size(1) <= 1:
+        return x
+    idx = torch.roll(torch.arange(x.size(1), device=x.device), shifts=1)
+    return x[:, idx, ...]
 
 class AutomaticWeightedLoss(nn.Module):
     """automatically weighted multi-task loss

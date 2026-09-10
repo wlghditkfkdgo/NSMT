@@ -3,23 +3,23 @@
 data=ETTh1
 # patch_size=16
 # seq_len=336
-patch_size=8
+# patch_size=8
 seq_len=96
 root_path=/home/yschoi/CLS_spiking_transformer/Bio-inspired-Spiking-Memory-Transformer-for-time-series-representation-learning/forecasting/dataset/ETT-small
 
 for len in 720 336 192 96
 do
-for gating in attn #attn #ablation
+for patch_size in 8
 do
-for model in ab1 ab3 #ab1_1 ab1 #ab1_1 Spikformer
+for model in ab4 #myModel #ab1 ab3 #ab1_1 ab1 #ab1_1 Spikformer
 do
-for seed in 42
+for seed in 42 #2026 7
 do
 python3 ./train.py \
-    --log_dir final3 \
+    --log_dir rebuttal \
     --seed ${seed} \
     --model ${model} \
-    --gating ${gating} \
+    --gating attn \
     --keep_ratio 0.25 \
     --no-bias \
     --scheduler reduce \

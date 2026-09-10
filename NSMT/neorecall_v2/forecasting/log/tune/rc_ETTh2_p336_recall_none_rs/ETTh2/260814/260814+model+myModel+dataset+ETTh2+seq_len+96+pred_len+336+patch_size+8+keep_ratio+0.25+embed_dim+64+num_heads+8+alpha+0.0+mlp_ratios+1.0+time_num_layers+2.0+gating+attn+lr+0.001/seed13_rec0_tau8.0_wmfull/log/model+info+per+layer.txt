@@ -1,0 +1,49 @@
+myModel(
+  (padding_patch_layer): ReplicationPad1d()
+  (encoding): Embedding(
+    (emb_linear): Linear(512, 0.087% Params, 0.0 Ops, 0.000% ACs, 2.06 M Ops, 0.769% MACs, 100.000% Spike Rate)
+    (emb_bn): BatchNorm1d(128, 0.022% Params, 0.0 Ops, 0.000% ACs, 516.1 K Ops, 0.192% MACs, 100.000% Spike Rate)
+    (emb_lif): MultiStepLIFNode(
+      0, 0.000% Params, 258.05 K Ops, 2.718% ACs, 0.0 Ops, 0.000% MACs, 5.292% Spike Rate
+      (surrogate_function): Sigmoid()
+    )
+  )
+  (data_block): ModuleList(
+    (0): Block(
+      (mca): ReservoirMixer(
+        (res): SpikingReservoir(
+          (proj): SpikLinearLayer(
+            (linear): Linear(65.54 k, 11.092% Params, 0.0 Ops, 0.000% ACs, 264.24 M Ops, 98.462% MACs, 100.000% Spike Rate)
+            (bn): BatchNorm1d(128, 0.022% Params, 0.0 Ops, 0.000% ACs, 516.1 K Ops, 0.192% MACs, 100.000% Spike Rate)
+            (spk_neuron): MultiStepLIFNode(
+              0, 0.000% Params, 258.05 K Ops, 2.718% ACs, 0.0 Ops, 0.000% MACs, 0.000% Spike Rate
+              (surrogate_function): Sigmoid()
+            )
+          )
+        )
+      )
+      (mlp): MLP(
+        (spk_linear1): SpikLinearLayer(
+          (linear): Linear(4.1 k, 0.693% Params, 1.5 M Ops, 15.849% ACs, 0.0 Ops, 0.000% MACs, 9.112% Spike Rate)
+          (bn): BatchNorm1d(128, 0.022% Params, 0.0 Ops, 0.000% ACs, 516.1 K Ops, 0.192% MACs, 100.000% Spike Rate)
+          (spk_neuron): MultiStepLIFNode(
+            0, 0.000% Params, 258.05 K Ops, 2.718% ACs, 0.0 Ops, 0.000% MACs, 1.513% Spike Rate
+            (surrogate_function): Sigmoid()
+          )
+        )
+        (spk_linear2): SpikLinearLayer(
+          (linear): Linear(4.1 k, 0.693% Params, 736.77 K Ops, 7.761% ACs, 0.0 Ops, 0.000% MACs, 4.463% Spike Rate)
+          (bn): BatchNorm1d(128, 0.022% Params, 0.0 Ops, 0.000% ACs, 516.1 K Ops, 0.192% MACs, 100.000% Spike Rate)
+          (spk_neuron): MultiStepLIFNode(
+            0, 0.000% Params, 258.05 K Ops, 2.718% ACs, 0.0 Ops, 0.000% MACs, 1.171% Spike Rate
+            (surrogate_function): Sigmoid()
+          )
+        )
+        (dropout): Dropout()
+      )
+      (dropout2): Dropout()
+      (dropout3): Dropout()
+    )
+  )
+  (head): Linear(516.1 k, 87.348% Params, 6.22 M Ops, 65.518% ACs, 0.0 Ops, 0.000% MACs, 7.174% Spike Rate)
+)

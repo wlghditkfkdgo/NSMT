@@ -10,6 +10,9 @@ from ours_ablation1_1 import mymodel_ab1_1
 from ours_ablation2 import mymodel_ab2
 from ours_ablation3 import mymodel_ab3
 from ours_ablation4 import mymodel_ab4
+import patch_itransformer
+from iTransformer_wrapper import load_iTransformer
+
 
 def load_mymodel(args, train=True):
     if train:
@@ -529,4 +532,5 @@ LOAD_MODEL = {
     'ab2' : load_mymodel_ab2,
     'ab3' : load_mymodel_ab3,
     'ab4' : load_mymodel_ab4,
+    'iTransformer': load_iTransformer,
 }

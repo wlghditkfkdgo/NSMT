@@ -94,6 +94,15 @@ def parse_arguments():
     snn_arg.add_argument('-b', '--bias', dest='bias', action=argparse.BooleanOptionalAction, help='spiking neuron bias (option: `--no-bias`)')
     snn_arg.add_argument('-spk', '--spk_encoding', dest='spk_encoding', action='store_true', help='spike encoding')
     snn_arg.add_argument('--tau', dest='tau', type=float, default=2.0)
+
+    itrans_arg = parser.add_argument_group("iTransformer parameters")
+    itrans_arg.add_argument('--itrans_d_model',    type=int,   default=512)
+    itrans_arg.add_argument('--itrans_n_heads',    type=int,   default=8)
+    itrans_arg.add_argument('--itrans_e_layers',   type=int,   default=3)
+    itrans_arg.add_argument('--itrans_d_ff',       type=int,   default=512)
+    itrans_arg.add_argument('--itrans_dropout',    type=float, default=0.1)
+    itrans_arg.add_argument('--itrans_activation', type=str,   default='gelu')
+    itrans_arg.add_argument('--itrans_use_norm',   action=argparse.BooleanOptionalAction, default=True)
     
     data_arg = parser.add_argument_group("data arguments")
     data_arg.add_argument('--data', help='The name of dataset')

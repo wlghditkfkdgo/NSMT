@@ -26,6 +26,17 @@ from noise_injector import apply_gaussian_noise
 import matplotlib.pyplot as plt
 # model loading
 
+def set_shuffle_replay_flag(model, enabled=False):
+    hit = []
+    for name, module in model.named_modules():
+        # replay를 소유한 Block만 잡기
+        if hasattr(module, "mca") and hasattr(module, "shuffle_replay"):
+            module.shuffle_replay = enabled
+            hit.append(name)
+
+    print(f"[shuffle_replay={enabled}] patched modules = {hit}")
+    if enabled and len(hit) == 0:
+        print("[Warning] No Block with mca + shuffle_replay was found.")
 
 def R2(pred, true):
     true = true.ravel()
@@ -33,7 +44,7 @@ def R2(pred, true):
     mean = np.mean(true, axis=0)
     return 1-(((true-pred)**2).sum()/(((true-mean)**2).sum()))
 
-    
+
 def load_model(args):
     saved_model_path = os.path.join(args.save_result_path, "model_state", f"best+model.pt")
     
@@ -183,6 +194,8 @@ def test(args:Config, model=None):
     
     if model is None:
         model = LOAD_MODEL[args.model](args, train=False)
+    
+    set_shuffle_replay_flag(model, getattr(args, "shuffle_replay", False))
 
 
     criterion = nn.L1Loss()
@@ -290,24 +303,24 @@ def test(args:Config, model=None):
     print("Test was successfully done")
 
     head = ','.join(
-        ["snr", "loss", "mse", "mae", "total_op", "ACop", "MACop", "capacity", "firing_rate", "energy", "mse_long", "mae_long", "R2",]
-    )
+    ["shuffle_replay", "snr", "loss", "mse", "mae", "total_op", "ACop", "MACop",
+     "capacity", "firing_rate", "energy", "mse_long", "mae_long", "R2"])
     results_csv = ','.join([
+        f"{getattr(args, 'shuffle_replay', False)}",
         f"{args.snr if hasattr(args, 'snr') else 'None'}",
-        f"{test_result['loss']:.6f}", 
-        f"{test_result['mse']:.6f}", 
+        f"{test_result['loss']:.6f}",
+        f"{test_result['mse']:.6f}",
         f"{test_result['mae']:.6f}",
-    #   f"{test_result['sim']:.6f}",
         f"{ops[0] / 1e6:.2f} M Ops",
         f"{ops[1] / 1e6:.2f} M Ops",
         f"{ops[2] / 1e6:.2f} M Ops",
         f"{params / 1e6:.4f} M",
         f"{fr:.4f} %",
         f"{get_energy_consumption(O_ac=ops[1], O_mac=ops[2], unit='u'):.2f} uJ",
-        f"{test_result['mse_long']:.6f}", 
+        f"{test_result['mse_long']:.6f}",
         f"{test_result['mae_long']:.6f}",
-        f"{test_result['R2']:.6f}", ]
-    )
+        f"{test_result['R2']:.6f}",
+    ])
 
     for k, v in test_result.items():
         value =  v if isinstance(v, float) else v.mean()
@@ -349,10 +362,18 @@ if __name__ == '__main__':
         
     set_random_seed(args.seed)
     args.print_info()
+    
+    base_save_log_path = args.save_log_path
+    
+    for shuffle_replay in [False, True]:
+        setattr(args, 'shuffle_replay', shuffle_replay)
 
-    for snr in config.snr_list:
-        setattr(args, 'snr', snr)
-        test(args)
+        exp_name = "full" if not shuffle_replay else "shifted_replay"
+        args.save_log_path = os.path.join(base_save_log_path, exp_name)
+
+        for snr in config.snr_list:
+            setattr(args, 'snr', snr)
+            test(args)
 
     torch.set_grad_enabled(True)
     

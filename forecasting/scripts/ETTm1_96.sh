@@ -1,28 +1,28 @@
 #!/bin/bash
 
 data=ETTm1
-patch_size=8
+# patch_size=8
 seq_len=96
 root_path=/home/yschoi/CLS_spiking_transformer/Bio-inspired-Spiking-Memory-Transformer-for-time-series-representation-learning/forecasting/dataset/ETT-small
 
 # keep_ratio=0.25
 
-for seed in 42
+for seed in 42 #2026 7
 do
-for keep_ratio in 0.1 0.15 0.2 0.3
+for keep_ratio in 0.25
 do
-for len in 720 #336 192 96
+for len in 720 336 192 96
 do
-for gating in attn #ablation
+for patch_size in 8
 do
-for model in myModel
+for model in ab4 #myModel
 do
 python3 ./train.py \
-    --log_dir final3/keep_ratio \
+    --log_dir rebuttal \
     --seed ${seed} \
     --model ${model} \
     --analysis \
-    --gating ${gating} \
+    --gating attn \
     --no-bias \
     --scheduler reduce \
     -s \

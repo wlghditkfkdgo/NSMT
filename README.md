@@ -35,3 +35,10 @@ conda activate snn_jelly
 -Scikit-learn: 1.7.1
 -timm: 1.0.19
 ```
+
+
+## Experiment workflow
+
+Keep `main` as the reference branch. Develop new experiments on `exp/<experiment-name>` and record changes, reproduction commands, results, and annotated tags by appending to [docs/PROJECT_LOG.md](docs/PROJECT_LOG.md). The current local snapshot is published on `exp/local-snapshot-20260910`; it is not a new validated baseline on `main`.
+
+The repository excludes local datasets, checkpoints, caches, archives, and raw runtime logs. See the project log for artifact locations and setup requirements. NSMT task layout and runners are described in [NSMT/docs/project_layout.md](NSMT/docs/project_layout.md).

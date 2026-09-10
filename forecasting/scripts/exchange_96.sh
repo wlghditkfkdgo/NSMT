@@ -9,15 +9,18 @@ for len in 720 336 192 96
 do
 for model in myModel #ab1_1 #ab1 ab1_1 Spikformer
 do
+for seed in 42 2026 7
+do
 python3 ./train.py \
-    --log_dir final3 \
+    --seed ${seed} \
+    --log_dir rep \
     --model ${model} \
     --gating attn \
     --no-bias \
     --scheduler reduce \
     -s \
     --test \
-    -nd 1 \
+    -nd 0 \
     -e 50 \
     --warm_up_epoch 0 \
     --mlp_ratio 2 \
@@ -37,6 +40,7 @@ python3 ./train.py \
     --patience 3 \
     --label_len 48 \
     
+done
 done
 done
     # --label_len 168 \

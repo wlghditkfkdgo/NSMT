@@ -1,0 +1,130 @@
+Spikformer(
+  (encoding): Embedding(
+    (emb_linear): Linear(384, 0.096% Params, 0.0 Ops, 0.000% ACs, 1.42 M Ops, 29.967% MACs, 100.000% Spike Rate)
+    (emb_bn): BatchNorm1d(96, 0.024% Params, 0.0 Ops, 0.000% ACs, 355.49 K Ops, 7.492% MACs, 100.000% Spike Rate)
+    (emb_lif): MultiStepLIFNode(
+      0, 0.000% Params, 177.74 K Ops, 0.872% ACs, 0.0 Ops, 0.000% MACs, 8.911% Spike Rate
+      (surrogate_function): Sigmoid()
+    )
+    (tape): tAPE()
+    (ape_lif): MultiStepLIFNode(
+      0, 0.000% Params, 0.0 Ops, 0.000% ACs, 0.0 Ops, 0.000% MACs, 0.000% Spike Rate
+      (surrogate_function): Sigmoid()
+    )
+  )
+  (encoding_neo): SpikLinearLayer(
+    (linear): Linear(384, 0.096% Params, 0.0 Ops, 0.000% ACs, 61.82 K Ops, 1.303% MACs, 100.000% Spike Rate)
+    (bn): BatchNorm1d(96, 0.024% Params, 0.0 Ops, 0.000% ACs, 15.46 K Ops, 0.326% MACs, 100.000% Spike Rate)
+    (spk_neuron): MultiStepLIFNode(
+      0, 0.000% Params, 7.73 K Ops, 0.038% ACs, 0.0 Ops, 0.000% MACs, 4.996% Spike Rate
+      (surrogate_function): Sigmoid()
+    )
+  )
+  (data_block): ModuleList(
+    (0): Block(
+      (attn): SSA_rel_scl(
+        (q_linear): Linear(2.3 k, 0.575% Params, 1.48 M Ops, 7.253% ACs, 0.0 Ops, 0.000% MACs, 17.326% Spike Rate)
+        (q_bn): BatchNorm1d(96, 0.024% Params, 0.0 Ops, 0.000% ACs, 355.49 K Ops, 7.492% MACs, 100.000% Spike Rate)
+        (q_lif): MultiStepLIFNode(
+          0, 0.000% Params, 177.74 K Ops, 0.872% ACs, 0.0 Ops, 0.000% MACs, 2.081% Spike Rate
+          (surrogate_function): Sigmoid()
+        )
+        (k_linear): Linear(2.3 k, 0.575% Params, 1.48 M Ops, 7.253% ACs, 0.0 Ops, 0.000% MACs, 17.326% Spike Rate)
+        (k_bn): BatchNorm1d(96, 0.024% Params, 0.0 Ops, 0.000% ACs, 355.49 K Ops, 7.492% MACs, 100.000% Spike Rate)
+        (k_lif): MultiStepLIFNode(
+          0, 0.000% Params, 177.74 K Ops, 0.872% ACs, 0.0 Ops, 0.000% MACs, 1.496% Spike Rate
+          (surrogate_function): Sigmoid()
+        )
+        (v_linear): Linear(2.3 k, 0.575% Params, 1.48 M Ops, 7.253% ACs, 0.0 Ops, 0.000% MACs, 17.326% Spike Rate)
+        (v_bn): BatchNorm1d(96, 0.024% Params, 0.0 Ops, 0.000% ACs, 355.49 K Ops, 7.492% MACs, 100.000% Spike Rate)
+        (v_lif): MultiStepLIFNode(
+          0, 0.000% Params, 177.74 K Ops, 0.872% ACs, 0.0 Ops, 0.000% MACs, 1.378% Spike Rate
+          (surrogate_function): Sigmoid()
+        )
+        (attn_lif): MultiStepLIFNode(
+          0, 0.000% Params, 177.74 K Ops, 0.872% ACs, 0.0 Ops, 0.000% MACs, 0.000% Spike Rate
+          (surrogate_function): Sigmoid()
+        )
+        (proj_linear): SpikLinearLayer(
+          (linear): Linear(2.3 k, 0.575% Params, 110.37 K Ops, 0.542% ACs, 0.0 Ops, 0.000% MACs, 1.291% Spike Rate)
+          (bn): BatchNorm1d(96, 0.024% Params, 0.0 Ops, 0.000% ACs, 355.49 K Ops, 7.492% MACs, 100.000% Spike Rate)
+          (spk_neuron): MultiStepLIFNode(
+            0, 0.000% Params, 177.74 K Ops, 0.872% ACs, 0.0 Ops, 0.000% MACs, 0.001% Spike Rate
+            (surrogate_function): Sigmoid()
+          )
+        )
+      )
+      (mca): MutualCrossAttention(
+        (q_linear2): Linear(2.3 k, 0.575% Params, 1.48 M Ops, 7.253% ACs, 0.0 Ops, 0.000% MACs, 17.326% Spike Rate)
+        (q_bn2): BatchNorm1d(96, 0.024% Params, 0.0 Ops, 0.000% ACs, 355.49 K Ops, 7.492% MACs, 100.000% Spike Rate)
+        (q_lif2): MultiStepLIFNode(
+          0, 0.000% Params, 177.74 K Ops, 0.872% ACs, 0.0 Ops, 0.000% MACs, 1.705% Spike Rate
+          (surrogate_function): Sigmoid()
+        )
+        (k_linear): Linear(2.3 k, 0.575% Params, 27.34 K Ops, 0.134% ACs, 0.0 Ops, 0.000% MACs, 7.370% Spike Rate)
+        (k_bn): BatchNorm1d(96, 0.024% Params, 0.0 Ops, 0.000% ACs, 15.46 K Ops, 0.326% MACs, 100.000% Spike Rate)
+        (k_lif): MultiStepLIFNode(
+          0, 0.000% Params, 7.73 K Ops, 0.038% ACs, 0.0 Ops, 0.000% MACs, 4.720% Spike Rate
+          (surrogate_function): Sigmoid()
+        )
+        (v_linear): Linear(2.3 k, 0.575% Params, 27.34 K Ops, 0.134% ACs, 0.0 Ops, 0.000% MACs, 7.370% Spike Rate)
+        (v_bn): BatchNorm1d(96, 0.024% Params, 0.0 Ops, 0.000% ACs, 15.46 K Ops, 0.326% MACs, 100.000% Spike Rate)
+        (v_lif): MultiStepLIFNode(
+          0, 0.000% Params, 7.73 K Ops, 0.038% ACs, 0.0 Ops, 0.000% MACs, 3.738% Spike Rate
+          (surrogate_function): Sigmoid()
+        )
+        (attn_lif): MultiStepLIFNode(
+          0, 0.000% Params, 177.74 K Ops, 0.872% ACs, 0.0 Ops, 0.000% MACs, 1.210% Spike Rate
+          (surrogate_function): Sigmoid()
+        )
+        (proj_linear): SpikLinearLayer(
+          (linear): Linear(2.3 k, 0.575% Params, 117.07 K Ops, 0.575% ACs, 0.0 Ops, 0.000% MACs, 1.366% Spike Rate)
+          (bn): BatchNorm1d(96, 0.024% Params, 0.0 Ops, 0.000% ACs, 355.49 K Ops, 7.492% MACs, 100.000% Spike Rate)
+          (spk_neuron): MultiStepLIFNode(
+            0, 0.000% Params, 177.74 K Ops, 0.872% ACs, 0.0 Ops, 0.000% MACs, 1.765% Spike Rate
+            (surrogate_function): Sigmoid()
+          )
+        )
+        (dropout): Dropout()
+      )
+      (mlp): MLP(
+        (spk_linear1): SpikLinearLayer(
+          (linear): Linear(4.61 k, 1.150% Params, 2.83 M Ops, 13.914% ACs, 0.0 Ops, 0.000% MACs, 16.621% Spike Rate)
+          (bn): BatchNorm1d(96, 0.024% Params, 0.0 Ops, 0.000% ACs, 355.49 K Ops, 7.492% MACs, 100.000% Spike Rate)
+          (spk_neuron): MultiStepLIFNode(
+            0, 0.000% Params, 177.74 K Ops, 0.872% ACs, 0.0 Ops, 0.000% MACs, 1.280% Spike Rate
+            (surrogate_function): Sigmoid()
+          )
+        )
+        (spk_linear2): SpikLinearLayer(
+          (linear): Linear(2.3 k, 0.575% Params, 451.41 K Ops, 2.216% ACs, 0.0 Ops, 0.000% MACs, 5.293% Spike Rate)
+          (bn): BatchNorm1d(96, 0.024% Params, 0.0 Ops, 0.000% ACs, 355.49 K Ops, 7.492% MACs, 100.000% Spike Rate)
+          (spk_neuron): MultiStepLIFNode(
+            0, 0.000% Params, 177.74 K Ops, 0.872% ACs, 0.0 Ops, 0.000% MACs, 1.165% Spike Rate
+            (surrogate_function): Sigmoid()
+          )
+        )
+        (dropout): Dropout()
+      )
+      (dropout2): Dropout()
+      (dropout3): Dropout()
+    )
+  )
+  (time_block): TemporalBlock(
+    (layers): ModuleList(
+      (0): SpikLinearLayer(
+        (linear): Linear(2.3 k, 0.575% Params, 23.54 K Ops, 0.116% ACs, 0.0 Ops, 0.000% MACs, 6.345% Spike Rate)
+        (bn): BatchNorm1d(96, 0.024% Params, 0.0 Ops, 0.000% ACs, 15.46 K Ops, 0.326% MACs, 100.000% Spike Rate)
+        (spk_neuron): MultiStepLIFNode(
+          0, 0.000% Params, 7.73 K Ops, 0.038% ACs, 0.0 Ops, 0.000% MACs, 5.883% Spike Rate
+          (surrogate_function): Sigmoid()
+        )
+      )
+    )
+    (dropout): ModuleList(
+      (0): Dropout()
+    )
+    (dropout_in): Dropout()
+  )
+  (head): Linear(370.94 k, 92.574% Params, 8.89 M Ops, 43.611% ACs, 0.0 Ops, 0.000% MACs, 14.883% Spike Rate)
+)

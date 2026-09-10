@@ -16,9 +16,11 @@ import numpy as np
 import math
 
 from layers import SpkEncoder, SpikLinearLayer
-from utils import RelBias1DDeterministicFn
+from utils import RelBias1DDeterministicFn, cyclic_shift_batch_dim1
 from positional import tAPE
 from layers import SSA_rel_scl, MLP, MutualCrossAttention, SpikLinearLayer, SpikLinearMaxLayer, SpikTimeLinearLayer
+
+
 
 __all__ = ['myModel']
 
@@ -231,8 +233,13 @@ class Block(nn.Module):
         self.dropout2 = nn.Dropout(0.1)
         self.dropout3 = nn.Dropout(0.1)
 
+        self.shuffle_replay = False
+
     def forward(self, x: torch.Tensor, mx=None):
         T, B, N, D = x.shape
+
+        if (not self.training) and self.shuffle_replay and mx is not None and B > 1:
+            mx = cyclic_shift_batch_dim1(mx)
 
         mx = (0.05 * mx + (1 - 0.05) * mx.detach()) # [1 B N D]
         mx = x * mx.transpose(0, 2).contiguous()

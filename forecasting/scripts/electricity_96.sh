@@ -9,16 +9,17 @@ for len in 720 336 192 96
 do
 for model in myModel 
 do
-for gating in attn 
+for seed in 42 2026 7 
 do
 python3 ./train.py \
-    --gating ${gating} \
+    --seed ${seed} \
+    --gating attn \
     --model ${model} \
     --no-bias \
     --scheduler reduce \
     -s \
     --test \
-    -nd 2 \
+    -nd 1 \
     -e 50 \
     --warm_up_epoch 0 \
     --keep_ratio 0.25 \

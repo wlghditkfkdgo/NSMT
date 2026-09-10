@@ -7,19 +7,20 @@ root_path=/home/yschoi/CLS_spiking_transformer/Bio-inspired-Spiking-Memory-Trans
 
 for len in 720 336 192 96
 do
-for gating in attn #ablation
+for seed in 42 2026 7 #ablation
 do
 for model in myModel #ab1 ab1_1 Spikformer
 do
 python3 ./train.py \
-    --log_dir final3 \
+    --seed ${seed} \
+    --log_dir rep \
     --model ${model} \
-    --gating ${gating} \
+    --gating attn \
     --no-bias \
     --scheduler reduce \
     -s \
     --test \
-    -nd 1 \
+    -nd 0 \
     -e 50 \
     --warm_up_epoch 0 \
     --mlp_ratio 6 \
