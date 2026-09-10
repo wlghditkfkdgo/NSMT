@@ -270,3 +270,94 @@ git diff --check
 ```bash
 bash simple_test_model_v1/forecasting/scripts/run_parallel.sh --suite ett-quick-20260910 --gpus 0 1 2 3 --epochs 10 --patience 3 --batch-size 128 --seed 7
 ```
+
+
+---
+
+## 2026-09-10 — ETT quick validation 40개 GPU 병렬 실험 완료
+
+### 식별, 실행 범위와 환경
+
+- 브랜치: `exp/population-spikformer-ett-quick`. 학습에 사용한 고정 code commit은 `9fca022c79358ea705ae9940034a0cdbad0bc0ce`; 준비 snapshot tag는 `exp/population-spikformer-ett-quick-20260910-snapshot`. 이전 아이디어 코드 기준은 `4b9569065b491222648d2fb03e80652124c94e07`이다.
+- 이번 결과/분석 commit은 annotated tag `exp/population-spikformer-ett-quick-20260910`으로 식별한다. **사전 정의한 40개 quick training/evaluation을 완료한 실험**이며, 긴 학습이나 기준 모델 승격을 의미하지 않는다. main merge 및 원격 push: not run.
+- 실제 실행 시간: 2026-09-10 20:28:37–20:37:10 KST (11:28:37–11:37:10 UTC), launcher wall time 약 **513.07초 = 8분 33초**. 구현 및 사전 점검 시간은 제외했다.
+- RTX A6000 GPU 0–3에 각 1개 독립 프로세스를 실행하고 다음 작업을 자동 할당했다. GPU별 완료 작업 수는 0:11, 1:7, 2:9, 3:13; 전체 40개 returncode=0. Peak allocated GPU memory의 최댓값은 약 4.38GiB. 완료 후 네 GPU의 학습 프로세스가 종료된 것을 확인했다. GPU runtime은 작업 배치와 모델/epoch 수의 영향을 받으며 별도 속도 benchmark가 아니다.
+- 데이터/분할/환경/seed/하이퍼파라미터는 바로 위 실행 준비 항목과 각 run JSON에 기록한 값 그대로다. 네 ETT × horizon96/720 × 5 variants, seed7, full train/val/test, train-only StandardScaler, 입력96, patch8/stride8, fixed Gaussian K16, direct, D64/head8/depth2/MLP ratio2, two-stage D′64, tau2/threshold1/scale1, AdamW lr.001/wd.01, MSE, max10 epochs/patience3. Test 점수에 따른 설정 변경/추가 run 선택은 하지 않았다.
+- 준비 항목의 `shuffle/drop_last=False` 표기를 명확히 정정한다: 실제는 **train shuffle=True, drop_last=False**다. Seed+1000의 별도 torch.Generator로 각 epoch 전체 train window를 permutation한다. Val/test는 순차 평가한다.
+- 코드 변경은 준비 snapshot에서 끝냈으며 본학습 중 모델/훈련기 소스를 변경하지 않았다. 이후 추가한 `summarize_ett.py`는 결과 검증/CSV/Markdown/그림 생성 전용이다. 모든 run의 모델/훈련기 SHA-256과 최종 소스가 일치하고, 기록된 학습 code commit도 전부 위 hash로 일치한다.
+
+### 실제 실행과 결과 검증 명령
+
+NSMT 작업 디렉터리에서 실행했다. Launcher는 각 run의 Python command와 GPU 배정을 manifest/completion에 기록하며, 각 run JSON에는 환경변수 CUDA_VISIBLE_DEVICES와 전체 CLI/config가 포함되어 있다.
+
+```bash
+bash simple_test_model_v1/forecasting/scripts/run_parallel.sh --suite ett-quick-20260910 --gpus 0 1 2 3 --epochs 10 --patience 3 --batch-size 128 --seed 7
+/home/yschoi/.conda/envs/snn_recall/bin/python simple_test_model_v1/forecasting/summarize_ett.py --suite ett-quick-20260910 --plot
+```
+
+- `summarize_ett.py`는 40개 manifest 항목이 모두 완료되었는지, test/validation element count가 `windows * horizon * 7`과 일치하는지, 복원 checkpoint의 val MSE가 기록된 epoch 중 최솟값인지, 비교 쌍의 데이터 metadata/code hash가 일치하는지 검사한다. 모두 통과했다. 모든 partial batch가 지표에 포함되었다.
+- 학습기 자체에서도 checkpoint 복원 후 validation MSE를 다시 계산해 선택 점수의 재현을 확인했다. 첫 train batch의 gradient norm과 모든 LIF의 첫 train/val/test batch 발화율이 기록되어 있다. Population embedding의 gradient는 모든 8개 run에서 nonzero였다.
+- 모든 SNN은 4–6 epoch에서 early stopping됐다. 선형 모델 중 6개는 10 epoch 제한에 도달했고 그중 일부는 마지막 epoch가 best였다. 모든 모델의 수렴을 확인한 실험은 아니다.
+- N축 SSA의 선택 checkpoint에서 test 첫 batch SSA projection 발화율은 약 2.00–5.08%였다. 앞선 초기 scale=0.125의 완전 침묵은 이번 N축/scale1 설정에서 관찰되지 않았다. 이는 첫 batch의 진단이며 전체 split 평균 발화율/에너지 측정이 아니다.
+
+### 지표
+
+각 데이터셋/예측 길이에 같은 가중치를 둔 **8개 task macro 평균**이다. 개별 task의 MSE/MAE는 train-standardized scale에서 모든 window/horizon/channel 원소를 평균한 값이다.
+
+| Variant | Macro MSE | Macro MAE | Parameters, H=96 / H=720 |
+|---|---:|---:|---:|
+| population | 0.381274 | 0.401924 | 207,232 / 686,464 |
+| temporal | 0.381355 | 0.402974 | 207,232 / 686,464 |
+| temporal_embedding | 0.380970 | 0.403555 | 208,256 / 687,488 |
+| no_attention | 0.381260 | 0.403161 | 173,440 / 652,672 |
+| linear | 0.374076 | 0.389852 | 9,216 / 69,120 |
+
+N축 기본 모델(embedding 없음)의 개별 test 결과:
+
+| Dataset | Horizon | MSE | MAE | Linear MSE | Linear MAE |
+|---|---:|---:|---:|---:|---:|
+| ETTh1 | 96 | 0.391540 | 0.409145 | 0.387361 | 0.396180 |
+| ETTh1 | 720 | 0.502549 | 0.487203 | 0.464809 | 0.458981 |
+| ETTh2 | 96 | 0.309746 | 0.361636 | 0.292030 | 0.340833 |
+| ETTh2 | 720 | 0.435166 | 0.453410 | 0.420357 | 0.439469 |
+| ETTm1 | 96 | 0.350222 | 0.384385 | 0.353932 | 0.374141 |
+| ETTm1 | 720 | 0.464247 | 0.447546 | 0.483544 | 0.445788 |
+| ETTm2 | 96 | 0.186414 | 0.270170 | 0.182040 | 0.264575 |
+| ETTm2 | 720 | 0.410960 | 0.410298 | 0.408532 | 0.398848 |
+
+비교 지표는 task별 `(tested_MSE/reference_MSE - 1)*100`의 산술 평균이다. 음수가 개선이며 macro MSE 비율과는 다른 집계 방식이다.
+
+| Tested vs reference | MSE wins | Mean relative MSE |
+|---|---:|---:|
+| temporal vs linear | 2/8 | +2.0932% |
+| temporal vs no_attention | 3/8 | +0.1757% |
+| temporal vs population | 4/8 | +0.0822% |
+| temporal_embedding vs temporal | 4/8 | -0.2304% |
+
+### 해석, 한계와 다음 판단
+
+- **현재 quick protocol에서는 attention의 추가 성능 이점을 확인하지 못했다.** K축/N축/SSA 제거의 macro MSE는 모두 약0.3813이다. N축이 K축보다 낮은 MSE를 보인 task는4/8, SSA 제거보다 낮은 task는3/8이다. 근소한 차이를 우열이나 통계적 유의성으로 해석하지 않는다.
+- 학습 가능한 population identity는 N축 대비4/8 개선, 평균 task별 상대 MSE -0.23%였다. Macro MAE는 오히려 조금 높다. Gradient가 흐르고 있으나 일관된 개선의 근거는 부족하다.
+- N축 모델은 input-window mean 기준선보다8/8에서 MSE가 낮아 단순한 평균 출력만 하는 상태는 아니다. 하지만 선형 모델보다 MSE가 낮은 task는 ETTm1의96/720 두 조건뿐이고, MAE는8/8에서 선형 모델이 낮다. 현재 복잡한 SNN 구조가 이 선형 기준선을 전반적으로 앞선다고 주장할 수 없다.
+- 단일 seed, max10 epochs의 screening이다. 동일 seed를 썼지만 attention 제거 조건의 공통 이후 레이어 초기 weight까지 모두 동일하게 맞춘 실험은 아니다. 여러 seed, 더 긴 학습, axis별 scale/threshold 최적화: not run.
+- Gaussian population coding을 제거한 SNN 및 이전 flatten head와의 별도 대조 실험: not run. 따라서 population coding 자체의 효과나 two-stage head의 정확도 이점을 독립적으로 입증한 것은 아니다. Head의 차원/계산/gradient 계약 및 파라미터 감소는 검증했다.
+- Window 정규화/BN과 양방향 observed-patch attention을 사용하는 offline forecaster다. Streaming 인과성, 실제 에너지, GPU/CPU 성능 benchmark: not run.
+- 결론: 구현과 실제 GPU 학습/평가는 정상 완료했지만, 제안한 N축 attention과 identity embedding의 예측 이점은 이번 결과에서 지지되지 않는다. 다음 비교의 기준은 이번 SSA 제거/선형 결과로 삼고, 단순 축 교체나 identity 추가보다 표현 단계 또는 IAND 억제 방식의 영향을 분리해 검증하는 편이 타당하다. 후속 학습은 이번에 실행하지 않았다.
+
+### 산출물과 보존
+
+- 모델: `NSMT/forecasting/simple_test_model_v1.py`.
+- 실행/검증/집계: `NSMT/simple_test_model_v1/forecasting/{run_ett.py,check_experiment.py,summarize_ett.py}`, `scripts/{run_parallel.sh,launch_ett.py}`.
+- 전체 결과표: `NSMT/simple_test_model_v1/forecasting/results/ett-quick-20260910/REPORT.md`.
+- CSV: 같은 폴더의 `summary.csv`, `comparisons.csv`; macro/비교 집계: `aggregate.json`.
+- 사전 정의 행렬 및 실제 GPU/프로세스/종료 기록: `manifest.json`, `completion.json`; 각40개 run JSON은 CLI, config, 데이터/소스 hash, 패키지 환경, epoch history, 발화/gradient, 지표, checkpoint 경로를 포함한다.
+- 비교 그림: 같은 폴더의 `comparison.png`, `comparison.pdf`. 표의 상대 MSE 차이로 생성하고 시각적으로 확인했다.
+- 체크포인트: `NSMT/simple_test_model_v1/forecasting/log/ett-quick-20260910/<dataset>_p<horizon>_<variant>_seed7/best.pt`. 원시 stdout과 runtime copy는 같은 log 아래 로컬에 보존한다. 데이터/checkpoint/원시 콘솔 로그를 Git에 넣거나 삭제하지 않았다.
+
+완료 보존 명령:
+
+```bash
+git add simple_test_model_v1/forecasting/summarize_ett.py simple_test_model_v1/forecasting/results/ett-quick-20260910 ../docs/PROJECT_LOG.md
+git commit -m "experiment: record 40 parallel ETT quick-validation results"
+git tag -a exp/population-spikformer-ett-quick-20260910 -m "Completed 40 ETT quick runs on four GPUs: horizons 96/720, seed 7; no consistent SSA or population-identity gain over controls"
+```
