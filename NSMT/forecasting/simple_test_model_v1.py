@@ -7,6 +7,12 @@ There is NO independent simulation/repetition axis: every LIF runs along T.
     patch: [B,L,C] -> [BC,T,P] -> Gaussian [BC,T,K,P] -> [T,BC,K,P]
     both:  direct current / Bernoulli -> Linear(1 or P,D)-BN-LIF
            -> [T,BC,K,D] -> IAND(SSA), IAND(MLP) -> head -> [B,pred_len,C]
+Default experiment: patch + direct, temporal SSA, scale=1, two-stage head.
+Temporal SSA forms [BC,K,heads,T,T] ONLY after Q/K/V LIF along T, and
+restores [T,BC,K,D] before the attention/output LIFs. Population SSA and
+no-SSA controls are selectable. All observed patches can attend each other.
+Optional learned [K,D] population identity is added AFTER embedding BN and
+BEFORE LIF, initialized N(0,0.01); Gaussian receptive fields remain fixed.
 
 Raw uses a shared 1->D projection PER population neuron. A K->D projection
 would remove the K token axis and cannot produce K-by-K attention.
@@ -24,7 +30,8 @@ rate: one Bernoulli(r) draw per observed time/patch and neuron, also in eval.
 
 Adapted from model_v1/forecasting/ours.py (Embedding, Block) and layers.py
 (SpikLinearLayer, MLP, SSA_rel_scl). Keeps Linear-BN-LIF, softmax-free SSA,
-dim**-0.5 scaling and residual x*(1-branch). Removes Neocortex/replay/aux loss
+and residual x*(1-branch); attn_scale=None restores reference dim**-0.5.
+Removes Neocortex/replay/aux loss
 and temporal repetition. Minimal components are local to avoid the existing
 modules' CUDA-only backend and unrelated imports. Default backend is torch;
 cupy is opt-in on CUDA. Uses PyTorch's default Linear initialization.
@@ -32,15 +39,17 @@ cupy is opt-in on CUDA. Uses PyTorch's default Linear initialization.
 BN aggregates T, BC and K in training, as in the reference. Combined with
 input-window normalization, this is an offline-window forecaster, NOT a
 strictly causal streaming encoder. State resets at EVERY model forward.
-SSA mixes populations at each time, not pairs of time indices; LIF supplies
-temporal memory. IAND can only suppress existing spikes. No positional bias
-is added. K identity remains accessible through the ordered flatten head.
+Population SSA mixes populations at each time; temporal SSA mixes times
+within each population. IAND can only suppress existing spikes. No temporal
+positional bias is added. K identity remains accessible to the ordered head.
 Shared raw 1->D embedding gives SSA no explicit center identity: equal tuning
 responses have equal initial features. Center/learned population embeddings
 would be a separate experiment. At seed 7 with default K=16,D=64,H=8, initial
 SSA output was silent at the reference scale 0.125; attn_scale=1.0 produced
 spikes. Inspect aux['ssa_spikes']; neither scale has forecasting validation.
 
+readout='two_stage': shared Linear(K*D,head_dim) per T, then flatten T and
+Linear(T*head_dim,pred_len). No activation/LIF in this continuous bottleneck.
 readout='flatten' preserves T,K,D (head parameters scale with T*K*D*pred_len).
 'mean' averages T, 'last' selects the final T; both preserve K,D. None return
 the legacy Hippo auxiliary tuple: this standalone file is not trainer-wired.
@@ -54,7 +63,7 @@ Example (from NSMT):
     from forecasting.simple_test_model_v1 import SimpleTestModelV1
     model = SimpleTestModelV1(seq_len=96, pred_len=24, num_population=16)
     prediction, aux = model(torch.randn(2, 96, 7), return_aux=True)
-    # aux['attention'][0]: [96, 14, num_heads, 16, 16], scaled counts,
+    # aux['attention'][0]: [14, 16, num_heads, 12, 12], scaled counts,
     # NOT probabilities or binary spikes. Aux tensors are detached.
 
 Run this file with --smoke-test for synthetic forward/backward checks only.
@@ -107,15 +116,18 @@ class SpikingLinear(nn.Module):
         self.bn = nn.BatchNorm1d(out_dim)
         self.lif = _lif(tau, threshold, backend)
 
-    def forward(self, x):
+    def forward(self, x, population_embedding=None):
         y = self.linear(x)
         y = self.bn(y.reshape(-1, y.shape[-1])).reshape(y.shape)
+        if population_embedding is not None:
+            y = y + population_embedding  # [K,D], shared over N and BC; before LIF.
         return self.lif(y.contiguous())  # [T, BC, K, D]; T is always time.
 
 
 class PopulationSSA(nn.Module):
-    def __init__(self, d_model, num_heads, tau, threshold, backend, bias, attn_scale):
+    def __init__(self, d_model, num_heads, tau, threshold, backend, bias, attn_scale, axis="population"):
         super().__init__()
+        self.axis = axis
         self.num_heads = num_heads
         self.head_dim = d_model // num_heads
         # Preserve the existing Hippo/SSA scale; this is not a softmax temperature.
@@ -133,16 +145,25 @@ class PopulationSSA(nn.Module):
             return z.reshape(t, bc, k_tokens, self.num_heads, self.head_dim).permute(0, 1, 3, 2, 4)
 
         q, key, value = (split_heads(layer(x)) for layer in (self.q, self.k, self.v))
-        scores = (q @ key.transpose(-2, -1)) * self.scale  # [T, BC, H, K, K]
-        z = (scores @ value).transpose(2, 3).reshape(t, bc, k_tokens, d_model)
+        if self.axis == "temporal":
+            # Q/K/V LIFs have ALREADY run along original time, above.
+            # Reorder only the matmul; never run LIF with K or BC as time.
+            q, key, value = (s.permute(1, 3, 2, 0, 4) for s in (q, key, value))
+            scores = (q @ key.transpose(-2, -1)) * self.scale  # [BC,K,H,T,T]
+            z = (scores @ value).permute(3, 0, 1, 2, 4).reshape(t, bc, k_tokens, d_model)
+        else:
+            scores = (q @ key.transpose(-2, -1)) * self.scale  # [T,BC,H,K,K]
+            z = (scores @ value).transpose(2, 3).reshape(t, bc, k_tokens, d_model)
         z = self.proj(self.attn_lif(z.contiguous()))
         return z, scores.detach() if return_attention else None
 
 
 class IANDBlock(nn.Module):
-    def __init__(self, d_model, num_heads, mlp_ratio, tau, threshold, backend, bias, attn_scale):
+    def __init__(self, d_model, num_heads, mlp_ratio, tau, threshold, backend, bias, attn_scale, attention_axis="population"):
         super().__init__()
-        self.attn = PopulationSSA(d_model, num_heads, tau, threshold, backend, bias, attn_scale)
+        self.attn = None if attention_axis == "none" else PopulationSSA(
+            d_model, num_heads, tau, threshold, backend, bias, attn_scale, attention_axis,
+        )
         hidden = int(d_model * mlp_ratio)
         self.mlp = nn.Sequential(
             SpikingLinear(d_model, hidden, tau, threshold, backend, bias),
@@ -150,19 +171,22 @@ class IANDBlock(nn.Module):
         )
 
     def forward(self, x, return_attention=False):
-        branch, attention = self.attn(x, return_attention)
-        x = x * (1.0 - branch)
+        branch, attention = None, None
+        if self.attn is not None:
+            branch, attention = self.attn(x, return_attention)
+            x = x * (1.0 - branch)
         x = x * (1.0 - self.mlp(x))
-        return x, attention, branch.detach() if return_attention else None
+        return x, attention, branch.detach() if return_attention and branch is not None else None
 
 
 class SimpleTestModelV1(nn.Module):
     def __init__(
         self, seq_len=96, pred_len=96, num_population=16, d_model=64,
-        num_heads=8, depth=2, mlp_ratio=2.0, input_mode="raw", patch_size=8,
+        num_heads=8, depth=2, mlp_ratio=2.0, input_mode="patch", patch_size=8,
         stride=None, encoding="direct", population_low=-3.0, population_high=3.0,
-        population_width=1.0, normalize=True, readout="flatten", tau=2.0,
-        threshold=1.0, backend="torch", bias=False, attn_scale=None,
+        population_width=1.0, normalize=True, readout="two_stage", tau=2.0,
+        threshold=1.0, backend="torch", bias=False, attn_scale=1.0,
+        attention_axis="temporal", learn_population_embedding=False, head_dim=64,
     ):
         super().__init__()
         if min(seq_len, pred_len, d_model, num_heads, depth) < 1:
@@ -177,11 +201,14 @@ class SimpleTestModelV1(nn.Module):
             raise ValueError("attn_scale must be finite and positive")
         if input_mode not in ("raw", "patch") or encoding not in ("direct", "rate"):
             raise ValueError("Use input_mode='raw'/'patch' and encoding='direct'/'rate'")
-        if readout not in ("flatten", "mean", "last") or backend not in ("torch", "cupy"):
-            raise ValueError("Use readout='flatten'/'mean'/'last' and backend='torch'/'cupy'")
+        if readout not in ("two_stage", "flatten", "mean", "last") or backend not in ("torch", "cupy"):
+            raise ValueError("Invalid readout or backend")
+        if attention_axis not in ("population", "temporal", "none") or head_dim < 1:
+            raise ValueError("Use attention_axis='population'/'temporal'/'none' and positive head_dim")
         self.seq_len, self.pred_len = seq_len, pred_len
         self.input_mode, self.encoding = input_mode, encoding
         self.normalize, self.readout, self.backend = normalize, readout, backend
+        self.attention_axis = attention_axis
         self.patch_size = 1 if input_mode == "raw" else patch_size
         # Non-overlapping by default; an explicit smaller stride enables overlap.
         self.stride = 1 if input_mode == "raw" else (patch_size if stride is None else stride)
@@ -194,11 +221,18 @@ class SimpleTestModelV1(nn.Module):
         )
         self.embedding = SpikingLinear(self.patch_size, d_model, tau, threshold, backend, bias)
         self.blocks = nn.ModuleList([
-            IANDBlock(d_model, num_heads, mlp_ratio, tau, threshold, backend, bias, attn_scale)
+            IANDBlock(d_model, num_heads, mlp_ratio, tau, threshold, backend, bias, attn_scale, attention_axis)
             for _ in range(depth)
         ])
-        head_steps = self.num_steps if readout == "flatten" else 1
-        self.head = nn.Linear(head_steps * num_population * d_model, pred_len, bias=bias)
+        self.head_compress = nn.Linear(num_population * d_model, head_dim, bias=bias) if readout == "two_stage" else None
+        head_in = self.num_steps * head_dim if readout == "two_stage" else (
+            (self.num_steps if readout == "flatten" else 1) * num_population * d_model
+        )
+        self.head = nn.Linear(head_in, pred_len, bias=bias)
+        # Initialize AFTER shared layers, so E=0 leaves paired model weights identical.
+        self.population_embedding = nn.Parameter(torch.empty(num_population, d_model)) if learn_population_embedding else None
+        if self.population_embedding is not None:
+            nn.init.normal_(self.population_embedding, std=0.01)
 
     def reset_state(self):
         """Clear all membrane state; independent windows never share state."""
@@ -227,7 +261,7 @@ class SimpleTestModelV1(nn.Module):
         patches = series.unfold(-1, self.patch_size, self.stride)  # [BC,T,P]
         population = self.population(patches)  # [BC,T,K,P]
         encoded = torch.bernoulli(population) if self.encoding == "rate" else population
-        z = self.embedding(encoded.permute(1, 0, 2, 3).contiguous())
+        z = self.embedding(encoded.permute(1, 0, 2, 3).contiguous(), self.population_embedding)
         aux = {}
         if return_aux:
             aux = {
@@ -242,7 +276,9 @@ class SimpleTestModelV1(nn.Module):
                 aux["attention"].append(attention)
                 aux["ssa_spikes"].append(ssa_spikes)
                 aux["block_spikes"].append(z.detach())
-        if self.readout == "flatten":
+        if self.readout == "two_stage":
+            features = self.head_compress(z.flatten(2)).transpose(0, 1).reshape(b * c, -1)
+        elif self.readout == "flatten":
             features = z.permute(1, 0, 2, 3).reshape(b * c, -1)
         elif self.readout == "mean":
             features = z.mean(dim=0).reshape(b * c, -1)
@@ -268,6 +304,7 @@ def _smoke_test(device="cpu", backend="torch"):
                     seq_len=13, pred_len=5, num_population=7, d_model=16,
                     num_heads=4, depth=2, patch_size=4, input_mode=mode,
                     encoding=encoding, readout=readout, backend=backend,
+                    attention_axis="population", attn_scale=None,
                 ).to(device)
                 optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
                 x = torch.randn(2, 13, 3, device=device)

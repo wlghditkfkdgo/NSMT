@@ -232,3 +232,41 @@ git add forecasting/simple_test_model_v1.py simple_test_model_v1/forecasting/res
 git commit -m "experiment: snapshot population-coded temporal Spikformer prototype"
 git tag -a exp/population-spikformer-v1-20260910 -m "Implementation snapshot: population coding with natural-time LIF and IAND SSA; CPU/CUDA synthetic checks only, no dataset training"
 ```
+
+
+---
+
+## 2026-09-10 — ETT quick validation 실행 준비 스냅샷
+
+- 목적: patch + direct population coding, N축 multi-head SSA, 선택적 학습 가능한 population identity, 사용자 제안 `KD -> D′ -> ND′ -> H` head를 실제 ETT forecasting에서 비교한다.
+- 브랜치: `exp/population-spikformer-ett-quick`; 기준 commit: `4b9569065b491222648d2fb03e80652124c94e07` (`exp/population-spikformer-v1`). 시작 작업 트리 clean. main 수정/merge/push: not run.
+- 구분/식별: **실행 준비 스냅샷**, tag `exp/population-spikformer-ett-quick-20260910-snapshot`. 본학습 결과는 후속 항목에 append한다.
+- 소스: `NSMT/forecasting/simple_test_model_v1.py`. 기본 patch/direct, temporal SSA, scale=1.0, two_stage head. Q/K/V의 LIF는 `[N,BC,K,D]`에서 N을 따라 실행하고 matmul만 `[BC,K,h,N,D/h]`로 바꿔 `[BC,K,h,N,N]` map을 구한다. 출력은 다시 N-first로 복원하여 LIF 실행. K축 SSA 및 SSA 제거 대조군도 지원한다. IAND SSA/MLP를 유지한다.
+- 학습 가능한 identity는 `[K,D]` parameter이며 embedding BN 뒤/LIF 앞에 더한다. Gaussian 중심/폭은 고정. 추가 embedding은 공통 레이어 뒤에 초기화하여 embedding 유무 비교의 공통 초기 weight를 유지한다. `Normal(0,0.01)` 초기화, BN/입력 window 정규화 유지, strict streaming 모델은 아니다.
+- Head: 모든 patch가 공유하는 bias 없는 `Linear(KD,D′)` 후 시간 위치를 유지해 flatten하고 bias 없는 `Linear(ND′,H)`. 추가 활성화/LIF 없음. 기존 raw/rate/flatten/mean/last 경로는 명시적 옵션으로 남긴다.
+- 실행기: `NSMT/simple_test_model_v1/forecasting/run_ett.py`; queue launcher는 `scripts/launch_ett.py`, 환경 wrapper는 `scripts/run_parallel.sh`. 한 GPU에 한 독립 프로세스, 종료되면 다음 작업. 실패는 기록하고 나머지 작업은 계속한다. mutable queue/lock/PID는 `scripts/queues/`, 원시 stdout/checkpoint는 `log/`, 구성/epoch history/지표/원본 CSV hash는 `results/`의 JSON으로 보존한다.
+- 사전 정의 실험: ETTh1, ETTh2, ETTm1, ETTm2 × prediction length 96,720 × variant population(K축), temporal(N축), temporal_embedding(N축+identity), no_attention(embedding+IAND MLP), linear(공유 per-channel Linear(96,H)+동일 window 정규화) = **40개**, seed=7. 매 test에서 persistence와 window-mean 기준선도 측정한다. 이 행렬은 test 결과를 보고 고른 것이 아니다.
+- 공통 SNN: seq_len=96, patch_size=stride=8, N=12, K=16, D=64, heads=8, depth=2, mlp_ratio=2, D′=64, tau=2, threshold=1, attn_scale=1, range=[-3,3], population_width=1, normalize=True, bias=False, backend=cupy, FP32/TF32 off, deterministic algorithms on.
+- 학습: 전체 train windows, shuffle/drop_last=False, batch_size=128, 최대 10 epoch, early stopping patience=3, AdamW lr=0.001/weight_decay=0.01, MSE loss, gradient clip norm=1, ReduceLROnPlateau(val MSE, factor=0.5, patience=1), 최저 validation MSE checkpoint 복원 후 test. 기존 Hippo 실행기의 L1 loss/50 epoch와 다른 신속 검증 프로토콜이므로 과거 보고서와 통제된 직접 비교가 아니다. 다중 seed/긴 학습: not run.
+- 데이터: `NSMT/forecasting/dataset/ETT-small/{ETTh1,ETTh2,ETTm1,ETTm2}.csv`, 7개 전체 변수(features=M). 기존 hour 12/4/4개월 경계 [8640,11520,14400], minute은 각 4배. Val/test context는 이전 split 끝의 96점을 포함하지만 target은 해당 split 내에 있다. StandardScaler는 train 구간에만 fit. 지표는 이 standardized scale에서 모든 window/horizon/channel 원소를 합산하고 마지막 partial batch도 포함한다. Window stride=1. GPU resident 작은 배열에서 indexing해 모든 window를 읽는다. 임의 데이터 subset은 본실험에 사용하지 않는다.
+- 환경: `/home/yschoi/.conda/envs/snn_recall/bin/python` 3.10.18, torch 1.12.0+cu113, SpikingJelly 0.0.0.0.14, cupy-cuda11x 13.5.1, pandas 2.3.1, numpy 1.26.4, sklearn 1.7.1. GPU 0–3 NVIDIA RTX A6000 각 약 48GiB. 패키지 설치/환경 변경 없음.
+- 검증: `check_experiment.py`의 CPU와 CUDA/CuPy 4가지 모델 조건 통과. 모든 LIF 입력의 first axis=N 확인, einsum 참조 attention/aggregation 일치, shared 2-stage head의 시간/K 순서 및 수동 결과 일치, finite gradient/identity gradient, state reset/BC 변경 확인. 네 ETT × 두 horizon × 세 split의 count 및 첫/마지막 window는 원래 Dataset_ETT_hour/minute와 float32 값까지 일치. 문법/whitespace 통과.
+- 첫 check 실행은 torch를 먼저 import할 때 시스템 libstdc++의 GLIBCXX_3.4.29 누락으로 실패했다. 기존 실행기와 동일하게 conda lib를 LD_LIBRARY_PATH 앞에 둔 후 두 check 모두 통과했다. 학습 wrapper도 이 경로를 설정한다.
+- GPU pilot: ETTh1/p96/temporal, seed7, 1 epoch, **train 4 batches/val-test 2 batches만**. checkpoint 복원 검증 통과, peak GPU memory 약 4.08GiB, 총 약3.12초. 첫 train batch SSA projection 발화율 약2.98%/2.98%; 4 optimizer step 이후 BN running statistics가 아직 부족한 validation은 대부분 침묵했다. Pilot의 부분 test MSE=0.8774057은 전체 benchmark 결과가 아니며 본실험 비교에서 제외한다.
+- 사전 검증 결과: `NSMT/simple_test_model_v1/forecasting/results/check-ett-20260910-{cpu,cuda}.json`, pilot metadata/history/metrics는 `results/pilot-20260910/ETTh1_p96_temporal_seed7.json`. 본학습 MSE/MAE: **not run at this snapshot**.
+
+정확한 검증 명령 (NSMT 작업 디렉터리):
+
+```bash
+/home/yschoi/.conda/envs/snn_recall/bin/python simple_test_model_v1/forecasting/run_ett.py --dataset ETTh1 --pred-len 96 --variant temporal --suite pilot-20260910 --epochs 1 --max-train-batches 4 --max-eval-batches 2 --device cuda:0
+LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH} /home/yschoi/.conda/envs/snn_recall/bin/python simple_test_model_v1/forecasting/check_experiment.py > simple_test_model_v1/forecasting/results/check-ett-20260910-cpu.json
+LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH} /home/yschoi/.conda/envs/snn_recall/bin/python simple_test_model_v1/forecasting/check_experiment.py --device cuda:0 --backend cupy --skip-parity > simple_test_model_v1/forecasting/results/check-ett-20260910-cuda.json
+/home/yschoi/.conda/envs/snn_recall/bin/python -m py_compile forecasting/simple_test_model_v1.py simple_test_model_v1/forecasting/run_ett.py simple_test_model_v1/forecasting/check_experiment.py simple_test_model_v1/forecasting/scripts/launch_ett.py
+git diff --check
+```
+
+스냅샷 이후 본실험 실행 명령 (실제 시작/완료는 후속 항목에 기록):
+
+```bash
+bash simple_test_model_v1/forecasting/scripts/run_parallel.sh --suite ett-quick-20260910 --gpus 0 1 2 3 --epochs 10 --patience 3 --batch-size 128 --seed 7
+```
