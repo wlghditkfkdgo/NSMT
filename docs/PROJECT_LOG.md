@@ -599,3 +599,44 @@ git diff --cached --check
 git commit -m "experiment: record matched population-coding ablation results"
 git tag -a exp/population-coding-ablation-20260911 -m "Completed 96 matched ETT coding ablations: three seeds, Gaussian vs repeated scalar, SSA on/off; neorecall logs and independent audits passed"
 ```
+
+---
+
+## 2026-09-11 — Population-selective membrane memory: 임시 파일 및 개념 검토 snapshot
+
+- 목적/사용자 요청: `NSMT/forecasting/f-LIF_pop_v1.py` 임시 모델 파일을 만들고, 사용자가 제공한 개념 문서를 읽어 이해 내용을 정리하며 학술 선행 연구에 근거해 구체화를 논의한다. 이번 산출물은 설계 논의용 placeholder이며 모델 구현/완료 학습 실험이 아니다.
+- 브랜치 `exp/f-lif-pop-v1`; 선택한 base `7990abd8c1fdcd15eec73e355dd38c6556918f51` (`exp/population-coding-ablation`의 완료 기록 commit). 기존 forecasting 구조와 최신 실험 기록을 이어받기 위해 현재 HEAD에서 새 branch를 만들었다. 조회한 로컬 `origin/main`은 `191f366c6b9dd3cbfaeeb28bb49e7800c8ab488e`; fetch/main 통합/push는 not run.
+- 시작 시 존재한 untracked `NSMT/docs/population_selective_membrane_memory_snn_concept.md`는 읽기만 하고 원문/추적 상태를 보존했다. SHA256 `01355e2a9cb0766632a52095d88a1676c845d4b4041695aea791b3eabbc01336`. 이 사용자 문서는 snapshot commit에 포함하지 않는다.
+- 코드/config 변경: 요청한 파일 하나에 module docstring만 추가했다. Branch B(이질적 LIF population → 과거 막전위 벡터 → 현재 조건부 검색 → 현재 발화 동역학)를 기록하고 reset/storage, relevance, gate, soft/hard selection, output, fractional prior는 미확정으로 명시했다. 실행 가능한 model class/forward/trainer/config 변경은 없다.
+- 이해/구체화 방향: population은 입력 Gaussian coding과 별개인 내부 시간 상태 표현이다. logical neuron 안의 K constituent는 과거 시점 선택을 공유한다. 과거 slot은 그 시점까지의 이력을 요약한 내부 상태이며 원시 관측 하나와 동일하지 않다. 실제 관측/순서 있는 patch 시간축, 같은 sequence의 j<t 읽기, retrieval 전 query 생성과 retrieval 후 기록 순서를 지켜야 한다. 직접 막전위 검색은 원래 f-LIF 이산화/이론을 그대로 구현하지 않는다.
+- 공개 학술 색인/원문을 이용해 관련성을 검토했다(아래는 문헌 검토이며 이 모델의 검증 결과가 아니다): [Ge et al., ICLR 2026](https://proceedings.iclr.cc/paper_files/paper/2026/hash/80b4df828ee59926a5f2422f1c072d88-Abstract-Conference.html)의 fractional history; [Perez-Nieves et al., Nature Communications 2021/PubMed](https://pubmed.ncbi.nlm.nih.gov/34608134/)의 membrane/synaptic time-constant heterogeneity; [Ramsauer et al., Hopfield Networks is All You Need](https://arxiv.org/abs/2008.02217)의 content-addressed vector retrieval; [Limbacher, Özdenizci & Legenstein, arXiv 2022](https://arxiv.org/abs/2205.11276)의 Hebbian SNN associative memory; [SpikeTrack, 2026 원문](https://arxiv.org/html/2602.23963v1)의 spike-query memory retrieval; [PSN, NeurIPS 2023](https://proceedings.neurips.cc/paper_files/paper/2023/hash/a834ac3dfdb90da54292c2c932c997cc-Abstract-Conference.html)의 masked temporal weighting; [Mamba](https://arxiv.org/abs/2312.00752)의 content-dependent state updates.
+- 문헌에 따른 논의 쟁점: retrieval/heterogeneity/SNN attention 각각의 존재를 신규성으로 주장하지 않는다. 이질적 막전위 population을 logical-neuron별 historical slot 및 retrieval 표현으로 사용하는 결합의 효과가 검증 대상이다. Ge의 finite-mixture 비동등성은 고정된 유한 선형 LIF mode 혼합의 정확한 전체 시간 응답에 대한 범위이며 일반적인 finite nonlinear model 불가능성으로 확대하지 않는다.
+- 수식상 추가 해석(본 검토의 추론): Branch B의 `p_alpha(d)=(d+1)^alpha-d^alpha`에서 alpha=1은 균일 시간 prior다. 정규화한 직접 state retrieval은 alpha=1만으로 ordinary LIF로 환원되지 않으며 retrieval strength=0 대조가 필요하다. 초기 논의안은 fixed heterogeneous time constants, population-shared soft retrieval, 별도 memory-use gate, K spike output, post-reset state 저장을 출발점으로 삼고 fractional prior와 hard selection의 추가 효과를 분리하는 것이다. 이 선택들을 코드로 확정하지 않았다.
+- 제안 실험(모두 not run): current context로 정답 lag가 바뀌는 합성 recall/반복 regime 과제; 동일 물리 뉴런 수의 homogeneous/heterogeneous × retrieval on/off; fixed/random/recent retrieval 및 input/spike-state memory 대조. 예측 오차 외 정답 slot 접근, memory intervention, population redundancy를 관찰한다. 제안과 실행 결과를 구분한다.
+- 데이터/분할/전처리/seed/학습 hyperparameter/metrics: 해당 없음; dataset loading, 학습, forecasting 평가, forward/backward, GPU, stability/efficiency benchmark 모두 not run. Checkpoint/원시 log/결과 지표 산출 없음. 산출물은 위 placeholder와 canonical log의 이 append entry다.
+- 환경/검사: Bash/Linux, 기존 `/home/yschoi/.conda/envs/snn_recall/bin/python` 3.10.18 사용. 초기 기본 `python`은 2.7.18이라 pathlib import 검사 실패; 패키지 설치 없이 기존 Python 3.10.18로 재실행하여 AST parse/in-memory compile 통과. 의미 없는 학습/unit test는 추가하지 않았다. `git diff --check`와 staged whitespace 검사를 수행한다.
+- 결론: 아이디어 이해와 최소 설계 논의 준비를 보존하는 snapshot이다. 구현/효과/학습 완료를 주장하지 않는다. Code/log snapshot commit은 annotated tag `exp/f-lif-pop-v1-20260911-snapshot`으로 식별한다.
+
+실제 생성/검사/보존 명령 (cwd NSMT; 파일 및 이 기록은 apply_patch로 작성):
+
+```bash
+git switch -c exp/f-lif-pop-v1 7990abd8c1fdcd15eec73e355dd38c6556918f51
+/home/yschoi/.conda/envs/snn_recall/bin/python --version
+/home/yschoi/.conda/envs/snn_recall/bin/python - <<'PY'
+import ast
+import hashlib
+from pathlib import Path
+p = Path('forecasting/f-LIF_pop_v1.py')
+s = p.read_text()
+ast.parse(s)
+compile(s, str(p), 'exec')
+print('Placeholder syntax: passed')
+concept = Path('docs/population_selective_membrane_memory_snn_concept.md')
+print('Concept SHA256:', hashlib.sha256(concept.read_bytes()).hexdigest())
+PY
+git diff --check
+git add forecasting/f-LIF_pop_v1.py ../docs/PROJECT_LOG.md
+git diff --cached --check
+git commit -m "experiment: scaffold population membrane memory design snapshot"
+git tag -a exp/f-lif-pop-v1-20260911-snapshot -m "Design snapshot only: temporary model placeholder and literature discussion; no implementation or training run"
+```
