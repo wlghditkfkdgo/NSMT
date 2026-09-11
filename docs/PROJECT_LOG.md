@@ -361,3 +361,36 @@ git add simple_test_model_v1/forecasting/summarize_ett.py simple_test_model_v1/f
 git commit -m "experiment: record 40 parallel ETT quick-validation results"
 git tag -a exp/population-spikformer-ett-quick-20260910 -m "Completed 40 ETT quick runs on four GPUs: horizons 96/720, seed 7; no consistent SSA or population-identity gain over controls"
 ```
+
+
+---
+
+## 2026-09-11 — ETT multi-seed 실행 계획과 기준 고정
+
+- 목적: seed7 quick 결과의 작은 차이가 초기화/학습 순서 변화에도 유지되는지 확인한다. 기존 seed7의40개 결과를 재사용하고 seed13/21 각각40개를 추가하여 총120개 결과를 비교한다.
+- 브랜치 `exp/population-spikformer-ett-multiseed`; base commit `6834f10174956bafb03605d629842298cc822b8c`. 시작 clean. 모델/훈련기/단일-seed launcher를 수정하지 않고 기존 프로토콜을 그대로 반복한다. main 통합 및 원격 push: not run.
+- 실행 준비 snapshot tag: `exp/population-spikformer-ett-multiseed-20260911-snapshot`. 완료 학습 태그가 아니다. 새 추가 실행기는 `NSMT/simple_test_model_v1/forecasting/scripts/run_multiseed.sh`.
+- 사전 고정 범위: ETTh1/ETTh2/ETTm1/ETTm2 × pred_len96/720 × population/temporal/temporal_embedding/no_attention/linear × seeds7,13,21. 동일 seed의 동일 task끼리 비교한다. seed7 결과를 보고 특정 조건만 선택하지 않고 전체40개 행렬을 반복한다.
+- 공통 설정은 2026-09-10 quick protocol 그대로: seq_len96, P=stride8, Gaussian K16/D64/heads8/depth2/MLP ratio2, direct, two_stage head D′64, tau2/threshold1/scale1, biasFalse, normalizeTrue, cupy FP32. Gaussian range[-3,3]/width1 고정. embedding 조건만 학습 가능한 [K,D] identity를 사용한다.
+- 데이터: `NSMT/forecasting/dataset/ETT-small/` 4 CSV의7개 변수. Hour 경계8640/11520/14400, minute은4배; val/test의96점 context 포함. Train-only StandardScaler; 모든 train/val/test windows, stride1, drop_lastFalse; train shuffleTrue. 각 결과 JSON에 CSV hash/정규화 statistics/분할 window 수를 보존한다.
+- 학습: AdamW lr0.001/wd0.01, MSE loss, clip norm1, ReduceLROnPlateau(valMSE,factor.5,patience1), max10epochs/early stopping3, batch128. 최저 validation MSE checkpoint 복원 후 전체 test MSE/MAE. Seed별 초기화와 shuffle만 달라진다. Test 결과로 하이퍼파라미터를 바꾸지 않는다.
+- 환경: 기존 `/home/yschoi/.conda/envs/snn_recall/bin/python` 환경과 RTX A6000 GPU0–3 사용. Wrapper가 conda lib를 LD_LIBRARY_PATH에 추가한다. 시작 시4개 GPU 모두 idle. 패키지 설치/환경 변경 not run. 정확한 Python/torch/cupy/CUDA와 패키지 버전은 각 run JSON에 자동 기록한다.
+- 검증: 기존 seed7의40개 manifest 완료 상태/returncode와 모델/훈련기 SHA-256을 현재 파일과 대조해 재사용 가능함을 확인했다. 모델/훈련 코드 변경이 없어 같은 smoke training을 반복하지 않는다. 새 wrapper는 bash -n으로 검사한다.
+- 집계 계획: task별3개 seed의 MSE/MAE 평균과 표본 표준편차(ddof=1), 같은 seed의 paired 차이/승패. 전체 macro는 seed마다8개 task를 먼저 평균하고 그3개 macro의 평균/표준편차를 계산한다. 서로 다른 dataset/horizon을 독립 seed 반복처럼 취급하지 않는다. n=3의 작은 반복만으로 유의성/수렴을 주장하지 않는다.
+- 결과 재사용 경로: `results/ett-quick-20260910/`. 새 결과 경로: `results/ett-multiseed-20260911-seed13/`, `results/ett-multiseed-20260911-seed21/`; 종합 결과 예정 위치 `results/ett-multiseed-20260911/` (모두 `NSMT/simple_test_model_v1/forecasting/` 아래).
+- Checkpoint/stdout은 같은 작업 `log/<suite>/`, mutable queue/lock/PID는 `scripts/queues/`에 로컬 보존. 데이터/checkpoint/원시 로그 업로드나 삭제 없음.
+- 이 snapshot 시점의 seed13/21 학습/성능: **not run**. 완료 후 실제 명령, 시간, 지표와 결론을 append한다.
+
+실행 명령 (NSMT):
+
+```bash
+bash -n simple_test_model_v1/forecasting/scripts/run_multiseed.sh
+bash simple_test_model_v1/forecasting/scripts/run_multiseed.sh
+```
+
+Wrapper는 다음 두 명령을 순서대로 실행하며, 각 명령은4개의 GPU를 병렬 사용한다:
+
+```bash
+bash simple_test_model_v1/forecasting/scripts/run_parallel.sh --suite ett-multiseed-20260911-seed13 --gpus 0 1 2 3 --epochs 10 --patience 3 --batch-size 128 --seed 13
+bash simple_test_model_v1/forecasting/scripts/run_parallel.sh --suite ett-multiseed-20260911-seed21 --gpus 0 1 2 3 --epochs 10 --patience 3 --batch-size 128 --seed 21
+```
