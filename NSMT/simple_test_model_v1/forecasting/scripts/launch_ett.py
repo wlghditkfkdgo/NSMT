@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import fcntl
 import json
+from itertools import product
 import os
 from pathlib import Path
 import shlex
@@ -17,7 +18,7 @@ import threading
 
 TASK = Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(TASK))
-from run_ett import NSMT, write_json
+from run_ett import NSMT, write_json, VARIANTS
 
 
 def main(args):
@@ -30,14 +31,16 @@ def main(args):
     if manifest_path.exists():
         raise FileExistsError("Suite already exists; use a new suite name")
     jobs = []
-    for variant in ("temporal","temporal_embedding","population","no_attention","linear"):
-        for horizon in (720,96):
-            for dataset in ("ETTm1","ETTm2","ETTh1","ETTh2"):
-                command = [sys.executable,str(TASK/"run_ett.py"),"--dataset",dataset,"--pred-len",str(horizon),
-                           "--variant",variant,"--suite",args.suite,"--epochs",str(args.epochs),
-                           "--patience",str(args.patience),"--batch-size",str(args.batch_size),
-                           "--seed",str(args.seed),"--device","cuda:0","--backend","cupy"]
-                jobs.append({"id":f"{dataset}_p{horizon}_{variant}_seed{args.seed}","command":command,"status":"pending"})
+    for seed, variant, horizon, dataset, code in product(
+            args.seeds or [args.seed], args.variants, (720,96),
+            ("ETTm1","ETTm2","ETTh1","ETTh2"), args.population_codes):
+        command = [sys.executable,str(TASK/"run_ett.py"),"--dataset",dataset,"--pred-len",str(horizon),
+                   "--variant",variant,"--suite",args.suite,"--epochs",str(args.epochs),
+                   "--patience",str(args.patience),"--batch-size",str(args.batch_size),
+                   "--seed",str(seed),"--device","cuda:0","--backend","cupy",
+                   "--population-code",code]
+        jobs.append({"id":f"{dataset}_p{horizon}_{variant}_code{code}_seed{seed}",
+                     "seed":seed,"command":command,"status":"pending"})
     manifest = {"suite":args.suite,"created_utc":datetime.now(timezone.utc).isoformat(),
                 "launcher_command":shlex.join([sys.executable,*sys.argv]),"pid":os.getpid(),
                 "gpus":args.gpus,"jobs":jobs}
@@ -56,7 +59,7 @@ def main(args):
             stdout.parent.mkdir(parents=True,exist_ok=True)
             env = os.environ.copy()
             env["CUDA_VISIBLE_DEVICES"] = str(gpu)
-            env["PYTHONHASHSEED"] = str(args.seed)
+            env["PYTHONHASHSEED"] = str(pending['seed'])
             env["OMP_NUM_THREADS"] = "2"
             env["MKL_NUM_THREADS"] = "2"
             env["LD_LIBRARY_PATH"] = str(Path(sys.executable).resolve().parents[1]/"lib") + (
@@ -92,7 +95,13 @@ if __name__=="__main__":
     parser.add_argument("--patience",type=int,default=3)
     parser.add_argument("--batch-size",type=int,default=128)
     parser.add_argument("--seed",type=int,default=7)
+    parser.add_argument('--seeds',nargs='+',type=int)
+    parser.add_argument('--variants',nargs='+',choices=VARIANTS,default=list(VARIANTS))
+    parser.add_argument('--population-codes',nargs='+',choices=('gaussian','repeat'),default=['gaussian'])
     args=parser.parse_args()
     if len(args.gpus)!=len(set(args.gpus)):
         raise ValueError("GPU IDs must be unique")
+    for values in (args.seeds or [args.seed], args.variants, args.population_codes):
+        if len(values) != len(set(values)):
+            raise ValueError('Duplicate experiment conditions')
     main(args)

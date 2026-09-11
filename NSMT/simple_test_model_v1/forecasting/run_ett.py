@@ -32,6 +32,7 @@ TASK = Path(__file__).resolve().parent
 NSMT = TASK.parents[1]
 sys.path.insert(0, str(NSMT))
 from forecasting.simple_test_model_v1 import SimpleTestModelV1
+from experiment_logging import EpochLog, run_directory, run_name, write_args
 
 VARIANTS = ("population", "temporal", "temporal_embedding", "no_attention", "linear")
 
@@ -115,6 +116,7 @@ def make_model(args):
         attn_scale=args.attn_scale, attention_axis={"population": "population", "no_attention": "none"}.get(args.variant, "temporal"),
         learn_population_embedding=args.variant == "temporal_embedding",
         population_low=-3.0, population_high=3.0, population_width=1.0,
+        population_code=getattr(args, 'population_code', 'gaussian'),
     )
     return SimpleTestModelV1(**config), config
 
@@ -181,15 +183,22 @@ def run(args):
     device = torch.device(args.device)
     torch.cuda.set_device(device) if device.type == "cuda" else None
     generator = torch.Generator().manual_seed(args.seed + 1000)
-    run_id = f"{args.dataset}_p{args.pred_len}_{args.variant}_seed{args.seed}"
-    log_dir = TASK / "log" / args.suite / run_id
+    run_id = run_name(args)
+    run_dir = run_directory(TASK, args)
+    log_dir = run_dir / 'log'
+    model_dir = run_dir / 'model_state'
     result_path = TASK / "results" / args.suite / f"{run_id}.json"
-    if log_dir.exists() or result_path.exists():
+    if run_dir.exists() or result_path.exists():
         raise FileExistsError(f"Run already exists; choose another --suite: {run_id}")
     log_dir.mkdir(parents=True)
+    model_dir.mkdir()
     start_time = time.time()
     data = ETTWindows(Path(args.data_root) / f"{args.dataset}.csv", args.dataset, args.seq_len, args.pred_len, device)
     model, model_config = make_model(args)
+    initial_hash = hashlib.sha256()
+    for name, value in model.state_dict().items():
+        initial_hash.update(name.encode())
+        initial_hash.update(value.detach().cpu().numpy().tobytes())
     model = model.to(device)
     monitor = SpikeMonitor(model)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
@@ -199,7 +208,10 @@ def run(args):
         "config": vars(args), "model_config": model_config, "data": data.metadata,
         "git_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=NSMT, text=True).strip(),
         "source_sha256": {str(path.relative_to(NSMT)): sha256(path) for path in
-                          (Path(__file__).resolve(), NSMT / "forecasting/simple_test_model_v1.py")},
+                          (Path(__file__).resolve(), NSMT / "forecasting/simple_test_model_v1.py",
+                           TASK / 'experiment_logging.py')},
+        'initial_state_sha256': initial_hash.hexdigest(),
+        'save_result_path': str(run_dir), 'save_log_path': str(log_dir), 'save_model_state_path': str(model_dir),
         "environment": {"python": sys.version, "torch": torch.__version__,
                         "cuda": torch.version.cuda, "gpu": torch.cuda.get_device_name(device) if device.type == "cuda" else None,
                         "CUDA_VISIBLE_DEVICES": os.environ.get("CUDA_VISIBLE_DEVICES"),
@@ -212,13 +224,19 @@ def run(args):
                      "quick_smoke_only": bool(args.max_train_batches or args.max_eval_batches)},
     }
     write_json(log_dir / "config.json", metadata)
+    saved_args = {**vars(args), 'model_config': model_config,
+                  **{k: metadata[k] for k in ('save_result_path', 'save_log_path', 'save_model_state_path')}}
+    torch.save(saved_args, model_dir / 'config.pt')
+    write_args(run_dir, saved_args)
+    logger = EpochLog(log_dir, kids=0)
     print(json.dumps({"event": "start", "run": run_id, "parameters": metadata["parameters"], "windows": data.counts}), flush=True)
     best, best_epoch, bad_epochs, history = float("inf"), 0, 0, []
-    checkpoint = log_dir / "best.pt"
+    checkpoint = model_dir / "best+model.pt"
     for epoch in range(1, args.epochs + 1):
         epoch_start = time.time()
         model.train()
         train_total = torch.zeros((), device=device, dtype=torch.float64)
+        train_absolute = torch.zeros((), device=device, dtype=torch.float64)
         train_count = 0
         train_rates, gradient_norms = {}, {}
         for index, (x, y) in enumerate(data.batches("train", args.batch_size, generator, args.max_train_batches)):
@@ -236,14 +254,14 @@ def run(args):
                                                                     ("population_embedding", "head.weight", "head_compress.weight"))}
             optimizer.step()
             train_total += loss.detach().double() * y.numel()
+            train_absolute += (prediction.detach() - y).double().abs().sum()
             train_count += y.numel()
         validation, val_rates = evaluate(model, data, "val", args.batch_size, monitor, args.max_eval_batches)
         improved = validation["mse"] < best
         if improved:
             best, best_epoch, bad_epochs = validation["mse"], epoch, 0
             # Save state_dict only; membrane states are reset per forward, never persisted.
-            torch.save({"state_dict": model.state_dict(), "epoch": epoch,
-                        "validation": validation, "model_config": model_config}, checkpoint)
+            torch.save(model.state_dict(), checkpoint)
         else:
             bad_epochs += 1
         record = {"epoch": epoch, "train_mse": float(train_total / train_count), "validation": validation,
@@ -251,7 +269,11 @@ def run(args):
                   "train_first_batch_spikes": train_rates, "val_first_batch_spikes": val_rates,
                   "first_batch_gradient_norms": gradient_norms, "best": improved}
         history.append(record)
+        record['train_mae'] = float(train_absolute / train_count)
         write_json(log_dir / "history.json", history)
+        logger.write(epoch, record['lr'],
+                     {'loss': record['train_mse'], 'mse': record['train_mse'], 'mae': record['train_mae']},
+                     {'loss': validation['mse'], 'mse': validation['mse'], 'mae': validation['mae']})
         print(json.dumps({"event": "epoch", "run": run_id, "epoch": epoch,
                           "train_mse": record["train_mse"], "val_mse": validation["mse"],
                           "best_epoch": best_epoch, "seconds": record["seconds"]}), flush=True)
@@ -259,7 +281,7 @@ def run(args):
         if bad_epochs >= args.patience:
             break
     saved = torch.load(checkpoint, map_location=device)
-    model.load_state_dict(saved["state_dict"])
+    model.load_state_dict(saved)
     restored_val, restored_rates = evaluate(model, data, "val", args.batch_size, monitor, args.max_eval_batches)
     if abs(restored_val["mse"] - best) > 1e-7 * max(1.0, abs(best)):
         raise AssertionError("Restored checkpoint does not reproduce selected validation score")
@@ -270,6 +292,8 @@ def run(args):
               "seconds": time.time() - start_time, "checkpoint": str(checkpoint),
               "peak_gpu_memory_bytes": torch.cuda.max_memory_allocated(device) if device.type == "cuda" else 0}
     write_json(result_path, result)
+    logger.final(result)
+    logger.close()
     print(json.dumps({"event": "complete", "run": run_id, "best_epoch": best_epoch,
                       "test": test, "seconds": result["seconds"], "result": str(result_path)}), flush=True)
     return result
@@ -287,6 +311,7 @@ def parser():
     p.add_argument("--seq-len", type=int, default=96)
     p.add_argument("--patch-size", type=int, default=8)
     p.add_argument("--population", type=int, default=16)
+    p.add_argument('--population-code', choices=('gaussian','repeat'), default='gaussian')
     p.add_argument("--d-model", type=int, default=64)
     p.add_argument("--heads", type=int, default=8)
     p.add_argument("--depth", type=int, default=2)

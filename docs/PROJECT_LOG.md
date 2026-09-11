@@ -479,3 +479,39 @@ git diff --cached --check
 git commit -m "experiment: record three-seed ETT replication results"
 git tag -a exp/population-spikformer-ett-multiseed-20260911 -m "Completed ETT three-seed replication: 80 new GPU runs plus 40 reused seed-7 results; paired statistics independently verified"
 ```
+
+
+---
+
+## 2026-09-11 — Population coding 자체의 효과: 사전 고정 및 neorecall 로그 방식 적용
+
+- 사용자 요청: 앞으로 neorecall_v1 Python과 neorecall_ad_v1/anomaly_detection/log의 저장 관례를 따르고 population coding 자체의 이득을 검증한다.
+- 브랜치 `exp/population-coding-ablation`; base `e59ac8ab4646059fbfa94655e7b0000d91f13cff`. 시작 clean. 완료된 multi-seed 실험을 기준으로 새 branch 생성. main 통합/push not run.
+- 기존4개 SNN 조건은 모두 population coding을 사용했으므로 그 결과만으로 coding 효과를 분리할 수 없었다. 이번은 Gaussian tuning vs clipped affine scalar repeat × temporal SSA vs no SSA의2×2이다. ETTh1/ETTh2/ETTm1/ETTm2 × H96/720 × seeds7/13/21 = **96개 모두 새 실행**; 기존 결과 재사용 없음.
+- `population_code=gaussian`: 기존 fixed Gaussian K16, centers[-3,3], sigma0.4. `repeat`: 동일 범위로 clip한 scalar를 `(z+3)/6`으로[0,1]에 선형 매핑한 뒤K16번 복제. Population 선택성이 없는 대조군이다. 같은 차원/파라미터 수/초기 state_dict/clip 범위/current 범위를 유지한다. 동일 분포나 동일 발화율을 강제하지 않으며 tuning이 만드는 표현 다양성과 발화 변화가 처치의 일부다.
+- K를1로 줄이지 않아 head 축소/파라미터 차이와 혼동하지 않는다. 다만 복제된 슬롯이 독립 feature를 가지지 않으므로 동일 nominal capacity가 동일 effective capacity를 의미하지 않는다. 일반적으로 최적화된 raw SNN과의 비교나 Gaussian 자체의 보편적 우위를 입증하는 실험은 아니다. Unclipped raw, learned raw projection/K1, Gaussian 중심/폭 학습: not run.
+- 나머지 설정 고정: seq96, patch/stride8, direct, N=time, D64/heads8/depth2/MLP ratio2, two-stage head D′64, tau2/threshold1/scale1, normalizeTrue/biasFalse, identity embedding 없음. Gaussian vs repeat 쌍은 동일 seed/axis에서 모든 초기 state_dict hash가 같아야 한다.
+- 데이터/분할/전처리: 기존 ETT-small4 CSV7 features,12/4/4개월 경계(hour8640/11520/14400, minute4배), 이전96점 val/test context, train-only StandardScaler, input-window 정규화. 모든 window, stride1/drop_lastFalse, shuffle generator seed+1000.
+- 학습: AdamW lr.001/wd.01, MSE, clip1, ReduceLROnPlateau(valMSE factor.5 patience1), max10epoch/early-stop3, batch128, best valMSE checkpoint 복원 후 val 재현 검사 및 full test. GPU0–3 RTX A6000 병렬, 기존 snn_recall Python3.10.18/torch1.12.0+cu113/SpikingJelly0.0.0.0.14/CuPy13.5.1, FP32 deterministic/TF32 off. 환경 설치/변경 not run.
+- `neorecall_v1/forecasting/config.py`의 Config, `utils.py`의 EpochLog/EarlyStopping, `test.py`의 final+result.csv 출력과 실제 AD CSV/logargs.txt를 읽고 adapter `experiment_logging.py`를 구현했다. 새 로그: `<task>/log/<suite>/<dataset>/<YYMMDD>/<date+config>/seed<seed>_<variant>_code<code>/` 아래 `logargs.txt`, `log/best_log_0.csv`, `log/final+result.csv`, TensorBoard `log/train_0`/`val_0`, `model_state/config.pt`와 raw state_dict `best+model.pt`.
+- Epoch CSV는 epoch/train_loss/train_mse/train_mae/val_loss/val_mse/val_mae, 소수6자리. Final CSV는 측정한 forecasting loss/MSE/MAE와 parameters/best_epoch/seed만 기록한다. AD detection 지표나 측정하지 않은 energy/ops를 만들어 넣지 않는다. 원본 정밀도/config/provenance는 results JSON으로 유지한다. Text CSV/logargs는 Git, TensorBoard raw events/checkpoints/stdout은 로컬 보존. 미래 관례를 root AGENTS.md에 추가했다. 기존 기록 이동/삭제 없음.
+- CPU 및 GPU/CuPy 검증 passed: 두 axis에서 gaussian/repeat/기존 base 모델 초기 state_dict 동일, 기존 Gaussian forward/gradient bitwise 동일, repeat endpoint/clip/slot 동일성, embedding gradient nonzero, N축 유지, forward 사이 state reset. 결과 `results/ett-population-ablation-20260911/check_model_cpu.json`, `check_model_gpu.json`.
+- ETTh1/H96 Gaussian/repeat 각각1epoch, train/eval2batch smoke passed. CSV 반올림, TensorBoard train/val loss/mse/mae scalar, logargs/config/checkpoint 경로와 paired 초기 hash 확인. `check_logging.json`; smoke 원본은 `results/population-ablation-smoke-20260911/`. Smoke는 실제 예측 성능 판단에 사용하지 않는다.
+- 집계 사전 계획: 각 axis에서 같은 task/seed의 Gaussian−repeat ΔMSE/MAE, task별3-seed 평균/표본 SD, seed마다8개 task macro 후3-seed 평균/SD. 추가로 ΔMSE의 SSA on−off 차이로 coding 효과의 attention 의존성을 살핀다. n=3/짧은 예산으로 유의성이나 수렴을 주장하지 않는다.
+- 준비 tag `exp/population-coding-ablation-20260911-snapshot`은 코드/검증 snapshot이다. 이 시점의96개 full training은 **not run**. 실제 실행/완료 결과를 append한다.
+
+검증/실행 명령 (cwd NSMT; 아래 Python 환경 lib를 LD_LIBRARY_PATH에 설정):
+
+```bash
+env LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python simple_test_model_v1/forecasting/check_population_ablation.py
+env LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python simple_test_model_v1/forecasting/check_population_ablation.py --device cuda:0 --backend cupy
+# Smoke commands are preserved verbatim in each smoke result JSON.
+bash -n simple_test_model_v1/forecasting/scripts/run_population_ablation.sh
+bash simple_test_model_v1/forecasting/scripts/run_population_ablation.sh
+```
+
+Wrapper의 정확한 launcher 인수:
+
+```bash
+bash simple_test_model_v1/forecasting/scripts/run_parallel.sh --suite ett-population-ablation-20260911 --gpus 0 1 2 3 --variants temporal no_attention --population-codes gaussian repeat --seeds 7 13 21 --epochs 10 --patience 3 --batch-size 128
+```

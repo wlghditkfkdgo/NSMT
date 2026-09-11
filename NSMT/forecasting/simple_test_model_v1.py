@@ -13,6 +13,9 @@ restores [T,BC,K,D] before the attention/output LIFs. Population SSA and
 no-SSA controls are selectable. All observed patches can attend each other.
 Optional learned [K,D] population identity is added AFTER embedding BN and
 BEFORE LIF, initialized N(0,0.01); Gaussian receptive fields remain fixed.
+population_code='repeat' removes tuning: the same clipped scalar is mapped
+linearly to [0,1] and repeated K times. It matches tensor shape, parameters,
+clipping and current range; repeated slots have no population selectivity.
 
 Raw uses a shared 1->D projection PER population neuron. A K->D projection
 would remove the K token axis and cannot produce K-by-K attention.
@@ -98,6 +101,20 @@ class GaussianPopulationCoding(nn.Module):
         x = x.clamp(self.centers[0], self.centers[-1])
         distance = (x.unsqueeze(-2) - self.centers.view(1, 1, -1, 1)) / self.sigma
         return torch.exp(-0.5 * distance.square())
+
+
+class RepeatedScalarCoding(GaussianPopulationCoding):
+    """No tuning: clipped affine amplitude, identical in every K slot.
+
+    Keep the same buffers and construction order as Gaussian coding, so paired
+    models have bitwise identical initial state_dicts and parameter counts.
+    K repeats match nominal capacity, not independent feature diversity.
+    """
+
+    def forward(self, x):
+        low, high = self.centers[0], self.centers[-1]
+        amplitude = (x.clamp(low, high) - low) / (high - low)
+        return amplitude.unsqueeze(-2).expand(*x.shape[:-1], self.centers.numel(), x.shape[-1])
 
 
 def _lif(tau, threshold, backend):
@@ -187,6 +204,7 @@ class SimpleTestModelV1(nn.Module):
         population_width=1.0, normalize=True, readout="two_stage", tau=2.0,
         threshold=1.0, backend="torch", bias=False, attn_scale=1.0,
         attention_axis="temporal", learn_population_embedding=False, head_dim=64,
+        population_code="gaussian",
     ):
         super().__init__()
         if min(seq_len, pred_len, d_model, num_heads, depth) < 1:
@@ -205,6 +223,9 @@ class SimpleTestModelV1(nn.Module):
             raise ValueError("Invalid readout or backend")
         if attention_axis not in ("population", "temporal", "none") or head_dim < 1:
             raise ValueError("Use attention_axis='population'/'temporal'/'none' and positive head_dim")
+        if population_code not in ("gaussian", "repeat"):
+            raise ValueError("Use population_code='gaussian'/'repeat'")
+        self.population_code = population_code
         self.seq_len, self.pred_len = seq_len, pred_len
         self.input_mode, self.encoding = input_mode, encoding
         self.normalize, self.readout, self.backend = normalize, readout, backend
@@ -216,7 +237,8 @@ class SimpleTestModelV1(nn.Module):
             raise ValueError("Require 1 <= stride <= patch_size to avoid omitted observations")
         self.num_steps = 1 + max(0, math.ceil((seq_len - self.patch_size) / self.stride))
         self.pad_right = (self.num_steps - 1) * self.stride + self.patch_size - seq_len
-        self.population = GaussianPopulationCoding(
+        coder = GaussianPopulationCoding if population_code == "gaussian" else RepeatedScalarCoding
+        self.population = coder(
             num_population, population_low, population_high, population_width,
         )
         self.embedding = SpikingLinear(self.patch_size, d_model, tau, threshold, backend, bias)
