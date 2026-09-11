@@ -515,3 +515,87 @@ Wrapper의 정확한 launcher 인수:
 ```bash
 bash simple_test_model_v1/forecasting/scripts/run_parallel.sh --suite ett-population-ablation-20260911 --gpus 0 1 2 3 --variants temporal no_attention --population-codes gaussian repeat --seeds 7 13 21 --epochs 10 --patience 3 --batch-size 128
 ```
+
+
+---
+
+## 2026-09-11 — Population coding 삭제 대조 실험 완료: 96 new runs
+
+### 실행 및 보존 기준
+
+- 앞선 계획의96개 full ETT 실험을 모두 새로 학습/평가했다. Gaussian/repeat × N축 SSA/no SSA × ETTh1/ETTh2/ETTm1/ETTm2 × H96/720 × seed7/13/21. 완료96, 실패0, 기존 결과 재사용0.
+- 브랜치 `exp/population-coding-ablation`; base `e59ac8ab4646059fbfa94655e7b0000d91f13cff`. 모든 full run의 훈련 commit은 준비 snapshot commit `664c9ec247c2f7f55721ec57ac8239e3e6126128`. 완료 기록/분석 코드/결과를 포함하는 commit은 annotated tag `exp/population-coding-ablation-20260911`로 식별한다. `...-snapshot` 태그와 구분한다.
+- 실행 중 모델/훈련기/logger/launcher를 수정하지 않았다. 집계/검증/그림 코드만 추가했다. Seed별 초기화와 shuffle 외 설정 변경 및 test 기반 튜닝 없음. main 통합/push not run.
+- 훈련 설정은 계획 그대로: 입력96, H96/720, patch/stride8, K16/D64/heads8/depth2, direct, N=time, fixed Gaussian 또는 clipped affine repeat, identity 없음, two-stage head64, tau2/threshold1/scale1, normTrue/biasFalse. AdamW lr.001/wd.01, MSE/clip1, ReduceLROnPlateau(valMSE factor.5 patience1), batch128, 최대10epoch/early-stop3, 최소 validation MSE checkpoint 선택.
+- 데이터는 ETT-small4 CSV7변수,12/4/4개월 분할 및 train-only StandardScaler, val/test 앞96점 context, 모든 window/전체 target 평가. 앞선 계획의 경계/전처리 동일. 전체96개 code/config/environment 일치 및48개 coding pair의 data/model config/초기 state hash/파라미터 수 일치를 검사했다.
+- 환경은 기존 Python3.10.18, torch1.12.0+cu113/CUDA11.3, SpikingJelly0.0.0.0.14, CuPy13.5.1, numpy1.26.4/pandas2.3.1/sklearn1.7.1, RTX A6000 GPU0–3, FP32/deterministic/TF32 off. 패키지 설치/환경 변경 not run.
+- GPU 병렬 wall time:2026-09-11 14:20:23.217–14:46:03.950 KST,1540.733초(**25분41초**). GPU0/1/2/3 작업 수27/17/24/28, 각GPU 동시에1개 process. 최대 torch allocated memory4.092GiB/run. CLI/시작종료/PID/GPU는 manifest/completion 및 개별 result JSON에 보존.
+- 파라미터 수는 coding pair에서 정확히 같다: SSA사용 H96/720 =207232/686464, SSA제거 =173440/652672. SSA on/off 자체는 서로 다른 파라미터 수다.
+
+### 기록 방식 적용과 검증
+
+- 사용자 지정 neorecall 방식으로96개 모두 기록했다. `<task>/log/ett-population-ablation-20260911/<dataset>/260911/<date+config>/seed<seed>_<variant>_code<code>/` 아래 `logargs.txt`, `log/best_log_0.csv`, `log/final+result.csv`, `log/train_0`, `log/val_0`, `model_state/config.pt`, raw state_dict `model_state/best+model.pt`.
+- Epoch CSV는 MSE loss에 맞춘 train/val loss/MSE/MAE,6자리 출력이다. 실제 값은 full-precision JSON에도 보존했다. Final CSV에는 측정한 loss/MSE/MAE,parameters,best_epoch,seed를 기록한다. AD 지표/측정하지 않은 energy/ops를 대신 채우지 않는다. Epoch 번호는 기존 standalone 훈련기의1-based 번호를 유지한다.
+- 독립 NumPy [seed,task,axis,code,metric] tensor로32개 task mean/SD,32개 paired mean/SD와 상대변화/승패,4개 macro와 interaction을 재계산하여 통과했다. n=3 표본 SD(ddof1), macro는 각 seed 안에서8개 task를 먼저 평균한다.
+- 96개 전체에서 CSV↔history/최종JSON(반올림 허용치5.01e-7), TensorBoard train/val loss/MSE/MAE 값/step 수, config.pt 설정, raw checkpoint key/shape/finite weights, provenance hash를 검사했다.48개 pair의 초기 state hash/파라미터 수 동일. 상태 passed (`check_summary.json`).
+- 모델/훈련기 source hash는96개 모두 동일하고 현재 소스와 일치한다. Gaussian48개를 과거 해당 seed/axis/task 결과와 사후 대조했을 때 test MSE 차이는 모두 정확히0이었다. 로그 방식 변경이 보고 지표를 바꾸지 않았다는 재현 확인이며, 과거 결과를 현재 집계에 재사용한 것은 아니다.
+- 입력 transform 그림과 paired 변화 그림의 PNG를 시각적으로 확인했다. Error bar는 seed 간 표본 SD이며 confidence interval이 아니다. 첫 test batch embedding은 모든 run에서 발화했고, test MSE/MAE가 window-mean baseline과 완전히 같은 run은0개였다. 전체 split 발화율/에너지 검증은 아니다.
+
+실제 명령 (cwd NSMT):
+
+```bash
+bash simple_test_model_v1/forecasting/scripts/run_population_ablation.sh
+/home/yschoi/.conda/envs/snn_recall/bin/python -m py_compile simple_test_model_v1/forecasting/summarize_population_ablation.py simple_test_model_v1/forecasting/check_population_summary.py
+/home/yschoi/.conda/envs/snn_recall/bin/python simple_test_model_v1/forecasting/plot_population_control.py
+/home/yschoi/.conda/envs/snn_recall/bin/python simple_test_model_v1/forecasting/summarize_population_ablation.py --allow-partial > simple_test_model_v1/forecasting/log/ett-population-ablation-20260911/summary.stdout
+/home/yschoi/.conda/envs/snn_recall/bin/python simple_test_model_v1/forecasting/summarize_population_ablation.py --plot > simple_test_model_v1/forecasting/log/ett-population-ablation-20260911/summary.stdout
+env LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python simple_test_model_v1/forecasting/check_population_summary.py > simple_test_model_v1/forecasting/results/ett-population-ablation-20260911/check_summary.json
+# Report wording/relative-percentage column was added after the audit; statistics were unchanged.
+/home/yschoi/.conda/envs/snn_recall/bin/python simple_test_model_v1/forecasting/summarize_population_ablation.py > simple_test_model_v1/forecasting/log/ett-population-ablation-20260911/summary.stdout
+```
+
+### 지표
+
+각 seed에서8개 task를 같은 가중치로 평균한 뒤,3개 seed의 평균±표본 SD다. Test metric은 train-standardized scale의 전체 window/horizon/channel 평균이다.
+
+| Variant | Macro MSE mean ± SD | Macro MAE mean ± SD |
+|---|---:|---:|
+| temporal_gaussian | 0.380714 ± 0.000697 | 0.402519 ± 0.000602 |
+| temporal_repeat | 0.395050 ± 0.001073 | 0.408129 ± 0.000651 |
+| no_attention_gaussian | 0.381705 ± 0.001340 | 0.402975 ± 0.000896 |
+| no_attention_repeat | 0.398110 ± 0.001580 | 0.409543 ± 0.001031 |
+
+Coding 효과는 같은 axis/task/seed의 Gaussian−repeat다. 상대 변화는 task마다100×(Gaussian/repeat−1)을 계산한 후 평균한다 (macro MSE 비율과 다름).
+
+| SSA | Metric | Macro Δ mean ± SD | Mean task-relative change (%) ± SD | Seed-task wins | All-3-seed task wins |
+|---|---|---:|---:|---:|---:|
+| temporal | mse | -0.014335 ± 0.001226 | -3.0518 ± 0.2856 | 19/24 | 6/8 |
+| temporal | mae | -0.005610 ± 0.000580 | -1.1539 ± 0.1428 | 19/24 | 6/8 |
+| no_attention | mse | -0.016405 ± 0.001385 | -3.4264 ± 0.3295 | 19/24 | 6/8 |
+| no_attention | mae | -0.006568 ± 0.000613 | -1.3641 ± 0.1291 | 18/24 | 5/8 |
+
+### 해석과 한계
+
+- **이 고정된 SNN과 짧은 예산에서 Gaussian tuning을 유지하는 이득이 확인됐다.** N축 SSA 사용 시3개 seed 모두 macro MSE가 개선됐고 task별 상대 변화 평균은-3.0518%±0.2856%p, SSA 제거 시-3.4264%±0.3295%p였다. 각 axis에서19/24개 seed-task 승,6/8개 task는 세 seed 모두 개선됐다. 앞선 attention/identity 비교와 달리 coding 삭제 효과는 반복 seed에서 일관된 방향이었다.
+- 양쪽 axis 모두 평균상 개선되지 않은 task는 ETTm1/H96와 ETTm2/H720다. SSA사용 기준 ETTh1/H720은 평균 상대 MSE-12.4305%로 가장 큰 개선, ETTh1/H96은-5.0193%였다. ETTm2/H720은+2.3944%로 세 seed 모두 악화했다. 따라서 모든 ETT 조건에 유리하다는 주장은 하지 않는다.
+- Coding 효과의 SSA-on minus SSA-off interaction은 ΔMSE+0.002070±0.001679, ΔMAE+0.000958±0.000484다. 평균적으로 coding 이득은 SSA 없이도 나타나고 조금 더 크다. 이 숫자만으로 interaction의 통계적 유의성을 주장하지 않는다.
+- Gaussian48개는 모두 early-stop(SSA4–6epoch, noSSA4–9epoch). Repeat48개 중14개는10epoch 상한에 도달(SSA9, noSSA5),6개는epoch10이 best였다(SSA5,noSSA1). **긴 학습 후 같은 격차가 남는지는 미확인**이다. 이번은 같은 최대 예산/early-stop 설정에서의 정확도와 최적화 결과를 함께 본 것이다.
+- 이 대조군은 scalar를clip/affine 후K개 슬롯에 복제한다. 차원과 nominal parameter 수/초기화를 맞추지만, 독립 feature diversity와 head gradient 구조까지 같아지는 것은 아니다. 반복 feature는 head gradient도 결합시킨다. 따라서 고정 구조 안의 삭제 대조 결과이며 일반적으로 최적화된 raw SNN 전체에 대한 Gaussian 우위의 증명이 아니다.
+- 입력 분포/발화율을 동일하게 강제하지 않았다. Gaussian의 비선형 tuning이 만드는 representation/발화/optimization 차이가 처치의 일부다. 실제 에너지/전체 발화율, 긴 학습, K1 또는 독립적으로 학습한 raw projection, Gaussian 중심/폭 학습, 별도 threshold/scale 튜닝: not run.
+- n=3 seed는 같은 데이터 분할의 초기화/순서 변동이다. 독립 데이터셋 반복이나 통계적 유의성/수렴을 입증하지 않는다. 다음 검토 대상으로는 raw K1/learned-projection 대조와 충분한 학습 예산이 적절하나 이번96개 범위에는 추가 실행하지 않았다.
+
+### 산출물 및 완료 보존
+
+- `NSMT/simple_test_model_v1/forecasting/results/ett-population-ablation-20260911/`:96개 원본 result JSON, manifest/completion, `REPORT.md`, `per_run.csv`(96), `per_task.csv`(32), `paired.csv`(32), aggregate/provenance, CPU/GPU/logging/summary checks, `input_transforms.png/pdf`, `comparison.png/pdf`.
+- `per_run.csv`는 각 neorecall 형식의 log 절대 경로를 제공한다. Epoch/final CSV 및 logargs.txt는 Git에 보존하고, TensorBoard events/config.pt/checkpoint/stdout/runtime copy는 로컬에 보존한다. Canonical log는 이 파일 하나이며 NSMT/docs/PROJECT_LOG.md의 기존 연결을 유지한다.
+- 모델 변경: `forecasting/simple_test_model_v1.py`의 선택적 `population_code=repeat`; 기존 Gaussian 기본 동작 보존. 저장 방식/훈련기/launcher/새 실행기는 준비 commit에, 분석기 `summarize_population_ablation.py`, 독립 검사기 `check_population_summary.py`, 그림 생성기 `plot_population_control.py`는 완료 commit에 보존한다.
+- 원시 artifact 삭제, 데이터/checkpoint/event upload, main 통합/원격 push: not run. 완료 annotated tag `exp/population-coding-ablation-20260911`.
+
+완료 보존 명령:
+
+```bash
+git add ../docs/PROJECT_LOG.md simple_test_model_v1/forecasting/summarize_population_ablation.py simple_test_model_v1/forecasting/check_population_summary.py simple_test_model_v1/forecasting/plot_population_control.py simple_test_model_v1/forecasting/results/ett-population-ablation-20260911 simple_test_model_v1/forecasting/log/ett-population-ablation-20260911
+git diff --cached --check
+git commit -m "experiment: record matched population-coding ablation results"
+git tag -a exp/population-coding-ablation-20260911 -m "Completed 96 matched ETT coding ablations: three seeds, Gaussian vs repeated scalar, SSA on/off; neorecall logs and independent audits passed"
+```
