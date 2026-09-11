@@ -394,3 +394,88 @@ Wrapper는 다음 두 명령을 순서대로 실행하며, 각 명령은4개의 
 bash simple_test_model_v1/forecasting/scripts/run_parallel.sh --suite ett-multiseed-20260911-seed13 --gpus 0 1 2 3 --epochs 10 --patience 3 --batch-size 128 --seed 13
 bash simple_test_model_v1/forecasting/scripts/run_parallel.sh --suite ett-multiseed-20260911-seed21 --gpus 0 1 2 3 --epochs 10 --patience 3 --batch-size 128 --seed 21
 ```
+
+
+---
+
+## 2026-09-11 — ETT 3-seed replication 완료 (120 results, 80 new runs)
+
+### 목적과 기준
+
+- Seed7의 구조 간 작은 차이가 seed13/21에서도 유지되는지 전체 행렬을 반복 검증했다. ETTh1/ETTh2/ETTm1/ETTm2 × H96/720 × 5 variants × seeds7/13/21 = 120개 결과이며, 기존 seed7의40개는 원본 위치에서 재사용하고80개만 새로 학습했다. 모든 새 작업 returncode0, 실패0.
+- 브랜치 `exp/population-spikformer-ett-multiseed`, base `6834f10174956bafb03605d629842298cc822b8c`, 실행 준비 commit `4a28741bce8b38848e171014ce1825d3cea1d866`. 준비 snapshot tag는 앞선 계획 항목에 기록되어 있다. 이 완료 항목과 결과/집계 코드를 포함하는 commit은 annotated tag `exp/population-spikformer-ett-multiseed-20260911`로 식별한다.
+- 모델/훈련기/단일-seed launcher/기존 seed7 결과는 변경하지 않았다. 새 코드는 `scripts/run_multiseed.sh`, `summarize_multiseed.py`, `check_multiseed_summary.py`다. Seed7의 훈련 당시 commit은 `9fca022c79358ea705ae9940034a0cdbad0bc0ce`, 새 훈련 commit은 위 준비 commit이며 모델/훈련기 파일 hash가 동일함을120개 전체에서 확인했다.
+- 모델 SHA256: `50a7362cdde6efc625ee0efa25c2a434091d0abf154ad463b6d51b1c30795402`; 훈련기 SHA256: `8e3e13c8af8e6c9c34849fee920629c96f6bb9eae5b3273d9f4968440ff6b1ca`.
+
+### 데이터, 설정, 실행 환경
+
+- 데이터는 `NSMT/forecasting/dataset/ETT-small/`의4개 CSV,7개 변수, 표준12/4/4개월 분할이다. Hour 경계8640/11520/14400, minute은4배; validation/test에는 이전96점 context를 포함하되 예측 target은 해당 split 안에 있다. Train-only StandardScaler, 입력 window 정규화, 모든 window 사용, stride1/drop_lastFalse. 모든 seed에서 CSV hash, scaler, window 수, model config와 protocol metadata가 동일함을 검사했다.
+- 입력96, 예측96/720, patch/stride8, K16/D64/heads8/depth2/MLP ratio2, direct coding, LIF time=N, two-stage head D′64, tau2/threshold1/attention scale1, biasFalse, normalizeTrue. Gaussian 중심[-3,3]/width1은 고정; temporal_embedding만 학습 가능한[K,D] identity를 추가한다. Gaussian 중심/폭 학습 실험이 아니다.
+- AdamW lr0.001/wd0.01, MSE loss, clip norm1, ReduceLROnPlateau(valMSE,factor0.5,patience1), batch128, max10epochs/early stopping3. Validation MSE 최소 checkpoint 복원 후 validation 재현 검사 및 전체 test 평가. Test로 설정을 조정하지 않았다.
+- Python3.10.18, torch1.12.0+cu113/CUDA11.3, SpikingJelly0.0.0.0.14, CuPy13.5.1, numpy1.26.4, pandas2.3.1, sklearn1.7.1. RTX A6000 GPU0–3, FP32/CuPy, deterministic algorithms, TF32 off. 환경 변경/패키지 설치 not run.
+- 실제 실행: seed13 suite는2026-09-11 13:33:28.740–13:42:08.897 KST (520.157초), seed21은13:42:10.926–13:50:59.580 KST (528.653초). 두 suite는 순차 실행하고 각 suite에서4 GPU를 병렬 사용했다. 시작부터 최종 완료까지1050.839초, 약17분31초. 각 suite GPU별 작업 수0/1/2/3 = 9/10/11/10. 최대 torch allocated GPU memory는4.378GiB/run이었다.
+- 새 SNN64개 모두 early stopping: seed13은4/5/8/9epoch = 16/14/1/1개, seed21은4/5/6epoch = 15/13/4개. 새 linear16개 중13개가10epoch 제한에 도달했다. 짧은 예산 아래 비교이며 수렴 확인은 아니다.
+
+실제 실행/집계/검증 명령 (cwd NSMT):
+
+```bash
+bash -n simple_test_model_v1/forecasting/scripts/run_multiseed.sh
+bash simple_test_model_v1/forecasting/scripts/run_multiseed.sh
+/home/yschoi/.conda/envs/snn_recall/bin/python -m py_compile simple_test_model_v1/forecasting/summarize_multiseed.py simple_test_model_v1/forecasting/check_multiseed_summary.py
+/home/yschoi/.conda/envs/snn_recall/bin/python simple_test_model_v1/forecasting/summarize_multiseed.py --allow-partial > simple_test_model_v1/forecasting/log/multiseed-summary.stdout
+/home/yschoi/.conda/envs/snn_recall/bin/python simple_test_model_v1/forecasting/summarize_multiseed.py --plot > simple_test_model_v1/forecasting/log/multiseed-summary.stdout
+/home/yschoi/.conda/envs/snn_recall/bin/python simple_test_model_v1/forecasting/check_multiseed_summary.py > simple_test_model_v1/forecasting/results/ett-multiseed-20260911/checks.json
+```
+
+Wrapper의 두 정확한 launcher command는 앞선 계획 entry와 각 suite의 manifest/completion에,120개 개별 훈련 CLI는 원본 result JSON에 보존되어 있다. Partial 집계는 진행 확인에만 사용했고 최종 파일은 strict 모드로 다시 생성했다.
+
+### 결과와 검증
+
+아래 macro는 seed마다8개 dataset/horizon task를 먼저 평균한 후, 그3개 평균의 평균 ± 표본 표준편차(ddof=1)다. 서로 다른 task 간 분산을 seed 분산으로 계산하지 않았다. 개별 task 지표는 train-standardized scale에서 전체 test window/horizon/channel 평균이다.
+
+| Variant | Macro MSE mean ± SD | Macro MAE mean ± SD |
+|---|---:|---:|
+| population | 0.380846 ± 0.001601 | 0.402101 ± 0.001247 |
+| temporal | 0.380714 ± 0.000697 | 0.402519 ± 0.000602 |
+| temporal_embedding | 0.380848 ± 0.001050 | 0.402922 ± 0.000943 |
+| no_attention | 0.381705 ± 0.001340 | 0.402975 ± 0.000896 |
+| linear | 0.373984 ± 0.000097 | 0.389648 ± 0.000183 |
+
+Paired ΔMSE = tested minus reference, 동일 task/seed로 짝지었다. 음수는 개선이다.
+
+| Tested vs reference | Macro ΔMSE mean ± SD | Seed-task wins | 3-seed mean task wins | All-3-seed task wins |
+|---|---:|---:|---:|---:|
+| temporal vs population | -0.000132 ± 0.001151 | 12/24 | 5/8 | 1/8 |
+| temporal_embedding vs temporal | 0.000134 ± 0.000769 | 14/24 | 5/8 | 2/8 |
+| temporal vs no_attention | -0.000991 ± 0.001277 | 10/24 | 4/8 | 0/8 |
+| temporal vs linear | 0.006730 ± 0.000674 | 6/24 | 2/8 | 1/8 |
+
+- Strict 집계 검증 passed:120개 행렬 완전성, manifest/completion status 및 returncode, finite MSE/MAE, 전체 val/test element 수, best validation checkpoint, code/config/data/environment 일치.
+- 별도 NumPy [seed,task,variant,metric] tensor로 원본 JSON을 읽어40개 task 평균/표준편차,5개 macro,32개 paired 결과 및 승패를 독립 재계산해 일치 확인했다.120개 checkpoint 존재와 provenance SHA256, 기존40개 재사용 여부도 통과했다. 결과는 `checks.json`에 기록했다.
+- 생성 PNG를 시각적으로 확인했다. Error bar는 표본 SD이며 confidence interval이 아니다. 모델/훈련기 변경이 없으므로 앞선 CPU/GPU backbone/loader smoke checks를 반복하지 않았다 (이번 반복 실행 not run). 이번80개 실제 GPU 학습/평가 및 checkpoint 재평가는 완료했다.
+
+### 해석과 한계
+
+- N축 vs K축 평균 ΔMSE는-0.000132이지만 paired seed SD0.001151이며 seed별 macro 우열이 바뀐다. 전체12/24 승, 세 seed 모두 이기는 task는1/8이다. N축 선택의 일관된 이점은 확인되지 않았다.
+- N축 vs SSA 제거는 평균-0.000991, paired SD0.001277이다. 평균상 이득은 있지만10/24 승, task 평균4/8 승, 세 seed 모두 이기는 task0/8이다. SSA 추가가 안정적으로 도움이 된다는 근거는 부족하다.
+- Identity embedding은 seed7/13 macro에서 소폭 개선했으나 seed21에서는 악화했다. 합산 macro ΔMSE+0.000134, 세 seed 모두 이긴 task2/8이다. 학습 가능한 identity의 일반적 이점은 지지되지 않는다. Task별 상대 변화의 평균(-0.0503%)과 절대 macro ΔMSE(+0.000134)는 가중 방식이 달라 부호가 다를 수 있다.
+- 선형 모델의 macro MSE/MAE가 모든 seed에서 더 낮다. N축 모델의 macro ΔMSE는+0.006730 ±0.000674이고, task별 상대 MSE 변화 평균은+1.8649%다. N축은3-seed task 평균상 ETTm1의96/720에서만 선형 모델보다 MSE가 낮고, ETTm1/720만 세 seed 모두 이긴다. MAE는24개 모든 seed-task 쌍에서 선형 모델이 낮다.
+- 결론: multi-seed는 작은 단일-seed 개선을 구조의 효과로 오해하지 않도록 하는 데 유용했다. 현재 짧은 고정 프로토콜에서 attention 축 변경과 identity 추가의 안정적 우위는 확인하지 못했다. 추가 seed만 늘리기보다 population frontend 또는 IAND 억제 효과를 각각 분리한 대조 실험이 다음 설계 검토 대상이다. 이 후속 실험은 not run.
+- n=3이고 seed7을 보고 반복 검증을 시작했다. 동일한 데이터 분할에서 초기화/학습 순서 변동을 본 것이며 데이터셋 일반화, 수렴, 통계적 유의성 검증은 아니다. Seed를 짝지어도 파라미터 집합이 다른 SSA 제거 구조의 공통 후속 레이어 초기화까지 동일한 것은 아니다.
+- Population coding 없는 SNN, Gaussian 중심/폭 학습, flatten head 대조, 긴 학습/별도 scale 튜닝, streaming 인과성/실제 에너지/성능 benchmark: not run. 이번 결과만으로 population coding 자체나 head의 정확도 효과를 결론내리지 않는다.
+
+### 산출물과 보존
+
+- 종합 `NSMT/simple_test_model_v1/forecasting/results/ett-multiseed-20260911/`: `REPORT.md`, `per_run.csv`(120), `per_task.csv`(40), `paired.csv`(32), `aggregate.json`, `provenance.json`, `checks.json`, `comparison.png/pdf`.
+- 새 원본 `results/ett-multiseed-20260911-seed13/`와 `results/ett-multiseed-20260911-seed21/`: 각40개 run JSON과 manifest/completion. Seed7 원본은 `results/ett-quick-20260910/`에 그대로 보존하며 provenance에 각 원본 경로/hash/commit/reuse 여부를 명시했다.
+- Checkpoint/원시 stdout/runtime copies는 `NSMT/simple_test_model_v1/forecasting/log/<suite>/`, mutable queue/lock은 `scripts/queues/`에 로컬 보존. 데이터/checkpoint/원시 콘솔 로그를 Git에 추가하거나 삭제하지 않았다.
+- 완료 code/log/text results 및 결과 그림은 실험 브랜치에 commit하고 annotated 완료 tag로 보존한다. main 통합/원격 push: not run.
+
+완료 보존 명령:
+
+```bash
+git add simple_test_model_v1/forecasting/summarize_multiseed.py simple_test_model_v1/forecasting/check_multiseed_summary.py simple_test_model_v1/forecasting/results/ett-multiseed-20260911 simple_test_model_v1/forecasting/results/ett-multiseed-20260911-seed13 simple_test_model_v1/forecasting/results/ett-multiseed-20260911-seed21 ../docs/PROJECT_LOG.md
+git diff --cached --check
+git commit -m "experiment: record three-seed ETT replication results"
+git tag -a exp/population-spikformer-ett-multiseed-20260911 -m "Completed ETT three-seed replication: 80 new GPU runs plus 40 reused seed-7 results; paired statistics independently verified"
+```

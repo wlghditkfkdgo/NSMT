@@ -1,0 +1,322 @@
+{
+  "run_id": "ETTh1_p96_linear_seed13",
+  "command": "/home/yschoi/.conda/envs/snn_recall/bin/python /home/yschoi/CLS_spiking_transformer/Bio-inspired-Spiking-Memory-Transformer-for-time-series-representation-learning/NSMT/simple_test_model_v1/forecasting/run_ett.py --dataset ETTh1 --pred-len 96 --variant linear --suite ett-multiseed-20260911-seed13 --epochs 10 --patience 3 --batch-size 128 --seed 13 --device cuda:0 --backend cupy",
+  "cwd": "/home/yschoi/CLS_spiking_transformer/Bio-inspired-Spiking-Memory-Transformer-for-time-series-representation-learning/NSMT",
+  "config": {
+    "dataset": "ETTh1",
+    "pred_len": 96,
+    "variant": "linear",
+    "suite": "ett-multiseed-20260911-seed13",
+    "data_root": "/home/yschoi/CLS_spiking_transformer/Bio-inspired-Spiking-Memory-Transformer-for-time-series-representation-learning/NSMT/forecasting/dataset/ETT-small",
+    "device": "cuda:0",
+    "backend": "cupy",
+    "seq_len": 96,
+    "patch_size": 8,
+    "population": 16,
+    "d_model": 64,
+    "heads": 8,
+    "depth": 2,
+    "head_dim": 64,
+    "attn_scale": 1.0,
+    "seed": 13,
+    "epochs": 10,
+    "patience": 3,
+    "batch_size": 128,
+    "lr": 0.001,
+    "weight_decay": 0.01,
+    "max_train_batches": 0,
+    "max_eval_batches": 0
+  },
+  "model_config": {
+    "seq_len": 96,
+    "pred_len": 96
+  },
+  "data": {
+    "path": "/home/yschoi/CLS_spiking_transformer/Bio-inspired-Spiking-Memory-Transformer-for-time-series-representation-learning/NSMT/forecasting/dataset/ETT-small/ETTh1.csv",
+    "sha256": "f18de3ad269cef59bb07b5438d79bb3042d3be49bdeecf01c1cd6d29695ee066",
+    "features": [
+      "HUFL",
+      "HULL",
+      "MUFL",
+      "MULL",
+      "LUFL",
+      "LULL",
+      "OT"
+    ],
+    "total_rows": 17420,
+    "used_rows": 14400,
+    "seq_len": 96,
+    "pred_len": 96,
+    "scale_fit_rows": [
+      0,
+      8640
+    ],
+    "scaler_mean": [
+      7.937742245659508,
+      2.0210386567335163,
+      5.079770601157927,
+      0.7461858799957015,
+      2.781762386375555,
+      0.7884531235540096,
+      17.1282616982271
+    ],
+    "scaler_scale": [
+      5.812749409143771,
+      2.0901046504076,
+      5.518793579036245,
+      1.9263792741329822,
+      1.0235226594952194,
+      0.6302366362251923,
+      9.176491024944335
+    ],
+    "splits": {
+      "train": {
+        "context_start": 0,
+        "end_exclusive": 8640,
+        "first_target_start": 96,
+        "windows": 8449
+      },
+      "val": {
+        "context_start": 8544,
+        "end_exclusive": 11520,
+        "first_target_start": 8640,
+        "windows": 2785
+      },
+      "test": {
+        "context_start": 11424,
+        "end_exclusive": 14400,
+        "first_target_start": 11520,
+        "windows": 2785
+      }
+    }
+  },
+  "git_commit": "4a28741bce8b38848e171014ce1825d3cea1d866",
+  "source_sha256": {
+    "simple_test_model_v1/forecasting/run_ett.py": "8e3e13c8af8e6c9c34849fee920629c96f6bb9eae5b3273d9f4968440ff6b1ca",
+    "forecasting/simple_test_model_v1.py": "50a7362cdde6efc625ee0efa25c2a434091d0abf154ad463b6d51b1c30795402"
+  },
+  "environment": {
+    "python": "3.10.18 (main, Jun  5 2025, 13:14:17) [GCC 11.2.0]",
+    "torch": "1.12.0+cu113",
+    "cuda": "11.3",
+    "gpu": "NVIDIA RTX A6000",
+    "CUDA_VISIBLE_DEVICES": "1",
+    "packages": {
+      "spikingjelly": "0.0.0.0.14",
+      "cupy-cuda11x": "13.5.1",
+      "numpy": "1.26.4",
+      "pandas": "2.3.1",
+      "scikit-learn": "1.7.1"
+    }
+  },
+  "parameters": 9216,
+  "protocol": {
+    "loss": "MSE",
+    "metrics": "train-standardized scale, all channels and horizon points",
+    "selection": "minimum validation MSE",
+    "test_selection": false,
+    "drop_last": false,
+    "gradient_clip": 1.0,
+    "scheduler": "ReduceLROnPlateau(val MSE, factor=.5, patience=1)",
+    "spike_diagnostics": "first batch of each split, not full-split firing rates",
+    "quick_smoke_only": false
+  },
+  "status": "complete",
+  "best_epoch": 10,
+  "epochs_run": 10,
+  "validation": {
+    "mse": 0.698988378120416,
+    "mae": 0.5491818975281423,
+    "elements": 1871520
+  },
+  "test": {
+    "mse": 0.38811427278361527,
+    "mae": 0.3965374552507542,
+    "elements": 1871520,
+    "persistence": {
+      "mse": 1.2943705953377025,
+      "mae": 0.7131813546854522
+    },
+    "window_mean": {
+      "mse": 0.7008387408451723,
+      "mae": 0.5580875900823861
+    }
+  },
+  "history": [
+    {
+      "epoch": 1,
+      "train_mse": 0.46249096739297785,
+      "validation": {
+        "mse": 0.7536535245455999,
+        "mae": 0.5816399986274688,
+        "elements": 1871520
+      },
+      "lr": 0.001,
+      "seconds": 0.7796251773834229,
+      "train_first_batch_spikes": {},
+      "val_first_batch_spikes": {},
+      "first_batch_gradient_norms": {
+        "head.weight": 0.23021066188812256
+      },
+      "best": true
+    },
+    {
+      "epoch": 2,
+      "train_mse": 0.38472733955183513,
+      "validation": {
+        "mse": 0.7293708774647951,
+        "mae": 0.5673841058899011,
+        "elements": 1871520
+      },
+      "lr": 0.001,
+      "seconds": 0.07394981384277344,
+      "train_first_batch_spikes": {},
+      "val_first_batch_spikes": {},
+      "first_batch_gradient_norms": {
+        "head.weight": 0.04953902214765549
+      },
+      "best": true
+    },
+    {
+      "epoch": 3,
+      "train_mse": 0.37339722583570173,
+      "validation": {
+        "mse": 0.7177568116761976,
+        "mae": 0.5604446283481127,
+        "elements": 1871520
+      },
+      "lr": 0.001,
+      "seconds": 0.0735933780670166,
+      "train_first_batch_spikes": {},
+      "val_first_batch_spikes": {},
+      "first_batch_gradient_norms": {
+        "head.weight": 0.048424992710351944
+      },
+      "best": true
+    },
+    {
+      "epoch": 4,
+      "train_mse": 0.3677621208812968,
+      "validation": {
+        "mse": 0.7139768617818351,
+        "mae": 0.557385909847841,
+        "elements": 1871520
+      },
+      "lr": 0.001,
+      "seconds": 0.07111024856567383,
+      "train_first_batch_spikes": {},
+      "val_first_batch_spikes": {},
+      "first_batch_gradient_norms": {
+        "head.weight": 0.04907611757516861
+      },
+      "best": true
+    },
+    {
+      "epoch": 5,
+      "train_mse": 0.3648315159202059,
+      "validation": {
+        "mse": 0.7074421982973146,
+        "mae": 0.5541839684029611,
+        "elements": 1871520
+      },
+      "lr": 0.001,
+      "seconds": 0.07174992561340332,
+      "train_first_batch_spikes": {},
+      "val_first_batch_spikes": {},
+      "first_batch_gradient_norms": {
+        "head.weight": 0.043891772627830505
+      },
+      "best": true
+    },
+    {
+      "epoch": 6,
+      "train_mse": 0.36209404030090564,
+      "validation": {
+        "mse": 0.7121063078935771,
+        "mae": 0.5554570057256374,
+        "elements": 1871520
+      },
+      "lr": 0.001,
+      "seconds": 0.07126569747924805,
+      "train_first_batch_spikes": {},
+      "val_first_batch_spikes": {},
+      "first_batch_gradient_norms": {
+        "head.weight": 0.04346216470003128
+      },
+      "best": false
+    },
+    {
+      "epoch": 7,
+      "train_mse": 0.36098108162772996,
+      "validation": {
+        "mse": 0.7048586898983019,
+        "mae": 0.5521390921085836,
+        "elements": 1871520
+      },
+      "lr": 0.001,
+      "seconds": 0.07100224494934082,
+      "train_first_batch_spikes": {},
+      "val_first_batch_spikes": {},
+      "first_batch_gradient_norms": {
+        "head.weight": 0.04014832526445389
+      },
+      "best": true
+    },
+    {
+      "epoch": 8,
+      "train_mse": 0.3593336510325285,
+      "validation": {
+        "mse": 0.7106222127787886,
+        "mae": 0.5538243495715592,
+        "elements": 1871520
+      },
+      "lr": 0.001,
+      "seconds": 0.07289743423461914,
+      "train_first_batch_spikes": {},
+      "val_first_batch_spikes": {},
+      "first_batch_gradient_norms": {
+        "head.weight": 0.03817678615450859
+      },
+      "best": false
+    },
+    {
+      "epoch": 9,
+      "train_mse": 0.35857866678185424,
+      "validation": {
+        "mse": 0.7033511844764403,
+        "mae": 0.5505423876705372,
+        "elements": 1871520
+      },
+      "lr": 0.001,
+      "seconds": 0.0750117301940918,
+      "train_first_batch_spikes": {},
+      "val_first_batch_spikes": {},
+      "first_batch_gradient_norms": {
+        "head.weight": 0.04352819547057152
+      },
+      "best": true
+    },
+    {
+      "epoch": 10,
+      "train_mse": 0.3578296082903611,
+      "validation": {
+        "mse": 0.698988378120416,
+        "mae": 0.5491818975281423,
+        "elements": 1871520
+      },
+      "lr": 0.001,
+      "seconds": 0.10883545875549316,
+      "train_first_batch_spikes": {},
+      "val_first_batch_spikes": {},
+      "first_batch_gradient_norms": {
+        "head.weight": 0.04340463504195213
+      },
+      "best": true
+    }
+  ],
+  "selected_val_first_batch_spikes": {},
+  "test_first_batch_spikes": {},
+  "seconds": 3.5327682495117188,
+  "checkpoint": "/home/yschoi/CLS_spiking_transformer/Bio-inspired-Spiking-Memory-Transformer-for-time-series-representation-learning/NSMT/simple_test_model_v1/forecasting/log/ett-multiseed-20260911-seed13/ETTh1_p96_linear_seed13/best.pt",
+  "peak_gpu_memory_bytes": 7030272
+}

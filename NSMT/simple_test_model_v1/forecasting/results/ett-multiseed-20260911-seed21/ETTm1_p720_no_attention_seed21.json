@@ -1,0 +1,326 @@
+{
+  "run_id": "ETTm1_p720_no_attention_seed21",
+  "command": "/home/yschoi/.conda/envs/snn_recall/bin/python /home/yschoi/CLS_spiking_transformer/Bio-inspired-Spiking-Memory-Transformer-for-time-series-representation-learning/NSMT/simple_test_model_v1/forecasting/run_ett.py --dataset ETTm1 --pred-len 720 --variant no_attention --suite ett-multiseed-20260911-seed21 --epochs 10 --patience 3 --batch-size 128 --seed 21 --device cuda:0 --backend cupy",
+  "cwd": "/home/yschoi/CLS_spiking_transformer/Bio-inspired-Spiking-Memory-Transformer-for-time-series-representation-learning/NSMT",
+  "config": {
+    "dataset": "ETTm1",
+    "pred_len": 720,
+    "variant": "no_attention",
+    "suite": "ett-multiseed-20260911-seed21",
+    "data_root": "/home/yschoi/CLS_spiking_transformer/Bio-inspired-Spiking-Memory-Transformer-for-time-series-representation-learning/NSMT/forecasting/dataset/ETT-small",
+    "device": "cuda:0",
+    "backend": "cupy",
+    "seq_len": 96,
+    "patch_size": 8,
+    "population": 16,
+    "d_model": 64,
+    "heads": 8,
+    "depth": 2,
+    "head_dim": 64,
+    "attn_scale": 1.0,
+    "seed": 21,
+    "epochs": 10,
+    "patience": 3,
+    "batch_size": 128,
+    "lr": 0.001,
+    "weight_decay": 0.01,
+    "max_train_batches": 0,
+    "max_eval_batches": 0
+  },
+  "model_config": {
+    "seq_len": 96,
+    "pred_len": 720,
+    "num_population": 16,
+    "d_model": 64,
+    "num_heads": 8,
+    "depth": 2,
+    "mlp_ratio": 2.0,
+    "input_mode": "patch",
+    "patch_size": 8,
+    "stride": 8,
+    "encoding": "direct",
+    "readout": "two_stage",
+    "head_dim": 64,
+    "tau": 2.0,
+    "threshold": 1.0,
+    "bias": false,
+    "normalize": true,
+    "backend": "cupy",
+    "attn_scale": 1.0,
+    "attention_axis": "none",
+    "learn_population_embedding": false,
+    "population_low": -3.0,
+    "population_high": 3.0,
+    "population_width": 1.0
+  },
+  "data": {
+    "path": "/home/yschoi/CLS_spiking_transformer/Bio-inspired-Spiking-Memory-Transformer-for-time-series-representation-learning/NSMT/forecasting/dataset/ETT-small/ETTm1.csv",
+    "sha256": "6ce1759b1a18e3328421d5d75fadcb316c449fcd7cec32820c8dafda71986c9e",
+    "features": [
+      "HUFL",
+      "HULL",
+      "MUFL",
+      "MULL",
+      "LUFL",
+      "LULL",
+      "OT"
+    ],
+    "total_rows": 69680,
+    "used_rows": 57600,
+    "seq_len": 96,
+    "pred_len": 720,
+    "scale_fit_rows": [
+      0,
+      34560
+    ],
+    "scaler_mean": [
+      7.9900134819611495,
+      2.0387478002096975,
+      5.109928063464273,
+      0.7562241616995178,
+      2.80470208448802,
+      0.7911860229808587,
+      17.12495024489946
+    ],
+    "scaler_scale": [
+      5.833092669188608,
+      2.0896456935496084,
+      5.519042716237789,
+      1.9241610579070023,
+      1.0405540563014364,
+      0.632442061366721,
+      9.173035273908697
+    ],
+    "splits": {
+      "train": {
+        "context_start": 0,
+        "end_exclusive": 34560,
+        "first_target_start": 96,
+        "windows": 33745
+      },
+      "val": {
+        "context_start": 34464,
+        "end_exclusive": 46080,
+        "first_target_start": 34560,
+        "windows": 10801
+      },
+      "test": {
+        "context_start": 45984,
+        "end_exclusive": 57600,
+        "first_target_start": 46080,
+        "windows": 10801
+      }
+    }
+  },
+  "git_commit": "4a28741bce8b38848e171014ce1825d3cea1d866",
+  "source_sha256": {
+    "simple_test_model_v1/forecasting/run_ett.py": "8e3e13c8af8e6c9c34849fee920629c96f6bb9eae5b3273d9f4968440ff6b1ca",
+    "forecasting/simple_test_model_v1.py": "50a7362cdde6efc625ee0efa25c2a434091d0abf154ad463b6d51b1c30795402"
+  },
+  "environment": {
+    "python": "3.10.18 (main, Jun  5 2025, 13:14:17) [GCC 11.2.0]",
+    "torch": "1.12.0+cu113",
+    "cuda": "11.3",
+    "gpu": "NVIDIA RTX A6000",
+    "CUDA_VISIBLE_DEVICES": "0",
+    "packages": {
+      "spikingjelly": "0.0.0.0.14",
+      "cupy-cuda11x": "13.5.1",
+      "numpy": "1.26.4",
+      "pandas": "2.3.1",
+      "scikit-learn": "1.7.1"
+    }
+  },
+  "parameters": 652672,
+  "protocol": {
+    "loss": "MSE",
+    "metrics": "train-standardized scale, all channels and horizon points",
+    "selection": "minimum validation MSE",
+    "test_selection": false,
+    "drop_last": false,
+    "gradient_clip": 1.0,
+    "scheduler": "ReduceLROnPlateau(val MSE, factor=.5, patience=1)",
+    "spike_diagnostics": "first batch of each split, not full-split firing rates",
+    "quick_smoke_only": false
+  },
+  "status": "complete",
+  "best_epoch": 1,
+  "epochs_run": 4,
+  "validation": {
+    "mse": 0.9909471090496393,
+    "mae": 0.665426750915868,
+    "elements": 54437040
+  },
+  "test": {
+    "mse": 0.4662812364809336,
+    "mae": 0.4482586593751792,
+    "elements": 54437040,
+    "persistence": {
+      "mse": 1.3223119263038543,
+      "mae": 0.7294675565815373
+    },
+    "window_mean": {
+      "mse": 0.7456973961962163,
+      "mae": 0.5810856846791336
+    }
+  },
+  "history": [
+    {
+      "epoch": 1,
+      "train_mse": 0.46984306325610786,
+      "validation": {
+        "mse": 0.9909471090496393,
+        "mae": 0.665426750915868,
+        "elements": 54437040
+      },
+      "lr": 0.001,
+      "seconds": 6.701387405395508,
+      "train_first_batch_spikes": {
+        "embedding.lif": 0.04410180822014809,
+        "blocks.0.mlp.0.lif": 0.036428723484277725,
+        "blocks.0.mlp.1.lif": 0.03654270991683006,
+        "blocks.1.mlp.0.lif": 0.03642522916197777,
+        "blocks.1.mlp.1.lif": 0.03532963618636131
+      },
+      "val_first_batch_spikes": {
+        "embedding.lif": 0.0542726069688797,
+        "blocks.0.mlp.0.lif": 0.04133474454283714,
+        "blocks.0.mlp.1.lif": 0.0383417047560215,
+        "blocks.1.mlp.0.lif": 0.044392768293619156,
+        "blocks.1.mlp.1.lif": 0.0418919175863266
+      },
+      "first_batch_gradient_norms": {
+        "embedding.linear.weight": 0.0016903425566852093,
+        "blocks.0.mlp.0.linear.weight": 0.0013974299654364586,
+        "blocks.0.mlp.1.linear.weight": 0.0017867396818473935,
+        "blocks.1.mlp.0.linear.weight": 0.0013208563905209303,
+        "blocks.1.mlp.1.linear.weight": 0.002090641763061285,
+        "head_compress.weight": 0.012345980852842331,
+        "head.weight": 0.008613159880042076
+      },
+      "best": true
+    },
+    {
+      "epoch": 2,
+      "train_mse": 0.44813530064367474,
+      "validation": {
+        "mse": 0.9974016944774128,
+        "mae": 0.6697972182284588,
+        "elements": 54437040
+      },
+      "lr": 0.001,
+      "seconds": 5.979976415634155,
+      "train_first_batch_spikes": {
+        "embedding.lif": 0.05200531333684921,
+        "blocks.0.mlp.0.lif": 0.037880487740039825,
+        "blocks.0.mlp.1.lif": 0.03698539733886719,
+        "blocks.1.mlp.0.lif": 0.04080454632639885,
+        "blocks.1.mlp.1.lif": 0.04037630185484886
+      },
+      "val_first_batch_spikes": {
+        "embedding.lif": 0.05423600599169731,
+        "blocks.0.mlp.0.lif": 0.04489108547568321,
+        "blocks.0.mlp.1.lif": 0.043396543711423874,
+        "blocks.1.mlp.0.lif": 0.04561792314052582,
+        "blocks.1.mlp.1.lif": 0.04919660836458206
+      },
+      "first_batch_gradient_norms": {
+        "embedding.linear.weight": 0.03906577080488205,
+        "blocks.0.mlp.0.linear.weight": 0.008634225465357304,
+        "blocks.0.mlp.1.linear.weight": 0.01230337843298912,
+        "blocks.1.mlp.0.linear.weight": 0.011086305603384972,
+        "blocks.1.mlp.1.linear.weight": 0.014014816842973232,
+        "head_compress.weight": 0.06493235379457474,
+        "head.weight": 0.011189079843461514
+      },
+      "best": false
+    },
+    {
+      "epoch": 3,
+      "train_mse": 0.44051773149908197,
+      "validation": {
+        "mse": 1.0036219923462284,
+        "mae": 0.6733564069236875,
+        "elements": 54437040
+      },
+      "lr": 0.001,
+      "seconds": 5.982076406478882,
+      "train_first_batch_spikes": {
+        "embedding.lif": 0.0516975037753582,
+        "blocks.0.mlp.0.lif": 0.041817210614681244,
+        "blocks.0.mlp.1.lif": 0.041465576738119125,
+        "blocks.1.mlp.0.lif": 0.0417574942111969,
+        "blocks.1.mlp.1.lif": 0.04559062793850899
+      },
+      "val_first_batch_spikes": {
+        "embedding.lif": 0.05569358170032501,
+        "blocks.0.mlp.0.lif": 0.045655522495508194,
+        "blocks.0.mlp.1.lif": 0.046351026743650436,
+        "blocks.1.mlp.0.lif": 0.04686187580227852,
+        "blocks.1.mlp.1.lif": 0.05123529210686684
+      },
+      "first_batch_gradient_norms": {
+        "embedding.linear.weight": 0.06744957715272903,
+        "blocks.0.mlp.0.linear.weight": 0.015126647427678108,
+        "blocks.0.mlp.1.linear.weight": 0.017260950058698654,
+        "blocks.1.mlp.0.linear.weight": 0.01575557142496109,
+        "blocks.1.mlp.1.linear.weight": 0.017237212508916855,
+        "head_compress.weight": 0.08754495531320572,
+        "head.weight": 0.010349147021770477
+      },
+      "best": false
+    },
+    {
+      "epoch": 4,
+      "train_mse": 0.4335813031609561,
+      "validation": {
+        "mse": 1.0003204948842848,
+        "mae": 0.6708975931086321,
+        "elements": 54437040
+      },
+      "lr": 0.0005,
+      "seconds": 5.93160343170166,
+      "train_first_batch_spikes": {
+        "embedding.lif": 0.05281984433531761,
+        "blocks.0.mlp.0.lif": 0.04250803589820862,
+        "blocks.0.mlp.1.lif": 0.04471297562122345,
+        "blocks.1.mlp.0.lif": 0.043070659041404724,
+        "blocks.1.mlp.1.lif": 0.04759225621819496
+      },
+      "val_first_batch_spikes": {
+        "embedding.lif": 0.0575002059340477,
+        "blocks.0.mlp.0.lif": 0.0464521162211895,
+        "blocks.0.mlp.1.lif": 0.04777717590332031,
+        "blocks.1.mlp.0.lif": 0.04849801957607269,
+        "blocks.1.mlp.1.lif": 0.05015282332897186
+      },
+      "first_batch_gradient_norms": {
+        "embedding.linear.weight": 0.11750340461730957,
+        "blocks.0.mlp.0.linear.weight": 0.020093875005841255,
+        "blocks.0.mlp.1.linear.weight": 0.023588744923472404,
+        "blocks.1.mlp.0.linear.weight": 0.0161142498254776,
+        "blocks.1.mlp.1.linear.weight": 0.02006818726658821,
+        "head_compress.weight": 0.10605394840240479,
+        "head.weight": 0.009365983307361603
+      },
+      "best": false
+    }
+  ],
+  "selected_val_first_batch_spikes": {
+    "embedding.lif": 0.0542726069688797,
+    "blocks.0.mlp.0.lif": 0.04133474454283714,
+    "blocks.0.mlp.1.lif": 0.0383417047560215,
+    "blocks.1.mlp.0.lif": 0.044392768293619156,
+    "blocks.1.mlp.1.lif": 0.0418919175863266
+  },
+  "test_first_batch_spikes": {
+    "embedding.lif": 0.0516873337328434,
+    "blocks.0.mlp.0.lif": 0.03867994248867035,
+    "blocks.0.mlp.1.lif": 0.038209643214941025,
+    "blocks.1.mlp.0.lif": 0.04113410785794258,
+    "blocks.1.mlp.1.lif": 0.04066858068108559
+  },
+  "seconds": 27.696728229522705,
+  "checkpoint": "/home/yschoi/CLS_spiking_transformer/Bio-inspired-Spiking-Memory-Transformer-for-time-series-representation-learning/NSMT/simple_test_model_v1/forecasting/log/ett-multiseed-20260911-seed21/ETTm1_p720_no_attention_seed21/best.pt",
+  "peak_gpu_memory_bytes": 1888496128
+}
