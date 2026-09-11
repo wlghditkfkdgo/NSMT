@@ -640,3 +640,11 @@ git diff --cached --check
 git commit -m "experiment: scaffold population membrane memory design snapshot"
 git tag -a exp/f-lif-pop-v1-20260911-snapshot -m "Design snapshot only: temporary model placeholder and literature discussion; no implementation or training run"
 ```
+
+## 2026-09-11 — Memory 사용 의미 확정: 증거 보강 (design snapshot 2)
+
+- 사용자 선택: 검색한 기억은 '증거보강'에 사용한다. 현재 충전 막전위에 검색 기억을 가산하고 그 결과로 발화/reset하는 의미를 `NSMT/forecasting/f-LIF_pop_v1.py`의 설계 메모에 반영했다. 후보식 `v_t = u_bar_t + gamma * g_t * memory_t`에서 현재 상태 계수는 1이며 기억 기여가 0이면 기존 population update가 된다. Gate의 구체식/강도/기억의 부호 처리/reset과 저장 상태는 여전히 미확정이다.
+- 기존 브랜치 `exp/f-lif-pop-v1`에서 계속 진행; 실험 base `7990abd8c1fdcd15eec73e355dd38c6556918f51`, 직전 snapshot `386539e`. 이번 기록은 이전 항목을 수정하지 않고 사용자 결정을 추가한다. 사용자 원본 concept 문서의 내용과 untracked 상태는 보존한다.
+- 코드/config: placeholder docstring만 변경; executable model/학습 설정 추가 없음. 데이터/분할/전처리/seed/hyperparameter/metrics: 해당 없음. 모델 구현/학습/forward-backward/안정성 및 성능 검증: not run. 새 artifact는 placeholder와 이 canonical log 기록뿐이다.
+- 환경/검사: 기존 Python 3.10.18의 in-memory compile 및 Git whitespace 검사. 명령(cwd NSMT): `/home/yschoi/.conda/envs/snn_recall/bin/python -c 'from pathlib import Path; p = Path("forecasting/f-LIF_pop_v1.py"); compile(p.read_text(), str(p), "exec"); print("Placeholder syntax: passed")'`; `git diff --check`; `git add forecasting/f-LIF_pop_v1.py ../docs/PROJECT_LOG.md`; `git diff --cached --check`.
+- 보존: `git commit -m "experiment: record additive memory evidence decision"`; `git tag -a exp/f-lif-pop-v1-20260911-snapshot-2 -m "Design snapshot only: user selected additive memory evidence; no model implementation or training"`. 해당 annotated tag가 이번 commit을 식별한다. 결론은 기억 사용 의미의 확정이며 완료 학습 결과가 아니다. main 통합/push: not run.
