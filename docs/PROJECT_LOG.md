@@ -648,3 +648,38 @@ git tag -a exp/f-lif-pop-v1-20260911-snapshot -m "Design snapshot only: temporar
 - 코드/config: placeholder docstring만 변경; executable model/학습 설정 추가 없음. 데이터/분할/전처리/seed/hyperparameter/metrics: 해당 없음. 모델 구현/학습/forward-backward/안정성 및 성능 검증: not run. 새 artifact는 placeholder와 이 canonical log 기록뿐이다.
 - 환경/검사: 기존 Python 3.10.18의 in-memory compile 및 Git whitespace 검사. 명령(cwd NSMT): `/home/yschoi/.conda/envs/snn_recall/bin/python -c 'from pathlib import Path; p = Path("forecasting/f-LIF_pop_v1.py"); compile(p.read_text(), str(p), "exec"); print("Placeholder syntax: passed")'`; `git diff --check`; `git add forecasting/f-LIF_pop_v1.py ../docs/PROJECT_LOG.md`; `git diff --cached --check`.
 - 보존: `git commit -m "experiment: record additive memory evidence decision"`; `git tag -a exp/f-lif-pop-v1-20260911-snapshot-2 -m "Design snapshot only: user selected additive memory evidence; no model implementation or training"`. 해당 annotated tag가 이번 commit을 식별한다. 결론은 기억 사용 의미의 확정이며 완료 학습 결과가 아니다. main 통합/push: not run.
+
+
+---
+
+## 2026-09-14 — f-LIF population 1차 forecasting: 구현/검증 및 실행 전 snapshot
+
+- 목적/사용자 승인: 앞서 추천한 얕은 patch SNN으로 1차 forecasting 실험을 수행한다. 기존 repository 코드를 살펴보고 사용자가 읽기 쉬운 model_v1/forecasting의 코드 스타일 및 기존 로그 저장 관례를 따른다. 사용자가 선택한 memory 의미는 증거 보강이다.
+- 기존 `exp/f-lif-pop-v1`에서 계속 진행한다. 실험 base `7990abd8c1fdcd15eec73e355dd38c6556918f51`, 이번 구현 직전 commit `46ec681c`. main 통합/push는 not run. 원래 untracked concept 문서는 내용/추적 상태를 보존한다.
+- 코드 조사: repository 전역 소스/config/script 314개,98,854줄,고유 내용202개를 읽어 AST 정의/import/관례와 중복을 조사했다. `NSMT/f_lif_pop_v1/forecasting/results/source_review.json`에 path/hash/구조를 보존한다. 이는 모든 줄에 대한 수동 의미 검증이 아니다. model_v1/forecasting 및 neorecall_v1의 config/model/ours/layers/train/test/utils, ETT loader, 기존 실험 logger/launcher와 AD의 실제 CSV/logargs를 상세히 참고했다. 전역 조사에서 기존 `anomaly_detection/light_trainer.py:270` 구문 오류를 관찰했으며 본 실험 의존성이 아니므로 수정하지 않았다.
+- 파일 구조: `NSMT/f_lif_pop_v1/forecasting/{config.py,model.py,ours.py,layers.py,train.py,test.py,utils.py,data_provider/,scripts/,results/,log/}`. `Config`, `LOAD_MODEL`, `myModel`, `Embedding`, `train_one_epoch`, `val_one_epoch`, `test`, `EpochLog`, `EarlyStopping` 이름/역할과 명시적 tensor reshape 및 주석을 따른다. utils의 EpochLog/EarlyStopping는 neorecall 원문에서 필요한 import만 추출했다(동점은 strict minimum 선택, np.inf 사용). 원래 요청 파일 `NSMT/forecasting/f-LIF_pop_v1.py`는 실제 클래스의 import entry로 유지한다.
+- 확정된 최소 설계: [B,336,C] → 비중첩 patch8 → [42,BC,8] → Linear(8,32,bias=True)*2 → PopulationLIF → [42,BC,32,4] spikes → Linear(128,32) → flatten(42*32) → Linear(1344,96). 1개 population layer, 별도 Gaussian coding/temporal attention/replay/보조 loss 없음. 시간축은 실제 patch이며 독립 window마다 상태/기억을 초기화한다. 입력 크기 정보 및 patch 인과성을 보존하기 위해 train-only scaling 외 window normalization/BN/LN을 사용하지 않는다. Bias와 고정 current scale2를 사용한다.
+- Population: K4/tau[2,4,8,16], beta=exp(-1/tau) 고정. homogeneous는 동일한 평균 beta를4회 반복. 같은 logical neuron의 입력 공유. 공유 K×K Q/K identity 초기화, 정규화 cosine score/temperature.25 → j<t softmax, value=post-reset 막전위 원형. Gate=공유 Linear(K,1)의 sigmoid, 초기 weight/bias0(값.5). `v=u_bar+.05*gate*memory`를 발화 전 가산. Threshold1, subtractive reset `u=v-s.detach()`, sigmoid surrogate alpha4, memory full BPTT. 첫 step memory0. `max(beta)+gamma<1`의 보수적 크기 조건을 강제하며 full gradient stability/robustness theorem 주장은 하지 않는다. 시간 prior/top-k는 not run.
+- 본 실험24개: ETTh1/ETTh2 × homogeneous/heterogeneous × retrieval on/off × seed7/13/21. 보조8개: 같은 data/variant의 last head(`Linear(128,32) → 마지막 patch → Linear(32,96)`) seed7만. 총32개 새 run, 과거 결과 재사용0. Head 차이와 seed 수를 구분해 집계한다. 같은 head/seed에서4조건의 초기 trainable parameter/hash 및 nominal parameter 수를 맞춘다. Retrieval off Q/K/gate는 미사용 파라미터이므로 effective capacity/실제 계산량까지 동일한 대조는 아니다.
+- 데이터: 기존 로컬 ETT-small ETTh1/ETTh2 CSV7변수. Train[0,8640), val target[8640,11520), test target[11520,14400), val/test 앞336점 context. StandardScaler는 train8640행만 fit. Stride1 모든 window, train8209/val2785/test2785, drop_lastFalse. DataLoader train shuffle generator seed+1000, num_workers0, test/val 순서 고정. CSV hash/scaler/full source provenance는 각 result JSON.
+- 학습: AdamW lr.001/wd.01, MSE, clip1, batch128, 최대10epoch/early-stop3, ReduceLROnPlateau(valMSE factor.5/patience1). 최소 validation MSE의 raw state_dict를 복원하고 val 재현 검사 후 전체 test MSE/MAE를 train-standardized 단위로 계산. CSV와 TensorBoard epoch는 기존처럼0-based. Test 기반 튜닝 없음.
+- 진단: 전체 test의 persistence/window-mean baseline. Retrieval checkpoint는 off/uniform/recent 개입을 각각 전체 test에 수행하며 재학습 결과와 구분한다. 첫 test8window의 집단별 발화율, membrane diversity/max, gate, evidence크기, lag분포/entropy를 저장한다. ETT에서 정답 기억 위치는 알려져 있지 않으므로 retrieval correctness/인과적 입력 중요도를 주장하지 않는다. 합성 recall 학습/장기학습/다른 dataset/energy benchmark는 not run.
+- 환경: 기존 snn_recall Python3.10.18, torch1.12.0+cu113, SpikingJelly 및 기존 NumPy/pandas/sklearn/TensorBoard. 설치 변경 없음. RTX A6000 GPU0–3 사용 전 모두 idle(12MiB/0%). FP32/deterministic/TF32 off, CPU thread2, CUDA_VISIBLE_DEVICES로 각GPU1 process.
+- 검증: `check_model.py` CPU 및 cuda:0 모두 통과: 초기parameter 일치/평균beta 일치/이진spike/j<t mask/미래patch에 앞선state 불변/window reset/검색off 및 gamma0 baseline/동질집단동일성/이질집단다양성/독립 가산식 재구성/유한하고 nonzero Q,K,gate gradient/두head shape. Python compileall, bash -n, git diff --check 통과. Smoke `smoke-20260914`는 ETTh1 hetero+retrieval/flatten seed7,1epoch train2batch/eval2batch;2.9초 완료. CSV 반올림/TensorBoard train-val loss-mse-mae step0/config.pt/finite checkpoint/logargs/val 복원을 검사했다. `results/preflight.json`. Smoke는 예측 성능 판단에 사용하지 않는다.
+- 저장: `log/<suite>/<dataset>/<YYMMDD>/<date+config>/seed<seed>_<head>_<variant>/{logargs.txt,log/best_log_0.csv,log/final+result.csv,log/train_0,log/val_0,model_state/config.pt,model_state/best+model.pt}`. CSV6자리, full precision은 history/provenance/result JSON; horizon CSV/forecast 예시와 diagnostics 추가. Checkpoint/raw events/stdout은 로컬, text결과/code/config/documentation는 Git. queue/lock은 scripts/queues/. 기존 artifact 삭제 없음.
+- 이 snapshot에서32개 full training은 **not run**. 실행/완료는 아래에 append한다. 준비 commit은 annotated tag `exp/f-lif-pop-v1-20260914-snapshot`으로 식별한다.
+
+검사/실행 명령(cwd NSMT; 기존 환경 lib를 LD_LIBRARY_PATH에 설정):
+
+```bash
+env LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python -m compileall -q f_lif_pop_v1/forecasting
+env LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python f_lif_pop_v1/forecasting/check_model.py
+env LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python f_lif_pop_v1/forecasting/check_model.py --device cuda:0
+env LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python f_lif_pop_v1/forecasting/train.py --suite smoke-20260914 --epoch 1 --max_train_batches 2 --max_eval_batches 2
+bash -n f_lif_pop_v1/forecasting/scripts/run_ett.sh
+git add forecasting/f-LIF_pop_v1.py f_lif_pop_v1/forecasting ../docs/PROJECT_LOG.md
+git diff --cached --check
+git commit -m "experiment: implement population membrane forecasting with reference-style training"
+git tag -a exp/f-lif-pop-v1-20260914-snapshot -m "Implementation and smoke snapshot; full 32-run forecasting experiment not yet run"
+bash f_lif_pop_v1/forecasting/scripts/run_ett.sh --suite ett-first-20260914
+```

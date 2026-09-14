@@ -1,32 +1,22 @@
-"""Temporary model placeholder for population-selective membrane memory.
+"""Population-selective membrane memory forecasting model (provisional filename).
 
-Concept: ../docs/population_selective_membrane_memory_snn_concept.md
-Status: design discussion only; no model or training implementation yet.
+Implementation: NSMT/f_lif_pop_v1/forecasting/{ours.py,layers.py}.
+This entry keeps the originally requested filename. The task directory follows
+model_v1's config/model/train/test/utils layout; see its README and PROJECT_LOG.
 
-Intended direction (concept Branch B):
-    heterogeneous LIF population -> population membrane-state history
-    -> current-conditioned temporal retrieval -> current spiking dynamics.
-
-One logical neuron contains K constituent LIF neurons with diverse temporal
-responses. Retrieval selects historical time slots jointly for the population;
-its constituents share the temporal weights. Time follows observations or
-ordered patches, and retrieval reads only earlier states of the same sequence.
-
-User-confirmed memory use (2026-09-11): evidence reinforcement through an
-additive contribution to the current membrane state before spike generation.
-A candidate gated formulation is v_t = u_bar_t + gamma * g_t * memory_t,
-where u_bar_t is the charged state before retrieval and memory_t is the
-retrieved population vector. The current-state coefficient remains one.
-Setting the memory contribution to zero recovers the underlying population
-update. Gate parameterization and memory strength are still open choices.
-The intended order is charge -> retrieve past slots -> add memory evidence
--> spike/reset -> store the chosen state for future time steps.
-
-Open design choices include reset/storage semantics, relevance scoring,
-soft versus hard selection, memory-use gating, population spike readout,
-and an optional fractional temporal prior. These remain unimplemented.
-
-The requested filename is provisional: direct membrane-state retrieval does
-not by itself implement a fractional differential equation or inherit f-LIF
-theoretical guarantees. No forecasting performance has been measured.
+One logical neuron contains K heterogeneous LIF constituents. At each ordered
+patch, the current population queries earlier post-reset membrane vectors.
+Retrieved memory adds evidence before spike/reset: v = u_bar + gamma*g*memory.
+The first experiment uses shared learned cosine Q/K, a sigmoid gate, subtractive
+reset, K spikes, and full BPTT. State and memory reset for each input window.
+Direct state retrieval is not an exact fractional differential equation.
 """
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from f_lif_pop_v1.forecasting.ours import myModel
+from f_lif_pop_v1.forecasting.layers import PopulationLIF
+
+Model = myModel
+__all__ = ['myModel', 'Model', 'PopulationLIF']
