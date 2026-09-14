@@ -805,3 +805,67 @@ git tag -a exp/f-lif-pop-v1-20260914 -m "Completed 32 first-stage forecasting ru
 - 저장: `NSMT/f_lif_pop_v1/forecasting/{results,log}/ett-first-h720-20260914/`, queue/lock은 같은 task `scripts/queues/`. 기존 neorecall CSV/TensorBoard/logargs/model_state 구조를 유지한다. Checkpoint/raw events/stdout은 local, 코드/설정/텍스트 결과는 Git. Untracked concept 문서를 보존한다.
 - 사전 명령(cwd NSMT): `python -m py_compile`은 위 conda Python으로 launcher/summarize/check_summary에 실행하여 통과. `env LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python f_lif_pop_v1/forecasting/train.py --suite smoke-h720-20260914 --pred_len 720 --epoch 1 --max_train_batches 2 --max_eval_batches 2`로 H720 학습/검증/복원/평가 smoke를 실행한다. 축소 smoke는 성능 비교에 포함하지 않는다.
 - 본 실행 명령: `bash f_lif_pop_v1/forecasting/scripts/run_ett.sh --suite ett-first-h720-20260914 --pred_len 720`. 본 학습/최종 검증/지표는 이 사전 항목 시점 not run; 완료 후 append한다. Main 통합/push는 not run.
+
+## 2026-09-14 — 1차 H720 완료 (32 runs)
+
+- 완료 tag `exp/f-lif-pop-v1-h720-20260914` (이 항목을 포함한 commit). Branch `exp/f-lif-pop-v1`, 학습 snapshot commit `a8677f85b350c7cf0fd1defedc86cdc37b70067d`. 데이터/환경/조건은 직전 사전 기록과 동일. H720 smoke 통과, 정식32개 모두 exit0.
+- Launcher wall 237.5s; 개별 run 9.4–46.3s; 최대 GPU allocated 1.095GiB. Main24개 중 6개가10epoch 상한, 전체32개 중 30개에서 감소된 LR로 학습했다.
+- 아래 MSE/MAE는 test2161windows×720×7 전체, train-standardized. Macro는 데이터셋 평균을 seed별 계산한 다음3seed mean±sample SD. Last head는 seed7만의 탐색 대조.
+
+| Head | Variant | MSE | MAE |
+|---|---|---:|---:|
+| flatten | heterogeneous_no_memory | 0.679887 ± 0.053368 | 0.580342 ± 0.022406 |
+| flatten | heterogeneous_retrieval | 0.711945 ± 0.031368 | 0.592568 ± 0.014067 |
+| flatten | homogeneous_no_memory | 0.717480 ± 0.033274 | 0.602915 ± 0.016036 |
+| flatten | homogeneous_retrieval | 0.736275 ± 0.041440 | 0.611361 ± 0.018349 |
+| last | heterogeneous_no_memory | 0.923991 ± nan | 0.705316 ± nan |
+| last | heterogeneous_retrieval | 0.923926 ± nan | 0.706096 ± nan |
+| last | homogeneous_no_memory | 0.970504 ± nan | 0.724788 ± nan |
+| last | homogeneous_retrieval | 0.969333 ± nan | 0.724777 ± nan |
+
+### 각 실행 (best epoch은 0-based)
+
+| Data | Head | Variant | Seed | MSE | MAE | Best epoch | Epochs |
+|---|---|---|---:|---:|---:|---:|---:|
+| ETTh1 | flatten | heterogeneous_no_memory | 7 | 0.558825 | 0.545231 | 3 | 7 |
+| ETTh1 | flatten | heterogeneous_no_memory | 13 | 0.579237 | 0.558494 | 3 | 7 |
+| ETTh1 | flatten | heterogeneous_no_memory | 21 | 0.544616 | 0.538897 | 4 | 8 |
+| ETTh1 | flatten | heterogeneous_retrieval | 7 | 0.596952 | 0.563891 | 4 | 8 |
+| ETTh1 | flatten | heterogeneous_retrieval | 13 | 0.577854 | 0.555894 | 4 | 8 |
+| ETTh1 | flatten | heterogeneous_retrieval | 21 | 0.547373 | 0.540208 | 4 | 8 |
+| ETTh1 | flatten | homogeneous_no_memory | 7 | 0.550437 | 0.544110 | 9 | 10 |
+| ETTh1 | flatten | homogeneous_no_memory | 13 | 0.582351 | 0.562672 | 8 | 10 |
+| ETTh1 | flatten | homogeneous_no_memory | 21 | 0.562495 | 0.556522 | 8 | 10 |
+| ETTh1 | flatten | homogeneous_retrieval | 7 | 0.616034 | 0.574336 | 7 | 10 |
+| ETTh1 | flatten | homogeneous_retrieval | 13 | 0.591923 | 0.569924 | 8 | 10 |
+| ETTh1 | flatten | homogeneous_retrieval | 21 | 0.582213 | 0.565123 | 6 | 10 |
+| ETTh2 | flatten | heterogeneous_no_memory | 7 | 0.860832 | 0.646356 | 1 | 5 |
+| ETTh2 | flatten | heterogeneous_no_memory | 13 | 0.843887 | 0.622682 | 2 | 6 |
+| ETTh2 | flatten | heterogeneous_no_memory | 21 | 0.691927 | 0.570393 | 2 | 6 |
+| ETTh2 | flatten | heterogeneous_retrieval | 7 | 0.865846 | 0.646939 | 1 | 5 |
+| ETTh2 | flatten | heterogeneous_retrieval | 13 | 0.879502 | 0.633606 | 2 | 6 |
+| ETTh2 | flatten | heterogeneous_retrieval | 21 | 0.804143 | 0.614867 | 2 | 6 |
+| ETTh2 | flatten | homogeneous_no_memory | 7 | 0.912516 | 0.668110 | 1 | 5 |
+| ETTh2 | flatten | homogeneous_no_memory | 13 | 0.776636 | 0.608372 | 2 | 6 |
+| ETTh2 | flatten | homogeneous_no_memory | 21 | 0.920445 | 0.677703 | 0 | 4 |
+| ETTh2 | flatten | homogeneous_retrieval | 7 | 0.928884 | 0.674865 | 1 | 5 |
+| ETTh2 | flatten | homogeneous_retrieval | 13 | 0.790210 | 0.610908 | 2 | 6 |
+| ETTh2 | flatten | homogeneous_retrieval | 21 | 0.908384 | 0.673011 | 0 | 4 |
+| ETTh1 | last | heterogeneous_no_memory | 7 | 0.776105 | 0.651288 | 8 | 10 |
+| ETTh1 | last | heterogeneous_retrieval | 7 | 0.773437 | 0.651113 | 5 | 9 |
+| ETTh1 | last | homogeneous_no_memory | 7 | 0.816555 | 0.669777 | 7 | 10 |
+| ETTh1 | last | homogeneous_retrieval | 7 | 0.815257 | 0.669294 | 7 | 10 |
+| ETTh2 | last | heterogeneous_no_memory | 7 | 1.071878 | 0.759345 | 3 | 7 |
+| ETTh2 | last | heterogeneous_retrieval | 7 | 1.074415 | 0.761079 | 3 | 7 |
+| ETTh2 | last | homogeneous_no_memory | 7 | 1.124452 | 0.779799 | 3 | 7 |
+| ETTh2 | last | homogeneous_retrieval | 7 | 1.123408 | 0.780260 | 3 | 7 |
+
+### 해석, 검증, 보존
+
+- Heterogeneous retrieval 추가의 macro MSE는 .679887→.711945(약4.715% 악화), MAE .580342→.592568. ETTh1 .560893→.574060, ETTh2 .798882→.849830. H96의 작은 개선은 H720에서 재현되지 않았다. 이질성만 추가한 no-memory는 homogeneous .717480보다 낮지만 seed변동/짧은 예산의 제한이 있다.
+- 같은 heterogeneous-retrieval checkpoint의 memory를 off로 바꾸면 ETTh1 ΔMSE−.017590, ETTh2−.026809로 개선된다. Uniform 역시−.001159/−.006319; recent는+.010669/+.007987로 악화. 이 H720 결과는 현재 soft content retrieval의 유익성을 뒷받침하지 않는다. Test 개입을 이용해 모델/강도를 재선택하거나 재학습하지 않았다.
+- Last head heterogeneous macro .923991→.923926로 거의 차이가 없다. H720 flatten972853 vs last28213 parameters이며, head용량과 정보 접근이 다르다. Main의 모든 조건은 같은 nominal count/초기 trainable parameters; retrieval off의 Q/K/gate는 미사용이다.
+- `check_summary.json`:32matrix, best-validation selection/restoration, CSV/history/TensorBoard, 전체 element수/각 horizon평균, 저장config/checkpoint/hash/finite weight, 독립 CSV train scaler 및 첫 test target[11520:12240], 모든 집계/paired deltas 통과. `check_reload.json`: 별도 config/checkpoint 로딩으로 ETTh1/heterogeneous-retrieval/seed7의 전체 test 및 off/uniform/recent MSE/MAE 재현(atol1e-12). PNG 직접 확인. `results/h720-preflight.json`은 기존H96 32개 회귀 검사를 과거파일 덮어쓰기 없이 기록한다.
+- Exact analysis commands(cwd NSMT, prefix `env LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python`): `f_lif_pop_v1/forecasting/summarize.py --suite ett-first-h720-20260914`; `f_lif_pop_v1/forecasting/check_summary.py --suite ett-first-h720-20260914`; `f_lif_pop_v1/forecasting/check_reload.py --suite ett-first-h720-20260914 --pred_len 720`. 실제 실행은 이 세 함수 summarize/check/reload_check를 같은 Python process에서 순차 호출했으며 reload는 새로운 model/config 객체를 생성했다.
+- Artifacts: `NSMT/f_lif_pop_v1/forecasting/results/ett-first-h720-20260914/{REPORT.md,per_run.csv,per_task.csv,macro.csv,paired.csv,paired_macro_by_seed.csv,interaction.csv,interventions.csv,aggregate.json,manifest.json,completion.json,check_summary.json,check_reload.json,comparison.png,comparison.pdf}` 및32 full-precision run JSON. `per_run.csv:log_path`가 각 기존 neorecall 형식 CSV/TensorBoard/logargs/config.pt/best+model.pt를 가리킨다. Smoke는 별도 `smoke-h720-20260914`, 성능표 제외.
+- 한계: 최대10/early-stop3 공통 budget, 3seed, 두 ETT-hour dataset뿐. Longer-budget convergence, uniform/recent 재학습, synthetic recall, 에너지측정: not run. 2차는 별도 branch에서 causal population Spike-TCN과 H96/H720을 같은 protocol로 비교한다. 사용자 untracked concept 유지, main 통합/push: not run.

@@ -97,3 +97,7 @@ env LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/
 새 세션에서는 PROJECT_LOG의2026-09-14 완료 항목을 먼저 읽는다. `test.py --config <per_run.csv의 log_path>`로
 로컬 checkpoint를 재평가할 수 있다(기존 CSV는 덮어쓰지 않는다). 데이터/checkpoint/TensorBoard는
 로컬 자산이므로 다른 컴퓨터에서 checkout만으로 복원되지 않는다. 재학습은 새 suite 이름을 사용한다.
+
+### H720 extension (2026-09-14)
+
+Run `bash f_lif_pop_v1/forecasting/scripts/run_ett.sh --suite ett-first-h720-20260914 --pred_len 720` from NSMT. The same 32-condition matrix, neuron, data preprocessing, scheduler and validation checkpoint selection are retained. Only the prediction horizon changes; training/validation/test contain 7585/2161/2161 windows. Default launcher horizon remains96. Use `summarize.py --suite <suite>`, `check_summary.py --suite <suite>`, and `check_reload.py --suite <suite> --pred_len 720` with the conda environment above. Never reuse a suite name for training. Stage2 Spike-TCN is a separate experiment directory/branch.
