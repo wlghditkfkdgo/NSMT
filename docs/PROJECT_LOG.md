@@ -793,3 +793,15 @@ git tag -a exp/f-lif-pop-v1-20260914 -m "Completed 32 first-stage forecasting ru
 ```
 
 새 세션에서 이어가기: 이 완료 항목 → task README.md → results/ett-first-20260914/REPORT.md를 읽고 `per_run.csv`의 log_path로 config/checkpoint를 찾는다. `test.py --config <log_path>`는 학습 없이 재평가하고 기존 CSV를 덮어쓰지 않는다. 새로운 학습은 반드시 새 suite 이름으로 기존 artifact를 보존한다. 같은 실험을 계속하면 현재 branch를 사용하고, 독립적인 새 실험이면 선택한 기준 commit에서 새 exp branch와 base를 기록한다.
+
+## 2026-09-14 — 1차 shallow patch SNN: H720 확장 사전 기록
+
+- 사용자 요청: prediction length720을 먼저 완료한 뒤 2차 **Spike-TCN**으로 진행한다. 앞서 제안한 장기학습/합성 검색 대조는 이번의 2차 구조 실험과 구별한다.
+- 기존 branch `exp/f-lif-pop-v1`에서 이어간다. H96 완료 기준 commit `277d18f548f23496788c319b4076df66c9f18be7`, 원래 experiment base `7990abd8c1fdcd15eec73e355dd38c6556918f51`. Snapshot tag `exp/f-lif-pop-v1-h720-20260914-snapshot`는 학습 완료 태그가 아니다.
+- 변경: launcher에 `--pred_len 96|720` 추가, run ID/manifest에 horizon 반영, 집계·검증의 H96 상수를 해당 suite horizon에서 계산하도록 일반화. 모델/뉴런/trainer/data/utils의 9개 실행 source는 H96과 동일하다. 기본96과 기존 결과는 보존한다.
+- 조건: ETTh1/ETTh2, seq336, pred720, patch8, D32/K4, flatten head32×3seed(7,13,21)×4조건=24 runs; last head seed7×4조건=8 runs. Homogeneous/heterogeneous × retrieval off/on. AdamW lr.001,wd.01,batch128,clip1, 최대10epoch, ReduceLROnPlateau factor.5/patience1, early stopping3, 최소 validation MSE checkpoint 복원 후 전체 test. 최대10epoch은 공통 탐색 예산이며 수렴을 뜻하지 않는다.
+- 데이터: 기존 train[0,8640),val targets[8640,11520),test targets[11520,14400), train-only StandardScaler, stride1, drop_lastFalse. H720 train7585/val2161/test2161 windows, test10,891,440 elements. 기존 CSV hash와 scaler는 각 run에 저장된다.
+- 환경: `/home/yschoi/.conda/envs/snn_recall/bin/python`, Python3.10.18, torch1.12.0+cu113, SpikingJelly0.0.0.0.14; RTX A6000 GPU0–3, GPU당1프로세스, CPU threads2, deterministic/TF32 off. 환경과 실행명령 전체는 run JSON에 기록한다.
+- 저장: `NSMT/f_lif_pop_v1/forecasting/{results,log}/ett-first-h720-20260914/`, queue/lock은 같은 task `scripts/queues/`. 기존 neorecall CSV/TensorBoard/logargs/model_state 구조를 유지한다. Checkpoint/raw events/stdout은 local, 코드/설정/텍스트 결과는 Git. Untracked concept 문서를 보존한다.
+- 사전 명령(cwd NSMT): `python -m py_compile`은 위 conda Python으로 launcher/summarize/check_summary에 실행하여 통과. `env LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python f_lif_pop_v1/forecasting/train.py --suite smoke-h720-20260914 --pred_len 720 --epoch 1 --max_train_batches 2 --max_eval_batches 2`로 H720 학습/검증/복원/평가 smoke를 실행한다. 축소 smoke는 성능 비교에 포함하지 않는다.
+- 본 실행 명령: `bash f_lif_pop_v1/forecasting/scripts/run_ett.sh --suite ett-first-h720-20260914 --pred_len 720`. 본 학습/최종 검증/지표는 이 사전 항목 시점 not run; 완료 후 append한다. Main 통합/push는 not run.

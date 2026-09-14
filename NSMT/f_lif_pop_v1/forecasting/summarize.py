@@ -15,6 +15,10 @@ def summarize(suite):
     if len(completion['jobs']) != 32 or any(j['status'] != 'complete' for j in completion['jobs']):
         raise ValueError('Require all 32 completed runs')
     results = [json.loads((root / (j['id'] + '.json')).read_text()) for j in completion['jobs']]
+    horizons = {r['config']['pred_len'] for r in results}
+    if len(horizons) != 1:
+        raise ValueError('Summarize one prediction horizon per suite')
+    pred_len = horizons.pop()
     rows = []
     for r in results:
         c, t = r['config'], r['test']
@@ -78,7 +82,7 @@ def summarize(suite):
         changes.append(f'{data} ΔMSE={frame.loc["heterogeneous_retrieval", "mse"] - frame.loc["heterogeneous_no_memory", "mse"]:+.6f}')
     capped = int(((runs['head'] == 'flatten') & (runs.epochs == 10)).sum())
     lines = ['# f-LIF population: 1차 forecasting 결과', '',
-             '입력336/예측96, patch8, D32/K4, train-only 표준화. 본 실험24개(3seed), 보조8개(1seed).',
+             f'입력336/예측{pred_len}, patch8, D32/K4, train-only 표준화. 본 실험24개(3seed), 보조8개(1seed).',
              '모든 수치는 전체 test window/horizon/channel의 train-standardized MSE/MAE이다.', '',
              f'이질적 집단에 검색을 추가하면 macro MSE {het_no.mse:.6f} → {het_yes.mse:.6f} '
              f'({100 * (het_yes.mse / het_no.mse - 1):+.3f}%). ' + '; '.join(changes) + '.',
@@ -127,7 +131,7 @@ def summarize(suite):
         ax.bar(np.arange(4), frame.mse, yerr=frame.mse_sd, capsize=4,
                color=['#95a5a6', '#547a96', '#76b3a5', '#176b5b'])
         ax.set_xticks(np.arange(4), ['Homo\nno memory', 'Homo\nretrieval', 'Hetero\nno memory', 'Hetero\nretrieval'])
-        ax.set_title(data + ' / input 336 / horizon 96')
+        ax.set_title(data + f' / input 336 / horizon {pred_len}')
         ax.set_ylabel('Test MSE (train-standardized)')
         ax.set_ylim(bottom=0)
     fig.suptitle('Population membrane memory: mean ± sample SD over 3 seeds')

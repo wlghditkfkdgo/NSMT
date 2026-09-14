@@ -19,6 +19,10 @@ def check(suite):
     ids = [j['id'] for j in done['jobs']]
     assert len(ids) == len(set(ids)) == 32
     results = [json.loads((root / (name + '.json')).read_text()) for name in ids]
+    horizons = {r['config']['pred_len'] for r in results}
+    assert len(horizons) == 1
+    pred_len = horizons.pop()
+    assert pred_len in [96, 720] and done.get('pred_len', pred_len) == pred_len
     expected = {(head, data, seed, h, r) for head in ['flatten', 'last']
                 for data, seed, h, r in product(['ETTh1', 'ETTh2'], [7, 13, 21] if head == 'flatten' else [7], [False, True], [False, True])}
     actual = {(r['config']['head_mode'], r['config']['data'], r['config']['seed'],
@@ -36,7 +40,7 @@ def check(suite):
     for r in results:
         c, history = r['config'], r['history']
         assert not r['protocol']['smoke_only'] and c['max_train_batches'] == c['max_eval_batches'] == 0
-        assert c['seq_len'] == 336 and c['pred_len'] == 96 and c['num_population'] == 4
+        assert c['seq_len'] == 336 and c['pred_len'] == pred_len and c['num_population'] == 4
         key = (c['head_mode'], c['seed'])
         initial_hashes.setdefault(key, set()).add(r['initial_parameter_sha256'])
         parameter_counts.setdefault(c['head_mode'], set()).add(r['parameters'])
@@ -44,7 +48,7 @@ def check(suite):
         assert r['best_epoch'] == int(np.argmin(losses))
         assert r['best_val_mse'] == min(losses)
         assert abs(r['restored_val']['mse'] - min(losses)) < 1e-7
-        assert r['test']['elements'] == 2785 * 96 * 7
+        assert r['test']['elements'] == (2880 - pred_len + 1) * pred_len * 7
         p = Path(c['save_result_path'])
         epoch = pd.read_csv(p / 'log/best_log_0.csv')
         assert len(epoch) == len(history)
@@ -76,7 +80,7 @@ def check(suite):
             np.testing.assert_allclose(scale, data['scaler_scale'], atol=1e-12)
             data_cache[c['data']] = ((raw - mean) / scale).astype(np.float32)
         sample = json.loads((p / 'log/forecast_example.json').read_text())
-        np.testing.assert_array_equal(np.array(sample['target'], dtype=np.float32), data_cache[c['data']][11520:11616])
+        np.testing.assert_array_equal(np.array(sample['target'], dtype=np.float32), data_cache[c['data']][11520:11520 + pred_len])
         diag = r['test']['diagnostics']
         assert all(0 <= x <= 1 for x in diag['spike_rate_per_constituent'])
         if c['retrieval']:

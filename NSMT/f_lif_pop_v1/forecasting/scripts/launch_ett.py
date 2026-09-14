@@ -34,12 +34,13 @@ def main(args):
                        '--data', data, '--seed', str(seed), '--head_mode', head,
                        '--heterogeneous' if heterogeneous else '--no-heterogeneous',
                        '--retrieval' if retrieval else '--no-retrieval',
-                       '--epoch', str(args.epochs), '--batch_size', str(args.batch_size)]
-            jobs.append({'id': f'{data}_p96_{head}_{variant}_seed{seed}', 'seed': seed,
+                       '--epoch', str(args.epochs), '--batch_size', str(args.batch_size),
+                       '--pred_len', str(args.pred_len)]
+            jobs.append({'id': f'{data}_p{args.pred_len}_{head}_{variant}_seed{seed}', 'seed': seed,
                          'command': command, 'status': 'pending'})
     manifest = {'suite': args.suite, 'created_utc': datetime.now(timezone.utc).isoformat(),
                 'launcher_command': shlex.join([sys.executable, *sys.argv]), 'gpus': args.gpus,
-                'jobs': jobs, 'primary_runs': 24, 'exploratory_last_head_runs': 8}
+                'pred_len': args.pred_len, 'jobs': jobs, 'primary_runs': 24, 'exploratory_last_head_runs': 8}
     write_json(manifest_path, manifest)
     status_path = queue_root / (args.suite + '.json')
     write_json(status_path, manifest)
@@ -86,6 +87,7 @@ if __name__ == '__main__':
     parser.add_argument('--gpus', nargs='+', type=int, default=[0, 1, 2, 3])
     parser.add_argument('--epochs', type=int, default=10)
     parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--pred_len', type=int, choices=[96, 720], default=96)
     args = parser.parse_args()
     if len(set(args.gpus)) != len(args.gpus):
         raise ValueError('GPU IDs must be unique')
