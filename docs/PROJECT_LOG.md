@@ -885,3 +885,176 @@ git tag -a exp/f-lif-pop-v1-20260914 -m "Completed 32 first-stage forecasting ru
 - 정확한 명령(cwd NSMT, Python prefix `env LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python`): `f_lif_pop_tcn_v1/forecasting/check_model.py --device cpu --output f_lif_pop_tcn_v1/forecasting/results/check_model_cpu.json`; 같은 명령 device cuda:0/output check_model_cuda.json. Smoke: `f_lif_pop_tcn_v1/forecasting/train.py --suite smoke-tcn-20260914 --pred_len 720 --epoch 1 --max_train_batches 2 --max_eval_batches 2` 및 pred_len96. Source protocol check는 AST 비교 inline Python; 결과 JSON과 검사 항목을 보존한다.
 - 정식 실행: `bash f_lif_pop_tcn_v1/forecasting/scripts/run_stage2.sh` → `run_ett.sh --suite ett-tcn-h96-20260914 --pred_len 96` 완료 후 `run_ett.sh --suite ett-tcn-h720-20260914 --pred_len 720`. 이 사전 기록 시점 정식 학습/지표/완료 audits는 not run; 완료 후 append.
 - Artifacts는 해당 task `results/<suite>` 및 `log/<suite>/<data>/<date>/<config>/seed+head+variant`. 기존 best_log_0/final+result CSV, train_0/val_0 events,logargs,model_state config/best checkpoint 형식. Code/config/docs/text summaries versioned; rawevents/checkpoint/stdout local. Canonical log append-only, concept untracked 보존. Main integration/push: not run.
+
+## 2026-09-14 21:27 KST — 2차 실행 중 및 후처리 인계
+
+- 실제 학습은 snapshot `794a29693a97dc1246c97ccf42d37ff6fd0ac585` (`exp/f-lif-pop-tcn-v1-20260914-snapshot`)에서 시작했다. Branch `exp/f-lif-pop-tcn-v1`, 선택 base `ed5c8d16fb5e9c56234c58d6a8d870ffe20f4efc`. 이 항목은 완료 보고가 아니다. H96 24개 중8개 완료/4개 running/12개 pending이었던12:24:59 UTC 상태를 확인했다. H720 24개는 H96 뒤 자동 실행되며 아직 not run. 최종48개 성능/결론은 not available yet.
+- H96/H720 두 실제 데이터 smoke 모두 통과했다. 정식 H96 초기 결과에서 각 population layer 발화를 확인했고, 조기 종료 및 최소 validation checkpoint 복원을 확인했다. H96 정식 epoch 시간은 약30–45초로 1차보다 길다. 완료된 일부 seed의 성능으로 설정을 바꾸지 않는다.
+- 새 분석 코드 `compare_stages.py`는 horizon별 비교, 실제48쌍 데이터/전처리/하이퍼파라미터/naive baseline 일치, macro/paired 통계, training_selection.csv, 층별 diagnostic CSV와 PNG/PDF를 작성한다. `scripts/finish_stage2.py`가 각24개 suite 완료 후 summarize/check/PROJECT_LOG append, 두 horizon 완료 후 fresh checkpoint reload, 전체 비교를 수행한다. 스크립트 compile 통과; 전체 결과에 대한 실행 검증은 학습 완료 전이므로 not run.
+- 후처리 프로세스는 학습과 독립된 detached process로 시작했다. 최초 managed monitor PID1224395는 대기 중임을 정확한 cmdline으로 확인한 뒤 종료하고, PID1226071의 detached monitor로 교체했다. 학습 프로세스는 중단하지 않았다.
+- Detached command(cwd NSMT): `env LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python /home/yschoi/CLS_spiking_transformer/Bio-inspired-Spiking-Memory-Transformer-for-time-series-representation-learning/NSMT/f_lif_pop_tcn_v1/forecasting/scripts/finish_stage2.py --wait --finalize`. 실제 생성은 Python subprocess.Popen(start_new_session=True, stdin=DEVNULL, stdout/err=task log/stage2-postprocess-20260914.stdout)이며, 명령/PID/시작UTC를 `scripts/queues/postprocess.json`에 기록했다.
+- 상태파일(task 아래): `scripts/queues/ett-tcn-h96-20260914.json`, H720 시작 후 `ett-tcn-h720-20260914.json`, `postprocess.json`. 학습 완료는 각 `results/<suite>/completion.json`; 최종 검증은 `check_summary.json`, `check_reload.json`, `results/stage-comparison-20260914/check_comparison.json`. 자동 versioning 성공은 `scripts/queues/finalization.json`, 예외는 `postprocess_failure.json` 및 local monitor stdout에 남긴다.
+- 학습 중 실행 source9개와 HEAD를 동결한다. 새 run이 실제 HEAD를 provenance에 기록하므로 중간 commit/branch 전환은 audit 일치에 영향을 준다. 분석 코드/README/이 인계 기록은 완료 commit에 함께 보존하도록 작업 트리에 남긴다. 기존 untracked concept hash `01355e2a9cb0766632a52095d88a1676c845d4b4041695aea791b3eabbc01336`와 상태를 유지했다.
+- `--finalize`는 전체 audits 통과 후 예상 branch/HEAD를 검사하고, 명시된 실험 분석 코드·각 suite log/results·canonical log만 `git add`/`git commit --only`한 뒤 annotated `exp/f-lif-pop-tcn-v1-20260914` tag를 만든다. 다른 staged paths는 그대로 둔다. Branch/HEAD가 바뀌었거나 완료 tag가 이미 있으면 자동 commit/tag를 하지 않고 상태파일에 이유를 기록한다. Main 통합/remote push: not run. 현재 완료 tag는 아직 생성되지 않았다.
+
+## 2026-09-14 — 2차 Spike-TCN H96 완료 (24 runs)
+
+- Branch `exp/f-lif-pop-tcn-v1`; base `ed5c8d16fb5e9c56234c58d6a8d870ffe20f4efc`; training snapshot `794a29693a97dc1246c97ccf42d37ff6fd0ac585`. 24개 전부 exit0. 전체48개 완료 tag/commit은 두 horizon 검증 뒤 별도 기록한다.
+- 목적/코드/데이터/환경/seed/hyperparameters는 직전 2차 사전 기록과 동일하다. Convolution2개/kernel3/dilation1,2/current residual; population/optimizer/data 코드는 사전 동결했다. ETTh1/ETTh2×seeds7/13/21×네 조건, flatten head만 학습했다.
+- Full test elements/run: 1871520; parameters/run: 158287. Launcher wall 1913.8s; run 154.6–472.6s; max GPU allocated 3.198GiB.
+- 24개 중 4개가10epoch 상한에 도달했다. 24개가 감소된 LR로 학습했다. 최소 validation MSE epoch는1-based 1–8. 최종 checkpoint 복원 검증 통과.
+- 이질적 population에서 retrieval 추가 macro MSE 0.380509→0.381907 (+0.367%). Macro는 데이터셋 평균을 seed별 계산한 뒤3seed mean±sample SD이며 horizon 간 합산하지 않는다.
+
+| Variant | MSE ± SD | MAE ± SD |
+|---|---:|---:|
+| heterogeneous_no_memory | 0.380509 ± 0.003947 | 0.417491 ± 0.004645 |
+| heterogeneous_retrieval | 0.381907 ± 0.008823 | 0.419841 ± 0.007770 |
+| homogeneous_no_memory | 0.397856 ± 0.024672 | 0.430200 ± 0.013963 |
+| homogeneous_retrieval | 0.387563 ± 0.013150 | 0.425702 ± 0.009946 |
+
+| Data | Variant | MSE ± SD | MAE ± SD |
+|---|---|---:|---:|
+| ETTh1 | heterogeneous_no_memory | 0.423997 ± 0.005138 | 0.444196 ± 0.002801 |
+| ETTh1 | heterogeneous_retrieval | 0.428593 ± 0.003501 | 0.448515 ± 0.003437 |
+| ETTh1 | homogeneous_no_memory | 0.430014 ± 0.006015 | 0.447499 ± 0.004904 |
+| ETTh1 | homogeneous_retrieval | 0.438824 ± 0.008541 | 0.455427 ± 0.008467 |
+| ETTh2 | heterogeneous_no_memory | 0.337020 ± 0.013031 | 0.390786 ± 0.011963 |
+| ETTh2 | heterogeneous_retrieval | 0.335220 ± 0.014525 | 0.391166 ± 0.012821 |
+| ETTh2 | homogeneous_no_memory | 0.365699 ± 0.046494 | 0.412902 ± 0.028436 |
+| ETTh2 | homogeneous_retrieval | 0.336301 ± 0.029292 | 0.395977 ± 0.023174 |
+
+각 실행: best epoch은0-based.
+
+| Data | Variant | Seed | MSE | MAE | Best epoch | Epochs |
+|---|---|---:|---:|---:|---:|---:|
+| ETTh1 | heterogeneous_no_memory | 7 | 0.418195 | 0.440961 | 1 | 5 |
+| ETTh1 | heterogeneous_no_memory | 13 | 0.427970 | 0.445798 | 2 | 6 |
+| ETTh1 | heterogeneous_no_memory | 21 | 0.425827 | 0.445828 | 7 | 10 |
+| ETTh1 | heterogeneous_retrieval | 7 | 0.431450 | 0.450769 | 4 | 8 |
+| ETTh1 | heterogeneous_retrieval | 13 | 0.424688 | 0.444559 | 2 | 6 |
+| ETTh1 | heterogeneous_retrieval | 21 | 0.429641 | 0.450216 | 7 | 10 |
+| ETTh1 | homogeneous_no_memory | 7 | 0.423725 | 0.441860 | 5 | 9 |
+| ETTh1 | homogeneous_no_memory | 13 | 0.435711 | 0.449877 | 4 | 8 |
+| ETTh1 | homogeneous_no_memory | 21 | 0.430605 | 0.450760 | 5 | 9 |
+| ETTh1 | homogeneous_retrieval | 7 | 0.433544 | 0.450423 | 2 | 6 |
+| ETTh1 | homogeneous_retrieval | 13 | 0.434251 | 0.450654 | 7 | 10 |
+| ETTh1 | homogeneous_retrieval | 21 | 0.448678 | 0.465203 | 6 | 10 |
+| ETTh2 | heterogeneous_no_memory | 7 | 0.351689 | 0.404134 | 3 | 7 |
+| ETTh2 | heterogeneous_no_memory | 13 | 0.326780 | 0.381034 | 1 | 5 |
+| ETTh2 | heterogeneous_no_memory | 21 | 0.332591 | 0.387189 | 1 | 5 |
+| ETTh2 | heterogeneous_retrieval | 7 | 0.351412 | 0.405579 | 4 | 8 |
+| ETTh2 | heterogeneous_retrieval | 13 | 0.323336 | 0.381031 | 1 | 5 |
+| ETTh2 | heterogeneous_retrieval | 21 | 0.330913 | 0.386889 | 1 | 5 |
+| ETTh2 | homogeneous_no_memory | 7 | 0.365755 | 0.416192 | 4 | 8 |
+| ETTh2 | homogeneous_no_memory | 13 | 0.412165 | 0.439549 | 5 | 9 |
+| ETTh2 | homogeneous_no_memory | 21 | 0.319177 | 0.382964 | 0 | 4 |
+| ETTh2 | homogeneous_retrieval | 7 | 0.319875 | 0.384108 | 3 | 7 |
+| ETTh2 | homogeneous_retrieval | 13 | 0.370119 | 0.422681 | 1 | 5 |
+| ETTh2 | homogeneous_retrieval | 21 | 0.318909 | 0.381141 | 1 | 5 |
+
+같은 checkpoint의 모든 층 memory 개입 (ΔMSE=개입−full, 재학습 아님):
+
+| Data | Variant | off | uniform | recent |
+|---|---|---:|---:|---:|
+| ETTh1 | heterogeneous_retrieval | -0.005142 | -0.001652 | +0.002332 |
+| ETTh1 | homogeneous_retrieval | +0.001797 | -0.000754 | +0.001767 |
+| ETTh2 | heterogeneous_retrieval | -0.000616 | -0.001995 | +0.000231 |
+| ETTh2 | homogeneous_retrieval | -0.006661 | -0.002792 | +0.001247 |
+
+- 검증 통과:24matrix/중복/누락, frozen source hash/학습 commit 일치, 조건별 초기parameter/count, minimum validation checkpoint/복원, 전체 test element수, CSV/history/TensorBoard 일치, horizon평균, 저장config/checkpoint hash/finite weight, train-only scaler와 test 첫 target 경계, 층별 population 진단, 독립 NumPy 기반 macro/paired 통계. `check_summary.json`.
+- 개별 fresh checkpoint 재평가는 이 horizon 집계 시점 not run. 두 horizon 학습이 모두 종료된 뒤 ETTh1/heterogeneous-retrieval/seed7의 전체 test MSE/MAE 및 off/uniform/recent를 검증한다(atol1e-12). 결과는 check_reload.json 및 전체 완료 기록에 남긴다.
+- Exact launcher: `bash f_lif_pop_tcn_v1/forecasting/scripts/run_ett.sh --suite ett-tcn-h96-20260914 --pred_len 96` (run_stage2.sh가 호출). 각 실제 subprocess명령은 manifest/completion 및 run JSON. 분석 호출: `summarize('ett-tcn-h96-20260914'); check('ett-tcn-h96-20260914')`; 모든 학습이 끝난 뒤 `check_reload('ett-tcn-h96-20260914', 96, "cuda:0")`를 실행한다. 관리 script command: `/home/yschoi/.conda/envs/snn_recall/bin/python /home/yschoi/CLS_spiking_transformer/Bio-inspired-Spiking-Memory-Transformer-for-time-series-representation-learning/NSMT/f_lif_pop_tcn_v1/forecasting/scripts/finish_stage2.py --wait --finalize`; 환경 prefix는 사전 기록과 동일.
+- Artifact: `NSMT/f_lif_pop_tcn_v1/forecasting/results/ett-tcn-h96-20260914/`의24run JSON,manifest/completion,REPORT,per_run/per_task/macro/paired/paired_macro_by_seed/interaction/interventions CSV,aggregate,checks,comparison PNG/PDF. Log 위치는 per_run.csv의log_path; task `log/ett-tcn-h96-20260914/` 하위에 neorecall CSV/TensorBoard/logargs/model_state 형식. Raw events/checkpoints/stdout은 local.
+- 제한: 최대10/early-stop3의 짧은 예산, 세seed/두dataset. 층별진단은 첫 test8window만, all-layer intervention은 어느 층이 원인인지 분리하지 않는다. 1차 대비 parameter가24714개 많고 current residual/depth가 추가되어 matched-capacity 비교가 아니다. 논문 원본 재현/longer-budget/last-head 학습/uniform-recent 재학습/synthetic recall/에너지측정: not run. Test로 재선택하지 않았다. Main 통합/push: not run.
+
+## 2026-09-14 — 사용자 PopulationLIF implementation review 대조
+
+- 요청: `NSMT/docs/PopulationLIF_implementation_review.md`를 읽고 PopulationLIF를 검토한다. 리뷰 문서 전체, 원 concept의 selection/gate/soft-hard 미정/상태해석 부분, 1차 및2차 layers.py와 기존 check_model.py/README를 대조했다. 사용자 원문/리뷰 파일은 수정하지 않았다.
+- 범위는 구현·개념 검토이며 새 학습 실험이 아니다. Branch `exp/f-lif-pop-tcn-v1`, training snapshot `794a29693a97dc1246c97ccf42d37ff6fd0ac585`, base `ed5c8d16fb5e9c56234c58d6a8d870ffe20f4efc`. 점검 시점2차H96 24개 complete, H7208개 complete/4개 running/12개 pending. 학습 source/HEAD 변경, 재학습, checkpoint 수정: not run.
+- 핵심 판정: 사용자 리뷰에 동의한다. 현재 것은 **population-based content-adaptive dense membrane-memory retrieval**이며 explicit content-dependent read mask/sparse exclusion은 없다. `layers.py:64–76`의 모든 과거 softmax와 weighted sum, `:91`의 diagnostic-only future padding을 구별해야 한다. Recent override는 고정 recency test intervention이지 학습된 content mask가 아니다. Population, 이질적 fixed tau, shared input, current pre-query/past post-reset value, K 공유 temporal weight, additive signed evidence, separate gate, population spike output 및 window-local memory는 구현되어 있다. 두 PopulationLIF 클래스 AST가 동일함을 확인했다.
+- 원문 §24.5는 soft/hard 선택을 미정으로 둔다. Dense pilot 자체를 무조건 구현 오류로 취급하지는 않지만, 원문 §10의 read selection/read strength 구분 및 irrelevant memory exclusion까지 검증한 것으로 설명하면 부정확하다. 기존 1차/2차 결과의 '검색'은 dense 조건부 가중 검색을 뜻한다. Fractional prior는 선택 사항이므로 누락 버그가 아니다.
+- 추가 설계 제약1: bias-free linear Q/K + L2 normalization은 양의 비례 관계인 비영 상태의 절대 크기를 score에서 구별하지 못한다(normalization epsilon보다 큰 norm 기준). Value의 진폭은 보존된다. Homogeneous population은 K개 막전위가 동일하게 유지되므로 같은 부호의 과거 상태는 cosine에서 크기로 구별되지 않는다. Redundant-population 대조로 유효하나 effective representation capacity가 같다는 뜻은 아니다.
+- 추가 설계 제약2: sigmoid gate는 u_bar만 보며 memory bank/score/선택된 후보 수를 직접 보지 않는다. 기억 기여를 학습으로 작게 만들 수 있지만 같은 u_bar에서 후보의 질만 바뀌면 gate는 같다. Softmax는 후보가 모두 낮은 score여도 총weight1이며, 기본 경로에는 null/empty-support 선택이 없다. 이는 문서상 gate가 '존재한다'는 판정을 뒤집는 버그가 아니라 후보 품질에 대한 적응의 제한이다.
+- CPU 진단만 시행: seed7,threads2,Py3.10.18/torch1.12.0+cu113, conda Python 및 LD_LIBRARY_PATH는 기존과 동일. T8,BC2,D3 random input의 과거168weights 모두 양수(min6.967689e-5). Identity Q/K에서 [1,2,3,4]와10배 상태의 weight≈[.5,.5]. Homogeneous currents[.5,.4,-20.]의 마지막 query/past cosine=[−1,−1]인데 weights=[.5,.5],gate=.5,evidence 각+.00325379. 두 history의 현재 charge를 모두[.1,.1,.1,.1]로 맞추고 past state부호만 바꾸면 gate=.5로 같고 evidence±.00247737. Homogeneous random input의 구성원간 막전위 차이는0. 초기화 상태에서 보인 구조 반례이며 학습된 checkpoint의 실패율/성능 원인 측정이 아니다.
+- 기존 check_model의 causal/future-perturbation 검사는 sparse/semantic selectivity 검사가 아니었다. H720 MSE악화(.679887→.711945)는 dense v1의 결과로 제한해야 한다. Masked/sparse 원안의 실패 또는 mask 추가 시 개선을 입증하지 않는다.
+- 후속 구현 제안(not run): dense v1 보존, 별도버전의 K공유 mask; survivor normalization과 별도gate를 분리; empty support면M=0; top-k만으로 후보 없음이 해결되지 않는 점 확인; excluded-slot weight0/empty evidence0/direct-read 불변성/causality/known-lag synthetic distractor 검증. Soft mask도 모두 양수면 sparse가 아니며, dense scoring 후 sparse sum은 search 효율 개선을 자동 보장하지 않는다. Mask된 raw input의 영향이 이후 state에 남을 수 있으므로 직접slot제외와 과거입력 완전삭제를 구별한다.
+- Artifact: `NSMT/f_lif_pop_tcn_v1/forecasting/results/stage-comparison-20260914/IMPLEMENTATION_REVIEW.md` 및 `implementation_review_probes.json`에 상세판정/수치/seed/device/reproduction recipe/source SHA256를 보존했다. 정확한 진단 실행은 cwd NSMT에서 `env LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python -`의 inline Python이며, JSON의 reproduction 항목에 입력·검사식을 기록했다. 학습데이터 사용은 없으며 CPU toy input만 사용했다. 두 layers.py의 현재 hash와 기록 hash를 재확인한다.
+- 이 검토 기록과 artifacts는 이미 대기 중인2차 후처리의 comparison디렉터리/canonical log 보존 범위에 포함된다. 학습 중 commit을 추가하지 않아 pending run provenance를 유지한다. Main 통합/push: not run.
+
+## 2026-09-14 — 2차 Spike-TCN H720 완료 (24 runs)
+
+- Branch `exp/f-lif-pop-tcn-v1`; base `ed5c8d16fb5e9c56234c58d6a8d870ffe20f4efc`; training snapshot `794a29693a97dc1246c97ccf42d37ff6fd0ac585`. 24개 전부 exit0. 전체48개 완료 tag/commit은 두 horizon 검증 뒤 별도 기록한다.
+- 목적/코드/데이터/환경/seed/hyperparameters는 직전 2차 사전 기록과 동일하다. Convolution2개/kernel3/dilation1,2/current residual; population/optimizer/data 코드는 사전 동결했다. ETTh1/ETTh2×seeds7/13/21×네 조건, flatten head만 학습했다.
+- Full test elements/run: 10891440; parameters/run: 997567. Launcher wall 1491.5s; run 131.2–462.7s; max GPU allocated 3.225GiB.
+- 24개 중 2개가10epoch 상한에 도달했다. 24개가 감소된 LR로 학습했다. 최소 validation MSE epoch는1-based 1–7. 최종 checkpoint 복원 검증 통과.
+- 이질적 population에서 retrieval 추가 macro MSE 0.800043→0.809756 (+1.214%). Macro는 데이터셋 평균을 seed별 계산한 뒤3seed mean±sample SD이며 horizon 간 합산하지 않는다.
+
+| Variant | MSE ± SD | MAE ± SD |
+|---|---:|---:|
+| heterogeneous_no_memory | 0.800043 ± 0.046684 | 0.628503 ± 0.022646 |
+| heterogeneous_retrieval | 0.809756 ± 0.031170 | 0.631460 ± 0.010588 |
+| homogeneous_no_memory | 0.787103 ± 0.062192 | 0.624228 ± 0.019320 |
+| homogeneous_retrieval | 0.811149 ± 0.040830 | 0.627735 ± 0.012471 |
+
+| Data | Variant | MSE ± SD | MAE ± SD |
+|---|---|---:|---:|
+| ETTh1 | heterogeneous_no_memory | 0.568987 ± 0.026019 | 0.547698 ± 0.015097 |
+| ETTh1 | heterogeneous_retrieval | 0.570324 ± 0.016979 | 0.547276 ± 0.009581 |
+| ETTh1 | homogeneous_no_memory | 0.574332 ± 0.011656 | 0.556559 ± 0.007015 |
+| ETTh1 | homogeneous_retrieval | 0.558881 ± 0.011577 | 0.549593 ± 0.004695 |
+| ETTh2 | heterogeneous_no_memory | 1.031099 ± 0.067494 | 0.709309 ± 0.030266 |
+| ETTh2 | heterogeneous_retrieval | 1.049188 ± 0.054940 | 0.715645 ± 0.014577 |
+| ETTh2 | homogeneous_no_memory | 0.999875 ± 0.121084 | 0.691898 ± 0.040718 |
+| ETTh2 | homogeneous_retrieval | 1.063416 ± 0.092372 | 0.705877 ± 0.029111 |
+
+각 실행: best epoch은0-based.
+
+| Data | Variant | Seed | MSE | MAE | Best epoch | Epochs |
+|---|---|---:|---:|---:|---:|---:|
+| ETTh1 | heterogeneous_no_memory | 7 | 0.539062 | 0.530400 | 1 | 5 |
+| ETTh1 | heterogeneous_no_memory | 13 | 0.581634 | 0.554483 | 2 | 6 |
+| ETTh1 | heterogeneous_no_memory | 21 | 0.586264 | 0.558212 | 1 | 5 |
+| ETTh1 | heterogeneous_retrieval | 7 | 0.565036 | 0.544620 | 2 | 6 |
+| ETTh1 | heterogeneous_retrieval | 13 | 0.556617 | 0.539302 | 2 | 6 |
+| ETTh1 | heterogeneous_retrieval | 21 | 0.589317 | 0.557904 | 1 | 5 |
+| ETTh1 | homogeneous_no_memory | 7 | 0.561015 | 0.549588 | 3 | 7 |
+| ETTh1 | homogeneous_no_memory | 13 | 0.582681 | 0.556472 | 6 | 10 |
+| ETTh1 | homogeneous_no_memory | 21 | 0.579299 | 0.563616 | 2 | 6 |
+| ETTh1 | homogeneous_retrieval | 7 | 0.570385 | 0.554411 | 4 | 8 |
+| ETTh1 | homogeneous_retrieval | 13 | 0.547233 | 0.545031 | 3 | 7 |
+| ETTh1 | homogeneous_retrieval | 21 | 0.559026 | 0.549338 | 6 | 10 |
+| ETTh2 | heterogeneous_no_memory | 7 | 0.953213 | 0.674360 | 0 | 4 |
+| ETTh2 | heterogeneous_no_memory | 13 | 1.072437 | 0.726655 | 0 | 4 |
+| ETTh2 | heterogeneous_no_memory | 21 | 1.067648 | 0.726911 | 0 | 4 |
+| ETTh2 | heterogeneous_retrieval | 7 | 1.101938 | 0.727556 | 0 | 4 |
+| ETTh2 | heterogeneous_retrieval | 13 | 0.992293 | 0.699390 | 0 | 4 |
+| ETTh2 | heterogeneous_retrieval | 21 | 1.053333 | 0.719989 | 0 | 4 |
+| ETTh2 | homogeneous_no_memory | 7 | 0.986536 | 0.684871 | 4 | 8 |
+| ETTh2 | homogeneous_no_memory | 13 | 1.127076 | 0.735671 | 1 | 5 |
+| ETTh2 | homogeneous_no_memory | 21 | 0.886013 | 0.655150 | 2 | 6 |
+| ETTh2 | homogeneous_retrieval | 7 | 0.997024 | 0.685414 | 4 | 8 |
+| ETTh2 | homogeneous_retrieval | 13 | 1.168908 | 0.739204 | 2 | 6 |
+| ETTh2 | homogeneous_retrieval | 21 | 1.024316 | 0.693013 | 2 | 6 |
+
+같은 checkpoint의 모든 층 memory 개입 (ΔMSE=개입−full, 재학습 아님):
+
+| Data | Variant | off | uniform | recent |
+|---|---|---:|---:|---:|
+| ETTh1 | heterogeneous_retrieval | -0.019497 | -0.002820 | +0.007008 |
+| ETTh1 | homogeneous_retrieval | -0.008102 | -0.000646 | +0.004169 |
+| ETTh2 | heterogeneous_retrieval | -0.023199 | -0.000465 | +0.003628 |
+| ETTh2 | homogeneous_retrieval | -0.043576 | -0.008340 | -0.003596 |
+
+- 검증 통과:24matrix/중복/누락, frozen source hash/학습 commit 일치, 조건별 초기parameter/count, minimum validation checkpoint/복원, 전체 test element수, CSV/history/TensorBoard 일치, horizon평균, 저장config/checkpoint hash/finite weight, train-only scaler와 test 첫 target 경계, 층별 population 진단, 독립 NumPy 기반 macro/paired 통계. `check_summary.json`.
+- 개별 fresh checkpoint 재평가는 이 horizon 집계 시점 not run. 두 horizon 학습이 모두 종료된 뒤 ETTh1/heterogeneous-retrieval/seed7의 전체 test MSE/MAE 및 off/uniform/recent를 검증한다(atol1e-12). 결과는 check_reload.json 및 전체 완료 기록에 남긴다.
+- Exact launcher: `bash f_lif_pop_tcn_v1/forecasting/scripts/run_ett.sh --suite ett-tcn-h720-20260914 --pred_len 720` (run_stage2.sh가 호출). 각 실제 subprocess명령은 manifest/completion 및 run JSON. 분석 호출: `summarize('ett-tcn-h720-20260914'); check('ett-tcn-h720-20260914')`; 모든 학습이 끝난 뒤 `check_reload('ett-tcn-h720-20260914', 720, "cuda:0")`를 실행한다. 관리 script command: `/home/yschoi/.conda/envs/snn_recall/bin/python /home/yschoi/CLS_spiking_transformer/Bio-inspired-Spiking-Memory-Transformer-for-time-series-representation-learning/NSMT/f_lif_pop_tcn_v1/forecasting/scripts/finish_stage2.py --wait --finalize`; 환경 prefix는 사전 기록과 동일.
+- Artifact: `NSMT/f_lif_pop_tcn_v1/forecasting/results/ett-tcn-h720-20260914/`의24run JSON,manifest/completion,REPORT,per_run/per_task/macro/paired/paired_macro_by_seed/interaction/interventions CSV,aggregate,checks,comparison PNG/PDF. Log 위치는 per_run.csv의log_path; task `log/ett-tcn-h720-20260914/` 하위에 neorecall CSV/TensorBoard/logargs/model_state 형식. Raw events/checkpoints/stdout은 local.
+- 제한: 최대10/early-stop3의 짧은 예산, 세seed/두dataset. 층별진단은 첫 test8window만, all-layer intervention은 어느 층이 원인인지 분리하지 않는다. 1차 대비 parameter가24714개 많고 current residual/depth가 추가되어 matched-capacity 비교가 아니다. 논문 원본 재현/longer-budget/last-head 학습/uniform-recent 재학습/synthetic recall/에너지측정: not run. Test로 재선택하지 않았다. Main 통합/push: not run.
+
+## 2026-09-14 — 2차 전체48개 검증 및 로컬 완료 기록
+
+- H96/H720 각24개 학습 및 전체 artifact audit 완료. 두 horizon 모두 새 config/checkpoint 객체로 전체 test MSE/MAE와 모든 memory 개입을 atol1e-12에서 재현했다. 각 horizon 기록에서 pending이던 check_reload는 이제 passed다.
+- 1차/2차 48쌍의 실제 데이터·전처리·학습 조건 일치 검사를 통과했다. `results/stage-comparison-20260914/{REPORT.md,macro.csv,per_task.csv,paired_macro_by_seed.csv,training_selection.csv,tcn_layer_diagnostics.csv,check_comparison.json,comparison.png,comparison.pdf}`에 비교를 보존한다. 각 horizon은 별개 task로 집계한다.
+- 최종 artifact 생성 뒤 모델/학습 source는 바꾸지 않았다. 자동 후처리는 source/data/checkpoint/지표 검증을 수행했다. 자동 생성한 2차 그림의 사람/시각 검토는 not run; CSV 수치 검증은 passed.
+- 완료 commit은 annotated tag `exp/f-lif-pop-tcn-v1-20260914`로 식별한다. 자동 finalization은 예상 branch/학습 HEAD를 확인하고 이 실험의 명시된 분석 코드·결과·canonical log만 commit한다. 다른 branch/HEAD로 바뀌면 commit/tag를 중지하고 local queue status에 기록한다. Main 통합/remote push: not run.
+- 다음 검증 후보(이번에는 not run): 더 긴 공통 학습 budget; uniform/recent 재학습 및 정답 lag가 있는 synthetic recall; population 층별 retrieval 대조; matched-capacity backbone 비교. 이번 두 ETT-hour/3seed/짧은 예산만으로 보편적 이득이나 통계적 유의성을 주장하지 않는다.

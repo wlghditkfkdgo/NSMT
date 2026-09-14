@@ -1,0 +1,98 @@
+{
+  "scope": "CPU diagnostic counterexamples; no training, no checkpoint modification",
+  "source_sha256": {
+    "f_lif_pop_v1/forecasting/layers.py": "18eb17ded8d9bd271b7d4e976ef408591c3c586d3bd5dd204d2ebac100a51815",
+    "f_lif_pop_tcn_v1/forecasting/layers.py": "bca4db37fc75ec7e5cb92e79d9f7b38c19088598310bc65562ec79c695703def"
+  },
+  "PopulationLIF_AST_identical": true,
+  "dense_read": {
+    "past_slots": 168,
+    "nonzero_past_slots": 168,
+    "smallest_weight": 6.967689114389941e-05
+  },
+  "amplitude_alias": {
+    "past_value_norms": [
+      5.4772257804870605,
+      54.772254943847656
+    ],
+    "weights": [
+      0.4999999403953552,
+      0.5000000596046448
+    ],
+    "explanation": "Positive rescaling is invisible to bias-free linear keys plus L2 normalization above epsilon."
+  },
+  "all_past_antiparallel": {
+    "cosine": [
+      -1.0,
+      -1.0
+    ],
+    "weights": [
+      0.5,
+      0.5
+    ],
+    "gate": 0.5,
+    "evidence": [
+      0.0032537919469177723,
+      0.0032537919469177723,
+      0.0032537919469177723,
+      0.0032537919469177723
+    ]
+  },
+  "same_query_different_bank": [
+    {
+      "charge": [
+        0.10000000149011612,
+        0.10000000149011612,
+        0.10000000149011612,
+        0.10000000149011612
+      ],
+      "gate": 0.5,
+      "past_state": [
+        0.09909483790397644,
+        0.09909483790397644,
+        0.09909483790397644,
+        0.09909483790397644
+      ],
+      "evidence": [
+        0.0024773709010332823,
+        0.0024773709010332823,
+        0.0024773709010332823,
+        0.0024773709010332823
+      ]
+    },
+    {
+      "charge": [
+        0.10000000149011612,
+        0.10000000149011612,
+        0.10000000149011612,
+        0.10000000149011612
+      ],
+      "gate": 0.5,
+      "past_state": [
+        -0.09909483790397644,
+        -0.09909483790397644,
+        -0.09909483790397644,
+        -0.09909483790397644
+      ],
+      "evidence": [
+        -0.0024773709010332823,
+        -0.0024773709010332823,
+        -0.0024773709010332823,
+        -0.0024773709010332823
+      ]
+    }
+  ],
+  "homogeneous_collapse": {
+    "max_constituent_state_difference": 0.0
+  },
+  "seed": 7,
+  "device": "cpu",
+  "threads": 2,
+  "reproduction": {
+    "dense_read": "torch.manual_seed(7); PopulationLIF()(torch.randn(8,2,3), return_aux=True); inspect attention[t,...,:t]",
+    "amplitude_alias": "identity-initialized query/key; compare keys for [1,2,3,4] and 10*[1,2,3,4] after normalize(eps=1e-6)",
+    "all_past_antiparallel": "PopulationLIF(heterogeneous=False), currents [.5,.4,-20.] reshaped [3,1,1]",
+    "same_query_different_bank": "homogeneous model, first current +/- .5; choose second=(.1-beta*first_post_reset_state)/(1-beta)",
+    "homogeneous_collapse": "homogeneous model on torch.randn(12,2,3); max |membrane[...,k]-membrane[...,0]|"
+  }
+}
