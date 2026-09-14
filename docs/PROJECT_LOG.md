@@ -683,3 +683,113 @@ git commit -m "experiment: implement population membrane forecasting with refere
 git tag -a exp/f-lif-pop-v1-20260914-snapshot -m "Implementation and smoke snapshot; full 32-run forecasting experiment not yet run"
 bash f_lif_pop_v1/forecasting/scripts/run_ett.sh --suite ett-first-20260914
 ```
+
+
+---
+
+## 2026-09-14 — f-LIF population 1차 forecasting 완료: 32 runs
+
+### 실행 및 재현 식별자
+
+- 사용자 승인된 1차 실험을 모두 수행했다. 본 실험24개(ETTh1/ETTh2 × homogeneous/heterogeneous × retrieval on/off × seed7/13/21), 마지막 상태 head 보조8개(seed7). 완료32,실패0,과거 결과 재사용0.
+- 브랜치 `exp/f-lif-pop-v1`; base `7990abd8c1fdcd15eec73e355dd38c6556918f51`. 모든 run의 학습 commit은 `e2f1cdbb207b4aefa7cf7da675535e0ae79236b8` (준비 tag `exp/f-lif-pop-v1-20260914-snapshot`). 이번 code/log/result 완료 commit은 annotated tag `exp/f-lif-pop-v1-20260914`로 식별한다. main 통합/원격 push: not run.
+- 실행 중 모델/config/trainer/logger/data source를 수정하지 않았다. 실행9개 source hash가32개 모두 일치하며 검사 시 소스와 일치한다. 집계/검증 코드만 별도로 작성했다. 설계와 학습 조건은 위 사전 항목 그대로이며 test 기반 튜닝/추가 학습을 하지 않았다.
+- 실제 GPU 병렬시간: 2026-09-14 19:52:13.881–19:56:34.827 KST (UTC10:52–10:56),260.946초(4분21초). GPU0/1/2/3별9/6/11/6개 run; GPU당 동시에1개 process, run당 최대 torch allocated1.07071GiB. 시각/PID/GPU/명령은 manifest/completion과 개별 JSON에 있다.
+- 환경: Python3.10.18, torch1.12.0+cu113/CUDA11.3, SpikingJelly0.0.0.0.14, NumPy1.26.4, pandas2.3.1, sklearn1.7.1, TensorBoard2.19.0, RTX A6000×4. 패키지 설치/변경 없음. FP32/deterministic/TF32 off. 주 모델133573 parameters, last head7621; 동일 head/seed의4조건(그리고 두 dataset)의 초기 trainable parameter hash와 개수가 모두 동일했다. Beta buffer는 의도대로 달라지지만 평균 beta를 맞췄다.
+- 데이터/분할: ETT-hour7변수, train[0,8640),val target[8640,11520),test target[11520,14400),336점 context,train-only StandardScaler. Train8209/val2785/test2785 window. 모든 test2785×96×7=1871520 element를 평가했다. Dataset CSV hash/scale mean,std/정확한 명령은 개별 JSON에 보존한다.
+- 입력336/출력96/patch8/D32/K4/head32, fixed tau2/4/8/16 또는 평균beta의 homogeneous, additive gamma.05, gate sigmoid, cosine QK temperature.25, post-reset state, subtractive reset/full history BPTT. AdamW .001/wd.01, MSE/clip1, max10epoch/patience3/batch128, ReduceLROnPlateau(valMSE). 전체32개 중16개,주24개 중13개가10epoch 상한에 도달했다. 주 실험4개는epoch9(0-based,마지막)가 best였다. 수렴을 주장하지 않는다.
+
+### 본 실험 macro 지표
+
+두 데이터셋을 각 seed 안에서 먼저 평균한 뒤3seed의 평균±표본SD(ddof1)를 계산한다. 같은 표준화 단위의 window/horizon/channel 전체 MSE/MAE다. SD는 신뢰구간이 아니다.
+
+| Variant | MSE mean ± SD | MAE mean ± SD |
+|---|---:|---:|
+| heterogeneous_no_memory | 0.385644 ± 0.021461 | 0.423791 ± 0.016197 |
+| heterogeneous_retrieval | 0.382667 ± 0.018490 | 0.420998 ± 0.014005 |
+| homogeneous_no_memory | 0.407324 ± 0.017954 | 0.438958 ± 0.011965 |
+| homogeneous_retrieval | 0.397969 ± 0.005556 | 0.432702 ± 0.003111 |
+
+검색 효과는 같은 dataset/head/seed의 retrieval on−off다. 음수는 검색 사용 모델의 오차가 낮다는 뜻이다.
+
+| Population | Macro ΔMSE mean ± SD | Macro ΔMAE mean ± SD |
+|---|---:|---:|
+| homogeneous | -0.009355 ± 0.016715 | -0.006257 ± 0.011577 |
+| heterogeneous | -0.002977 ± 0.003053 | -0.002792 ± 0.002239 |
+
+### 각 run 결과 (epoch는0-based)
+
+다음32개 각각의 full-precision 결과와 log 경로는 `NSMT/f_lif_pop_v1/forecasting/results/ett-first-20260914/per_run.csv`와 `<run_id>.json`에 있다. `flatten`은 본 실험, `last`는 seed7만의 보조 실험이다.
+
+| Data | Head | Variant | Seed | Test MSE | Test MAE | Best epoch | Epochs run |
+|---|---|---|---:|---:|---:|---:|---:|
+| ETTh1 | flatten | heterogeneous_no_memory | 7 | 0.421299 | 0.441665 | 7 | 10 |
+| ETTh1 | flatten | heterogeneous_no_memory | 13 | 0.432493 | 0.448804 | 6 | 10 |
+| ETTh1 | flatten | heterogeneous_no_memory | 21 | 0.418967 | 0.438432 | 6 | 10 |
+| ETTh1 | flatten | heterogeneous_retrieval | 7 | 0.422917 | 0.441259 | 7 | 10 |
+| ETTh1 | flatten | heterogeneous_retrieval | 13 | 0.436079 | 0.450691 | 6 | 10 |
+| ETTh1 | flatten | heterogeneous_retrieval | 21 | 0.419393 | 0.438556 | 6 | 10 |
+| ETTh1 | flatten | homogeneous_no_memory | 7 | 0.455445 | 0.462070 | 8 | 10 |
+| ETTh1 | flatten | homogeneous_no_memory | 13 | 0.457980 | 0.463490 | 9 | 10 |
+| ETTh1 | flatten | homogeneous_no_memory | 21 | 0.449223 | 0.457530 | 9 | 10 |
+| ETTh1 | flatten | homogeneous_retrieval | 7 | 0.448148 | 0.457066 | 8 | 10 |
+| ETTh1 | flatten | homogeneous_retrieval | 13 | 0.467790 | 0.468826 | 9 | 10 |
+| ETTh1 | flatten | homogeneous_retrieval | 21 | 0.464026 | 0.466998 | 9 | 10 |
+| ETTh2 | flatten | heterogeneous_no_memory | 7 | 0.333736 | 0.396258 | 1 | 5 |
+| ETTh2 | flatten | heterogeneous_no_memory | 13 | 0.387470 | 0.434903 | 1 | 5 |
+| ETTh2 | flatten | heterogeneous_no_memory | 21 | 0.319900 | 0.382683 | 1 | 5 |
+| ETTh2 | flatten | heterogeneous_retrieval | 7 | 0.329850 | 0.393329 | 1 | 5 |
+| ETTh2 | flatten | heterogeneous_retrieval | 13 | 0.370881 | 0.422274 | 1 | 5 |
+| ETTh2 | flatten | heterogeneous_retrieval | 21 | 0.316881 | 0.379881 | 1 | 5 |
+| ETTh2 | flatten | homogeneous_no_memory | 7 | 0.349093 | 0.409734 | 1 | 5 |
+| ETTh2 | flatten | homogeneous_no_memory | 13 | 0.396547 | 0.440821 | 1 | 5 |
+| ETTh2 | flatten | homogeneous_no_memory | 21 | 0.335653 | 0.400106 | 1 | 5 |
+| ETTh2 | flatten | homogeneous_retrieval | 7 | 0.335072 | 0.401157 | 1 | 5 |
+| ETTh2 | flatten | homogeneous_retrieval | 13 | 0.335978 | 0.400370 | 7 | 10 |
+| ETTh2 | flatten | homogeneous_retrieval | 21 | 0.336799 | 0.401792 | 1 | 5 |
+| ETTh1 | last | heterogeneous_no_memory | 7 | 0.730584 | 0.601024 | 6 | 10 |
+| ETTh1 | last | heterogeneous_retrieval | 7 | 0.745731 | 0.603236 | 3 | 7 |
+| ETTh1 | last | homogeneous_no_memory | 7 | 0.846589 | 0.657536 | 0 | 4 |
+| ETTh1 | last | homogeneous_retrieval | 7 | 0.807533 | 0.636966 | 1 | 5 |
+| ETTh2 | last | heterogeneous_no_memory | 7 | 0.500898 | 0.506874 | 4 | 8 |
+| ETTh2 | last | heterogeneous_retrieval | 7 | 0.497146 | 0.504376 | 4 | 8 |
+| ETTh2 | last | homogeneous_no_memory | 7 | 0.565604 | 0.538102 | 7 | 10 |
+| ETTh2 | last | homogeneous_retrieval | 7 | 0.564842 | 0.536918 | 7 | 10 |
+
+### 해석과 제한
+
+- **검색을 끈 대조에서 시간상수 이질성의 이득은 두 데이터셋의3seed 모두 확인됐다.** Homogeneous no-memory macro MSE .407324 → heterogeneous no-memory .385644. 다만 동일 effective capacity는 아니며 fixed-tau/짧은 예산의 관찰이다. 검색 사용 조건에서는 ETTh2 평균 MSE가 homogeneous(.335950)보다 heterogeneous(.339204)에서 약간 높으므로 이질성의 보편적 이득으로 확대하지 않는다.
+- **이질적 집단에서 검색의 추가 이득은 작고 dataset 의존적이다.** Macro .385644 → .382667, 약0.772% 감소. Paired macro는3seed 모두 개선됐지만 ETTh1에서는 .424253 → .426130(세seed 모두 소폭 악화), ETTh2에서는 .347035 → .339204(세seed 모두 개선)다. 학습·seed변동 대비 작은 효과이며 통계적 유의성은 검정하지 않았다.
+- Homogeneous 집단의 검색 효과는 macro 평균 개선이나 seed21에서는 악화했고 ETTh2 seed13 영향이 크다. 이질성에 따른 retrieval 효과 interaction(hetero Δ−homo Δ)의 seed macro 평균±SD는 +.006377±.014336이다. 이번 결과로 population이 검색 효용을 특별히 증폭한다고 주장하지 않는다.
+- 같은 heterogeneous-retrieval checkpoint에서 memory를 끄면 test MSE가 평균 ETTh1+.003029,ETTh2+.013447 상승했다. **기억 기여가 예측에 실제로 사용됨**을 보여주지만, 검색 없이 새로 학습한 모델보다 항상 우수함을 뜻하지 않는다. ETTh1에서는 memory 사용 모델 자체가 no-memory 재학습 대조보다 나빴다.
+- 같은 checkpoint에서 uniform으로 바꾸면 ETTh1+.000863,ETTh2+.000672; recent로 바꾸면+.001602,+.000188이다. 내용 조건부 가중치의 기여는 이 테스트에서 작다. 별도로 uniform/recent 방식으로 재학습한 공정한 비교는 not run.
+- 내부 진단은 첫 test8window×전체변수/뉴런/patch만이다. Heterogeneous retrieval의 평균gate .5012, 정규화entropy .9262, 평균lag10.15patch, evidence/charge 절대평균비 .01789; 넓게 분산된 soft retrieval이었다. Homogeneous membrane diversity는0,heterogeneous retrieval의 평균 constituent std .1844. 모든 run의 진단 sample에서 발화가 있었다. 이 수치로 전체 split 발화율/energy/정답 memory 위치를 주장하지 않는다.
+- Last-state head(seed7)의 heterogeneous no-memory macro MSE .615741 → retrieval .621439로 악화했다(ETTh1 .730584→.745731,ETTh2 .500898→.497146). 첫 구조에서 좋은 장기기억이 충분히 형성됐다는 증거는 약하다. 이 head는133573→7621 parameters로 줄고 접근 가능한 정보도 달라지므로 flatten과 정확도만 비교해 원인을 단정하지 않는다.
+- ETT 정답 memory slot을 알 수 없고, 본 실험은10epoch의 작은 budget이다. Full model의 선택성/생물학적 동등성/fractional dynamics/energy efficiency를 증명하지 않는다. 오래된 population coding 실험과도 입력96vs336/window norm/Gaussian/depth 등이 달라 직접 정확도 비교 대상이 아니다.
+- 다음 후보(이번에는 not run): 긴 학습에서 gap 유지 확인; 알려진 정답 lag를 가진 synthetic recall로 검색 검증; uniform/recent 재학습 대조; pre/post-reset storage, gate strength, learned tau 비교. 먼저 모델이 어떤 기억을 선택해야 하는지 분리 검증하는 것이 타당하다. 이 후속 항목은 별도 승인된 실행 범위가 아니며 지금은 제안이다.
+
+### 검증과 보존
+
+- `check_summary.py`가32개 실험 matrix/중복/누락, 학습commit/source hash동일성, 초기parameter 일치, 최소val checkpoint/복원, 전체test element수, CSV↔full precision history/final, TensorBoard loss/mse/mae와 epoch, horizon평균, config.pt/state_dict/checkpoint hash/finite weight를 검사하여 통과했다.
+- 독립 NumPy tensor와 raw JSON lookup으로 per-task mean/SD, dataset-first macro mean/SD, paired ΔMSE/MAE/상대변화,seed macro를 재계산했다. Interaction도 별도 raw lookup으로 재계산해 일치했다. Train scaler는 원본CSV의 첫8640행 평균/std로 독립 검산하고 첫 test target[11520:11616]를 예시 저장값과 정확히 비교했다.
+- `Config.load_args`+`LOAD_MODEL(train=False)`로 ETTh1/flatten/heterogeneous retrieval/seed7의 저장 config/checkpoint를 새로 로드했다. 전체 test MSE/MAE 및 off/uniform/recent MSE가 원본 결과와 atol1e-12에서 일치했다. 원래 hyphen filename의 import entry도 검사했다. 기존 결과 파일은 덮어쓰지 않았다. `check_reload.json`.
+- 비교 그림 `comparison.png/pdf`는 mean±sampleSD이며 PNG를 직접 확인했다. Code/CSV/checkpoint 재검사 결과는 `check_summary.json`, 사전검사는 `results/preflight.json`. 원본utils에서 복사된 공백은 snapshot commit 전 staged whitespace검사에서 발견하여 정리했다; 동작 변경 없음.
+- 결과 디렉터리: `NSMT/f_lif_pop_v1/forecasting/results/ett-first-20260914/`에32개 JSON,manifest/completion,REPORT.md,per_run/per_task/macro/paired/paired_macro_by_seed/interaction/interventions CSV,aggregate,checks,comparison.png/pdf. 같은 task `log/ett-first-20260914/`의 dataset/date/config/seed+variant별 기존 neorecall 형식 CSV/TensorBoard/logargs/model_state를 보존한다.
+- Checkpoint/dataset/raw TensorBoard/stdout은 Git에 넣지 않고 로컬 유지한다. Source/config/documentation/CSV/JSON/결과 비교 그림을 실험 branch에 기록한다. 원래 untracked concept 문서는 내용과 상태 그대로 둔다. User artifact 삭제, main 통합, 원격 push: not run.
+
+실제 실행/집계/검증 명령(cwd NSMT):
+
+```bash
+bash f_lif_pop_v1/forecasting/scripts/run_ett.sh --suite ett-first-20260914
+/home/yschoi/.conda/envs/snn_recall/bin/python -m py_compile f_lif_pop_v1/forecasting/summarize.py f_lif_pop_v1/forecasting/check_summary.py
+env LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python f_lif_pop_v1/forecasting/summarize.py --suite ett-first-20260914
+env LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python f_lif_pop_v1/forecasting/check_summary.py --suite ett-first-20260914
+# REPORT에 실제 결과 설명을 추가한 뒤 summarize.py를 재실행했다. 지표는 변하지 않았다.
+# Standalone reload는 위 Config.load_args/test(save=False) 경로를 in-process로 검사했다.
+git add f_lif_pop_v1/forecasting ../docs/PROJECT_LOG.md
+git diff --cached --check
+git commit -m "experiment: record first population membrane forecasting results"
+git tag -a exp/f-lif-pop-v1-20260914 -m "Completed 32 first-stage forecasting runs; three-seed main and seed-7 last-head controls, reference logs and independent audits"
+```
+
+새 세션에서 이어가기: 이 완료 항목 → task README.md → results/ett-first-20260914/REPORT.md를 읽고 `per_run.csv`의 log_path로 config/checkpoint를 찾는다. `test.py --config <log_path>`는 학습 없이 재평가하고 기존 CSV를 덮어쓰지 않는다. 새로운 학습은 반드시 새 suite 이름으로 기존 artifact를 보존한다. 같은 실험을 계속하면 현재 branch를 사용하고, 독립적인 새 실험이면 선택한 기준 commit에서 새 exp branch와 base를 기록한다.

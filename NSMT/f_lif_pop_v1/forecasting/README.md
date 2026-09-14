@@ -80,3 +80,20 @@ full precision/정확한 command/환경/source hash/초기 parameter hash/데이
 Checkpoint/raw events/stdout은 로컬, text 결과/설정/코드는 Git에 보존한다.
 원래처럼 발생하지 않은 energy/ops를 만들어 기록하지 않는다.
 Canonical session 기록은 저장소 루트 `docs/PROJECT_LOG.md`이며 NSMT/docs의 연결을 유지한다.
+
+## 완료 결과와 분석 재현
+
+`results/ett-first-20260914/REPORT.md`에 본 실험24개와 보조8개의 결과가 있다.
+`per_run.csv`는 모든 개별 결과와 실제 log 경로, `paired.csv`는 같은 seed의 검색 효과다.
+`check_summary.json`에는32개 전체 artifact 및 독립 통계 재계산 결과가 있다.
+실행 코드 snapshot은 `exp/f-lif-pop-v1-20260914-snapshot`, 완료 결과 tag는
+`exp/f-lif-pop-v1-20260914`다. Snapshot은 완료 학습 결과와 구분한다.
+
+```bash
+env LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python f_lif_pop_v1/forecasting/summarize.py --suite ett-first-20260914
+env LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python f_lif_pop_v1/forecasting/check_summary.py --suite ett-first-20260914
+```
+
+새 세션에서는 PROJECT_LOG의2026-09-14 완료 항목을 먼저 읽는다. `test.py --config <per_run.csv의 log_path>`로
+로컬 checkpoint를 재평가할 수 있다(기존 CSV는 덮어쓰지 않는다). 데이터/checkpoint/TensorBoard는
+로컬 자산이므로 다른 컴퓨터에서 checkout만으로 복원되지 않는다. 재학습은 새 suite 이름을 사용한다.
