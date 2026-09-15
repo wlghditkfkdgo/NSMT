@@ -1272,3 +1272,166 @@ H720: 2/36 budget cap; 972860 nominal parameters; individual run 19.5–214.3s.
 - 검증 통과: complete matrix, source/초기parameter hashes, minimum val checkpoint/복원, 전체 element수, CSV/history/TensorBoard, finite checkpoint/hash, train scaler/target boundary, 층별 support/null/lag diagnostics, independent macro/paired deltas. 각 horizon sparse ETTh1 seed7의 fresh checkpoint 및 off/uniform/recent 전체 MSE/MAE를 atol1e-12에서 재현했다.
 - Artifact는 `NSMT/f_lif_pop_v2/forecasting/results/<suite>/`의 REPORT,per_run/per_task/macro/paired/paired_macro_by_seed,layer_diagnostics,aggregate,manifest/completion/checks 및36raw result JSON. per_run.csv log_path가 task log/<suite>/<dataset>/<date>/<config>/seed+variant의 neorecall CSV/events/logargs/config.pt/best+model.pt를 가리킨다. Raw events/checkpoints/stdout은 local, 텍스트 결과는 Git.
 - 해석 제한: dense와 sparse는 score/nullable candidates/gate를 공유하지만 정규화 방식/지원집합/real probability mass가 함께 달라진다. Sparse 사용은 dense search 비용 절감을 보장하지 않는다. 실제 density/empty rate를 함께 보고 판단한다. Homogeneous는 redundant state 대조, backbone 간 용량은 다르다. 진단은 첫8 test windows; 전체 synthetic recall 학습/정답 ETT lag/에너지 측정/통계적 유의성 검정은 not run. 기존 v1과는 scorer/gate/budget이 달라 동일 실험으로 합산하지 않는다. 다음 단계는 성능 개선 여부로 선별하지 않고 실행/검증 통과 뒤 진행한다. Main 통합/push: not run.
+
+## 2026-09-15 13:39 KST — v2 진행 브리핑 (1차72회 검증 완료, 2차 학습 중)
+
+- 1차 patch H96/H720 각36회 complete 및 check_summary/check_read_mass/check_reload passed. 완료 commit `8c3d13673ce628bff51e7ab858a67b5bc72584da`, annotated tag `exp/f-lif-pop-v2-patch-20260915`. 기존 실패는 복구된 과거 이력이며 현재 추가 실패는 관측되지 않았다. 2차 TCN H96 상태 {'complete': 16, 'running': 8, 'pending': 12, 'failed': 0}; 실행중8개 PID 생존/GPU 사용을 확인했다. TCN H720/PatchTST/TSMixer는 아직 not run. 부분 TCN 집계를 최종 구조 비교로 사용하지 않는다.
+- H96에서 no-memory 이질성 MSE 이득 −4.26%였으나 H720은 homo .681632 vs hetero .685652로 +.59%다. H720 hetero dense .706692는 off 대비 +3.07%, sparse .721476는 off 대비 +5.22%/dense 대비 +2.09%. 이번 이질성+검색 결합의 추가 이득은 확인되지 않았다.
+- H720 homo sparse .649910(MAE .575184)가6조건 중 최저 macro MSE로 homo off 대비 −4.65%. Dataset별로 ETTh1 .581082→.587875는 악화, ETTh2 .782183→.711944는 개선이므로 일반적 개선으로 해석하지 않는다. 수치는 두 dataset/세 seed 관측이며 통계적 유의성 검정은 not run.
+- H720 hetero sparse 진단(first8 test windows): support density38.60%, empty-read9.18%. 같은 checkpoint의 retrieval-off 개입은 MSE −.008923, uniform −.001135, recent +.008103. 검색이 선택적으로 동작하지만 해당 장기예측에서 유용한 보강으로 작용한다는 증거는 부족하다. 개입은 checkpoint 재선택이나 재학습이 아니다.
+- H720 best epoch0-based0–29,2/36 budget30 도달; 최저 validation MSE checkpoint 평가 유지. 상세 수치/SD/MAE는 각 suite REPORT.md/per_run.csv/paired_macro_by_seed.csv 및 앞의72회 완료 기록. 본 브리핑은 학습/설정 변경 없이 append했으며 다음 자동 완료 commit에 포함한다.
+
+## 2026-09-15 13:59:24 KST — 요청한 임시 인계 Markdown 작성
+
+- 사용자 요청에 따라 `NSMT/f_lif_pop_v2/forecasting/results/TEMP_EXPERIMENT_HANDOFF_20260915.md` 한 파일을 생성했다. 단일 canonical log를 대체하지 않는 시점별 인계 사본이며 자동 갱신되지 않는다. v1/v2 이력·개념·변경사유·코드지도·실제 핵심3파일 원문·고정프로토콜·184개 기존 완료run 및 TCN 부분완료16개 full-precision metric·상세artifact링크·복구·향후계획·명령·tag/source SHA를 포함한다.
+- 관측한 v2 TCN H96 상태: {'complete': 16, 'running': 8, 'pending': 12, 'failed': 0}; 실행중8개 PID 생존 확인. H720 not run. Partial run 결과는 최종 비교와 구분했다. 문서의 모든 local link 및 코드 원문 사본/sourcehash/완료run수를 검사했다. 새 학습/모델수정/추가 성능검증은 not run.
+- 문서 SHA256 `894caab712dc831b1a54d360d8e9e131b586a8edeadea7e871762216d54fcdff`. 현재 branch exp/f-lif-pop-v2/HEAD `8c3d13673ce628bff51e7ab858a67b5bc72584da`를 유지했고 기존 사용자 원문/untracked 상태를 보존했다. 진행중queue의 HEAD guard를 유지하기 위해 중간commit을 만들지 않았으며 이 task results와 canonical append는 다음 자동 stage 완료commit에 포함된다.
+
+## 2026-09-15 15:10:28 KST — 임시 인계 문서 접근성/재개 절차 보강
+
+- 지정 파일 `NSMT/f_lif_pop_v2/forecasting/results/TEMP_EXPERIMENT_HANDOFF_20260915.md`를 직접 수정했다. 기존 local 링크250개(고유247개)는 모두 존재했으나 운영 인계 첫 진입점/절대경로/최신상태 동적조회/중단상황별 절차를 보강할 필요가 있었다.0절에 핵심 절대경로25개, 내부목차, 읽기순서, 읽기전용 상태조회, 조건부 detached resume 예제, 대표 checkpoint/log 직접링크6개를 추가했다.
+- 원래13:59 결과 스냅샷과 최신 점검상태를 구분했다. 현재 TCN H96 {'complete': 24, 'running': 8, 'pending': 4, 'failed': 0}; H720 not run. 다른서버/Git-only checkout에 local artifact와 untracked 사용자원문이 없을 수 있으며 partial suite/중간epoch resume이 미지원임을 명시했다. 학습code/checkpoint/source/HEAD는 변경하지 않았다.
+- 파일링크/내부anchor 존재와 핵심 코드3개 사본 보존, 두 명령의 Python syntax compile을 확인했다. Resume 예제 실행/추가학습/성능 재검증은 not run. 읽기전용 상태조회는 이어서 실제 실행 점검한다. 문서 SHA 변경 전 `894caab712dc831b1a54d360d8e9e131b586a8edeadea7e871762216d54fcdff`, 변경 후 `74c1c0a8eebbf86b805e4a4cc88fef52e0fd6b1fb9bbcb7495c6e250302caa23`. 이전생성기록 SHA는 당시버전 값으로 보존한다.
+- 실제 문서에서 읽기전용 Bash/Python 블록을 추출해 실행: passed. HEAD/source 일치, suite별현황,8개 학습 PID의 task·suite 명령 일치와controller 생존을 확인했다. 로컬링크281개/내부anchor링크14개 모두 검증했다. 상태조회·조건부재개 Bash 문법검사도 passed이며 재개블록은 실행하지 않았다.
+
+## 2026-09-15 16:13 KST — v2 진행 비판적 검토: 완료 결과 재분석과 TCN GPU 공유 처리량 측정 (새 학습 없음)
+
+- 목적: 인계 문서와 사용자 feasibility assessment(`NSMT/docs/PopulationLIF_research_feasibility_assessment.md`, untracked 원문 보존)를 검토하며, 완료된 v2 patch 72회와 진행 중 TCN 실행의 해석 근거를 확인한다. Branch `exp/f-lif-pop-v2`, HEAD `8c3d13673ce628bff51e7ab858a67b5bc72584da` 유지. 학습 source/config/queue/checkpoint 변경 없음. Controller PID1392373과 TCN H96 학습은 계속 진행 중이다(16:13 점검 complete35/running1/failed0).
+- 수행: (1) patch H96/H720 per_run.csv의 대응 t검정(data×seed n=6, seed macro n=3)과 1% 상대효과를 80% power로 검출하는 데 필요한 쌍 수; (2) dense/sparse checkpoint 48개의 Q/K/gate/null 초기값 대비 이동량; (3) 같은 checkpoint를 CPU에서 전체 test 구간에 고르게 뽑은 96 window로 재실행해 read 분포의 고정 (t,j) kernel 설명력, lag, 학습 scorer와 초기 scorer(Q=K=I, null −1)의 read 차이 측정; (4) 같은 split/scaler/전체 test window에서 closed-form channel-independent ridge 선형 기준(λ는 validation MSE로 선택); (5) 이질성×검색 상호작용; (6) suite별 epoch 시간 비교와, 학습 job이 없던 물리 GPU0/GPU2에서 synthetic batch128 train-step probe(한 GPU 단독 vs 다른 GPU 2개 동시, warmup3+측정8 step, 학습 artifact 없음).
+- Commands: cwd `NSMT/f_lif_pop_v2/forecasting/results/review-20260915`에서 `env LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib OMP_NUM_THREADS=8 /home/yschoi/.conda/envs/snn_recall/bin/python <name>.py > <name>.txt` (a_stats_drift, b_retrieval_content, b2_learned_vs_init_read, c_ridge_baseline, d_interaction, e_epoch_timing). Probe는 `CUDA_VISIBLE_DEVICES=<idle GPU UUID> OMP_NUM_THREADS=2 python bench_tcn.py --arch tcn|patch --policy off|sparse --tag single|pair_a|pair_b`.
+- 통계력: 검색 관련 12개 대응 비교는 모두 p>0.07이다. H96 hetero sparse−dense +1.15%(p=.14), sparse−off +0.84%(p=.38), dense−off −0.29%(p=.75). H720 hetero sparse는 hetero off보다 6쌍 모두 나빴다(+4.76%, p=.078). 1% 상대효과 검출에 필요한 쌍은 H96 7–48, H720 128–2177이며 현재 6쌍이다. Seed SD는 H96 ETTh1 .0043/ETTh2 .0112, H720 .0225/.0859. 견고한 효과는 H96 hetero−homo no-memory −4.12%(6/6, p=.012, seed macro p=.035)뿐이고 H720은 +0.02%(ETTh1 −4.7%, ETTh2 +4.7%, p=.81)다.
+- 이질성×검색 상호작용 `(hetero read−off)−(homo read−off)`(음수가 가설 지지): H96 dense −.0016(4/6, p=.65), sparse +.0067(1/6, p=.068, seed macro p=.023); H720 dense −.011(p=.82), sparse +.068(1/6, p=.14). 보정 전 p값이며, heterogeneous key가 검색을 더 유용하게 만든다는 근거는 없고 H96 sparse는 반대 방향이다.
+- 기준선 test MSE: ridge linear/last-value 정규화 ridge는 ETTh1 H96 .3702/.3696, H720 .4696/.4325, ETTh2 H96 .3010/.2719, H720 .7404/.3925. v2 patch 6조건의 dataset 평균은 ETTh1 H96 .424–.449, H720 .554–.588, ETTh2 H96 .329–.343, H720 .712–.882. ETTh2 H720은 6조건 모두 window mean(.4319)과 persistence(.5945)보다 나쁘다.
+- 검색 경로: ||Q−I||_F, ||K−I||_F 조건 평균 .14–.37(||I||_F=2). Heterogeneous null logit 조건 평균 −1.04~−0.99(초기 −1), gate 평균 .41–.52(초기 .5×real mass), heterogeneous gate weight 평균 .03–.08로 입력 간 거의 균일, evidence/charge 1.3–1.9%. 학습 scorer와 초기 scorer의 read 차이 TV는 dense .10–.20, sparse .28–.45(support Jaccard .58–.71). 학습 read와 uniform read의 TV는 dense .22–.33, sparse .54–.65인데 기존 같은 checkpoint 개입의 uniform ΔMSE는 H96 hetero dense +.0003, sparse −.0007이다. 고정 per-neuron (t,j) kernel이 설명하지 못하는 read 분산이 74–86%라 고정 lag 붕괴는 아니다. lag-1 질량 .12–.20(uniform .083), top-1이 lag1인 비율 21–42%. 첫8 window 진단은 전체 평균과 비슷하나 ETTh1 hetero sparse H96 empty-read는 .104(96 windows) 대 .055(첫8)였다.
+- 처리량: epoch 시간은 v2 TCN H96 377–418s(off 포함, GPU당 2 job), 구조가 같은 v1 TCN 33–44s(GPU당 1 job), v2 patch 2–10s. Probe step 시간은 TCN off 단독 .416s 대 공유 4.49/4.55s, TCN sparse .633s 대 4.51/4.84s, patch sparse .083s 대 .135/.134s. Default compute mode, MPS 없음, 공유 중 전력 114–146W/300W. TCN은 GPU당 2 job일 때 총 처리량이 3.7–5.4배 낮다. 원인(CUDA context time-slicing 추정)은 확인하지 않았다.
+- 결론: 현재 ETT 행렬은 검색 효과를 판정할 검정력이 없다. 검색 경로는 약하고 거의 일정한 gain으로 쓰이며, 어떤 기억을 읽는지는 MSE에 거의 영향을 주지 않는다. H96 이질성 이득은 재현되지만 homogeneous는 같은 scalar LIF의 4복제이므로 다중 시간척도와 유효 상태 차원이 섞여 있다. 정답 slot을 아는 synthetic recall 검증을 backbone 행렬보다 우선하자는 assessment 방향에 동의하며, 설계에 oracle retrieval, flatten으로 우회할 수 없는 readout, 학습된 uniform/recent, capacity-matched 대조가 필요하다. `--workers_per_gpu 1` 재개와 PatchTST/TSMixer 보류는 사용자 결정 전이므로 실행하지 않았다.
+- 한계: p값은 다중비교 보정 전이고 n=6/3이다. Ridge는 SNN과 용량·형식이 다른 참조값이다. Probe는 synthetic 입력의 train step만 쟀다. PatchTST/TSMixer의 GPU 공유 영향, synthetic recall 학습, capacity-matched 대조, memory 강도 공식 비교는 not run.
+- Artifact: `NSMT/f_lif_pop_v2/forecasting/results/review-20260915/`(스크립트 7개, `b_retrieval_content.csv`, `b2_learned_vs_init_read.csv`, 출력 `*.txt` 7개). 이 entry와 artifact는 다음 자동 stage commit에 포함된다. 중간 commit은 만들지 않아 HEAD guard를 유지했고, 새 파일은 `git diff --check` 공백 검사를 통과했다.
+
+### 2026-09-15 16:16 KST — 처리량 추가 확인 (실제 TCN 단독 epoch, PatchTST/TSMixer probe)
+
+- 실제 학습 확인: `tcn_ETTh2_p96_flatten_heterogeneous_sparse_seed21`(GPU3)은 같은 GPU의 다른 job이 끝나기 전 epoch 415–419s였고, 혼자 남은 뒤 epoch 60s였다(전환 epoch 158s). 위 probe의 TCN sparse ×7.4와 일치한다.
+- 학습 job이 없던 GPU1(단독)/GPU2(2개 동시)에서 같은 `bench_tcn.py --policy sparse` probe를 실행했다. PatchTST 단독 .257s 대 공유 .406/.356s, TSMixer 단독 .255s 대 공유 .398/.405s. 두 구조는 GPU당 2 job일 때 job당 1.4–1.6배 느리지만 총 처리량은 약 1.3배 높다. 따라서 측정 범위에서 GPU 공유 문제는 TCN에 한정되고, 영향받는 남은 suite는 TCN H720 36회다. 앞 entry 한계의 "PatchTST/TSMixer의 GPU 공유 영향 not run"을 이 기록으로 정정한다. 출력은 같은 artifact 폴더의 `bench_tcn.txt`에 추가한다.
+
+## 2026-09-15 20:48 KST — PopulationLIF v2 tcn 완료 (72 runs)
+
+- Branch `exp/f-lif-pop-v2`; base `f8215f54106980bad7c782bf08acaef871175c34`; 각 horizon training commit은 completion.json의 training_commit에 기록한다 (후처리 복구 전후 commit이 다를 수 있으며 학습 source hashes는 동일). 완료 commit은 tag `exp/f-lif-pop-v2-tcn-20260915`로 식별한다. 목적: 동일 점수·gate에서 dense vs sparse 선택 효과 및 population 이질성을 분리한다.
+- ETTh1/ETTh2 × seeds7/13/21 × homo/hetero × off/dense/sparse × H96/720. Seq336,patch8,D32,K4,head32/flatten,tau2..16,gamma.05,temperature.25,null init−1. 최대30epochs,early-stop6,ReduceLROnPlateau factor.5/patience2,AdamW lr.001/wd.01,batch128,clip1. 최소 validation MSE checkpoint를 복원해 평가했다.
+- 데이터와 환경: 기존 ETT-hour train[0,8640),val[8640,11520),test[11520,14400),train-only StandardScaler,7변수,stride1,context336. H96 windows8209/2785/2785, H7207585/2161/2161. Conda snn_recall/Py3.10/torch1.12.0+cu113,CPUthreads2,deterministic/TF32off. GPU/worker 배치와 모든 실행명령은 각 manifest 및 run JSON, source/data hashes/패키지 버전도 run JSON에 있다.
+- 실행 pipeline command: `/home/yschoi/.conda/envs/snn_recall/bin/python /home/yschoi/CLS_spiking_transformer/Bio-inspired-Spiking-Memory-Transformer-for-time-series-representation-learning/NSMT/f_lif_pop_v2/forecasting/scripts/run_pipeline.py --finalize`. Suites: `selective-v2-20260914_tcn_p96`, `selective-v2-20260914_tcn_p720`.
+
+| Horizon | Variant | MSE ± SD | MAE ± SD |
+|---|---|---:|---:|
+| 96 | heterogeneous_dense | 0.384109 ± 0.006163 | 0.422137 ± 0.005505 |
+| 96 | heterogeneous_no_memory | 0.373195 ± 0.005423 | 0.414063 ± 0.005773 |
+| 96 | heterogeneous_sparse | 0.371949 ± 0.003504 | 0.412151 ± 0.000938 |
+| 96 | homogeneous_dense | 0.391371 ± 0.015574 | 0.426185 ± 0.010558 |
+| 96 | homogeneous_no_memory | 0.389710 ± 0.001491 | 0.425079 ± 0.001710 |
+| 96 | homogeneous_sparse | 0.383846 ± 0.003422 | 0.422972 ± 0.004383 |
+
+H96: 0/36 budget cap; 158308 nominal parameters; individual run 1478.4–6735.6s.
+- H96 homogeneous: sparse−dense paired macro ΔMSE -0.007525 (seed SD 0.018103); 평균 MSE 기준 sparse가 낮음. 통계적 유의성 주장은 하지 않는다.
+- H96 heterogeneous: sparse−dense paired macro ΔMSE -0.012161 (seed SD 0.007074); 평균 MSE 기준 sparse가 낮음. 통계적 유의성 주장은 하지 않는다.
+- H96 heterogeneous_dense: final-layer support density 0.994616, empty-read fraction 0.000000, real mass 0.904684 (첫8 test windows).
+- H96 heterogeneous_no_memory: final-layer support density 0.000000, empty-read fraction 1.000000, real mass 0.000000 (첫8 test windows).
+- H96 heterogeneous_sparse: final-layer support density 0.339157, empty-read fraction 0.056818, real mass 0.887815 (첫8 test windows).
+- H96 homogeneous_dense: final-layer support density 0.997939, empty-read fraction 0.000000, real mass 0.908752 (첫8 test windows).
+- H96 homogeneous_no_memory: final-layer support density 0.000000, empty-read fraction 1.000000, real mass 0.000000 (첫8 test windows).
+- H96 homogeneous_sparse: final-layer support density 0.326302, empty-read fraction 0.107284, real mass 0.822386 (첫8 test windows).
+| 720 | heterogeneous_dense | 0.840394 ± 0.032524 | 0.642261 ± 0.013403 |
+| 720 | heterogeneous_no_memory | 0.809613 ± 0.051103 | 0.627039 ± 0.022168 |
+| 720 | heterogeneous_sparse | 0.854352 ± 0.075129 | 0.647211 ± 0.021696 |
+| 720 | homogeneous_dense | 0.842025 ± 0.090161 | 0.643018 ± 0.023468 |
+| 720 | homogeneous_no_memory | 0.842784 ± 0.083232 | 0.642835 ± 0.024398 |
+| 720 | homogeneous_sparse | 0.825472 ± 0.021632 | 0.642080 ± 0.005551 |
+
+H720: 0/36 budget cap; 997588 nominal parameters; individual run 721.3–5134.8s.
+- H720 homogeneous: sparse−dense paired macro ΔMSE -0.016553 (seed SD 0.071668); 평균 MSE 기준 sparse가 낮음. 통계적 유의성 주장은 하지 않는다.
+- H720 heterogeneous: sparse−dense paired macro ΔMSE +0.013958 (seed SD 0.062132); 평균 MSE 기준 sparse가 높거나 같음. 통계적 유의성 주장은 하지 않는다.
+- H720 heterogeneous_dense: final-layer support density 0.994239, empty-read fraction 0.000000, real mass 0.897835 (첫8 test windows).
+- H720 heterogeneous_no_memory: final-layer support density 0.000000, empty-read fraction 1.000000, real mass 0.000000 (첫8 test windows).
+- H720 heterogeneous_sparse: final-layer support density 0.358352, empty-read fraction 0.059007, real mass 0.897516 (첫8 test windows).
+- H720 homogeneous_dense: final-layer support density 0.995947, empty-read fraction 0.000023, real mass 0.876122 (첫8 test windows).
+- H720 homogeneous_no_memory: final-layer support density 0.000000, empty-read fraction 1.000000, real mass 0.000000 (첫8 test windows).
+- H720 homogeneous_sparse: final-layer support density 0.340796, empty-read fraction 0.100215, real mass 0.839178 (첫8 test windows).
+
+각 실행 (best epoch은0-based):
+
+| Run | MSE | MAE | Best epoch | Epochs |
+|---|---:|---:|---:|---:|
+| tcn_ETTh1_p96_flatten_heterogeneous_dense_seed7 | 0.416954 | 0.440912 | 3 | 10 |
+| tcn_ETTh1_p96_flatten_heterogeneous_dense_seed13 | 0.425279 | 0.449004 | 3 | 10 |
+| tcn_ETTh1_p96_flatten_heterogeneous_dense_seed21 | 0.429893 | 0.449854 | 6 | 13 |
+| tcn_ETTh1_p96_flatten_heterogeneous_no_memory_seed7 | 0.416080 | 0.440229 | 3 | 10 |
+| tcn_ETTh1_p96_flatten_heterogeneous_no_memory_seed13 | 0.420261 | 0.442319 | 2 | 9 |
+| tcn_ETTh1_p96_flatten_heterogeneous_no_memory_seed21 | 0.426720 | 0.446360 | 2 | 9 |
+| tcn_ETTh1_p96_flatten_heterogeneous_sparse_seed7 | 0.411233 | 0.434163 | 2 | 9 |
+| tcn_ETTh1_p96_flatten_heterogeneous_sparse_seed13 | 0.424597 | 0.447472 | 2 | 9 |
+| tcn_ETTh1_p96_flatten_heterogeneous_sparse_seed21 | 0.416373 | 0.436580 | 3 | 10 |
+| tcn_ETTh1_p96_flatten_homogeneous_dense_seed7 | 0.434459 | 0.454745 | 3 | 10 |
+| tcn_ETTh1_p96_flatten_homogeneous_dense_seed13 | 0.449309 | 0.458399 | 2 | 9 |
+| tcn_ETTh1_p96_flatten_homogeneous_dense_seed21 | 0.436815 | 0.453640 | 8 | 15 |
+| tcn_ETTh1_p96_flatten_homogeneous_no_memory_seed7 | 0.427770 | 0.445758 | 2 | 9 |
+| tcn_ETTh1_p96_flatten_homogeneous_no_memory_seed13 | 0.442219 | 0.455816 | 4 | 11 |
+| tcn_ETTh1_p96_flatten_homogeneous_no_memory_seed21 | 0.448692 | 0.462638 | 2 | 9 |
+| tcn_ETTh1_p96_flatten_homogeneous_sparse_seed7 | 0.438836 | 0.458449 | 5 | 12 |
+| tcn_ETTh1_p96_flatten_homogeneous_sparse_seed13 | 0.437426 | 0.450464 | 3 | 10 |
+| tcn_ETTh1_p96_flatten_homogeneous_sparse_seed21 | 0.437340 | 0.455296 | 7 | 14 |
+| tcn_ETTh2_p96_flatten_heterogeneous_dense_seed7 | 0.365462 | 0.416021 | 4 | 11 |
+| tcn_ETTh2_p96_flatten_heterogeneous_dense_seed13 | 0.336695 | 0.389940 | 1 | 8 |
+| tcn_ETTh2_p96_flatten_heterogeneous_dense_seed21 | 0.330372 | 0.387088 | 1 | 8 |
+| tcn_ETTh2_p96_flatten_heterogeneous_no_memory_seed7 | 0.342075 | 0.401107 | 1 | 8 |
+| tcn_ETTh2_p96_flatten_heterogeneous_no_memory_seed13 | 0.323966 | 0.380763 | 1 | 8 |
+| tcn_ETTh2_p96_flatten_heterogeneous_no_memory_seed21 | 0.310069 | 0.373601 | 0 | 7 |
+| tcn_ETTh2_p96_flatten_heterogeneous_sparse_seed7 | 0.333264 | 0.391187 | 1 | 8 |
+| tcn_ETTh2_p96_flatten_heterogeneous_sparse_seed13 | 0.312012 | 0.374663 | 1 | 8 |
+| tcn_ETTh2_p96_flatten_heterogeneous_sparse_seed21 | 0.334213 | 0.388841 | 1 | 8 |
+| tcn_ETTh2_p96_flatten_homogeneous_dense_seed7 | 0.337912 | 0.389332 | 3 | 10 |
+| tcn_ETTh2_p96_flatten_homogeneous_dense_seed13 | 0.368443 | 0.417974 | 1 | 8 |
+| tcn_ETTh2_p96_flatten_homogeneous_dense_seed21 | 0.321285 | 0.383018 | 1 | 8 |
+| tcn_ETTh2_p96_flatten_homogeneous_no_memory_seed7 | 0.350697 | 0.401472 | 4 | 11 |
+| tcn_ETTh2_p96_flatten_homogeneous_no_memory_seed13 | 0.340545 | 0.398102 | 1 | 8 |
+| tcn_ETTh2_p96_flatten_homogeneous_no_memory_seed21 | 0.328341 | 0.386686 | 5 | 12 |
+| tcn_ETTh2_p96_flatten_homogeneous_sparse_seed7 | 0.335909 | 0.396611 | 3 | 10 |
+| tcn_ETTh2_p96_flatten_homogeneous_sparse_seed13 | 0.323652 | 0.387110 | 1 | 8 |
+| tcn_ETTh2_p96_flatten_homogeneous_sparse_seed21 | 0.329911 | 0.389902 | 1 | 8 |
+| tcn_ETTh1_p720_flatten_heterogeneous_dense_seed7 | 0.555349 | 0.537490 | 1 | 8 |
+| tcn_ETTh1_p720_flatten_heterogeneous_dense_seed13 | 0.572141 | 0.553762 | 2 | 9 |
+| tcn_ETTh1_p720_flatten_heterogeneous_dense_seed21 | 0.567058 | 0.552042 | 1 | 8 |
+| tcn_ETTh1_p720_flatten_heterogeneous_no_memory_seed7 | 0.551602 | 0.533579 | 1 | 8 |
+| tcn_ETTh1_p720_flatten_heterogeneous_no_memory_seed13 | 0.561480 | 0.545840 | 2 | 9 |
+| tcn_ETTh1_p720_flatten_heterogeneous_no_memory_seed21 | 0.561105 | 0.541160 | 1 | 8 |
+| tcn_ETTh1_p720_flatten_heterogeneous_sparse_seed7 | 0.590922 | 0.559296 | 2 | 9 |
+| tcn_ETTh1_p720_flatten_heterogeneous_sparse_seed13 | 0.575500 | 0.553798 | 2 | 9 |
+| tcn_ETTh1_p720_flatten_heterogeneous_sparse_seed21 | 0.569072 | 0.553113 | 1 | 8 |
+| tcn_ETTh1_p720_flatten_homogeneous_dense_seed7 | 0.587191 | 0.558381 | 1 | 8 |
+| tcn_ETTh1_p720_flatten_homogeneous_dense_seed13 | 0.596574 | 0.571850 | 3 | 10 |
+| tcn_ETTh1_p720_flatten_homogeneous_dense_seed21 | 0.549902 | 0.544313 | 3 | 10 |
+| tcn_ETTh1_p720_flatten_homogeneous_no_memory_seed7 | 0.599493 | 0.568222 | 5 | 12 |
+| tcn_ETTh1_p720_flatten_homogeneous_no_memory_seed13 | 0.588809 | 0.564815 | 3 | 10 |
+| tcn_ETTh1_p720_flatten_homogeneous_no_memory_seed21 | 0.567380 | 0.553690 | 3 | 10 |
+| tcn_ETTh1_p720_flatten_homogeneous_sparse_seed7 | 0.632927 | 0.584326 | 4 | 11 |
+| tcn_ETTh1_p720_flatten_homogeneous_sparse_seed13 | 0.582379 | 0.562501 | 2 | 9 |
+| tcn_ETTh1_p720_flatten_homogeneous_sparse_seed21 | 0.582404 | 0.561235 | 6 | 13 |
+| tcn_ETTh2_p720_flatten_heterogeneous_dense_seed7 | 1.137724 | 0.739277 | 0 | 7 |
+| tcn_ETTh2_p720_flatten_heterogeneous_dense_seed13 | 1.038333 | 0.708684 | 0 | 7 |
+| tcn_ETTh2_p720_flatten_heterogeneous_dense_seed21 | 1.171760 | 0.762308 | 0 | 7 |
+| tcn_ETTh2_p720_flatten_heterogeneous_no_memory_seed7 | 1.075361 | 0.713220 | 1 | 8 |
+| tcn_ETTh2_p720_flatten_heterogeneous_no_memory_seed13 | 0.951893 | 0.667993 | 1 | 8 |
+| tcn_ETTh2_p720_flatten_heterogeneous_no_memory_seed21 | 1.156239 | 0.760443 | 0 | 7 |
+| tcn_ETTh2_p720_flatten_heterogeneous_sparse_seed7 | 1.273534 | 0.775225 | 1 | 8 |
+| tcn_ETTh2_p720_flatten_heterogeneous_sparse_seed13 | 0.989122 | 0.694559 | 0 | 7 |
+| tcn_ETTh2_p720_flatten_heterogeneous_sparse_seed21 | 1.127961 | 0.747276 | 0 | 7 |
+| tcn_ETTh2_p720_flatten_homogeneous_dense_seed7 | 1.300151 | 0.780559 | 4 | 11 |
+| tcn_ETTh2_p720_flatten_homogeneous_dense_seed13 | 0.946844 | 0.677538 | 0 | 7 |
+| tcn_ETTh2_p720_flatten_homogeneous_dense_seed21 | 1.071489 | 0.725467 | 0 | 7 |
+| tcn_ETTh2_p720_flatten_homogeneous_no_memory_seed7 | 1.278089 | 0.772421 | 4 | 11 |
+| tcn_ETTh2_p720_flatten_homogeneous_no_memory_seed13 | 1.008415 | 0.704077 | 0 | 7 |
+| tcn_ETTh2_p720_flatten_homogeneous_no_memory_seed21 | 1.014520 | 0.693787 | 2 | 9 |
+| tcn_ETTh2_p720_flatten_homogeneous_sparse_seed7 | 1.056306 | 0.707301 | 3 | 10 |
+| tcn_ETTh2_p720_flatten_homogeneous_sparse_seed13 | 1.021631 | 0.708901 | 0 | 7 |
+| tcn_ETTh2_p720_flatten_homogeneous_sparse_seed21 | 1.077187 | 0.728216 | 0 | 7 |
+
+- 검증 통과: complete matrix, source/초기parameter hashes, minimum val checkpoint/복원, 전체 element수, CSV/history/TensorBoard, finite checkpoint/hash, train scaler/target boundary, 층별 support/null/lag diagnostics, independent macro/paired deltas. 각 horizon sparse ETTh1 seed7의 fresh checkpoint 및 off/uniform/recent 전체 MSE/MAE를 atol1e-12에서 재현했다.
+- Artifact는 `NSMT/f_lif_pop_v2/forecasting/results/<suite>/`의 REPORT,per_run/per_task/macro/paired/paired_macro_by_seed,layer_diagnostics,aggregate,manifest/completion/checks 및36raw result JSON. per_run.csv log_path가 task log/<suite>/<dataset>/<date>/<config>/seed+variant의 neorecall CSV/events/logargs/config.pt/best+model.pt를 가리킨다. Raw events/checkpoints/stdout은 local, 텍스트 결과는 Git.
+- 해석 제한: dense와 sparse는 score/nullable candidates/gate를 공유하지만 정규화 방식/지원집합/real probability mass가 함께 달라진다. Sparse 사용은 dense search 비용 절감을 보장하지 않는다. 실제 density/empty rate를 함께 보고 판단한다. Homogeneous는 redundant state 대조, backbone 간 용량은 다르다. 진단은 첫8 test windows; 전체 synthetic recall 학습/정답 ETT lag/에너지 측정/통계적 유의성 검정은 not run. 기존 v1과는 scorer/gate/budget이 달라 동일 실험으로 합산하지 않는다. 다음 단계는 성능 개선 여부로 선별하지 않고 실행/검증 통과 뒤 진행한다. Main 통합/push: not run.
