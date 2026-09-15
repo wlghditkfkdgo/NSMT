@@ -3,13 +3,16 @@ import argparse
 from itertools import product
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
 import torch
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
-from config import TASK
+from config import TASK, Config, set_random_seed
+from model import LOAD_MODEL
+from data_provider.data_factory import data_provider
 from utils import write_json, sha256
 
 
@@ -27,6 +30,7 @@ def check(suite):
     assert len({json.dumps(r['source_sha256'],sort_keys=True) for r in runs})==1
     for filename,digest in runs[0]['source_sha256'].items():assert sha256(TASK/filename)==digest,filename
     initial,counts,raw_cache,lookup={},{},{},{}
+    read_mass_checks=[]
     for r in runs:
         c,h=r['config'],r['history']
         assert not r['protocol']['smoke_only'] and c['max_train_batches']==c['max_eval_batches']==0
@@ -69,11 +73,33 @@ def check(suite):
         np.testing.assert_array_equal(np.array(sample['target'],dtype=np.float32),raw_cache[c['data']][11520:11520+c['pred_len']])
         diag=r['test']['diagnostics']
         assert len(diag['layers'])==(1 if c['architecture']=='patch' else 3)
+        # The frozen neuron divides by max(real_mass, 1e-12). A tiny positive
+        # dense mass therefore gives sub-unit read weights, not a unit sum.
+        # Recompute the actual invariant from each saved checkpoint; do not
+        # relax the failed equality or change the already trained neuron.
+        config=Config();config.load_args(c['save_result_path'],SimpleNamespace(cpu=True,num_device=0))
+        set_random_seed(config.seed)
+        model=LOAD_MODEL[config.model](config,False).eval()
+        _,loader=data_provider(config,'test')
+        with torch.no_grad():
+            _,aux=model(next(iter(loader))[0][:8].float(),return_aux=True)
+        mass_record={'run_id':r['run_id'],'layers':{}}
+        for name,value in aux['layers'].items():
+            mass=value['real_mass'][1:].squeeze(-1)
+            weight=value['attention'][1:]
+            expected_mass=mass/mass.clamp_min(1e-12)
+            torch.testing.assert_close(weight.sum(-1),expected_mass,rtol=1e-5,atol=1e-6)
+            stored=diag['layers'][name]
+            np.testing.assert_allclose(sum(stored['lag_mass']),expected_mass.double().mean().item(),rtol=0,atol=2e-6)
+            np.testing.assert_allclose(stored['empty_read_fraction'],(~(weight>0).any(-1)).float().mean().item(),rtol=0,atol=2e-6)
+            mass_record['layers'][name]={'mean_weight_sum':weight.sum(-1).double().mean().item(),
+                'positive_mass_below_floor_fraction':((mass>0)&(mass<1e-12)).float().mean().item()}
+        read_mass_checks.append(mass_record)
         for layer in diag['layers'].values():
             assert 0<=layer['support_density']<=1+1e-6 and 0<=layer['empty_read_fraction']<=1
             assert 0<=layer['mean_real_mass']<=1+1e-5
             assert all(0<=x<=1 for x in layer['spike_rate_per_constituent'])
-            assert abs(sum(layer['lag_mass'])-(1-layer['empty_read_fraction']))<1e-5
+            assert 0<=sum(layer['lag_mass'])<=1-layer['empty_read_fraction']+1e-5
             if not c['heterogeneous']:assert layer['population_membrane_std']<1e-6
             if not c['retrieval']:assert layer['mean_abs_evidence']==0 and layer['support_density']==0
         assert set(r['test']['interventions'])==({'off','uniform','recent'} if c['retrieval'] else set())
@@ -97,6 +123,9 @@ def check(suite):
                       'full evaluation counts','CSV/history/TensorBoard','checkpoint hash/finite weights/parameter count',
                       'train-only scaler and test target boundary','layer selection diagnostics','independent macro SD/paired deltas']}
     write_json(root/'check_summary.json',result)
+    write_json(root/'check_read_mass.json',{'status':'passed','formula':'sum(weights)=real_mass/max(real_mass,1e-12)',
+               'note':'Fresh CPU checkpoint diagnostics for every run; model/training source unchanged. Lag mass need not sum to nonempty fraction for tiny positive real mass.',
+               'runs':read_mass_checks})
     print(json.dumps(result,indent=2),flush=True)
 
 

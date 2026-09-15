@@ -70,6 +70,7 @@ def summarize(suite):
             '| Variant | Selected/available slots | Empty read fraction | Real probability mass |','|---|---:|---:|---:|']
     for _,r in diagnostics.iterrows():lines.append(f'| {r.variant} | {r.support_density:.6f} | {r.empty_read_fraction:.6f} | {r.mean_real_mass:.6f} |')
     lines+=['','- Sparsemax는 일부 weight를 정확히0으로 만들 수 있지만 매 query의 sparsity를 보장하지 않는다. 실제 density/empty rate를 함께 읽는다.',
+            '- 실제 read 분모는 max(real_mass,1e-12)이다. 아주 작은 양의 real mass에서는 weight 합이1보다 작다. Lag mass/mean lag/entropy 해석에 이 floor를 반영해야 하며 check_read_mass.json에서 각 checkpoint로 실제 수식을 재검증한다.',
             '- Off/dense/sparse의 nominal parameter/초기값은 같고 off의 retrieval 파라미터는 미사용이다. Homogeneous는 redundant-state 대조다.',
             '- off/uniform/recent는 같은 checkpoint의 평가 개입이다. uniform/recent는 null을 우회하여 과거 후보를 강제 선택하고 gate를 재계산한다.',
             '- 서로 다른 backbone은 용량/연산이 다르다. PatchTST와 TSMixer는 causal population-spiking 변형이며 원 논문 재현이 아니다.',

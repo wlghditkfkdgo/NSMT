@@ -42,7 +42,19 @@ def run_suite(args,state,architecture,horizon):
     verify_source(state)
     suite=f'{args.pipeline}_{architecture}_p{horizon}'
     root=TASK/'results'/suite
-    if root.exists():raise FileExistsError('Suite exists; do not overwrite '+suite)
+    if root.exists():
+        if not args.resume:raise FileExistsError('Suite exists; do not overwrite '+suite)
+        completion=json.loads((root/'completion.json').read_text())
+        if len(completion['jobs'])!=36 or any(j['status']!='complete' for j in completion['jobs']):
+            raise RuntimeError('Only fully trained suites can be resumed for audit: '+suite)
+        for job in completion['jobs']:
+            previous=json.loads((root/(job['id']+'.json')).read_text())
+            if previous['source_sha256']!=state['source_sha256']:raise RuntimeError('Frozen source mismatch')
+            for key,value in [('epoch',args.epochs),('patience',args.patience),('scheduler_patience',args.scheduler_patience),('batch_size',args.batch_size)]:
+                if previous['config'][key]!=value:raise RuntimeError('Resume protocol mismatch: '+key)
+        print('RECHECK COMPLETE SUITE',suite,flush=True)
+        audit_suite(args,architecture,horizon,suite)
+        return suite
     jobs=[]
     for seed,data,heterogeneous,policy in product([7,13,21],['ETTh1','ETTh2'],[False,True],['off','dense','sparse']):
         variant=('heterogeneous' if heterogeneous else 'homogeneous')+('_no_memory' if policy=='off' else '_'+policy)
@@ -91,6 +103,12 @@ def run_suite(args,state,architecture,horizon):
     manifest['finished_utc']=datetime.now(timezone.utc).isoformat()
     write_json(root/'completion.json',manifest)
     if any(j['status']!='complete' for j in jobs):raise RuntimeError('Suite incomplete; later stages not launched: '+suite)
+    audit_suite(args,architecture,horizon,suite)
+    return suite
+
+
+def audit_suite(args,architecture,horizon,suite):
+    root=TASK/'results'/suite
     summarize(suite)
     check(suite)
     # Fresh object/checkpoint, whole test, no overwriting the original log files.
@@ -104,14 +122,13 @@ def run_suite(args,state,architecture,horizon):
         for mode in ['off','uniform','recent']:
             np.testing.assert_allclose(actual['interventions'][mode][metric],original['test']['interventions'][mode][metric],rtol=0,atol=1e-12)
     write_json(root/'check_reload.json',{'status':'passed','run_id':original['run_id'],'checks':['whole test and interventions MSE/MAE'],'atol':1e-12})
-    return suite
 
 
 def record_stage(args,state,architecture,suites,tag):
     import pandas as pd
     now=datetime.now(ZoneInfo('Asia/Seoul')).strftime('%Y-%m-%d %H:%M KST')
     lines=[f'\n## {now} — PopulationLIF v2 {architecture} 완료 (72 runs)\n',
-           f'- Branch `exp/f-lif-pop-v2`; base `{state["base_commit"]}`; training commit `{state["expected_head"]}`; 완료 commit은 tag `{tag}`로 식별한다. 목적: 동일 점수·gate에서 dense vs sparse 선택 효과 및 population 이질성을 분리한다.',
+           f'- Branch `exp/f-lif-pop-v2`; base `{state["base_commit"]}`; 각 horizon training commit은 completion.json의 training_commit에 기록한다 (후처리 복구 전후 commit이 다를 수 있으며 학습 source hashes는 동일). 완료 commit은 tag `{tag}`로 식별한다. 목적: 동일 점수·gate에서 dense vs sparse 선택 효과 및 population 이질성을 분리한다.',
            f'- ETTh1/ETTh2 × seeds7/13/21 × homo/hetero × off/dense/sparse × H96/720. Seq336,patch8,D32,K4,head32/flatten,tau2..16,gamma.05,temperature.25,null init−1. 최대{args.epochs}epochs,early-stop{args.patience},ReduceLROnPlateau factor.5/patience{args.scheduler_patience},AdamW lr.001/wd.01,batch{args.batch_size},clip1. 최소 validation MSE checkpoint를 복원해 평가했다.',
            '- 데이터와 환경: 기존 ETT-hour train[0,8640),val[8640,11520),test[11520,14400),train-only StandardScaler,7변수,stride1,context336. H96 windows8209/2785/2785, H7207585/2161/2161. Conda snn_recall/Py3.10/torch1.12.0+cu113,CPUthreads2,deterministic/TF32off. GPU/worker 배치와 모든 실행명령은 각 manifest 및 run JSON, source/data hashes/패키지 버전도 run JSON에 있다.',
            f'- 실행 pipeline command: `{state["command"]}`. Suites: '+', '.join('`'+x+'`' for x in suites)+'.',
@@ -144,14 +161,21 @@ def main(args):
     queue=TASK/'scripts/queues';queue.mkdir(parents=True,exist_ok=True)
     lock=(queue/(args.pipeline+'.lock')).open('w');fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
     root=TASK/'results'/args.pipeline
-    if root.exists():raise FileExistsError('Pipeline exists; use a new ID')
-    state={'pipeline':args.pipeline,'status':'running','command':shlex.join([sys.executable,*sys.argv]),
+    if root.exists() and not args.resume:raise FileExistsError('Pipeline exists; use a new ID')
+    if args.resume:
+        state=json.loads((queue/(args.pipeline+'.json')).read_text())
+        state.setdefault('resumptions',[]).append({'previous_head':state['expected_head'],'resume_head':git('rev-parse','HEAD'),
+            'command':shlex.join([sys.executable,*sys.argv]),'utc':datetime.now(timezone.utc).isoformat()})
+        state.update(expected_head=git('rev-parse','HEAD'),status='running')
+    else:
+        state={'pipeline':args.pipeline,'status':'running','command':shlex.join([sys.executable,*sys.argv]),
            'base_commit':args.base_commit,'initial_commit':git('rev-parse','HEAD'),'expected_head':git('rev-parse','HEAD'),
            'source_sha256':{name:sha256(TASK/name) for name in SOURCE_FILES},'stages':[]}
     verify_source(state)
     write_json(root/'pipeline.json',state)
     write_json(queue/(args.pipeline+'.json'),state)
     for architecture in ['patch','tcn','patchtst','tsmixer']:
+        if any(s['architecture']==architecture and s['status']=='complete' for s in state['stages']):continue
         suites=[]
         for horizon in [96,720]:
             suites.append(run_suite(args,state,architecture,horizon))
@@ -191,8 +215,13 @@ if __name__=='__main__':
     parser.add_argument('--scheduler_patience',type=int,default=2)
     parser.add_argument('--batch_size',type=int,default=128)
     parser.add_argument('--finalize',action='store_true')
+    parser.add_argument('--resume',action='store_true',help='Re-audit fully trained suites only; preserve runs/checkpoints and refuse partial suites')
     args=parser.parse_args()
     try:main(args)
     except Exception as error:
-        write_json(TASK/'scripts/queues'/(args.pipeline+'-failure.json'),{'status':'failed','error':str(error),'type':type(error).__name__})
+        failure={'status':'failed','error':repr(error),'type':type(error).__name__,'utc':datetime.now(timezone.utc).isoformat()}
+        write_json(TASK/'scripts/queues'/(args.pipeline+'-failure-'+datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')+'.json'),failure)
+        status=TASK/'scripts/queues'/(args.pipeline+'.json')
+        if status.exists():
+            state=json.loads(status.read_text());state.update(status='failed',failure=failure);write_json(status,state)
         raise

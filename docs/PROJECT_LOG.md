@@ -1086,3 +1086,61 @@ git tag -a exp/f-lif-pop-v1-20260914 -m "Completed 32 first-stage forecasting ru
 - 본실험 완료 시 자동 검증: complete matrix, source/초기parameter hashes, min-val checkpoint/복원, 전체 element수, CSV/history/TensorBoard, finite checkpoint/hash, train scaler/target boundary, 층별 support/empty/null/lag, 독립 macro SD 및 paired deltas. 각 horizon ETTh1 heterogeneous sparse seed7은 fresh 객체/checkpoint로 전체 test+off/uniform/recent를 atol1e-12에서 재평가한다. 각 구조72회 완료 시 canonical log에 모든run/bestepoch/mean±SD/ΔMSE/진단을 append하고 로컬 commit 및 annotated `exp/f-lif-pop-v2-<architecture>-<completion-date>` tag를 남긴다.
 - 결과/로그: task `results/<suite>/`에 full-precision run JSON/CSV/REPORT/aggregate/audits/manifest/completion. `log/<suite>/<dataset>/<date>/<config>/seed+variant/`에 기존 neorecall 방식 log/best_log_0.csv,final+result.csv,train_0,val_0,logargs.txt,model_state/config.pt,best+model.pt. Checkpoints/events/stdout/queues는 local, 코드/config/text결과/canonical기록은Git. 진단은 첫8test windows에서 층별 support density/empty fraction/real mass/lag/membrane diversity/evidence scale. Off/uniform/recent는 같은 checkpoint의 평가개입이며 uniform/recent는 null을 우회하는 강제 real-read이다.
 - 결론/범위: 수정된 선택 연산과 네 구조의 실행 가능성을 사전 검증했다. 이 snapshot 시점 본학습/전체288회 결과/audit: **not run**, 뒤의 완료 기록으로 갱신한다. End-to-end synthetic forecasting 학습, ETT 정답lag 검증, 에너지측정, 통계적 유의성 검정, matched-capacity backbone 비교: not run. Sparsemax inactive-region gradient 및 support/null collapse는 실제 진단으로 확인해야 한다. Read mask는 저장된 과거slot을 제외할 뿐 raw input의 이후 recurrent-state 영향까지 삭제하지 않는다. Main 통합/remote push: not run.
+
+## 2026-09-14 22:32 KST — v2 본실험 실행 시작
+
+- Snapshot commit `a7d382e5ac540d12c2a6ad9056ac828739680442`, tag `exp/f-lif-pop-v2-20260914-snapshot`을 고정하고 `bash f_lif_pop_v2/forecasting/scripts/run_pipeline.sh`를 detached process로 실행했다. Launcher PID `1246599`; exact absolute command/cwd/UTC는 `NSMT/f_lif_pop_v2/forecasting/scripts/queues/launcher.json`.
+- 첫 suite `selective-v2-20260914_patch_p96`의8개 학습 subprocess가 GPU0–3에서 시작했음을 확인했다. 이 시점 완료 결과는 없으며, H720/TCN/PatchTST/TSMixer는 예정 상태다. Live per-job status는 suite queue JSON, 전체 진행은 `scripts/queues/selective-v2-20260914.json`과 `log/selective-v2-20260914.pipeline.stdout`.
+- 본 기록은 canonical log에 즉시 append했으며 첫 구조 완료 자동 commit에 함께 포함된다. 학습 중 source/HEAD를 바꾸지 않기 위해 별도 중간 commit은 만들지 않는다. 이후 각 구조의 학습·audit·fresh checkpoint 평가가 끝나면 상세 결과/완료 commit/tag가 자동 기록된다.
+
+### 22:33 KST 실행 시작 기록 보충
+
+- 위의 “완료 결과는 없음”은 launcher 직후 상태를 뜻한다. 기록 작성 중 첫 실행이 종료되었으므로 queue를 다시 읽은 아래 상태로 보충한다. 최종 비교 결과는 전체 suite 검증 뒤 보고한다.
+- 관측 상태: {'pending': 24, 'running': 8, 'complete': 4, 'failed': 0}.
+
+| 완료 Run | Epochs | Best epoch (0-based) | Test MSE | Test MAE |
+|---|---:|---:|---:|---:|
+| patch_ETTh1_p96_flatten_homogeneous_no_memory_seed7 | 22 | 15 | 0.448847393076 | 0.461694558312 |
+| patch_ETTh1_p96_flatten_heterogeneous_no_memory_seed7 | 15 | 8 | 0.419019395480 | 0.438666818100 |
+| patch_ETTh2_p96_flatten_homogeneous_no_memory_seed7 | 8 | 1 | 0.332595184138 | 0.398718614855 |
+| patch_ETTh2_p96_flatten_heterogeneous_no_memory_seed7 | 8 | 1 | 0.327866429315 | 0.395793666778 |
+
+- 이들은 개별 완료 결과이며 complete-matrix 집계/audit는 아직 not run. 후속 단계는 queue에 설정된 순서로 실행된다.
+
+## 2026-09-15 10:41 KST — v2 1차 H96 36회 완료 브리핑 및 후처리 복구
+
+- 목적/branch/base/훈련환경/데이터/학습 hyperparameter는 2026-09-14 v2 사전 고정 기록과 같다. Branch `exp/f-lif-pop-v2`, base `f8215f54106980bad7c782bf08acaef871175c34`, H96 training commit `a7d382e5ac540d12c2a6ad9056ac828739680442`; 이번36회 완료 및 복구 commit은 annotated tag `exp/f-lif-pop-v2-patch-h96-20260915`로 식별한다. ETTh1/ETTh2 × seeds7/13/21 × homo/hetero × off/dense/sparse,seq336/H96/patch8/D32/K4/head32,AdamW lr.001 wd.01,batch128,max30/early6/scheduler2,factor.5,min validation MSE. Train8640/val2880/test2880의 train-only scaler와 모든 test window를 사용했다.
+- 최초288회 pipeline은 H96 학습36회 종료 후 audit에서 중단되어 H720/이후 구조는 **not run** 상태였다. 기존 queue의 status=running은 stale였으며 이번에 failed 원인을 명시했다. stdout traceback/completion/original failure JSON을 보존한다. Model crash나 학습 실패는 아니었다.
+- 원인: `weight=p/max(real_mass,1e-12)`인 frozen neuron에서 tiny positive dense mass이면 read 합이1보다 작다. 기존 sum(lag_mass)=nonempty fraction 검사가5개 dense run에서 실패했다. 이전 README와 사전 log의 단위합/conditional mean 설명을 이 기록으로 정정한다. 실제 invariant는 mean(real_mass/max(real_mass,1e-12)); raw mean_lag/entropy에도 floor 영향이 있으므로 순수한 조건부 통계로 읽지 않는다. 기존 metric/raw JSON/checkpoint와10개 training source SHA256는 모두 그대로 보존했다.
+- 수정 코드: check_summary.py가36개 CPU checkpoint를 다시 읽어 weight합/real mass/저장lag/empty를 직접 검증하고 check_read_mass.json을 기록한다. 단순 tolerance 완화가 아니다. run_pipeline.py에 completed-suite만 재검증하는 --resume 및 실패 상태 기록을 추가했다. Source hash/epoch budget 일치 확인, partial suite 거부, 기존 run/checkpoint 덮어쓰기 금지를 유지한다. README/summarize에 정확한 floor 설명을 추가했다.
+- 검증 commands: `env LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python f_lif_pop_v2/forecasting/check_summary.py --suite selective-v2-20260914_patch_p96`; 같은 환경에서 `scripts/run_pipeline.py`의 `audit_suite(SimpleNamespace(gpus=[0]),'patch',96,'selective-v2-20260914_patch_p96')`. CPU checkpoint36개 invariant, 전체 artifact/CSV/TensorBoard/data/hash/minval/paired macro checks 모두 passed. Representative sparse ETTh1 seed7 fresh GPU checkpoint의 전체 test+off/uniform/recent MSE/MAE 재현(atol1e-12) passed. 변경한 Python3개 compile passed. Raw stdout `log/preflight/{check_summary_recovery,audit_recovery}.stdout`.
+- 결론: 이질성만 추가하면 MSE −4.26%; heterogeneous dense는 off 대비 −.23%, sparse는 off 대비 +.76% 및 dense 대비 +.99%. Sparse−dense macro ΔMSE는3seed 모두 양수. Homogeneous sparse는 off 대비 −.96%이나 ETTh2가 주된 기여. 이질성+선택적 검색의 추가 성능 개선은 이번 H96에서 입증되지 않았다. Hetero sparse density32.6631%, empty14.9941%(첫8test windows)로 선택/비사용 동작은 관측된다. Same checkpoint retrieval-off ΔMSE +.006680은 검색을 사용한다는 관찰이며 별도 훈련 off baseline보다 우수하다는 뜻은 아니다. 1/36은30epoch 도달, best epoch0-based1–29.
+- Artifact: `NSMT/f_lif_pop_v2/forecasting/results/selective-v2-20260914_patch_p96/BRIEFING_20260915.md`, REPORT.md, per_run/per_task/macro/paired/paired_macro_by_seed/layer_diagnostics CSV, aggregate, check_summary/check_read_mass/check_reload JSON. 모든36개 세부metric/bestepoch/artifact path는 per_run.csv; 로그/checkpoint는 앞의 neorecall layout. Raw events/stdout/checkpoints는 local, text결과는Git.
+- 후속 재개 예정 exact command (cwd NSMT): `bash f_lif_pop_v2/forecasting/scripts/run_pipeline.sh --resume`. H96 결과를 재검증하고 H720부터 기존 순서를 따른다. 이번 완료는 H96만이며 전체72/288회 완료를 뜻하지 않는다. H720/다음구조 최종 결과, synthetic recall 학습, 에너지, 통계적 유의성 검정: not run. Main 통합/push: not run.
+
+| Variant | MSE ± SD | MAE ± SD |
+|---|---:|---:|
+| heterogeneous_dense | 0.377628 ± 0.008199 | 0.419095 ± 0.006241 |
+| heterogeneous_no_memory | 0.378484 ± 0.011626 | 0.419706 ± 0.008360 |
+| heterogeneous_sparse | 0.381363 ± 0.005930 | 0.421432 ± 0.004041 |
+| homogeneous_dense | 0.396104 ± 0.008466 | 0.431852 ± 0.005043 |
+| homogeneous_no_memory | 0.395326 ± 0.006549 | 0.431763 ± 0.003007 |
+| homogeneous_sparse | 0.391533 ± 0.003132 | 0.427766 ± 0.001204 |
+
+| Data | Variant | MSE ± SD | MAE ± SD |
+|---|---|---:|---:|
+| ETTh1 | heterogeneous_dense | 0.426393 ± 0.004418 | 0.445142 ± 0.004326 |
+| ETTh1 | heterogeneous_no_memory | 0.423974 ± 0.005129 | 0.443024 ± 0.004525 |
+| ETTh1 | heterogeneous_sparse | 0.426684 ± 0.005367 | 0.444722 ± 0.004513 |
+| ETTh1 | homogeneous_dense | 0.449270 ± 0.003327 | 0.458933 ± 0.001549 |
+| ETTh1 | homogeneous_no_memory | 0.447416 ± 0.001958 | 0.458227 ± 0.003037 |
+| ETTh1 | homogeneous_sparse | 0.447584 ± 0.005594 | 0.456953 ± 0.003783 |
+| ETTh2 | heterogeneous_dense | 0.328862 ± 0.012632 | 0.393047 ± 0.008857 |
+| ETTh2 | heterogeneous_no_memory | 0.332993 ± 0.019259 | 0.396389 ± 0.013671 |
+| ETTh2 | heterogeneous_sparse | 0.336041 ± 0.007756 | 0.398143 ± 0.004906 |
+| ETTh2 | homogeneous_dense | 0.342938 ± 0.013875 | 0.404772 ± 0.008887 |
+| ETTh2 | homogeneous_no_memory | 0.343235 ± 0.012793 | 0.405299 ± 0.007531 |
+| ETTh2 | homogeneous_sparse | 0.335482 ± 0.000705 | 0.398578 ± 0.001514 |
+
+
+- 표의 SD는 dataset을 먼저 평균한 뒤 세 seed 사이에서 계산한 sample SD다.
