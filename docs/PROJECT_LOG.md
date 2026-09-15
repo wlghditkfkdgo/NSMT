@@ -1144,3 +1144,131 @@ git tag -a exp/f-lif-pop-v1-20260914 -m "Completed 32 first-stage forecasting ru
 
 
 - 표의 SD는 dataset을 먼저 평균한 뒤 세 seed 사이에서 계산한 sample SD다.
+
+### 2026-09-15 10:42 KST — H720 실제 재개 확인
+
+- Recovery commit `9574d2286d26c4502c504da63f349e42a4cb0eaa` / tag `exp/f-lif-pop-v2-patch-h96-20260915`. `bash f_lif_pop_v2/forecasting/scripts/run_pipeline.sh --resume` detached launcher PID1392366가 H96 재검증을 통과하고 H720 suite의8개 GPU학습을 시작했다(완료0/실행8/대기28/실패0). H96 raw results/checkpoints와10개 training source는 그대로다.
+- 재개 exact command/PID/UTC/commit은 `NSMT/f_lif_pop_v2/forecasting/scripts/queues/launcher-resume-20260915.json`, stdout은 `log/selective-v2-20260915.resume.stdout`. H720/TCN/PatchTST/TSMixer 결과는 아직 없으며 각 단계 완료 시 자동 검증/상세기록/commit/tag를 수행한다. 이번 실행확인 append는 다음 완료 commit에 포함한다.
+
+## 2026-09-15 10:48 KST — PopulationLIF v2 patch 완료 (72 runs)
+
+- Branch `exp/f-lif-pop-v2`; base `f8215f54106980bad7c782bf08acaef871175c34`; 각 horizon training commit은 completion.json의 training_commit에 기록한다 (후처리 복구 전후 commit이 다를 수 있으며 학습 source hashes는 동일). 완료 commit은 tag `exp/f-lif-pop-v2-patch-20260915`로 식별한다. 목적: 동일 점수·gate에서 dense vs sparse 선택 효과 및 population 이질성을 분리한다.
+- ETTh1/ETTh2 × seeds7/13/21 × homo/hetero × off/dense/sparse × H96/720. Seq336,patch8,D32,K4,head32/flatten,tau2..16,gamma.05,temperature.25,null init−1. 최대30epochs,early-stop6,ReduceLROnPlateau factor.5/patience2,AdamW lr.001/wd.01,batch128,clip1. 최소 validation MSE checkpoint를 복원해 평가했다.
+- 데이터와 환경: 기존 ETT-hour train[0,8640),val[8640,11520),test[11520,14400),train-only StandardScaler,7변수,stride1,context336. H96 windows8209/2785/2785, H7207585/2161/2161. Conda snn_recall/Py3.10/torch1.12.0+cu113,CPUthreads2,deterministic/TF32off. GPU/worker 배치와 모든 실행명령은 각 manifest 및 run JSON, source/data hashes/패키지 버전도 run JSON에 있다.
+- 실행 pipeline command: `/home/yschoi/.conda/envs/snn_recall/bin/python /home/yschoi/CLS_spiking_transformer/Bio-inspired-Spiking-Memory-Transformer-for-time-series-representation-learning/NSMT/f_lif_pop_v2/forecasting/scripts/run_pipeline.py --finalize`. Suites: `selective-v2-20260914_patch_p96`, `selective-v2-20260914_patch_p720`.
+
+| Horizon | Variant | MSE ± SD | MAE ± SD |
+|---|---|---:|---:|
+| 96 | heterogeneous_dense | 0.377628 ± 0.008199 | 0.419095 ± 0.006241 |
+| 96 | heterogeneous_no_memory | 0.378484 ± 0.011626 | 0.419706 ± 0.008360 |
+| 96 | heterogeneous_sparse | 0.381363 ± 0.005930 | 0.421432 ± 0.004041 |
+| 96 | homogeneous_dense | 0.396104 ± 0.008466 | 0.431852 ± 0.005043 |
+| 96 | homogeneous_no_memory | 0.395326 ± 0.006549 | 0.431763 ± 0.003007 |
+| 96 | homogeneous_sparse | 0.391533 ± 0.003132 | 0.427766 ± 0.001204 |
+
+H96: 1/36 budget cap; 133580 nominal parameters; individual run 19.0–219.4s.
+- H96 homogeneous: sparse−dense paired macro ΔMSE -0.004571 (seed SD 0.006096); 평균 MSE 기준 sparse가 낮음. 통계적 유의성 주장은 하지 않는다.
+- H96 heterogeneous: sparse−dense paired macro ΔMSE +0.003735 (seed SD 0.002404); 평균 MSE 기준 sparse가 높거나 같음. 통계적 유의성 주장은 하지 않는다.
+- H96 heterogeneous_dense: final-layer support density 0.998776, empty-read fraction 0.000000, real mass 0.881238 (첫8 test windows).
+- H96 heterogeneous_no_memory: final-layer support density 0.000000, empty-read fraction 1.000000, real mass 0.000000 (첫8 test windows).
+- H96 heterogeneous_sparse: final-layer support density 0.326631, empty-read fraction 0.149941, real mass 0.772621 (첫8 test windows).
+- H96 homogeneous_dense: final-layer support density 0.998048, empty-read fraction 0.000000, real mass 0.838302 (첫8 test windows).
+- H96 homogeneous_no_memory: final-layer support density 0.000000, empty-read fraction 1.000000, real mass 0.000000 (첫8 test windows).
+- H96 homogeneous_sparse: final-layer support density 0.390572, empty-read fraction 0.107705, real mass 0.825785 (첫8 test windows).
+| 720 | heterogeneous_dense | 0.706692 ± 0.056545 | 0.591711 ± 0.023375 |
+| 720 | heterogeneous_no_memory | 0.685652 ± 0.053363 | 0.582620 ± 0.021507 |
+| 720 | heterogeneous_sparse | 0.721476 ± 0.038874 | 0.597785 ± 0.016600 |
+| 720 | homogeneous_dense | 0.713817 ± 0.042492 | 0.601710 ± 0.019110 |
+| 720 | homogeneous_no_memory | 0.681632 ± 0.055167 | 0.588881 ± 0.020140 |
+| 720 | homogeneous_sparse | 0.649910 ± 0.034544 | 0.575184 ± 0.013379 |
+
+H720: 2/36 budget cap; 972860 nominal parameters; individual run 19.5–214.3s.
+- H720 homogeneous: sparse−dense paired macro ΔMSE -0.063907 (seed SD 0.076909); 평균 MSE 기준 sparse가 낮음. 통계적 유의성 주장은 하지 않는다.
+- H720 heterogeneous: sparse−dense paired macro ΔMSE +0.014783 (seed SD 0.018488); 평균 MSE 기준 sparse가 높거나 같음. 통계적 유의성 주장은 하지 않는다.
+- H720 heterogeneous_dense: final-layer support density 0.999274, empty-read fraction 0.000000, real mass 0.881230 (첫8 test windows).
+- H720 heterogeneous_no_memory: final-layer support density 0.000000, empty-read fraction 1.000000, real mass 0.000000 (첫8 test windows).
+- H720 heterogeneous_sparse: final-layer support density 0.385989, empty-read fraction 0.091833, real mass 0.866983 (첫8 test windows).
+- H720 homogeneous_dense: final-layer support density 0.997401, empty-read fraction 0.000000, real mass 0.898756 (첫8 test windows).
+- H720 homogeneous_no_memory: final-layer support density 0.000000, empty-read fraction 1.000000, real mass 0.000000 (첫8 test windows).
+- H720 homogeneous_sparse: final-layer support density 0.456939, empty-read fraction 0.057825, real mass 0.913030 (첫8 test windows).
+
+각 실행 (best epoch은0-based):
+
+| Run | MSE | MAE | Best epoch | Epochs |
+|---|---:|---:|---:|---:|
+| patch_ETTh1_p96_flatten_heterogeneous_dense_seed7 | 0.421737 | 0.440980 | 7 | 14 |
+| patch_ETTh1_p96_flatten_heterogeneous_dense_seed13 | 0.430525 | 0.449614 | 6 | 13 |
+| patch_ETTh1_p96_flatten_heterogeneous_dense_seed21 | 0.426917 | 0.444833 | 6 | 13 |
+| patch_ETTh1_p96_flatten_heterogeneous_no_memory_seed7 | 0.419019 | 0.438667 | 8 | 15 |
+| patch_ETTh1_p96_flatten_heterogeneous_no_memory_seed13 | 0.429261 | 0.447700 | 6 | 13 |
+| patch_ETTh1_p96_flatten_heterogeneous_no_memory_seed21 | 0.423641 | 0.442704 | 6 | 13 |
+| patch_ETTh1_p96_flatten_heterogeneous_sparse_seed7 | 0.421162 | 0.440240 | 7 | 14 |
+| patch_ETTh1_p96_flatten_heterogeneous_sparse_seed13 | 0.431880 | 0.449264 | 6 | 13 |
+| patch_ETTh1_p96_flatten_heterogeneous_sparse_seed21 | 0.427010 | 0.444661 | 6 | 13 |
+| patch_ETTh1_p96_flatten_homogeneous_dense_seed7 | 0.446132 | 0.457246 | 29 | 30 |
+| patch_ETTh1_p96_flatten_homogeneous_dense_seed13 | 0.452758 | 0.460293 | 13 | 20 |
+| patch_ETTh1_p96_flatten_homogeneous_dense_seed21 | 0.448919 | 0.459259 | 15 | 22 |
+| patch_ETTh1_p96_flatten_homogeneous_no_memory_seed7 | 0.448847 | 0.461695 | 15 | 22 |
+| patch_ETTh1_p96_flatten_homogeneous_no_memory_seed13 | 0.448215 | 0.456947 | 13 | 20 |
+| patch_ETTh1_p96_flatten_homogeneous_no_memory_seed21 | 0.445184 | 0.456039 | 15 | 22 |
+| patch_ETTh1_p96_flatten_homogeneous_sparse_seed7 | 0.441728 | 0.452928 | 14 | 21 |
+| patch_ETTh1_p96_flatten_homogeneous_sparse_seed13 | 0.452874 | 0.460434 | 13 | 20 |
+| patch_ETTh1_p96_flatten_homogeneous_sparse_seed21 | 0.448151 | 0.457498 | 15 | 22 |
+| patch_ETTh2_p96_flatten_heterogeneous_dense_seed7 | 0.321676 | 0.390164 | 1 | 8 |
+| patch_ETTh2_p96_flatten_heterogeneous_dense_seed13 | 0.343447 | 0.402986 | 1 | 8 |
+| patch_ETTh2_p96_flatten_heterogeneous_dense_seed21 | 0.321462 | 0.385991 | 5 | 12 |
+| patch_ETTh2_p96_flatten_heterogeneous_no_memory_seed7 | 0.327866 | 0.395794 | 1 | 8 |
+| patch_ETTh2_p96_flatten_heterogeneous_no_memory_seed13 | 0.354297 | 0.410348 | 1 | 8 |
+| patch_ETTh2_p96_flatten_heterogeneous_no_memory_seed21 | 0.316816 | 0.383025 | 5 | 12 |
+| patch_ETTh2_p96_flatten_heterogeneous_sparse_seed7 | 0.334267 | 0.398394 | 1 | 8 |
+| patch_ETTh2_p96_flatten_heterogeneous_sparse_seed13 | 0.344531 | 0.402918 | 1 | 8 |
+| patch_ETTh2_p96_flatten_heterogeneous_sparse_seed21 | 0.329327 | 0.393116 | 1 | 8 |
+| patch_ETTh2_p96_flatten_homogeneous_dense_seed7 | 0.335184 | 0.399934 | 7 | 14 |
+| patch_ETTh2_p96_flatten_homogeneous_dense_seed13 | 0.358957 | 0.415028 | 5 | 12 |
+| patch_ETTh2_p96_flatten_homogeneous_dense_seed21 | 0.334674 | 0.399352 | 1 | 8 |
+| patch_ETTh2_p96_flatten_homogeneous_no_memory_seed7 | 0.332595 | 0.398719 | 1 | 8 |
+| patch_ETTh2_p96_flatten_homogeneous_no_memory_seed13 | 0.357430 | 0.413513 | 5 | 12 |
+| patch_ETTh2_p96_flatten_homogeneous_no_memory_seed21 | 0.339681 | 0.403667 | 1 | 8 |
+| patch_ETTh2_p96_flatten_homogeneous_sparse_seed7 | 0.334672 | 0.399871 | 7 | 14 |
+| patch_ETTh2_p96_flatten_homogeneous_sparse_seed13 | 0.335957 | 0.396912 | 13 | 20 |
+| patch_ETTh2_p96_flatten_homogeneous_sparse_seed21 | 0.335818 | 0.398952 | 1 | 8 |
+| patch_ETTh1_p720_flatten_heterogeneous_dense_seed7 | 0.553456 | 0.546017 | 2 | 9 |
+| patch_ETTh1_p720_flatten_heterogeneous_dense_seed13 | 0.583534 | 0.562919 | 2 | 9 |
+| patch_ETTh1_p720_flatten_heterogeneous_dense_seed21 | 0.544256 | 0.541338 | 4 | 11 |
+| patch_ETTh1_p720_flatten_heterogeneous_no_memory_seed7 | 0.551595 | 0.543991 | 2 | 9 |
+| patch_ETTh1_p720_flatten_heterogeneous_no_memory_seed13 | 0.577990 | 0.560323 | 2 | 9 |
+| patch_ETTh1_p720_flatten_heterogeneous_no_memory_seed21 | 0.531070 | 0.531371 | 4 | 11 |
+| patch_ETTh1_p720_flatten_heterogeneous_sparse_seed7 | 0.555149 | 0.547401 | 2 | 9 |
+| patch_ETTh1_p720_flatten_heterogeneous_sparse_seed13 | 0.583113 | 0.562512 | 2 | 9 |
+| patch_ETTh1_p720_flatten_heterogeneous_sparse_seed21 | 0.544600 | 0.542128 | 4 | 11 |
+| patch_ETTh1_p720_flatten_homogeneous_dense_seed7 | 0.581088 | 0.564274 | 10 | 17 |
+| patch_ETTh1_p720_flatten_homogeneous_dense_seed13 | 0.600071 | 0.569999 | 16 | 23 |
+| patch_ETTh1_p720_flatten_homogeneous_dense_seed21 | 0.569125 | 0.553658 | 29 | 30 |
+| patch_ETTh1_p720_flatten_homogeneous_no_memory_seed7 | 0.567862 | 0.557763 | 10 | 17 |
+| patch_ETTh1_p720_flatten_homogeneous_no_memory_seed13 | 0.616757 | 0.580277 | 16 | 23 |
+| patch_ETTh1_p720_flatten_homogeneous_no_memory_seed21 | 0.558625 | 0.555435 | 5 | 12 |
+| patch_ETTh1_p720_flatten_homogeneous_sparse_seed7 | 0.585916 | 0.567158 | 10 | 17 |
+| patch_ETTh1_p720_flatten_homogeneous_sparse_seed13 | 0.612872 | 0.578256 | 9 | 16 |
+| patch_ETTh1_p720_flatten_homogeneous_sparse_seed21 | 0.564838 | 0.550714 | 29 | 30 |
+| patch_ETTh2_p720_flatten_heterogeneous_dense_seed7 | 0.970810 | 0.684539 | 1 | 8 |
+| patch_ETTh2_p720_flatten_heterogeneous_dense_seed13 | 0.834144 | 0.619729 | 2 | 9 |
+| patch_ETTh2_p720_flatten_heterogeneous_dense_seed21 | 0.753954 | 0.595728 | 3 | 10 |
+| patch_ETTh2_p720_flatten_heterogeneous_no_memory_seed7 | 0.884832 | 0.653843 | 1 | 8 |
+| patch_ETTh2_p720_flatten_heterogeneous_no_memory_seed13 | 0.851361 | 0.621073 | 2 | 9 |
+| patch_ETTh2_p720_flatten_heterogeneous_no_memory_seed21 | 0.717065 | 0.585116 | 3 | 10 |
+| patch_ETTh2_p720_flatten_heterogeneous_sparse_seed7 | 0.958033 | 0.679292 | 1 | 8 |
+| patch_ETTh2_p720_flatten_heterogeneous_sparse_seed13 | 0.873152 | 0.636881 | 2 | 9 |
+| patch_ETTh2_p720_flatten_heterogeneous_sparse_seed21 | 0.814807 | 0.618495 | 2 | 9 |
+| patch_ETTh2_p720_flatten_homogeneous_dense_seed7 | 0.857466 | 0.648211 | 1 | 8 |
+| patch_ETTh2_p720_flatten_homogeneous_dense_seed13 | 0.737647 | 0.591484 | 2 | 9 |
+| patch_ETTh2_p720_flatten_homogeneous_dense_seed21 | 0.937504 | 0.682635 | 0 | 7 |
+| patch_ETTh2_p720_flatten_homogeneous_no_memory_seed7 | 0.876235 | 0.649183 | 1 | 8 |
+| patch_ETTh2_p720_flatten_homogeneous_no_memory_seed13 | 0.791374 | 0.614256 | 2 | 9 |
+| patch_ETTh2_p720_flatten_homogeneous_no_memory_seed21 | 0.678940 | 0.576370 | 2 | 9 |
+| patch_ETTh2_p720_flatten_homogeneous_sparse_seed7 | 0.714199 | 0.584858 | 4 | 11 |
+| patch_ETTh2_p720_flatten_homogeneous_sparse_seed13 | 0.755886 | 0.598007 | 2 | 9 |
+| patch_ETTh2_p720_flatten_homogeneous_sparse_seed21 | 0.665747 | 0.572110 | 2 | 9 |
+
+- 검증 통과: complete matrix, source/초기parameter hashes, minimum val checkpoint/복원, 전체 element수, CSV/history/TensorBoard, finite checkpoint/hash, train scaler/target boundary, 층별 support/null/lag diagnostics, independent macro/paired deltas. 각 horizon sparse ETTh1 seed7의 fresh checkpoint 및 off/uniform/recent 전체 MSE/MAE를 atol1e-12에서 재현했다.
+- Artifact는 `NSMT/f_lif_pop_v2/forecasting/results/<suite>/`의 REPORT,per_run/per_task/macro/paired/paired_macro_by_seed,layer_diagnostics,aggregate,manifest/completion/checks 및36raw result JSON. per_run.csv log_path가 task log/<suite>/<dataset>/<date>/<config>/seed+variant의 neorecall CSV/events/logargs/config.pt/best+model.pt를 가리킨다. Raw events/checkpoints/stdout은 local, 텍스트 결과는 Git.
+- 해석 제한: dense와 sparse는 score/nullable candidates/gate를 공유하지만 정규화 방식/지원집합/real probability mass가 함께 달라진다. Sparse 사용은 dense search 비용 절감을 보장하지 않는다. 실제 density/empty rate를 함께 보고 판단한다. Homogeneous는 redundant state 대조, backbone 간 용량은 다르다. 진단은 첫8 test windows; 전체 synthetic recall 학습/정답 ETT lag/에너지 측정/통계적 유의성 검정은 not run. 기존 v1과는 scorer/gate/budget이 달라 동일 실험으로 합산하지 않는다. 다음 단계는 성능 개선 여부로 선별하지 않고 실행/검증 통과 뒤 진행한다. Main 통합/push: not run.
