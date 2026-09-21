@@ -1,0 +1,42 @@
+=== 1. kappa with pi_k at the ORIGINAL initial g=softplus(-5), n=41, uniform p  (review 5.3) ===
+  tau=   2: kappa = 0.9417210670
+  tau=   4: kappa = 0.9702241956
+  tau=   8: kappa = 0.9849489556
+  tau=  16: kappa = 0.9924331728
+
+=== 2. review 7.2: recent-slot policy, tau=2, alpha=0.7, I0=2 then 0, g=0 -> max|u| ===
+  eta=0.0000: max|u| = 1.1005
+  eta=0.0180: max|u| = 1.1005
+  eta=0.3000: max|u| = 26.5003
+  eta=0.5000: max|u| = 397,853.4408
+
+=== 3. where does the loop gain eta*B_n/tau cross 1 ? (tau=2) ===
+  eta=0.3: gain>1 from n=16   (B_41=13.961, eta*B_41/2=2.09)
+  eta=0.5: gain>1 from n=8   (B_41=13.961, eta*B_41/2=3.49)
+  tau_min/B_41 = 0.1433  -> eta below this keeps worst-case gain < 1 over T=42
+
+=== 4. same recent policy on the SLOW branch tau=16 ===
+  eta=0.3: max|u| = 0.1376
+  eta=0.5: max|u| = 0.1376
+  eta=1.0: max|u| = 0.1376
+
+=== 5. moving 'recent' slot vs FIXED far slot (j=0), tau=2 ===
+  eta=0.5: recent -> 397,853.44   fixed j=0 -> 1.6293
+  eta=1.0: recent -> 123,586,024,769.07   fixed j=0 -> 9.0633
+
+=== 6. remedies on the worst case (recent policy, tau=2) ===
+  eta=0.5: (R1) eta clipped to 0.07 -> 1.1005 | (R3) coefficient cap c<=b0=1.101 -> 1.1005 | (R4) input-only selection: recent -> 1.1005, fixed j=0 -> 1.1005
+  eta=1.0: (R1) eta clipped to 0.07 -> 1.1005 | (R3) coefficient cap c<=b0=1.101 -> 1.1005 | (R4) input-only selection: recent -> 1.1005, fixed j=0 -> 1.8315
+
+=== 7. kappa under the cap remedy (worst case, eta=1, recent policy, n=41) ===
+  single-support: capped coefficient 1.1005, kappa = 0.0788  (mass not preserved, reported instead)
+  max amplification allowed by cap at lag 41: b0/b41 = 4.37x
+
+=== 8. review 8: full-history fast path must include leak feedback  (tau=4, g=0) ===
+  |loop - H_eff|_max = 7.63e-16     |loop - naive B@I/tau|_max = 1.210
+
+=== 9. review 13.3: oracle effective mass with small eta (m0=0.15) ===
+  eta=0.0180: M_eff = 0.1653
+  eta=0.0700: M_eff = 0.2095
+  eta=0.2000: M_eff = 0.3200
+  eta=0.4100: M_eff = 0.4985

@@ -1681,3 +1681,810 @@ H720: 0/36 budget cap; 991024 nominal parameters; individual run 27.8–261.3s.
 - 검증 통과: complete matrix, source/초기parameter hashes, minimum val checkpoint/복원, 전체 element수, CSV/history/TensorBoard, finite checkpoint/hash, train scaler/target boundary, 층별 support/null/lag diagnostics, independent macro/paired deltas. 각 horizon sparse ETTh1 seed7의 fresh checkpoint 및 off/uniform/recent 전체 MSE/MAE를 atol1e-12에서 재현했다.
 - Artifact는 `NSMT/f_lif_pop_v2/forecasting/results/<suite>/`의 REPORT,per_run/per_task/macro/paired/paired_macro_by_seed,layer_diagnostics,aggregate,manifest/completion/checks 및36raw result JSON. per_run.csv log_path가 task log/<suite>/<dataset>/<date>/<config>/seed+variant의 neorecall CSV/events/logargs/config.pt/best+model.pt를 가리킨다. Raw events/checkpoints/stdout은 local, 텍스트 결과는 Git.
 - 해석 제한: dense와 sparse는 score/nullable candidates/gate를 공유하지만 정규화 방식/지원집합/real probability mass가 함께 달라진다. Sparse 사용은 dense search 비용 절감을 보장하지 않는다. 실제 density/empty rate를 함께 보고 판단한다. Homogeneous는 redundant state 대조, backbone 간 용량은 다르다. 진단은 첫8 test windows; 전체 synthetic recall 학습/정답 ETT lag/에너지 측정/통계적 유의성 검정은 not run. 기존 v1과는 scorer/gate/budget이 달라 동일 실험으로 합산하지 않는다. 다음 단계는 성능 개선 여부로 선별하지 않고 실행/검증 통과 뒤 진행한다. Main 통합/push: not run.
+
+## 2026-09-20 19:50 KST — Population f-LIF v3 설계 확정, 선행연구 검토, 사전등록 (새 학습 없음)
+
+### 0. 이 기록의 목적과 범위
+
+다른 세션이 **이 항목 하나만 읽어도** 현재 아이디어·모델 정의·구현 계획·선행연구·미결 사항을 파악할 수 있도록 작성했다. 이번 세션에서 한 일은 (a) 영문 구현계획서 `NSMT/docs/Population_fLIF_Group_Interaction_Implementation_Plan_EN.md`의 비판적 검토, (b) 그 검토에 대한 사용자 재검토안 `NSMT/docs/Population_fLIF_plan_reassessment_KO.md`의 반영, (c) 웹/학술DB 선행연구 조사, (d) 주 모델 구조 변경(사용자 지시), (e) 사전등록 문서 작성, (f) 읽기 전용 수치 분석이다. **학습·GPU 실행은 없다.** Branch `exp/f-lif-pop-v2`, HEAD `329183b94` 유지, 기존 artifact 변경 없음.
+
+현재 상태: v2 288회(4 backbone × 2 horizon × 36) 전부 완료되어 tag `exp/f-lif-pop-v2-{patch,tcn,patchtst,tsmixer}-20260915` 생성됨. GPU 4장 유휴. v2 최종 macro MSE에서 최저 조건은 suite마다 뒤바뀐다(patch H96 het_dense .3776 / patch H720 hom_sparse .6499 / tcn H96 het_sparse .3719 / tcn H720 het_off .8096 / patchtst H96 het_dense .3758 / patchtst H720 het_sparse .7797 / tsmixer H96 het_off .3672 / tsmixer H720 het_sparse .7566). 2026-09-15 항목의 재분석대로 **검색 관련 12개 대응 비교가 모두 p>0.07이고, 학습된 선택을 uniform으로 바꿔도 MSE가 같았다.** 즉 v2(보통 LIF + 검색된 막전위 잔차, Branch B)는 메커니즘 판정에 실패했고, v3는 **상태 자체를 fractional 적분으로 만드는 모델**로 전환한다.
+
+### 1. 아이디어의 수학: LIF → f-LIF → Population f-LIF
+
+셋 다 같은 재료를 쓴다. 입력 전류 `I_n`, 시간상수 `τ`, 순간 변화량 `F_n = (I_n − U_n)/τ`. (1/τ 규약, h=1, 스파이크 제외)
+
+**LIF** — 과거가 숫자 하나에 눌려 담긴다.
+```
+U_{n+1} = U_n + F_n = (1−1/τ)U_n + I_n/τ        →  U_{n+1} = Σ_j (1−1/τ)^{n−j} I_j/τ   (지수 망각)
+```
+
+**f-LIF** — 상태를 전달하지 않고 **매 스텝 과거 변화량 목록을 다시 합산**한다.
+```
+U_{n+1} = Σ_{j≤n} b_{n−j} F_j ,   b_d = [(d+1)^α − d^α]/Γ(α+1)      (멱함수 가중, d^{α−1})
+```
+α=1이면 `b_d ≡ 1`이라 합산이 오일러와 **정확히** 같다(이번 측정 최대오차 0.0). 저장 공간은 숫자 1개 → T개로 바뀐다.
+
+펄스 응답 비교(τ=4, n=0에 입력 4):
+
+| n | 1 | 8 | 16 | 23 |
+|---|---:|---:|---:|---:|
+| LIF | 0.750 | 0.100 | 0.010 | 0.0013 |
+| f-LIF α=0.7 | 0.385 | 0.091 | 0.038 | 0.0225 |
+
+23스텝 뒤 f-LIF가 LIF의 **약 17배**를 기억한다. 단 초반(n=1)은 오히려 더 빨리 떨어진다(stretched exponential → power-law tail).
+
+T=42·α=0.7의 커널 실제 모양: `b_0=1.1005, b_1=0.6873`, `b_41/b_1=0.367`, 총질량 `Σ_{d<42} b_d = 15.06`(α=1이면 42), **질량의 절반이 lag 15 너머**. 즉 이 설정의 f-LIF는 "잊는 뉴런"이 아니라 "거의 다 기억하는 뉴런"이다. 그래서 선택 기능의 역할이 자연히 "억제" 쪽이 된다.
+
+**Population f-LIF** — 같은 입력을 K개 시간척도로 보고, 과거 사건마다 **관련도**를 곱한다.
+```
+F_{n,k} = (I_n − U_{n,k})/τ_k          같은 I_n, 다른 τ_k = [2,4,8,16]
+ρ_{n,j} = Sel( [U_n; I_n], [U_j; I_j] )                 population 전체로 계산, K에 공통
+U_{n+1,k} = b_0 F_{n,k} + Σ_{j<n} b_{n−j} · ρ_{n,j} · F_{j,k}
+```
+한 줄 요약: LIF는 "흐려진 숫자 하나", f-LIF는 "나이별 가중된 모든 과거 변화량", Population f-LIF는 "K개 필터로 본 모든 과거 변화량 × 나이 × 관련도".
+
+유한구간 이득(상수 입력 1, 무발화, n=42): α=0.7이면 `[0.946, 0.883, 0.753, 0.556]`(τ=2..16), α=1이면 `[1.000, 1.000, 0.996, 0.934]`. **fractional 가지는 느리게 차오르고 느린 구성원일수록 절대 크기가 작다.**
+
+### 2. "선별(selection)"이 실제로 어떻게 계산되는가
+
+시점 n에서 후보는 `j = 0..n−1`(엄격히 과거). 계산은 5단계다.
+
+1. **맥락 벡터** `ξ_n = [u_{n,1..K} ; I_n] ∈ R^{K+1}`. 과거 사건도 같은 형식으로 저장한다.
+2. **점수** `e_{n,j} = −‖W_Q ξ_n − W_K ξ_j‖² / (d_q ϑ)`. 학습된 선형사상으로 비교한 **음의 평균제곱거리**. L2 정규화를 하지 않으므로 크기 차이도 구분된다. 초기값 `W_Q=W_K=[I 0]`이면 "현재 상태와 가장 비슷한 과거 상태"가 높은 점수를 받는다.
+3. **확률화** `p_n = softmax(e_n)`(dense) 또는 `sparsemax(e_n)`(sparse, 정확한 0 가능).
+4. **계수화** `ρ̃_{n,j} = B_n p_{n,j} / Σ_ℓ b_{n−ℓ} p_{n,ℓ}` (`B_n = Σ_{j<n} b_{n−j}`), 그리고 `ρ = (1−η) + η ρ̃`.
+5. **적용** 최종 계수 `b_{n−j} · ρ_{n,j}`로 과거 dynamics를 합산한다. **확률이 아니라 fractional 계수를 곱하는 배율**이라는 점이 핵심이다.
+
+실제 계산 예(α=0.7, K=4, 항등 Q/K, ϑ=0.25, 입력 `I=[1.5, 0.2, 0.2, 1.5, 0.2]` — 3번 시점이 0번 맥락을 반복):
+
+```
+t=4의 가지 상태 u = [0.2494, 0.2915, 0.2025, 0.1184]
+점수 e_{4,j}     = [−1.629, −0.018, −0.017, −1.761]      (j=0,1,2,3)
+sparsemax p      = [0,      0.4995, 0.5005, 0]           ← 0번·3번(큰 입력 시점) 완전 배제
+b_d (d=4−j)      = [0.4910, 0.5297, 0.5868, 0.6873],  B_4 = 2.2948
+ρ (질량보존·η=.5) = [0.500,  1.527,  1.529,  0.500]
+최종 b·ρ         = [0.2455, 0.8087, 0.8970, 0.3436]      κ = Σbρ/B = 1.000
+```
+
+즉 현재(조용한 구간)와 상태가 닮은 과거 1·2번 시점의 계수를 **원래 fractional 계수보다 키우고**, 닮지 않은 0·3번을 깎는다. 같은 점수로 다른 스케일을 쓰면 결과가 크게 달라진다.
+
+| ρ 정의 | sparsemax에서 ρ | κ(커널 총질량비) | 성질 |
+|---|---|---:|---|
+| `p / max p` (EN 계획 원안) | [0, 0.998, 1.000, 0] | **0.486** | 감쇠 전용. 올바르게 골라도 총질량 절반 손실 |
+| `n · p` (1차 대안) | [0, 1.998, 2.002, 0] | 0.973 | 증폭 가능하나 질량 보존 아님 |
+| `B p / Σ b p` (채택) | [0, 2.053, 2.057, 0] | **1.000** | 질량 보존 + 증폭 가능 |
+| `(1−η) + η·위` (채택, η=.5) | [0.5, 1.527, 1.529, 0.5] | **1.000** | η=0이면 f-LIF로 환원(중립극한) |
+
+`ρ ≤ 1`로 제한된 원안은 "먼 과거가 가까운 과거를 **절대적으로** 앞설 수 없다"는 제약을 만들어, 검증 가설을 감쇠 기반 선택으로 좁힌다. 이것이 D4 결정의 근거다. 단, 볼록 결합은 `(1−η)` 바닥을 깔아 **완전 배제를 막으므로**, 정확한 0을 원하면 `η=1` 또는 별도 hard-mask 모드를 선언해야 한다.
+
+### 3. 주 모델 v3-A — 공유 소마 population f-LIF (사용자 지시로 확정)
+
+**하나의 논리 뉴런 = 하나의 population = 같은 입력 `I_n` + 하나의 출력 스파이크 `s_n`.** K개 구성원은 서로 다른 τ로 적분하며 **기억과 검색 key만 담당하고 발화하지 않는다.** 발화와 reset은 소마 한 곳.
+
+```
+(가지, 리셋 없음)   f_{n,k} = (I_n − u_{n,k})/τ_k
+                    u_{n+1,k} = Σ_{j≤n} b_{n−j} · ρ_{n,j,k} · f_{j,k}        (ρ_{n,n,k}=1)
+(선택)              ρ_{n,j,k} = [(1−η) + η ρ̃_{n,j}] · π_k(n−j)
+(소마)              a_n = Σ_k w_k u_{n,k}
+                    v_n = v_{n−1} + (a_n − v_{n−1})/τ_s − θ·s_{n−1}
+                    s_n = H(v_n − θ)
+(출력)              s_n 하나 → 다음 층 전류 I^{(l+1)} = scale · Linear(s^{(l)})
+```
+
+환원: `η=0` ⇒ full-history fractional population. `α=1, η=0` ⇒ 가지가 보통 leaky integrator(**측정 최대오차 0.0**)이고 전체는 다중시간척도 선형필터 + LIF 소마. `K=1` ⇒ scalar f-LIF + 소마.
+
+**이 구조가 자동으로 없애는 문제 세 가지**
+
+1. **reset–선택 교란 소멸.** 기억 항목 `f_{j,k}`에 reset 항이 없으므로 `ρ`는 순수 subthreshold 증거만 조절한다. EN 계획 §14.5와 재검토안 §2.2의 최대 난점이 구조적으로 사라진다.
+2. **"발화 판정량 ≠ 상태" 문제 소멸.** 가지는 리셋 없는 연속량, 발화는 소마 변수가 결정한다. 두 양이 같아야 한다는 요구 자체가 없어진다.
+3. **성분 출력 붕괴 논쟁 유보.** 출력이 하나이므로 개념 문서 §13의 미결 항목을 1차 실험에서 우회한다.
+
+**"population 내부 상호작용"의 위치.** 확산 결합 `−λL u`는 제거한다. 대신 (i) **공유 선택**: `ρ`가 population 전체 상태로 계산되므로 `∂u_{n+1,k}/∂u_{n,ℓ} ≠ 0 (ℓ≠k)` — 다른 구성원의 상태가 내 구성원의 다음 상태를 바꾼다(full 모드에서만 0). (ii) **소마 혼합** `w_k`. 따라서 "상호작용 제거"가 아니라 "확산이라는 특정 형태를 빼고 선택·소마를 상호작용 경로로 삼는다"가 정확하다. EN 계획 §1.3의 "공유 선택만으로는 상호작용이 아니다"는 계획서 자신의 야코비안 기준으로 부정확했다.
+
+**후속 계획(사용자 지시).** 동일 출력(v3-A) 구조로 먼저 완성하고 성능을 확인한 뒤, **성분별 스파이크(v3-B)**를 비교한다. v3-B는 위 세 문제가 되살아나므로 그 시점에 reset 규약 4후보를 명시적으로 재판정한다.
+
+**주의(측정됨).** 소마를 단순 평균(`w=1/K`)으로 두고 v2 기본값 `input_scale=2`를 쓰면 **발화율 0.004**로 사실상 죽은 뉴런이다. 학습 전 보정이 필수다(아래 8절 D11).
+
+### 4. Reset 규약 네 후보와 L1/Teka 형식
+
+v3-B(성분별 스파이크)나 scalar 대조에서는 여전히 규약을 골라야 한다.
+
+| 후보 | 발화 판정량 | reset 위치 | 이력 항목 | α=1 환원 |
+|---|---|---|---|---|
+| spikeDE 고정 커밋 | `U_n + D_n` (시험값) | `F_n` 안 `−θS_n/τ` → 커널로 영구 전파 | `F_j` | reset-as-current LIF |
+| 논문 식 (13) 문자 그대로 | `U_{n+1}` (상태) | 상태 점프, post-reset `U` 저장 | `−U_j+X_j` | **불일치**(재검토안 반례) |
+| 재검토안 hybrid | `V_{n+1}` | 별도 항 `−Σ_r θ S_r`(영구, 비감쇠) | `D_j` | 일치 |
+| **L1/Teka (권고 추가)** | `V_n` (상태) | 상태 점프 + 점프 **증분**이 memory trace에 멱함수 가중으로 | `ΔU_j` (증분) | 일치 |
+
+재검토안 §2.2의 α=1 반례: `τ=2, I=2.4, θ=1`에서 식 (13)을 문자 그대로 재합산하면 `V_2 = 2.4/2 + (2.4−0.2)/2 = 2.3`, 보통 Euler charge–reset LIF는 `V_2 = 0.2 + (2.4−0.2)/2 = 1.3`. **이전 reset의 감소량 1만큼 차이**가 난다. "post-reset 상태를 저장한다"만으로는 이력 적분에서 reset을 어떻게 누적할지가 정해지지 않는다.
+
+또한 코드 규약에는 지적되지 않은 결함이 있다. reset 크기가 `θ/τ_k`이므로 **τ=16 성분은 발화해도 0.06θ만 내려가 사실상 리셋이 없고**, τ=2 성분은 커널 누적으로 한 번의 발화가 window 전체에 걸쳐 총 ≈7.5θ를 빼는 강한 장기 억제를 받는다. 이질적 τ에서 이 규약은 성분마다 다른 뉴런을 만든다.
+
+**L1/Teka 형식**(Teka et al. 2014)은 Caputo 도함수를 L1 스킴으로 이산화해 `V(t_N)`을 "Markov 항 + memory trace"로 쓴다. memory trace는 **과거 전압의 증분 `V(t_{k+1})−V(t_k)`를 `(N−k)^{1−α} − (N−1−k)^{1−α}` 가중으로 합한 것**이다. 스파이크가 나면 전압은 `V_reset`으로 점프하되 **memory trace는 리셋하지 않고**, 리셋으로 생긴 음의 증분이 이후 멱함수 가중으로 계속 반영된다. 즉 reset이 (코드처럼) 상태 없이 전파되지도, (hybrid처럼) 영구 상수로 남지도 않는다. α=1에서 정확히 오일러 reset LIF이고 생물학 f-LIF 문헌의 표준이다.
+
+### 5. 계획 재검토안(KO) 요약 — `Population_fLIF_plan_reassessment_KO.md`
+
+- **§2.1 τ 규약:** 논문 p.5 이산식과 식 (15)는 `1/τ`, p.6의 `c_m^{(α)}`와 꼬리식은 `τ^α`로 **논문 내부가 불일치**. 코드는 `/tau`. → `1/τ` 규약을 채택하고 식 (13)과 다름을 명시. 단 "1/τ 규약에서는 α가 커널 모양만 바꾼다"는 부정확하며, α는 총질량 `(Nh)^α/Γ(α+1)`도 바꾼다. 또 `1/τ`가 작다고 무발화 정상상태 이득이 작은 것은 아니다(`U_∞=I`).
+- **§2.2 발화·reset:** 지적 수용. source parity와 주 모델 정의를 분리한다. 단 식 (13) 교체만으로 해결되지 않음(위 반례). 자기일관 경로의 조건 3개(발화는 실제 fractional charge가 결정 / 선택자가 과거 reset의 상태 감소를 임의로 지우지 않음 / α=1에서 선언한 규약으로 환원)를 **주 모델 선택의 선행 조건으로 격상**.
+- **§2.3 ρ 스케일:** 감쇠 전용 지적 수용. 단 `ρ=np`는 `Σρ=n`을 보존할 뿐 `Σ b ρ = Σ b`가 아니다. 질량보존형 `B p/Σ b p` 제안. 정확한 sparse support·상한·질량보존은 동시에 만족 불가. 감쇠 전용은 삭제가 아니라 **대조군**으로 유지.
+- **§2.4 확산 결합:** 단일 후보 고정은 수정하되 "차이를 줄인다 → key 품질 악화"로 단정 불가. λ∈{0,.05,.1,.3} 사전 진단. 반대칭 결합은 `U^T A U=0`이지만 fractional·이질 τ·reset까지 포함한 안정성 보장은 아니며, `A1≠0`이면 **동질 population 불변성이 깨져** 비교군 재구성이 필요.
+- **§2.5 환경:** CPU reference 채택. 제약은 `torch.fx`가 아니라 `torch.compile`(PyTorch 2.0+). reference 등급을 **source parity / source-derived / mathematical validation** 세 단계로 구분. golden 자료에 내부 항까지 저장. 상수 forcing 적분기 검사 하나로 f-LIF 전체를 검증했다고 하면 안 됨.
+- **§2.6 통계:** seed 8–10은 개선이지 검정력 확보가 아니다. `2 dataset × 3 seed = 6`을 독립 6쌍으로 취급 금지. 주 대비를 `Δ_selection`, `Δ_interaction` 둘로 좁히고 거기에 예산 집중. H720은 보조로 두되 불리하다고 사후 제외 금지. window-mean 미달은 "선택이 오차를 줄였는가"와 "모델이 유용한가"를 분리해 해석.
+- **§2.7 발화율 보정:** 필요하나 구성원별 발화율을 강제로 동일하게 맞추면 이질성 자체가 지워진다. train 구간만으로 **공유 input scale**을 정해 기록. 커널 총질량 `42^0.7/Γ(1.7) ≈ 15.06`은 맞지만 이를 일정 이득처럼 쓰면 누설·reset 무시.
+- **§2.8 Key:** `D_n`은 `(U_n, I_n)`의 선형함수라 추가해도 선형 projection의 표현력이 늘지 않음(지적 수용). `ΔU_n`은 새 정보 → `ξ^Δ = [U; I; ΔU]` 비교 추가. v2에서 key가 무력했던 것이 새 fractional 상태에서도 실패한다는 증거는 아님.
+- **§2.9 Surrogate:** 코드 backward는 `s/2 / (1 + (π/2·s·x)²)`이고 함수 기본 scale은 2.0이지만, **`LIFNeuron`은 `BaseNeuron`의 `surrogate_grad_scale=5.0`을 명시적으로 전달**한다. 따라서 "scale 5가 틀렸다"가 아니라 "함수 기본값·호출값·논문 식 (30)을 구분하지 않은 기술"이 문제. 첫 비교에서는 두 경로에 같은 scale을 공통 적용.
+- **§3 논문 사실:** fractional 우월 전제 금지(논문도 데이터마다 α 튜닝, α=1이 최적인 경우 존재). 원 논문에 ETT forecasting 없음. 내용 의존 계수에 고정 convolution 가속 논거 적용 불가.
+- **§4 순서:** A(scalar 정의) → B(population 진단) → C(선택 진단) → D(controlled recall + M1) → E(반복·확장). **모델 정의 전 108회/아키텍처 matrix는 기본안에서 내린다.**
+- **최종 판단:** "공식 코드와 같으면 우리가 원하는 f-LIF 확장"이라는 기준을 버리고, **출처 재현 / 모델 정의 자기일관성 / 연구 검증**을 분리한다.
+
+### 6. 선행연구 검토 (2026-09-20 조사)
+
+**(a) fractional 기억 뉴런**
+
+| 연구 | 핵심 | 우리와의 관계 |
+|---|---|---|
+| Ge et al., *Fractional-Order SNN*, **ICLR 2026** (arXiv:2507.16937, 코드 `PhysAGI/spikeDE`) | ABM predictor로 f-IF/f-LIF, α는 데이터마다 튜닝(0.3–1.0), 이론(멱함수 완화·유한 LIF 앙상블로 환원 불가·섭동 강건성) | 출발점. **시계열 예측 실험 없음** |
+| Teka, Marinov, Santamaria, **PLoS CB 2014** (DOI 10.1371/journal.pcbi.1003526) | 생물학 f-LIF, L1 스킴, "voltage-memory trace"=과거 전압 증분의 가중합, 스파이크 시 trace는 리셋하지 않음 | **reset 규약 제4후보의 근거** |
+| **He, Kang, Li, Zha, *LongSpike*, arXiv:2606.12895 (2026-06)** | f-SNN 저자들의 후속. Caputo fractional **SSM** + 스파이크. 커널을 `t^{α−1}/Γ(α) = (sin πα/π)∫e^{−ωt}ω^{−α}dω`로 쓰고 **sum-of-exponentials(M개 지수)로 근사**. M=1이면 SpikingSSM(α=1)로 정확히 환원, **M=2로 LRA-Text 80.4%→88.2%**. α 고정, 커널은 lag에만 의존, population·내용선택 없음 | **가장 중요한 비교 대상.** "서로 다른 감쇠율의 적분기 몇 개"가 곧 fractional 기억의 계산법 ⇒ 우리 이질 population(α=1)은 이미 4항 SOE다. `hetero α=1` 기준선이 결정적 |
+| Cui, Kang et al., *NvoFDE*, **AAAI 2025** (arXiv:2503.16207) | **가변차수** `α(t, x(t))`가 은닉 상태에 의존 → 이산화 계수가 내용 의존. 그래프 노드 분류, FROND 대비 1–3% | "내용에 따라 기억 커널을 바꾼다"의 가장 가까운 ML 선례. **차이: 커널 차수 조절 vs 개별 사건 선택**. 안정성 논의 거의 없음 |
+
+**(b) 이질적 다중시간척도 population**
+
+| 연구 | 핵심 |
+|---|---|
+| Zheng et al., **DH-SNN**, Nat. Commun. 15:277 (2024) | 뉴런당 다수 수상돌기 가지, 가지별 **학습되는 감쇠율**, `i^d_{t+1} = α_d i^d_t + (1−α_d) I^d`, 소마 `u ← β u + (1−β)R Σ_d i^d − o·u_th`. **가지 전류는 절대 리셋되지 않음**, 소마만 발화. 가지는 입력을 **나눠** 받고 소마에서 단순 합산, 가지 간 결합 없음. SHD 92.1%, SSC 82.5%. 다중시간척도 XOR에서 느린 가지=저주파/빠른 가지=고주파 분화. 그래디언트가 가지 전류를 통해 오래 유지됨 | **v3-A의 직접 선례** (단 우리는 가지가 입력을 공유) |
+| Feng et al., **TS-LIF**, ICLR 2025 (arXiv:2503.05108) | 시계열 예측용 2구획(수상돌기 느림·소마 빠름) **상호 결합**(β1,β2 비대칭), 각자 스파이크, 주파수 응답 이론. Metr-la/Pems-bay/Solar/Electricity에서 Spike-TCN·iSpikformer 상회 (**ETT 없음**) | 비확산 결합의 선례 |
+| Baronig et al., **adLIF**, Nat. Commun. 2025 (arXiv:2408.07517) | 막전위–적응변수 2변수 결합 → 공진·진동, SHD/SSC에서 LIF 상회 | 〃 |
+| Spiking SSM 계열: Binary-S4D(Sci. Rep. 2024), SpikingSSM, **SPikE-SSM**(arXiv:2410.17268), **P-SpikeSSM**(ICLR 2025), **SiLIF**(arXiv:2506.06374) | S4D 대각 상태 = 채널당 여러 감쇠율의 적분기 뱅크. SPikE-SSM은 reset이 병렬화를 막는 문제를 PMBC(경계 압축)로 우회 | 우리 population의 일반형. **reset과 병렬성의 상충**은 공통 난제 |
+| Perez-Nieves et al., Nat. Commun. 12:5791 (2021); PLIF/GLIF/CLIF/MLIF; TC-LIF(arXiv:2307.07231) | 시간상수 이질성·학습 | 이질성 자체는 새롭지 않음 |
+
+**(c) 내용 의존 선택 / 과거에 대한 attention**
+
+Fang et al., **PSN**(NeurIPS 2023, arXiv:2304.12760): 뉴런마다 **자기 시간 가중치 행렬**(T×T, 마스크로 인과성) — 내용 의존은 아님. 사용자 옵션 (1)의 고정 가중치 버전에 해당. TA-SNN(ICCV 2021), TCJA, TIM(IJCAI 2024), STAtten/STAA/FSTA(CVPR·AAAI 2025): time-step 축 attention. Mamba(arXiv:2312.00752) 및 spiking Mamba 변형: 입력 의존 선택적 전파/망각이지만 **사건 선택은 아님**. → **"커널 내부에서, population key로, 과거 사건을 골라 fractional 합에 넣는" 형태는 찾지 못했다.** 새로움의 자리는 있으나 좁고, 입증 부담은 (a) 차수 조절, (b) `hetero α=1`, (c) 질량 맞춤 감쇠를 이기는 것이다.
+
+**(d) population 내부 결합** — 생물학에서 gap junction은 동기화 기제이며 이질 QIF population에서 "diversity-induced synchronization"과 **이질성 보상**이 보고된다(arXiv:2409.18278; J. Comput. Neurosci. DOI 10.1007/s10827-008-0117-3). ML에서는 coRNN(arXiv:2010.00951)·LEM(arXiv:2110.04744)·adLIF·TS-LIF 모두 **대칭 확산이 아닌 2차/비대칭 결합**이다. 학습 가능한 gap-junction형 결합을 쓴 심층 SNN은 찾지 못했다.
+
+**(e) SNN 시계열 예측 기준선** — Lv et al., **ICML 2024**(arXiv:2402.01533, 코드 `microsoft/SeqSNN`): delta/convolutional spike encoder, Spike-TCN/Spike-RNN/iSpikformer, **마지막 층 스파이크에 Linear**로 예측. TS-LIF도 동일. 두 연구 모두 Metr-la/Pems-bay/Solar/Electricity(RSE/R²)이고 **ETT 수치는 없다.**
+
+**(f) 수치해석·수학** — Caputo 빠른 계산의 SOE 근사(Jiang et al., arXiv:1511.03453): 멱함수 커널을 `O(log N)`개 지수로. 충격 fractional ODE의 해 개념 논쟁: Fečkan–Zhou–Wang(CNSNS 2012) vs Wang–Ahmad–Zhang–Nieto(CNSNS 2014 comments), 정리는 Wang–Fečkan–Zhou(FCAA 19(4):806–831, 2016). **"충격이 이후 전 구간에 상수 점프로 남는가, 커널을 통해 전파되는가"가 미해결 논쟁**이며 재검토안 hybrid는 전자, 코드는 후자에 가깝다. 초록 원문은 이번에 확보하지 못했으므로 인용 전 확인 필요.
+
+**(g) 실현 가능성 판정** — 기술적으로 가능하다. 모든 재료가 이미 학습되고 fractional+spiking은 대규모에서 돈다(LongSpike). 과학적 위험은 셋: ① fractional 차수와 이질 population의 **중복**(SOE 항등식) — 논문의 두 기둥이 하나일 수 있음, ② 선택이 **감쇠·차수조절·질량조절과 구분되지 않을** 위험, ③ O(T²) 비용을 정당화할 **사건 회상 능력**의 입증 필요. 셋 다 synthetic recall과 `hetero α=1` 기준선으로만 답할 수 있다.
+
+### 7. 사전등록 결정 (상세는 `NSMT/docs/Population_fLIF_v3_prereg_KO.md`)
+
+| # | 결정 | 요지 |
+|---|---|---|
+| D1 | Reset·발화 | v3-A는 가지 리셋 없음 + 소마 subtractive reset. 원본 4후보는 Phase A 대조군 |
+| D2 | 선택 단위 | **하이브리드**: 공유 내용 점수 × 가지별 lag 사전분포 `π_k(d)=exp(−d/(c τ_k))`. 비교군 = 순수 공유, 가지별 multi-head |
+| D3 | 결합 | 확산 결합 **제거**(λ=0). 상호작용은 공유 선택 + 소마 혼합 |
+| D4 | ρ 스케일 | 질량보존형 + 볼록 결합 `(1−η)+η ρ̃`. 감쇠 전용은 대조군. 우선순위 질량보존 > 상한 |
+| D5 | 선택자 초기화 | **중립극한(f-LIF)에서 출발**, 선택은 학습으로 획득 |
+| D6 | 주 기준선 | **hetero α=1 (=SOE/DH-SNN 계열)**, scalar f-LIF, conventional LIF, ridge, window-mean |
+| D7 | α·T | α∈{0.3,0.5,0.7,1.0}, 기본 0.7, T=42 고정. α는 총질량도 바꿈 |
+| D8 | Readout | 스파이크 주 + 막전위 진단, flatten 주 + bottleneck 기전 |
+| D9 | 구조 | **v3-A(동일 입력·동일 출력) 주**, v3-B(성분별 스파이크) 보류 |
+| D10 | 순서 | A→B→C→D(synthetic, oracle 포함)→E(M1 H96). 정의 전 대규모 matrix 금지 |
+| D11 | 발화율 보정 | 학습 전 train 구간만으로 `(τ_s, w, input_scale)` 고정, 목표 발화율 0.1–0.3 |
+
+Synthetic recall 프로토콜(과제 B: regime 재귀 / 과제 A: 문맥별 lag), 조건 8종(full·dense·sparse·**oracle**·학습된 uniform/recent·질량 맞춤·scalar·capacity-matched·α=1), 지표(정답 사건 질량, support hit, 문맥 전환 반응 step, slot 교체 개입)와 사전 판정 기준은 사전등록 문서 §4에 있다. **cue와 value는 반드시 같은 채널 스트림에 둔다** — 모델이 channel-independent이므로 다른 채널에 두면 정보가 구조적으로 도달할 수 없어 과제가 불가능해진다.
+
+### 8. 이번에 실행한 수치 분석
+
+명령(cwd `NSMT/f_lif_pop_v3/analysis`, `env LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python`):
+`python prereg_numerics.py > prereg_numerics.txt`, `python calib_probe.py > calib_probe.txt`.
+
+- **α=1·ρ=1에서 가지 합산 = 보통 leaky integrator**: 최대오차 **0.0**
+- **유한구간 이득**(상수 입력 1, n=42): α=0.5 `[.835,.699,.516,.333]`, α=0.7 `[.946,.883,.753,.556]`, α=1 `[1.000,1.000,.996,.934]`
+- **감쇠 교란**: 모든 ρ에 상수 c를 곱하면 상태가 직접 줄어든다(n=42, α=0.7: c=1 `[.946,.883,.753,.556]` → c=0.5 `[.880,.754,.566,.367]` → c=0.25 `[.760,.585,.392,.234]`). **선택이 이득 조절로 작동할 수 있다**는 정량적 근거 → 질량 맞춤 대조 필수
+- **발화율 보정표**: (τ_s=2, w=1/K, scale=2) → **0.004**; (τ_s=2, w=1/K, scale=4) → 0.044; (τ_s=1, w=1/K, scale=4) → 0.120; (τ_s=1, w=1, scale=1) → 0.120; (τ_s=1, w=1, scale=2) → 0.243. α=1 가지도 유사(scale=1에서 0.130)
+- **선별 worked example**과 ρ 스케일별 κ: 2절 표
+
+Artifact: `NSMT/f_lif_pop_v3/analysis/{prereg_numerics.py, prereg_numerics.txt, calib_probe.py, calib_probe.txt}`. 사전등록 문서: `NSMT/docs/Population_fLIF_v3_prereg_KO.md`.
+
+### 9. 한계와 not run
+
+- 선행연구 조사는 웹 검색·PDF 텍스트 추출 기반이다. DH-SNN·TS-LIF·LongSpike·NvoFDE·SPikE-SSM은 본문 수식·표를 직접 확인했으나, 충격 fractional ODE 논쟁(Fečkan/Wang)은 **초록 원문을 확보하지 못했고** 2차 자료 기반이다. 인용 전 원문 확인 필요.
+- 수치 분석은 무발화 또는 단일 population의 CPU 시뮬레이션이다. 학습, 그래디언트, 다층, 실제 ETT 입력, synthetic recall: **not run**.
+- v3 코드 구현, Phase A golden 파일, spikeDE 설치(torch 2.x CPU env), 성분별 스파이크 v3-B, 결합 재도입, 학습 가능 τ/α: **not run**.
+- 사전등록 문서의 판정 기준 수치(정답 사건 질량 0.5, oracle 대비 1.5배)는 **예시이며 실행 전 확정해야 한다.**
+- v3 구현은 `exp/f-lif-pop-v2` HEAD를 바꾸지 않도록 새 branch에서 시작한다. Main 통합/push: not run.
+
+### 10. 추가 수치 확인 — L1/Teka 형식 (같은 날 실행)
+
+`NSMT/f_lif_pop_v3/analysis/l1_teka_check.py` (출력 `l1_teka_check.txt`).
+
+L1 스킴은 Caputo 도함수를 **과거 전압 증분의 가중합**으로 이산화한다(h=1):
+```
+V_N = V_{N−1} + (Γ(2−α) h^α / τ)·(−V_{N−1} + I_{N−1}) − Σ_{k<N−1} w_{N,k}·(V_{k+1} − V_k)
+w_{N,k} = (N−k)^{1−α} − (N−1−k)^{1−α}
+```
+즉 **"보통 LIF 한 스텝 + 과거 변화량을 기억해 빼는 보정항"** 구조다. α=1이면 모든 `w`가 0이 되어 보정항이 사라지고 정확히 Euler LIF가 된다(**측정 최대오차 0.0**).
+
+측정 결과:
+
+- **무발화 완화**(τ=4, I=1): α=1은 60스텝에 1.000에 도달, α=0.8은 0.961, α=0.6은 0.838. predictor 형식에서 본 "fractional은 느리게 차오른다"와 같은 방향.
+- **발화**(I=1.6, 200스텝): α=1 ISI=4 일정. α=0.6, refractory=1에서 ISI 9,9,8,8…→7,7,8로 **완만히 짧아졌다**. Teka et al.이 보고한 적응(ISI 길어짐)과 방향이 다르므로, 우리 이산화·파라미터에서의 관측으로만 기록한다.
+- **리셋 증분의 처리가 결정적**: 리셋 점프를 memory trace에 포함하면 스파이크 25개(ISI 9,9,8,8…), 제외하면 5개(ISI 27→38→48→59, 강한 적응). **같은 수식·같은 파라미터에서 질적으로 다른 뉴런**이 된다 → 사전등록 D1의 하위 결정으로 명시.
+- **구현 함정**: L1 가중치의 `k` 색인은 목표 시점 N 기준이어야 한다. 한 칸 어긋나면 가장 최근 증분에 가중치 1이 붙어 과잉 차감·진동이 생기는데, **α=1 검사는 모든 가중치가 0이라 그대로 통과한다.** Phase A는 반드시 α<1 궤적으로 검사해야 한다(이번에 실제로 이 실수를 만들고 수정했다).
+
+또한 synthetic 과제의 인코딩을 사전등록 문서 §4.4에 구체화했다: **patch 하나 = 사건 하나**(patch_size 8의 원시 위치를 `key one-hot | value | 0`으로 채움). 그러면 "사건 j = 기억 slot j = patch j"가 되어 정답 slot 적중률이 모호하지 않고, lag도 patch 단위로 정의된다.
+
+### 11. 추가 수치 확인 — reset 규약 3종 직접 비교 (같은 날 실행)
+
+`NSMT/f_lif_pop_v3/analysis/reset_conventions.py`, `paper_reset_detail.py` (출력 각 `.txt`).
+
+v3-A(가지 무리셋 + 소마 리셋)를 채택하면 원문과 reset이 어떻게 달라지는지 scalar 뉴런으로 직접 비교했다. 조건 동일: τ=4, α=0.7, I=1.5, θ=1, 40 step, 1/τ 규약.
+
+| 규약 | 발화 판정 | reset 위치 | 이력 저장 항목 | 스파이크 | 첫 발화 | ISI | max·상태 |
+|---|---|---|---|---:|---:|---|---:|
+| (a) 논문 식 (13) 문자 그대로 | fractional charge `U_k` | 그 상태를 직접 깎음 | **post-reset `U_j`** | 31 | n=9 | 1,1,1,… | 1.167 |
+| (b) spikeDE 공개 코드 | `U_n + D_n` (국소 Euler 시험값) | `F_n` 안 `−θS_n/τ` | `F_j` | 17 | n=6 | 2,2,2,… | 0.997 |
+| (c) **v3-A (DH식)** | 소마 `v_n` | 소마에서만 subtractive | `f_j` (**리셋 없음**) | 16 | n=9 | 2,2,2,… | 1.318 |
+
+상태 궤적(처음 14 step):
+```
+(a) 논문: 0.917 0.957 0.991 [0.021] 0.323 0.442 0.536 0.611 …   (대괄호=리셋 직후)
+(b) 코드: 0.917 0.642 0.861 0.643 0.869 0.655 0.883 0.669 …
+(c) v3-A: 0.917 0.957 0.991  1.021 1.047 1.071 1.092 1.111 …
+```
+
+발화 패턴만 보면 **(b)와 (c)가 거의 같고((17 vs 16), ISI 2) (a)가 혼자 튄다.**
+
+#### (a) 논문 식 (13)의 문자 그대로 읽기는 퇴화한다
+
+이유를 추적했다. 식 (13)의 이력 항은 `−U_{k−1−m}`, 즉 **누설항**이다. 리셋으로 저장된 `U_j`가 작아지면 이후 모든 합에서 누설이 약해져 **다음 상태가 오히려 커진다.** 리셋 → 누설 감소 → 상태 증가 → 재발화의 양의 되먹임이다. pre-reset 값이 1.021 → 1.323 → 1.442 → 1.536으로 계속 자란다(hard reset은 더 심해 1.328 → 1.535 → 1.717 → 1.885).
+
+파라미터 27조합(τ∈{2,4,8} × α∈{0.5,0.7,0.9} × I∈{1.2,1.5,2.0}, 40 step) 전수 확인 결과, **발화가 일어나는 모든 설정에서 "최장 연속 발화 구간 = 총 스파이크 수"**였다. 즉 한 번 임계를 넘으면 window 끝까지 매 스텝 발화하며 아래로 돌아오지 않는다(예: τ=2,α=0.7,I=2.0 → 40/40 발화). 발화가 0인 설정은 애초에 임계를 못 넘은 경우다.
+
+**해석의 한계:** 이것은 *인쇄된 식 (13)을 문자 그대로 구현한 경우*의 성질이다. 논문의 실제 실험은 공개 코드 경로(b)를 쓰므로, 이 결과를 "논문의 실험이 잘못되었다"로 읽으면 안 된다. 다만 **"논문 수식을 그대로 따르면 된다"는 선택지는 이번 측정으로 사라졌다.**
+
+#### 결정에 미치는 영향
+
+- v3-B(성분별 스파이크)로 갈 때의 reset 후보는 **(b) 코드 규약, (c) hybrid, (d) L1/Teka 셋**으로 좁혀진다. 식 (13) 문자 그대로는 후보에서 제외하되, Phase A의 대조 기록으로는 남긴다.
+- v3-A는 원문 어느 규약과도 **다른 뉴런**이다. 정확한 서술은 "f-LIF의 확장"이 아니라 **"fractional 수상돌기/시냅스 적분 + 보통 LIF 소마"**이며, 전류 기반 LIF(CUBA)·DH-SNN 계열의 2단 구조에 해당한다. 보존되는 것은 멱함수 기억이고, 바뀌는 것은 발화·리셋과 기억의 결합 방식이다. 관련연구·방법 절에서 이 구분을 명시한다.
+- v3-A의 부수 효과: 가지가 선형이므로 선택을 끄면(η=0) 가지는 순수 convolution이라 FFT/SOE로 O(T log T) 계산이 가능하고, **O(T²) 비용이 정확히 선택 기능에만 귀속**된다.
+
+#### 실행 준비 상태 점검
+
+이 기록과 별도로, 아이디어 검증에 필요한 결정이 모두 끝났는지 점검했다. **9개 항목이 미결**이며 사전등록 문서 `NSMT/docs/Population_fLIF_v3_prereg_KO.md` §9에 권고안과 함께 정리했다. 요지: 소마 혼합 `w_k`와 `τ_s`의 파라미터화, surrogate 식·scale 고정, `η`·`π_k`·온도 `ϑ`의 파라미터화와 학습 여부, hard-mask 모드 포함 여부, synthetic 과제의 **시간 단위 불일치**(원안은 raw step, 인코딩은 patch=사건), oracle 강제 방식, 사전 판정 수치, 학습 예산·seed·MDE, Phase A golden 환경 구축. **이 중 시간 단위 불일치와 MDE 미선언이 실행 전 반드시 해소해야 할 항목이다.**
+
+## 2026-09-21 00:57 KST — v3 사전등록 미결 항목 O1–O9 상세 사양과 용어 정리 (결정 대기, 새 학습 없음)
+
+### 0. 이 기록의 위치
+
+2026-09-20 항목에서 주 모델 v3-A(공유 소마 population f-LIF)를 확정하고 실행 전 미결 9개를 식별했다. 이 기록은 그 9개의 **구체 사양·근거·기각한 대안**을 남긴다. 확정되면 사전등록 문서 `NSMT/docs/Population_fLIF_v3_prereg_KO.md` §2에 날짜가 붙은 정식 결정으로 옮긴다. 학습·GPU 실행 없음.
+
+### 1. 용어와 텐서 축 (다음 세션이 헷갈리지 않도록)
+
+| 용어 | 뜻 |
+|---|---|
+| `τ_k` | dendritic branch의 membrane time constant. `τ=[2,4,8,16]`, 가지마다 다름 |
+| `τ_s` | **somatic** membrane time constant(아래첨자 s = soma). 갱신 `v ← v + (a−v)/τ_s`에서 **한 스텝에 목표값과의 차이를 얼마나 메우는가**를 정한다. `1/τ_s`가 그 비율이고, 남는 비율 `β = 1 − 1/τ_s`가 retention factor다. `τ_s=1 → β=0`(기억 없음), `τ_s=2 → β=0.5`, `τ_s=16 → β≈0.94`. 지수 규약 `β=e^{−1/τ}`와는 다른 이산화이며 우리는 Euler 규약을 쓴다 |
+| `ISI` | inter-spike interval. 연속한 두 스파이크 사이의 step 수. firing rate = 1/ISI. 우리 시계는 patch이므로 ISI=2는 "두 patch마다 한 번 발화", rate 0.5 |
+| `memory slot` | selector가 주소를 매길 수 있는 과거 단위. 우리 모델에서는 **patch 하나 = 1 slot** |
+| `event` | synthetic 과제에서 의미 단위. **1 event = 1 patch = 1 memory slot**으로 일치시킨다 |
+| `neutral limit` | selection을 껐을 때(η=0, π≡1) 원래 f-LIF와 정확히 같아지는 성질 |
+| `MDE` | minimum detectable effect. 주어진 표본 크기·검정력에서 검출 가능한 최소 효과 크기 |
+
+**텐서 축 구조 (중요).** 많은 SNN 시계열 연구(예: Lv et al. ICML 2024)는 시계열 step마다 `Ts`개의 **별도 spiking simulation 축**을 만들어 `[B, Ts, T, C]`로 둔다. **우리는 그렇게 하지 않는다.** 개념 문서 §17의 결정대로 `Ts = 1`로 두고 **chronological patch 축을 그대로 뉴런의 시간축으로 쓴다.** 정적 입력을 인공 시뮬레이션 축에 반복하면 "과거 상태를 회상한다"는 주장이 실제 시계열 과거와 무관해지기 때문이다.
+
+그 결과 v3-A의 형상은 다음과 같다.
+
+```
+입력                [B, 336, C]
+patch 분할          [T=42, B·C, P=8]
+입력 전류 I         [T, B·C, D]                Linear(8→D) × input_scale
+가지 상태 u         [T, B·C, D, K]             ← population 축 K가 여기서 생긴다
+기억 항목 f         [T, B·C, D, K]             = memory bank
+key context ξ       [T, B·C, D, K+1]           [u ; I]
+점수 e / 계수 ρ     [T, B·C, D, T]             과거 축이 하나 더 붙어 O(T²)
+소마 drive a        [T, B·C, D]                a = Σ_k w_k u_k  ← K 축이 여기서 접힌다
+출력 스파이크 s     [T, B·C, D]                logical neuron당 1개
+readout             flatten [B·C, T·D] → Linear → [B, H, C]
+```
+
+**v2와의 차이:** v2는 스파이크가 `[T, BC, D, K]`로 K 축이 출력까지 살아 있었다. v3-A는 소마에서 K를 접으므로 출력이 `[T, BC, D]`다. 이것이 "같은 입력 `I_n`, 같은 출력 `s_n`"이라는 사용자 요구의 직접적 결과이고, **O1에서 `w_k`를 학습 가능하게 두어야 하는 이유**이기도 하다. `w_k`가 고정 균등값이면 K 축의 정보가 접히면서 사라진다.
+
+---
+
+### 2. O1 — Soma parametrization (readout weights, τ_s, θ, reset rule)
+
+**정할 것**
+
+```
+a_n = Σ_k w_k · u_{n,k}                somatic drive
+v_charge = v_{n−1} + (a_n − v_{n−1})/τ_s
+s_n = H(v_charge − θ)
+v_n = v_charge − θ · s_n
+```
+
+**왜 문제인가 (1) — `w_k` 고정 균등값이면 population이 출력에서 붕괴한다.** K개 가지는 모두 같은 `I_n`을 받으므로 `Σ_k u_{n,k}`는 결국 **하나의 필터 출력**이다. 소마가 그 고정 합만 보면 다음 층과 readout이 보는 스파이크에 multi-timescale 다양성이 실리지 않는다. 다양성이 selector의 key 안에서만 살고 네트워크에는 전달되지 않는 구조가 된다.
+
+**왜 문제인가 (2) — `τ_s=1`이면 firing rate가 drive를 부호화하지 못한다.** `τ_s=1`은 leak이 완전하다는 뜻이라 소마가 자기 기억을 갖지 않는다. drive가 `θ`와 `2θ` 사이면 **입력 세기와 무관하게 ISI가 항상 2**로 고정되고 rate가 0.5에서 포화한다. `τ_s>1`이면 소마가 적분하고 리셋 결손이 감쇠하며 남아 ISI가 drive에 따라 연속적으로 변한다.
+
+**권고**
+
+| 항목 | 값 | 근거 |
+|---|---|---|
+| `w_k` | learnable `[D, K]`(층당 128개), init 1.0 | 다양성이 출력에 도달. 각 logical neuron이 자기 temporal basis 조합을 학습 |
+| `τ_s` | 2 | graded rate coding. 보정표에서 `input_scale=2` → firing rate 0.138 |
+| `θ` | 1 | v2·논문·코드 공통 |
+| reset | **standard soft reset**(위 식) | conventional LIF anchor와 소마 단이 글자 그대로 같아져, 차이가 dendritic 단에만 귀속 |
+
+**이전 권고에서 변경:** DH-SNN 형식(`−θ·s_{n−1}`, 결손이 leak을 거치지 않음) → standard soft reset. 이유는 textbook 정의이고 v2·SpikingJelly·snnTorch가 모두 이 형식이라 baseline 비교가 깨끗해지기 때문이다. DH-SNN 형식은 ablation으로 남긴다. **D11 보정표는 이전 형식으로 측정했으므로 Phase B에서 재측정한다.**
+
+---
+
+### 3. O2 — Surrogate gradient (식과 scale)
+
+**정할 것:** `H(v−θ)`의 backward. 현재 세 가지가 섞여 있다.
+
+| 출처 | 식 | 기본 scale | peak | half-width |
+|---|---|---:|---:|---:|
+| spikeDE `surrogate.py` | `(s/2)/(1+(π/2·s·x)²)` | 함수 기본 2.0 | 1.00 | 0.318 |
+| 같은 코드 `LIFNeuron` 실제 호출 | 위 식 | **5.0** | 2.50 | **0.127** |
+| 논문 Appendix B.2.2 | `κ/(1+(κx)²)` | 2.0 | 2.00 | 0.500 |
+
+**왜 문제인가:** 세 식은 모양(π/2, 1/2 인자)과 폭이 모두 다르다. `s=5`는 `s=2`보다 gradient 창이 2.5배 좁다. Selector는 `ρ → u → a → v`를 거쳐 **간접적으로만** loss에 닿으므로, 창이 좁으면 threshold에서 조금 떨어진 뉴런이 gradient를 못 받고 selector가 학습 신호를 얻지 못한다. v2에서 Q/K가 초기값 근처에 머문 원인 중 하나일 수 있다.
+
+**권고:** 코드 식 + **s=5.0**(reference implementation이 실제로 전달하는 값)을 **모든 조건에 동일 적용**. 동일 적용하면 surrogate가 조건 간 차이를 설명할 수 없다. `s=2`는 declared sensitivity analysis로만. 논문 식은 "논문과 코드가 다르다"는 사실로 기록만 한다. v3-A는 threshold가 logical neuron당 하나이므로 v2보다 surrogate 비선형성이 K배 줄어든다.
+
+---
+
+### 4. O3 — Selection parametrization (η, π_k, ϑ, Q/K sharing)
+
+**(a) `η` — selection strength.** `ρ = (1−η) + η·ρ̃`. `η=0`이면 정확히 f-LIF. 어디서 시작하느냐가 "Full vs Selective" 비교의 공정성을 정한다. 처음부터 강하게 켜져 있으면 차이가 학습 때문인지 초기화 때문인지 구분할 수 없다.
+
+> `η = sigmoid(η̂)`, **층당 스칼라 하나**, `η̂` 초기 **−4**(η≈0.018), 학습. `∂ρ/∂η = ρ̃−1 ≠ 0`이라 초기에도 gradient가 흐른다. 층당 하나로 두면 "이 층이 selection을 얼마나 쓰게 되었나"를 숫자 하나로 보고할 수 있다. Full 조건은 `η≡0` clamp, selector 파라미터는 **inactive로 명시 보고**.
+
+**(b) `π_k` — per-branch lag prior.** 내용은 population이 공동 결정하고 **얼마나 쓸지는 가지의 시간척도에 맞춘다**는 하이브리드의 구현체. τ=2인 빠른 가지와 τ=16인 느린 가지가 30 patch 전 사건을 같은 비중으로 읽을 이유가 없다. 기존 서술의 "초기 `c=∞`"는 구현 불가능이었다.
+
+> `π_k(d) = exp(−d·g/τ_k)`, `g = softplus(ĝ)`, **층당 스칼라 하나**, `ĝ` 초기 **−5**(g≈0.0067). 확인: τ=16, d=41에서 지수 `−41×0.0067/16 ≈ −0.017` → `π≈0.983`으로 사실상 중립에서 출발. 가지 간 차등은 `τ_k`가 만들고 학습 파라미터는 하나. Ablation: `π≡1`(순수 shared selection).
+
+**(c) `ϑ` — temperature.** `p`의 뾰족함, 즉 **초기 sparsemax support 크기**를 정한다. v2의 `ϑ=0.25`에서는 항등 Q/K만으로도 초기부터 support가 희소했다(worked example 점수 `[−1.63, −0.02, −0.02, −1.76]`). 그러면 "Sparse vs Full" 차이의 일부가 학습이 아니라 temperature에서 나온다.
+
+> `ϑ = 1.0` **고정**(학습하지 않음). 초기에 (i) dense `κ≈1`, (ii) sparse support가 bank 대부분을 덮는지 측정·기록. 학습 가능하게 두지 않는 이유는 `ϑ`가 drift해서 실제로 일하는 변수가 되면 selection 기여와 구분되지 않기 때문이다.
+
+**(d) `W_Q, W_K` sharing.** 층 내 모든 logical neuron 공유, 층마다 별도, 초기 `[I_K 0]`. Per-neuron Q/K는 selector를 per-neuron attention으로 만들어 **다른(더 큰) 모델**이 된다.
+
+**초기화 시 기록 필수:** `η`, `g`, `κ_n`, support density, score 분포. 이것이 "중립극한에서 출발했다"의 증거다.
+
+---
+
+### 5. O4 — hard-mask(완전 배제) 모드 포함 여부
+
+`η<1`이면 `ρ = (1−η) + η·ρ̃`의 바닥 `(1−η)` 때문에 sparsemax의 정확한 0이 **완전 배제로 이어지지 않는다.** 즉 "관련 없는 과거를 완전히 차단"이라는 주장은 `η=1`에서만 성립한다.
+
+> **권고:** 1차 forecasting matrix에는 넣지 않는다(조건 수가 배가 되고, 바닥이 있는 편이 안정적이다). synthetic에서만 `η=1 + sparse` 조건을 하나 두어 "완전 배제가 필요한가"를 확인한다. 보고 시 "부분 배제(attenuation floor)"와 "완전 배제"를 구분해 쓴다.
+
+---
+
+### 6. O5 — Synthetic recall task를 event 단위로 재정의 (**실행 전 필수**)
+
+**무엇이 어긋나 있었나.** 모델의 시계는 patch다. 입력 336 raw points, patch 8 → `T=42` model steps. Selector가 주소를 매길 수 있는 memory slot은 patch 단위다. 그런데 원래 Task B 초안은 "regime 길이 U[6,16] **raw step**, 시퀀스 96 step"이었다. regime 하나가 6 raw step이면 **patch 하나보다 짧아** selector가 지목할 수 없다. 이 상태로는 "몇 개의 사건을 건너뛴 회상인가"가 정의되지 않고 correct-slot retrieval rate를 측정할 수 없다.
+
+**재정의: one patch = one event.**
+
+| 항목 | 값 |
+|---|---|
+| 시퀀스 | **T = 42 events** → raw 42×8 = **336** |
+| Event 인코딩 | patch의 8칸 = `[key one-hot (3) | value (1) | 0 (4)]` |
+| Key 수 | M = 3 |
+| Regime 길이 | **U[2,5] events** |
+| 간섭 regime | 1–3개 |
+| 채널 | **C = 1** (cue와 value가 같은 stream에 있어야 함 — channel-independent 구조) |
+| Value | 첫 등장 regime에만 `v_k ~ U[−1,1]`, 재등장 시 0 |
+| Target | `y_n` = 현재 key의 value |
+| Ground-truth slot set | `A_n` = 현재 key **직전 등장 구간**의 event 색인 |
+
+예시(앞 14 event):
+
+```
+n      :   0    1    2    3    4    5    6    7    8    9   10   11   12   13
+key    :   A    A    A    B    B    C    C    C    A    A    A    B    B    C
+first? :   Y    Y    Y    Y    Y    Y    Y    Y    N    N    N    N    N    N
+value  :  .7   .7   .7  -.3  -.3   .5   .5   .5    0    0    0    0    0    0
+target :  .7   .7   .7  -.3  -.3   .5   .5   .5   .7   .7   .7  -.3  -.3   .5
+GT set :   -    -    -    -    -    -    -    -  {0,1,2} ...  {3,4} ...  {5,6,7}
+```
+
+**형상이 ETT와 완전히 같아진다**(`[B,336,C]`). `data_provider`·patch embedding·모델·진단 코드를 그대로 재사용하고 데이터셋만 교체하면 된다. "event j = memory slot j = patch j"가 일치하므로 적중률이 모호하지 않다.
+
+**Readout과 timing rule.** `ŷ_n = Linear(D→1)(s_n)`, loss는 전 event, 보고는 **first appearance(복사, 쉬움)** / **re-appearance(회상, 본 지표)**로 분리. 시점 n의 selection은 `u_{n+1}`을 바꾸고 `s_{n+1}`에 반영되는 **한 스텝 지연**이 구조적으로 존재한다. 따라서 회상 지표는 **재등장 regime의 2번째 event부터** 집계하고 1번째는 별도 열로 보고한다. regime 최소 길이를 2로 둔 이유가 이것이다.
+
+**왜 이 과제가 대조군을 가르는가:** "recent"는 직전 regime(오답), "uniform"은 전체 평균(오답), "fixed lag"는 regime 길이가 무작위라 불가, "no memory(full only)"는 8–20 event 간격을 멱함수 커널로 덮더라도 간섭 regime과 섞여 값을 특정할 수 없다.
+
+**데이터·난이도:** train/val/test = 8000/1000/1000 시퀀스, 생성 seed 분리. 난이도 축은 간섭 regime 수(1/2/3), key one-hot 잡음, distractor 채널.
+
+**대조군 정의 정밀화:** capacity-matched control은 `Linear(8 → D·K)`로 `D·K`개 독립 스칼라 뉴런(K=1)을 만들고 τ를 순환 배정해 **총 integrator 수를 맞춘다**. scalar control은 K=1. α=1 baseline은 같은 구조에서 α만 1.
+
+---
+
+### 7. O6 — Oracle intervention
+
+**목적:** v2에서 답하지 못한 질문, 즉 원인이 ① "올바른 과거를 못 고른다"(selection)인지 ② "골라줘도 못 쓴다"(pathway: memory strength·소마·readout)인지를 가른다.
+
+**구현:** selector만 교체하고 나머지는 손대지 않는다.
+
+```
+p_j = 1/|A_n| (j ∈ A_n), 0 (j ∉ A_n)
+→ 동일 변환: ρ̃ = B_n p / Σ b p,  ρ = (1−η) + η ρ̃
+```
+
+**두 변형은 다른 질문에 답한다.**
+
+| 변형 | 질문 | 주의 |
+|---|---|---|
+| **train-time oracle** | "선택이 완벽하면 이 구조가 과제를 푸는가" — 메커니즘의 upper bound | Full과 같다면 selector를 고칠 이유가 없음 |
+| **test-time oracle** | "학습된 이 모델이 올바른 선택으로 이득을 보는가" | 모델이 자기 selector에 co-adapt 되어 있어 null 결과의 증거력이 약함 |
+
+**판정 논리:** `train-time oracle ≈ Full`이면 pathway가 병목 → Phase C 복귀. `train-time oracle ≫ Full`인데 `학습 sparse ≈ Full`이면 selection **학습**이 실패 → score 함수·key 표현력·gradient 경로 점검.
+
+---
+
+### 8. O7 — 사전 판정 수치 (**사용자 승인 대기**)
+
+§4.6의 수치가 예시로만 적혀 있었다.
+
+> **확정 제안:** 다음 셋을 모두 만족하면 "검색 타당(retrieval valid)"으로 판정한다. ① 학습 sparse의 **정답 사건 질량 ≥ 0.5**, ② 회상 MSE ≤ **oracle의 1.5배**, ③ sparse의 회상 MSE가 full 대비 **20% 이상 감소**. 한편 **test-time oracle이 full과 5% 이내**면 selection 설계가 아니라 사용 경로의 문제로 판정하고 Phase C로 되돌아간다.
+
+---
+
+### 9. O8 — Training budget, seeds, MDE
+
+| 항목 | 값 |
+|---|---|
+| Optimizer | AdamW, lr 1e-3, weight decay 1e-2(weight matrix만, bias 제외) |
+| Batch / clip | 128 / grad-norm 1.0 |
+| Max epochs / early stop | 50 / validation MSE patience 10 |
+| LR schedule | ReduceLROnPlateau factor 0.5, patience 5 |
+| Checkpoint | strict minimum validation MSE, 복원 후 평가 |
+| Seeds | **{7, 13, 21, 42, 123, 256, 512, 1024}** (8개) |
+
+**MDE 선언(핵심).** 우리 비교는 paired design이므로 관련 잡음은 raw MSE의 SD가 아니라 **paired difference의 SD**다. v2에서 측정한 ETTh1 H96의 값 `SD ≈ 0.0043`을 쓰면, paired t-test·n=8·power 0.8·α=0.05(양측)에서
+
+```
+|δ| ≥ (t_{.975,7} + t_{.8,7}) × SD/√n = (2.365 + 0.896) × 0.0043 / 2.83 ≈ 0.0050
+```
+
+MSE 수준 ~0.42 대비 **상대 약 1.2%**.
+
+> **선언:** 상대 1.2% 이상만 검출 가능하다고 본다. 그보다 작은 차이는 **"이 표본 크기에서 검출 불가"**로 보고하며 "효과 없음"으로도 "작은 개선"으로도 서술하지 않는다.
+
+**갱신 규칙:** SD는 v2(다른 모델) 추정치이므로 v3 첫 seed 묶음에서 재추정한다. 더 크면 n을 늘리거나 선언 MDE를 넓히되 **변경 사실과 그 시점에 이미 본 결과를 함께 기록**한다. **변동원 분리:** dataset 차이와 seed 차이는 다른 종류의 변동이다. dataset별 paired difference를 각각 보고하고, 방향이 일치할 때만 평균하며 그 사실을 명시한다. `2 dataset × 8 seed = 16`을 독립 16쌍으로 취급하지 않는다.
+
+---
+
+### 10. O9 — Reference environment (Phase A golden trajectory)
+
+**문제:** spikeDE는 `torch.fx`와 `torch.compile`을 쓰므로 PyTorch ≥ 2.0 필요. `snn_recall`은 1.12(GPU 정상, compile 없음), `snn_jelly`는 2.11이지만 driver 535(CUDA 12.2) 대 cu130 불일치로 **CUDA 불가, CPU만 가능**.
+
+**그래도 괜찮은 이유:** reference에서 필요한 것은 **짧은 scalar 궤적**이지 학습이 아니다.
+
+**절차**
+
+1. CPU 전용 `spikede_ref` 환경 신규 생성(python 3.10 + CPU torch 2.x), spikeDE를 고정 커밋 `fcd743b`로 설치.
+2. 선언된 입력으로 scalar `LIFNeuron + pred` 실행: subthreshold, 단일 pulse, 반복 pulse, 상수 suprathreshold, 음/양 전류.
+3. **스파이크만이 아니라 내부 항 전부를 덤프**: 입력, local trial 값, dynamics term, reset term, 적분 상태, 계수. CSV + SHA256. 출력만 맞추면 내부 불일치를 놓친다.
+4. v3 구현(`snn_recall`)이 그 CSV를 재현하는지 대조. float64 목표 `atol 1e-8 / rtol 1e-6`, **달성 수치를 기록**.
+5. 주장 등급 표기: **source parity**(원본을 실행해 맞춤) / **source-derived**(수식만 이식) / **mathematical validation**(해석해 대조, 예: 무발화 상수 forcing `U(t)=U_0+c t^α/Γ(α+1)`).
+6. 설치 불가 시 source-derived + mathematical validation으로 낮추고 그 사실을 결과에 함께 표기.
+7. **CPU golden ≠ GPU 학습 경로 검증.** 실제 학습 환경에서 수백 step 짧은 궤적으로 device(CPU/GPU)·dtype(float32/float64) 일치 검사를 별도로 추가한다.
+
+---
+
+### 11. 상태 요약
+
+| | 항목 | 성격 | 상태 |
+|---|---|---|---|
+| O1 | Soma `w_k, τ_s, θ, reset` | 설계 | 권고 확정안 있음. reset 형식 변경으로 **보정 재측정 필요** |
+| O2 | Surrogate 식·scale | 고정 | 권고 확정안 있음 |
+| O3 | `η, π_k, ϑ`, Q/K 범위 | 설계 | 권고 확정안 있음 |
+| O4 | hard-mask 모드 | 범위 | 1차 제외, synthetic에서만 |
+| O5 | Synthetic 단위 | **수정** | event 단위 재정의안 있음 |
+| O6 | Oracle | 설계 | train/test 두 변형 |
+| O7 | 판정 수치 | **승인 대기** | 0.5 / 1.5배 / 20% / 5% |
+| O8 | 예산·seed·MDE | **선언** | MDE 상대 1.2% |
+| O9 | Reference 환경 | 절차 | CPU golden + 등급 표기 |
+
+O7만 사용자 승인이 필요하고 나머지는 위 권고안으로 확정 가능하다. 확정 시 사전등록 문서 §2로 옮기고 §9에서 제거하지 않고 "확정됨"으로 표시한다.
+
+### 12. 아이디어 기술 문서 `IDEA_LOG.md` 작성 (2026-09-21 01:30 KST)
+
+사용자 요청으로 `NSMT/docs/IDEA_LOG.md`(445줄)를 새로 만들었다. **확정된 아이디어와 모델 정의를 한곳에 모은 기술 문서**이며, 이력·근거는 이 PROJECT_LOG에, 실행 계약은 사전등록 문서에 남긴 채 상호 참조하도록 구성했다.
+
+구성: 문서 지도 → 한 문단 요약 → LIF/f-LIF/Population f-LIF 배경(수식·펄스 응답·커널 수치) → **v3-A 완전 정의**(수식, 텐서 형상, 확정 하이퍼파라미터 표, 검증된 환원 성질, 원문 f-LIF와의 관계, 구조적으로 없어지는 문제, 상호작용의 위치) → 선택 계산 5단계와 worked example → 선행연구 경계(무엇이 새롭고 무엇이 아닌가) → 검증 설계(Phase A–E, 회상 과제, 대조군, ETT 프로토콜, MDE) → **모듈 단위 구현 계획** → 보류 항목 → **O7 승인 목록**.
+
+구현 계획은 파이썬 모듈 수준으로만 적었다. 디렉터리는 `NSMT/f_lif_pop_v3/{analysis, reference, forecasting}`이며 `forecasting/`은 기존 관례(config/layers/ours/model/train/test/utils/data_provider/scripts)를 따른다. v2에서 검증이 끝난 코드(sparsemax autograd, ETT 로더, 로깅 유틸, 파이프라인 컨트롤러)는 이식한다. `layers.py`의 구성요소는 `Sparsemax`, `arctan_surrogate`, `fractional_coefficients`, `Selector`, `Soma`, `PopulationNeuron`, `Embedding`이다. `PopulationNeuron`은 **루프 경로(선택 켬, O(T²))와 합성곱 경로(η=0, 하삼각 행렬곱)** 두 가지를 갖고 둘의 일치를 수치 게이트 G3으로 둔다. 수치 게이트는 G1–G10으로 정리했고, 실행 순서는 golden 생성 → Phase A 게이트 → 발화율 보정 → Phase B·C 게이트 → 회상 과제 → (O7 통과 시) ETT H96 → seed matrix다. Branch는 `exp/f-lif-pop-v3`를 새로 만들어 v2 결과와 섞지 않는다.
+
+문서 말미에 **O7 승인 목록**을 두었다. ① 정답 위치에 실린 비중 ≥0.5(무작위 기대치 ≈0.15), ② 회상 오차 ≤ oracle의 1.5배, ③ 선택 켰을 때 개선폭 ≥20%, ④ 실패 진단으로 oracle과 선택 없음이 5% 이내이면 구조 문제로 판정. 각 항목에 근거와 더 엄격·느슨한 대안값을 함께 적었다. **이 네 숫자만 확정되면 구현에 착수한다.**
+
+새 학습·GPU 실행 없음. 코드 구현: not run.
+
+## 2026-09-21 20:53 KST — v3-A 비판적 검토서 독립 검증과 설계 쟁점 정리 (새 학습 없음)
+
+### 0. 대상과 범위
+
+사용자가 제공한 `NSMT/docs/Population_fLIF_v3A_Critical_Review_and_O7_Decisions_KO.md`(1425줄)는 `IDEA_LOG.md` v3-A를 검토한 문서다. 그 문서의 수치 주장을 `NSMT/f_lif_pop_v3/analysis/review_verification.py`로 독립 재계산하고, 대응책 후보를 같은 조건에서 시험했다. 학습·GPU 실행 없음. **검토서 §0.3의 원칙대로 IDEA_LOG·사전등록 문서는 승인 전에 수정하지 않았다.** 이 기록은 검증 결과와 결정 대기 목록이다.
+
+### 1. 검토서 주장의 재현 결과 (전부 일치)
+
+| 검토서 주장 | 검토서 수치 | 재계산 | 판정 |
+|---|---|---|---|
+| §5.3 `π_k` 초기값(g=softplus(−5))에서 κ<1 | τ=2..16: 0.9417 / 0.9702 / 0.9849 / 0.9924 | **10자리까지 동일** | 맞음. IDEA_LOG §3.4의 "κ=1.000"은 π 없이 계산한 값이었음 |
+| §7.2 recent-slot 정책의 상태 증폭 (τ=2, α=0.7, I₀=2, g=0) | η=0: 1.10 / 0.018: 1.10 / **0.3: 26.50 / 0.5: 397,853** | **동일** | 맞음. 질량 보존이 안정성을 보장하지 않음 |
+| §8 full-history fast path는 누설 feedback을 포함한 유효 연산자 `(I+BJ/τ)⁻¹B/τ` | 루프 대비 1.1e-16 | 7.6e-16; **단순 `B·I/τ`는 오차 1.21** | 맞음. IDEA_LOG §7.1의 "하삼각 행렬 한 번 곱" 서술은 틀림 |
+| §13.3 oracle이 완벽해도 η가 작으면 실효 배분이 작음 | M_eff(η=σ(−4), m₀=0.15)=0.1653 | 동일 | 맞음 |
+| §6 α=1 환원에 g=0 필요 | — | 기존 검증(prereg_numerics B1)은 π 없는 코드로 수행됨 → g=0 조건에서만 성립 | 맞음. 환원표에 조건 추가 필요 |
+| §4 sparsemax의 0이 최종 적분의 0이 아님 | — | ρ=(1−η)+ηρ̃이므로 자명 | 맞음 (사전등록 D4에 이미 명시) |
+
+### 2. 새로 확인한 것
+
+- **불안정의 정체는 "이동하는 최근 slot"이 만드는 되먹임 고리다.** 같은 η=0.5에서 recent 정책은 397,853까지 커지지만 **고정된 먼 slot(j=0)** 정책은 1.63(η=1에서도 9.06)에 그친다. 증폭 자체가 아니라, 선택 대상이 매 스텝 직전 상태로 옮겨가며 `f_{n−1} = −u_{n−1}/τ`의 누설항을 η·B_n/τ 배로 되먹이는 것이 원인이다.
+- **고리 이득 근사 `η·B_n/τ_k`가 1을 넘는 시점**: τ=2에서 η=0.3이면 n=16, η=0.5이면 n=8부터. T=42 전체에서 이득<1을 유지하는 상한은 **η < τ_min/B_41 = 0.143**.
+- **가지별로 다르다.** τ=16 가지는 η=1에서도 max|u|=0.138로 안정. 폭주하는 것은 빠른 가지다.
+- **세 가지 대응책이 최악 조건(recent, τ=2, η∈{0.5,1})에서 모두 1.1005로 억제된다.**
+  - (R1) η 상한 0.07: 안정, 질량 보존 유지, **그러나 M_eff ≤ 0.21로 O7-① 도달 불가**
+  - (R3) 계수 상한 `c_{n,j} = min(b_{n−j}ρ, b_0)` ("과거 사건을 현재 입력보다 크게 읽지 않는다"): 안정, 중립극한 유지, sparse 0 유지(η=1), lag 41에서 최대 4.37배 증폭 허용, **질량 비보존(최악 κ=0.079)** → κ를 보고
+  - (R4) 입력항만 선택 `u_{n+1} = (1/τ)Σ b_{n−j}(ρ_{n,j} I_j − u_j)`, 누설은 고정 커널: 구조적으로 안정(동차부가 불변), 기억 항목이 f_j에서 **I_j로 바뀜** → 개념 문서 §26의 "input-history retrieval" 조건에 해당
+- **O7-①과 안정성의 충돌.** 실효 정답 질량 ≥0.5는 m₀=0.15 기준 η ≥ 0.41을 요구하는데, (R1)의 안전 상한은 0.14다. 즉 **R1을 택하면 O7-①은 정의상 도달 불가**이고, R3/R4를 택해야 η를 크게 둘 수 있다. 어느 대응책을 고르느냐가 O7-①의 정의를 결정한다.
+
+### 3. 검토서에 동의하는 설계 변경 (승인 대기)
+
+| ID | 변경 | 근거 |
+|---|---|---|
+| D-A | **첫 기전 검증에서 g=0, π≡1.** 하이브리드(π_k)는 "tempered 변형"으로 별도 명명 | π는 질량 보존·α=1 환원·순수 멱함수 꼬리를 모두 깨고, 시간 감쇠와 내용 선택을 뒤섞음 |
+| D-B | 주 모델 명칭을 "sparse redistribution + dense residual"로. 완전 배제는 η=1 조건에서만 | §4 |
+| D-D | **소마가 `u_{n+1}`(I_n 반영 후 상태)을 읽도록 정렬 변경** | 현 정의에서는 s_n이 I_{n−1}까지만 봐서 **마지막 patch가 출력에 도달하지 않는다**(예측에 치명적). 정렬을 바꾸면 회상 과제의 "2번째 event부터" 규칙도 불필요 |
+| D-F | fast path = 누설 feedback 포함 유효 연산자(삼각 solve) | §8, 재현됨 |
+| D-H | oracle을 oracle-trained / test-time / generator-lookup 셋으로 분리, "최선"이 아니라 "특권적 정책" | §13 |
+| §16.3 | **Uniform·mass-matched 대조군 제거** — g=0·질량보존에서 Full과 동일 | ρ̃≡1 |
+| §11.2 | 회상 과제에 gated-recurrent 대조군 추가 | 3-key는 압축 상태로도 풀림(Zoology). 단 M1·η=0은 소마 전까지 I에 선형이라 key 조건 저장이 불가하므로 Full은 여전히 못 풀 것으로 예상 |
+| §18 | 게이트 G11(η·support·T 안정성 sweep), G13(시간 정렬), G14(oracle 분리), G15(값 독립 생성·인과 readout) 추가 | 위 검증이 G11의 필요성을 직접 보여줌 |
+
+### 4. 검토서와 의견이 다른 곳
+
+- **§5.5 "질량 보존 > 상한" 우선순위**: 검토서 자신의 §7 결과로 뒤집힌다. 되먹임 고리가 확인된 이상 **안정성 > 질량 보존**이어야 하며, κ<1은 결함이 아니라 보고 대상이다. → R3 또는 R4 권고.
+- **§15.2 O7-① "실효 정답 질량 ≥0.5" 절대치**: R1을 택하면 도달 불가. 절대치 대신 **기준선 대비**(M_eff ≥ 2·m₀ 또는 M_eff − m₀ ≥ 0.2)로 정의하거나, R3/R4를 채택해 η를 풀어야 한다. 어느 쪽이든 실행 전에 결정.
+- **§11.2 "Full로 풀 수 있는 구성적 대안이 있다"**: 논리적으로는 맞지만 **M1 v3-A의 Full(η=0)은 소마 전까지 입력에 선형**이라 key×value 곱 상호작용을 만들 수 없어 실제로는 못 풀 가능성이 높다. 따라서 대조군은 "Full"이 아니라 **비선형 recurrent(GRU 등)**여야 판별력을 검사할 수 있다.
+
+### 5. 대응책 선택에 대한 권고
+
+**R3(계수 상한 c ≤ b_0)을 주 후보, R4(입력항 선택)를 명명된 대안**으로 둔다. 이유: R3는 중립극한·정확한 0·증폭 허용을 모두 유지하며 "과거 사건을 현재 입력보다 크게 읽지 않는다"는 해석 가능한 물리적 의미를 갖는다. R4는 가장 안전하지만 기억 항목의 의미가 바뀌므로 별도 모델이다. R1은 O7-①을 불가능하게 하므로 기각. **어느 경우든 Phase C에서 η·support 집중·T 변화의 안정성 sweep(G11)을 통과해야 한다.**
+
+### 6. 결정 대기 목록 (사용자)
+
+1. 안정성 대응책: **R3 / R4 / 둘 다** 중 선택
+2. O7-① 정의: 절대치 0.5 (R3/R4 전제) / 기준선 대비 (R1 전제)
+3. O7-②를 oracle-gap 회수율 G ≥ 0.5로 교체 (검토서 §15.3 권고, 동의)
+4. O7-④ 5%를 자동 실패가 아닌 진단 범위로 (동의)
+5. 소마 정렬 변경(D-D) 채택 여부 (권고: 채택)
+6. g=0 첫 검증(D-A) 채택 여부 (권고: 채택. 이는 앞선 "선택 단위" 질문에서 (2) 순수 공유 선택을 1차로 두는 것을 뜻함)
+
+승인 후 IDEA_LOG와 사전등록 문서를 **rev.1**으로 갱신하고 원본과의 차이를 보존한다.
+
+Artifact: `NSMT/f_lif_pop_v3/analysis/review_verification.{py,txt}`.
+
+---
+
+## 2026-09-21 22:19 KST — v3-A 안정성 sweep, 설계 확정, IDEA_LOG·사전등록 rev.1
+
+**Branch:** `exp/f-lif-pop-v2` (문서 작업만. 학습 실행 없음) · **작성:** Claude Opus 5 세션
+**사용자 승인:** "너의 권고대로 진행하자" — 직전 항목 §6 결정 대기 목록 6개 전부 권고안대로 확정.
+
+### 1. 왜 추가 분석이 필요했는가
+
+직전 항목에서 검토서 §7의 증폭 주장을 재현하고 원인을 **"매 스텝 움직이는 되먹임 고리"**(최근 slot을 반복해서 크게 읽음, 고리 이득 ≈ `η·B_n/τ`)로 좁혔다. 대응책 R3(계수 상한 `c = min(b_d·ρ, b_0)`)를 주 후보로 권고했으나, **R3가 "최근 1칸" 정책보다 나쁜 정책에도 버티는지**는 확인하지 않은 상태였다. 이를 확인하지 않고 문서에 확정하면 사전등록의 의미가 없다.
+
+### 2. Adversarial stability sweep
+
+**Artifact:** `NSMT/f_lif_pop_v3/analysis/stability_sweep.{py,txt}` (학습 없음, float64 스칼라 시뮬레이션)
+
+측정량은 `max|u_n|`. α=0.7, T ∈ {42, 84}, η ∈ {0, 0.25, 0.5, 0.75, 1.0}. 입력 3종(pulse / const / noise). 정책은 고정 정책들에 더해 **greedy-adversarial** — 매 스텝 `|u_{n+1}|`를 가장 크게 만드는 과거 칸 하나를 고르는 최악 정책 — 을 포함한다.
+
+```python
+def run(T, tau, I, policy, eta, cap):
+    """u_{n+1} = b0 f_n + sum_{j<n} c_{n,j} f_j ;  c = min(b_{n-j}*rho, b0) if cap else b*rho"""
+    u = np.zeros(T + 1); f = np.zeros(T)
+    for n in range(T):
+        f[n] = (I[n] - u[n]) / tau
+        acc = B0 * f[n]
+        if n > 0:
+            p = policy(n, u, f)
+            den = sum(b(n - j) * p.get(j, 0.) for j in range(n))
+            Bn = B(n)
+            for j in range(n):
+                rt = Bn * p.get(j, 0.) / den if den > 0 else 1.
+                c = b(n - j) * ((1 - eta) + eta * rt)
+                acc += (min(c, B0) if cap else c) * f[j]
+        u[n + 1] = acc
+    return u[1:]
+```
+
+**결과 (`max|u|`)**
+
+| 설정 | pulse | const | noise | 판정 |
+|---|---|---|---|---|
+| 상한 **없음**, τ=2 | 397,853 | 2.36e6 → 7.3e9 → 발산 | 발산 | ✗ |
+| 상한 있음, τ=2, η=1, T=42 | 10.86 | — | 30.9 | ✗ |
+| 상한 있음, τ=2, η=1, **T=84** | **83.24** | — | **204.8** | ✗ **T에 따라 증가** |
+| 상한 있음, **τ=4**, 모든 η, T=42 | **0.5503** | 1.335 | 3.16 | ✓ |
+| 상한 있음, **τ=4**, 모든 η, T=84 | **0.5503** | 1.335 | 4.20 | ✓ T에 거의 불변 |
+
+**결론 두 개.** ① **상한은 필수다** — 없으면 발산한다. ② **상한만으로는 부족하다** — 가장 빠른 가지 `τ=2`만 최악 정책·`η=1`에서 시퀀스 길이에 따라 증폭이 커진다(T=42의 10.86 → T=84의 83.24). 나머지 가지는 안전하다.
+
+### 3. 보완책 비교 — F1(τ 이동) vs F2(τ-비례 상한)
+
+| 보완책 | pulse | noise (T=42 / T=84) | 판정 |
+|---|---|---|---|
+| **F1.** τ = [4, 8, 16, 32], 상한 `b_0` | ≤ 0.5503 | 3.16 / 4.20 | ✓ **채택** |
+| F2. τ = [2,…] 유지, 상한 `min(b_0, λτ)`, λ=0.25 | 1.1005 | 6.74 / 8.14 | ✗ **부적격** — 상한 0.5 < `b_1`=0.687이라 η=0에서도 상한이 걸려 **중립극한이 깨진다** |
+| F2. λ=0.35 (중립극한 유지 최소값, 상한 0.70) | — | 11.1 / 13.2 | ✗ T에 따라 증가 |
+
+F2는 "중립극한을 유지하려면 상한이 `b_1` 이상이어야 한다"는 제약 때문에 유효 범위가 없다. **F1이 유일한 선택.**
+
+**F1의 반응성 확인 (계단 응답, `I ≡ 1`)**
+
+| n | 1 | 2 | 4 | 8 | 42 |
+|---|---:|---:|---:|---:|---:|
+| τ=2 (기존 최속) | 0.550 | 0.591 | 0.717 | 0.817 | 0.946 |
+| **τ=4 (신규 최속)** | **0.275** | **0.371** | **0.500** | **0.638** | **0.883** |
+
+τ=4는 n=4에 계단의 절반, n=42에 0.883에 도달한다. T=42 창에서 "가장 빠른 가지" 역할에 충분하다. 또한 현재 입력항 `b_0·f_n`이 즉시 성분을 따로 제공한다.
+
+**중립극한·희소성 보존 확인**
+
+- `η=0`에서 상한 적용/미적용 결과가 `np.allclose(..., atol=0, rtol=0) == True`. `b_d`가 `d`에 단조 감소하므로 `d≥1`에서 `b_d ≤ b_0`이고, 따라서 상한은 구조적으로 작동하지 않는다.
+- `η=1` sparsemax의 **정확한 0**도 보존된다(0에 상한을 씌워도 0).
+- 상한이 허용하는 최대 증폭: **lag 1에서 1.60배, lag 41에서 4.37배.** 선택 기능은 살아 있다.
+
+### 4. 확정된 설계 결정 (사용자 승인 완료)
+
+| 코드 | 결정 | 직전 항목의 대기 번호 |
+|---|---|---|
+| **R3** | 계수 상한 `c = min(b_d·ρ, b_0)` — **주 안정성 장치** | 1 |
+| **R4** | `ρ`를 `[0, 3]`으로 clamp — 명명된 대안. R3 실패 시에만, 날짜부 항목으로 기록 | 1 |
+| **F1** | **τ = [4, 8, 16, 32]** (기존 [2,4,8,16]) — 본 항목의 sweep에서 신규 도출 | (신규) |
+| **O7-①** | `M_eff ≥ 0.5` **절대 기준**. `M_eff = (1−η)·m₀ + η`. `η`·`m₀`·동일 `η`의 비-oracle 기준선 `M_eff`를 함께 보고 | 2 |
+| **O7-②** | oracle 격차 회수율 `G = (E_full − E_learned)/(E_full − E_oracle-trained) ≥ 0.5`. **G14 통과 시에만** 판정에 사용. `G>1`도 성공 | 3 |
+| **O7-③** | 평균 개선 ≥ 20% **이고** paired 차이 CI 상한 < 0 | (보강) |
+| **O7-④** | `\|δ_O\| ≤ 5%`는 **자동 실패가 아니라 진단 구간** | 4 |
+| **D-D** | 소마가 `u_{n+1}`을 읽는다. 질의 `ξ_n`은 갱신 전 `u_n`으로 만든다(인과성 유지) | 5 |
+| **D-A** | `g = 0`, `π_k ≡ 1`. tempered 변형은 별도 모델명으로 분리 | 6 |
+| **D-H** | `uniform` 대조군 **삭제**(Full과 동일), `mass_matched` **유지**, **GRU 추가** | (수정) |
+
+**D-H의 정정.** 직전 항목에서 검토서 §16.3을 따라 "uniform·mass-matched 둘 다 제거"라고 적었으나 **mass-matched는 유지**한다. R3 상한이 걸리면 `κ_n < 1`이 되어 `mass_matched`(`ρ ≡ κ_n`, 내용 무관)가 `full`과 갈라지기 때문이다. `uniform`만 제거하고, 그 동일성(`p` 균등 ⇒ `ρ̃≡1` ⇒ `full`)은 게이트 **G7b**로 검사한다.
+
+### 5. 연쇄 변경 (τ 이동에 따른 재측정 대상)
+
+| 항목 | 기존 (τ=[2,4,8,16]) | 신규 (τ=[4,8,16,32]) |
+|---|---|---|
+| 동질 대조군 `τ` (조화평균 `K/Σ(1/τ_k)`) | 4.267 | **8.533** |
+| 가지 상태 크기 `mean\|u\|` (최속 가지) | 0.433 | 0.249 → **D11 발화율 보정 재측정 필수** |
+| 유한구간 이득 (상수 입력 1, n=42, α=0.7) | [0.946, 0.883, 0.753, 0.556] | 재측정 후 기록 |
+
+### 6. 추가 게이트 G11–G15, G7b
+
+| 게이트 | 검사 | Phase | 실패 시 |
+|---|---|---|---|
+| **G11** | 상태 유계. 가지별 `max\|u\|` 기록, 사전 선언 상한 `10·max\|I\|` 초과 시 중단 | B/D/E 상시 | 중단, R4로 전환, 날짜부 기록 |
+| **G12** | 상한 작동률 `cap_rate`. `η=0`에서 **정확히 0** | C | 상한 구현 오류 |
+| **G13** | `support(p)` / `support(ρ)` / `support(b·ρ)` / `support(c)` 4종 분리 보고 | C/D | 보고 누락이 실패 |
+| **G14** | oracle headroom `E(full) − E(oracle-trained) > MDE` | D | ②를 판정에서 제외, 명시 |
+| **G15** | `I_{T−1}` 교란 시 `s_{T−1}`이 변해야 함 (D-D 정렬 확인) | A/C | 정렬 구현 오류 |
+| **G7b** | `p` 균등 ⇒ `full`과 비트 단위 동일 | C | ρ 정규화 구현 오류 |
+
+또한 기존 G8(`κ_n = 1.000`)은 **상한 미작동 조건(`cap_rate = 0`)에서만** 적용하도록 조건을 붙였다.
+
+### 7. 문서 갱신
+
+| 문서 | 조치 |
+|---|---|
+| `NSMT/docs/IDEA_LOG.md` | **rev.1** (445 → 531행). 문서 머리에 rev.0 대비 변경 8건 표 추가 |
+| `NSMT/docs/archive/IDEA_LOG_rev0_20260921.md` | **rev.0 원본 보존** (원본과의 차이를 남기라는 요구에 대응) |
+| `NSMT/docs/Population_fLIF_v3_prereg_KO.md` | **rev.1** (371 → 528행). §0의 변경 절차에 따라 **기존 §1~§9는 수정하지 않고** `§2A`(개정 결정 R3/R4/F1/D-A/D-B/D-D/D-F/D-H/D-J/D-K/D-L/D-M), `§3A`(게이트 G11–G15, G7b), `§9A`(O1–O9 해소 + O7 확정 + 본 문서 오류 정정표)를 날짜부로 추가 |
+
+**IDEA_LOG rev.1에서 정정한 자체 오류 3건** (직전 항목에서 확인한 것을 문서에 반영)
+
+| 위치 | rev.0 서술 | 정정 |
+|---|---|---|
+| §4 | "`κ = 1.000`" | `π` 없이 계산한 값. `g>0`이면 `κ` = 0.93/0.83/0.67/0.45로 가지마다 다르게 깨진다 → `g=0`으로 제거(D-A), 상한 작동 시 `κ<1`도 정상(R3) |
+| §3.5 | "`α=1, η=0` ⇒ Euler, 오차 0.0" | **`g=0` 조건 필수.** `g>0`이면 지수 인자가 붙은 수정 recurrence |
+| §7.1 | "`η=0`이면 하삼각 계수 행렬 한 번의 행렬곱" | **틀림**(오차 1.21). 누설 되먹임을 포함한 유효 연산자 `H_eff = (I + BJ/τ)⁻¹·B/τ`여야 하며 이것이 루프와 7.6e-16까지 일치. 계산 차수는 여전히 `O(T²)`이고 속도 이득은 측정 후 보고 |
+
+추가로 §5의 "`α=1` 이질 기준선을 못 이기면 fractional 차수는 논문에서 빠져야 한다"를 **세 갈래 결론표**(D-M)로 교체했다. K=4 이질 population(α=1)은 4개 지수 커널의 합이지 fractional 커널의 fitted SOE 근사가 아니므로(τ 고정), "이 τ 설정·이 과제에서 기여가 확인되지 않음"과 "차수가 불필요함"을 구분한다.
+
+또한 §6.2에 **회상 과제의 한계**를 명시했다. 이 과제는 값 3개를 압축 상태에 담고 현재 신호로 꺼내는 방식으로도 풀리므로, "우리 구조만 푼다"의 근거가 아니라 **"우리 구조 안에서 선택이 작동하는가"의 내부 진단**이다. GRU 기준선을 같이 돌려 격차를 정량화하고, 난이도 축에 **신호 종류 수**(3 → 8 → 16)를 추가한다.
+
+### 8. 한계
+
+- 본 항목의 안정성 결론은 **스칼라 시뮬레이션**에서 얻었다. 실제 모델은 `D`차원·`K`가지·학습되는 `W_Q/W_K`를 가지며, 학습된 정책이 greedy-adversarial과 같다는 보장도, 그보다 순하다는 보장도 없다. **G11이 학습 중 상시로 이를 감시한다.**
+- 입력 3종(pulse/const/noise)은 실제 ETT patch 전류 분포와 다르다. D11 보정 후 실제 전류로 `max|u|`를 한 번 더 측정해 기록한다.
+- τ 이동의 **성능** 영향은 측정하지 않았다(안정성과 계단 응답만 확인). τ=[2,4,8,16]과의 성능 비교는 회상 과제에서 탐색적 조건으로 돌릴 수 있으나 1차 matrix에는 넣지 않는다.
+
+### 9. 다음 단계
+
+`exp/f-lif-pop-v3` branch를 `origin/main`에서 만들고 Phase A 구현에 착수한다. 실행 순서는 IDEA_LOG §7.6.
+
+Artifacts: `NSMT/f_lif_pop_v3/analysis/stability_sweep.{py,txt}`, `NSMT/docs/IDEA_LOG.md` (rev.1), `NSMT/docs/archive/IDEA_LOG_rev0_20260921.md`, `NSMT/docs/Population_fLIF_v3_prereg_KO.md` (rev.1).
+
+---
+
+## 2026-09-21 22:26 KST — v3-A Phase A·C 구현과 수치 게이트 통과 (학습 없음)
+
+**Branch:** `exp/f-lif-pop-v3` (신규) · **Base commit:** `329183b94` (`exp/f-lif-pop-v2`)
+**환경:** `/home/yschoi/.conda/envs/snn_recall/bin/python` (Python 3.10, torch 1.12, GPU 정상). 학습·데이터셋 사용 없음.
+
+`origin/main`은 상류 NSMT 논문 저장소 루트(`forecasting/`, `anomaly_detection/`)이고 본 프로젝트의 참조는 로컬 `main`이다. v3는 v2 코드(Sparsemax autograd)를 이식하고 v3 문서를 이어받으므로 **`exp/f-lif-pop-v2` HEAD(`329183b94`)를 기준 커밋**으로 삼았다. 기존 로컬 변경은 전부 보존했다.
+
+### 1. 구현한 것
+
+| 파일 | 내용 |
+|---|---|
+| `NSMT/f_lif_pop_v3/forecasting/layers.py` | `Sparsemax`(v2 이식), `ArcTanSpike`(O2: `(s/2)/(1+(π/2·s·x)²)`, s=5.0), `fractional_coefficients`, `Selector`, `Soma`, `PopulationNeuron`, `Embedding` |
+| `NSMT/f_lif_pop_v3/forecasting/check_model.py` | Phase A·C 게이트 실행기 (`--phase A|C|all`) |
+
+`PopulationNeuron.forward`가 rev.1 수식을 그대로 구현한다.
+
+```
+f_n   = (I_n − u_n)/τ ;  ξ_n = [u_n ; I_n]           질의는 갱신 전 상태(인과성)
+c_n,j = min(b_{n−j}·ρ_n,j , b_0)                      R3
+u_{n+1} = b_0 f_n + Σ_{j<n} c_n,j f_j
+a_n   = Σ_k w_k u_{n+1,k} → soma → s_n                D-D
+```
+
+`Selector` 모드는 `full / dense / sparse / recent / mass_matched / oracle` 6종이며 전부 같은 계수화 경로를 통과한다. `uniform`은 의도적으로 없다(= `full`). `mass_matched`는 학습 정책의 총질량 `κ_n`을 먼저 구한 뒤 `ρ ≡ κ_n`으로 내용 의존성만 제거한다.
+
+`PopulationNeuron.fast_path`는 `η=0` 폐형식 `(Id + B·J/τ)⁻¹·B/τ`를 float64로 계산한다(G3 전용, 학습 경로 아님).
+
+### 2. 게이트 결과 — 17 passed / 0 failed / 1 not run
+
+Artifact: `NSMT/f_lif_pop_v3/analysis/check_model_phaseAC.txt`
+
+**Phase A**
+
+| 게이트 | 결과 | 측정값 |
+|---|---|---|
+| G1a `Σ_d b_d = (n+1)^α/Γ(α+1)` | PASS | max err 1.78e-15 (α=0.3/0.5/0.7/1.0) |
+| G1b 상수 forcing 적분기 | PASS | max rel err 6.56e-07 (τ=1e7로 누설 억제) |
+| G2 `α=1, η=0, g=0` ⇒ Euler | PASS | **max err 0.00e+00** |
+| G3 루프 == `(Id+BJ/τ)⁻¹B/τ` | PASS | **5.00e-16**. 같은 조건에서 단순 `B@I/τ`는 **0.945** 어긋남 |
+| G4 spikeDE golden 대조 | **NOT RUN** | 서버에 spikeDE 소스 없음 + torch 2.x CPU env 없음. O9에 따라 등급을 `mathematical validation`으로 유지 |
+| G15 소마 정렬 (D-D) | PASS | `I_{T−1}` 교란 시 `Δv_{T−1}` = 2.2243, 그 이전은 정확히 0 |
+
+**Phase C**
+
+| 게이트 | 결과 | 측정값 |
+|---|---|---|
+| G5a `K=1` == scalar fractional branch | PASS | 0.00e+00 |
+| G5b 동질 τ ⇒ 구성원 동일 | PASS | spread 0.00e+00, `τ_hom = 8.533` (F1 반영값) |
+| G6 인과성 | PASS | 미래 patch 교란 시 이전 state/voltage/spike 오차 **정확히 0** |
+| G7 중립극한 (`η=0` == full, 비트 단위) | PASS | `torch.equal == True` |
+| G7b `uniform p` == `full` | PASS | 3.33e-16 (η=1). **`uniform` 대조군을 뺀 이유의 직접 확인** |
+| G12 `η=0`에서 상한 비활성 | PASS | `cap_rate` 최대 **0.0** |
+| G8a 상한 비활성 시 `κ = 1.000` | PASS | max\|κ−1\| 0.00e+00 |
+| G8b `η=1` sparsemax의 정확한 0 | PASS | 23스텝 중 17스텝에 정확한 0. **`κ ∈ [0.242, 1.000]`** |
+| G13 support 4종 분리 | PASS | η=0.0180에서 `support(p)=0.841`인데 `support(ρ)=support(b·ρ)=support(c)=1.000` |
+| G10 gradient 유한·비영 | PASS | `W_Q, W_K, η̂, w` 전부 |
+| G9 배치 == 창 단독 | PASS | 0.00e+00 |
+| G11 상태 유계 (η=1, recent 정책) | PASS | `max\|u\|` = **2.385 (T=42) = 2.385 (T=84)** |
+
+### 3. 게이트가 확인해 준 설계 주장 셋
+
+1. **G13이 D-K를 직접 보여준다.** `η=0.018`에서 `p`의 support는 0.841인데 최종 계수의 support는 **1.000**이다. 즉 `p_j=0`이어도 `(1−η)·b_d`가 남는다. "sparse 선택"이라는 말을 최종 계수에 쓰면 틀린다.
+2. **G8b가 mass-matched 대조군을 되살린 근거를 확인한다.** `η=1`에서 상한이 실제로 물려 `κ`가 0.242까지 내려간다. 따라서 `mass_matched`(`ρ≡κ_n`)는 `full`과 갈라지며 유효한 대조군이다(D-H).
+3. **G11이 스칼라 sweep 결과를 실제 모델에서 재현한다.** D=4·K=4·학습 초기 `W_Q/W_K`, `η=1`, `τ=[4,8,16,32]`에서 `max|u|`가 T=42와 T=84에 **동일하게 2.385**다. 길이에 따른 증폭이 없다(F1의 목표). 다만 이는 `recent` 고정 정책이며, 학습된 정책에 대해서는 G11을 학습 중 상시로 돌려야 한다.
+
+### 4. 한계·미결
+
+- **G4는 실행하지 못했다.** 서버에 spikeDE 소스가 없고(`find / -iname '*spikede*'` 무결과) torch 2.x CPU env도 없다. 원본 대조 등급은 O9 규정대로 **`mathematical validation`**으로 낮춰 표기한다. 소스를 확보하면 `reference/make_golden.py`로 재판정한다.
+- **G1b는 6.56e-07**로 다른 게이트(1e-15)보다 느슨하다. τ=1e7로 누설을 억제한 유한 근사이므로 잔차는 누설 항 자체다. 정확한 항등식 검사는 G1a가 담당한다.
+- **발화율은 아직 0이다.** 기본 `input_scale`에서 스파이크가 나지 않는다(v2 probe에서 이미 확인한 dead-neuron 영역). τ 이동으로 가지 크기가 더 작아졌으므로 **D11 보정(Phase B)이 다음 단계**이며, 보정 전 숫자를 성능으로 해석하지 않는다.
+- Phase B(발화율 보정)·D(회상 과제)·E(ETT)는 **not run**.
+
+### 5. 다음 단계
+
+`synthetic.py`(회상 과제 생성기) → `calibrate.py`(D11 보정, Phase B) → `ours.py`/`train.py`/`test.py` 이식 → Phase D.
+
+Artifacts: `NSMT/f_lif_pop_v3/forecasting/{layers.py,check_model.py}`, `NSMT/f_lif_pop_v3/analysis/check_model_phaseAC.txt`.

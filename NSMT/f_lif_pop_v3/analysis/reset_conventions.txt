@@ -1,0 +1,16 @@
+(a) paper Eq.13 : spikes=31  first spike at n=9  ISIs=[1 1 1 1 1 1]  max|state|=1.167  state[-1]=1.167
+(b) spikeDE code: spikes=17  first spike at n=6  ISIs=[2 2 2 2 2 2]  max|state|=0.997  state[-1]=0.997
+(c) v3-A DH style: spikes=16  first spike at n=9  ISIs=[2 2 2 2 2 2]  max|state|=1.318  state[-1]=1.318
+
+state trajectory, first 14 steps
+  (a) paper: [0.413 0.557 0.666 0.75  0.816 0.871 0.917 0.957 0.991 0.021 0.323 0.442
+ 0.536 0.611]
+  (b) code : [0.413 0.557 0.666 0.75  0.816 0.871 0.642 0.861 0.643 0.869 0.655 0.883
+ 0.669 0.897]
+  (c) v3-A : [0.413 0.557 0.666 0.75  0.816 0.871 0.917 0.957 0.991 1.021 1.047 1.071
+ 1.092 1.111]
+
+what feeds the history in each case
+  (a) post-reset U_j        -> the reset changes every later state through the power-law kernel
+  (b) F_j containing -theta*S_j/tau -> the reset is a current, smeared over all later steps
+  (c) f_j with no reset term -> the reset never enters the fractional memory at all

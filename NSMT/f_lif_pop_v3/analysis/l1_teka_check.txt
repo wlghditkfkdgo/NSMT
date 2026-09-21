@@ -1,0 +1,19 @@
+1) alpha=1 must reduce exactly to Euler LIF (tau=4, no spikes)
+   max|L1(alpha=1) - Euler| = 0.0
+
+2) subthreshold relaxation to a constant input (tau=4, I=1, no spikes)
+   alpha=1.0: V[0,1,2,5,10,30,59] = [0.25   0.4375 0.5781 0.822  0.9578 0.9999 1.    ]
+   alpha=0.8: V[0,1,2,5,10,30,59] = [0.2295 0.3723 0.4729 0.6531 0.7894 0.9247 0.9606]
+   alpha=0.6: V[0,1,2,5,10,30,59] = [0.2218 0.3236 0.3896 0.5082 0.6114 0.7648 0.8379]
+
+3) constant drive with spiking: inter-spike intervals
+   alpha=1.0 refractory=0: spikes= 50 first ISIs=[4 4 4 4 4 4] last ISIs=[4 4 4]
+   alpha=1.0 refractory=1: spikes= 40 first ISIs=[5 5 5 5 5 5] last ISIs=[5 5 5]
+   alpha=0.8 refractory=0: spikes= 44 first ISIs=[5 5 5 5 5 4] last ISIs=[4 4 5]
+   alpha=0.8 refractory=1: spikes= 33 first ISIs=[6 6 6 6 6 6] last ISIs=[6 6 6]
+   alpha=0.6 refractory=0: spikes= 36 first ISIs=[7 6 6 6 6 6] last ISIs=[5 5 5]
+   alpha=0.6 refractory=1: spikes= 25 first ISIs=[9 9 8 8 8 8] last ISIs=[7 7 8]
+
+4) does the reset increment belong in the memory trace? (alpha=0.6, refractory=1)
+   trace_uses_reset=True : spikes= 25 ISIs=[9 9 8 8 8 8 8 8]
+   trace_uses_reset=False: spikes=  5 ISIs=[27 38 48 59]

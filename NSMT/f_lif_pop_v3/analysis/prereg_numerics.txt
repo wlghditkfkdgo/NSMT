@@ -1,0 +1,42 @@
+==============================================================================
+B1. alpha=1, rho=1 : branch recursion must equal the ordinary leaky integrator
+max|fractional-sum - Euler recursion| = 0.0
+
+B2. constant input I=1, no spiking: branch value after n steps (finite-horizon gain)
+ alpha | tau=2    | tau=4    | tau=8    | tau=16
+   0.5 | n=10 0.700 | n=10 0.515 | n=10 0.330 | n=10 0.191
+   0.5 | n=42 0.835 | n=42 0.699 | n=42 0.516 | n=42 0.333
+   0.7 | n=10 0.844 | n=10 0.681 | n=10 0.468 | n=10 0.281
+   0.7 | n=42 0.946 | n=42 0.883 | n=42 0.753 | n=42 0.556
+   1.0 | n=10 0.999 | n=10 0.944 | n=10 0.737 | n=10 0.476
+   1.0 | n=42 1.000 | n=42 1.000 | n=42 0.996 | n=42 0.934
+
+B3. kernel-mass (attenuation) confound: multiply every rho by a constant c
+  c=1.0   branch values at n=42: [0.9464 0.8833 0.7531 0.5557]
+  c=0.5   branch values at n=42: [0.8798 0.7542 0.5656 0.3674]
+  c=0.25  branch values at n=42: [0.76   0.585  0.3924 0.2342]
+
+B4. firing preview at init (standardised input x input_scale, w_k=1/K, tau_s=2, theta=1)
+  input_scale=1.0  mean|u_k|=[0.437 0.322 0.235 0.152]  soma firing rate=0.000
+  input_scale=2.0  mean|u_k|=[0.875 0.644 0.469 0.305]  soma firing rate=0.000
+  input_scale=4.0  mean|u_k|=[1.75  1.288 0.938 0.609]  soma firing rate=0.000
+
+==============================================================================
+A. Worked selection example (alpha=0.7, K=4, identity Q/K, temperature 0.25)
+  input I                : [1.5 0.2 0.2 1.5 0.2]
+  branch states u (t=4)  : [0.2494 0.2915 0.2025 0.1184]
+  scores e_{4,j}         : [-1.629 -0.018 -0.017 -1.761]   (j=0,1,2,3)
+  softmax p              : [0.084  0.421  0.4214 0.0736]
+  sparsemax p            : [0.     0.4995 0.5005 0.    ]
+  --- softmax
+      rho = p/max p      : [0.199 0.999 1.    0.175]  kernel mass ratio kappa = 0.581
+      rho = n p          : [0.336 1.684 1.686 0.295]  kappa = 0.98
+      rho = B p / sum(bp): [0.343 1.719 1.72  0.301]  kappa = 1.0
+      rho = (1-e)+e*mass : [0.672 1.359 1.36  0.65 ]  kappa = 1.0
+  --- sparsemax
+      rho = p/max p      : [0.    0.998 1.    0.   ]  kernel mass ratio kappa = 0.486
+      rho = n p          : [0.    1.998 2.002 0.   ]  kappa = 0.973
+      rho = B p / sum(bp): [0.    2.053 2.057 0.   ]  kappa = 1.0
+      rho = (1-e)+e*mass : [0.5   1.527 1.529 0.5  ]  kappa = 1.0
+  fractional coefficients b_d (d=4-j): [0.491  0.5297 0.5868 0.6873]  total B = 2.2948
+  final coefficients b*rho (sparsemax, convex eta=.5): [0.2455 0.8087 0.897  0.3436]

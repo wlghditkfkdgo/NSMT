@@ -1,0 +1,41 @@
+Phase A -- scalar definition and reference parity
+  [   PASS] G1a  sum_d b_d == (n+1)^alpha / Gamma(alpha+1)
+            max |err| = 1.78e-15 over alpha in 0.3/0.5/0.7/1.0, n<=24
+  [   PASS] G1b  constant forcing integrator U = U0 + c t^alpha/Gamma(alpha+1)
+            max relative err = 6.56e-07 (tau = 1e+07, leak suppressed)
+  [   PASS] G2   alpha=1, eta=0, g=0  ==  Euler leaky integrator
+            max |err| = 0.00e+00  (the g=0 condition is what rev.0 omitted)
+  [   PASS] G3   loop == (Id + B J/tau)^-1 B/tau   (and != B/tau)
+            |loop - H_eff| = 5.00e-16   |loop - naive B@I/tau| = 0.945
+  [NOT RUN] G4   golden trajectory parity against pinned f-SNN code
+            blocked: spikeDE needs torch>=2.0 (snn_recall is 1.12, snn_jelly has no CUDA). Grade stays "mathematical validation" until reference/make_golden.py can run.
+  [   PASS] G15  perturbing I_{T-1} moves v_{T-1} and nothing earlier
+            |d v_last| = 2.2243, |d v_earlier| = 0.00e+00
+
+Phase C -- population reduction, causality, selection
+  [   PASS] G5a  K=1 == scalar fractional branch (not the paper neuron: no branch reset)
+            max |err| = 0.00e+00
+  [   PASS] G5b  homogeneous tau => identical constituents (tau_hom = K/sum(1/tau_k))
+            max spread = 0.00e+00, tau_hom = 8.533
+  [   PASS] G6   perturbing patches >= t leaves every state/score/spike before t intact
+            max |err| over state/voltage/spikes = 0.00e+00
+  [   PASS] G7   neutral limit: eta=0 sparse == full, bitwise
+            allclose(atol=0, rtol=0) = True
+  [   PASS] G7b  uniform p == full  (why `uniform` was dropped as a control)
+            max |err| = 3.33e-16 at eta=1
+  [   PASS] G12  cap is inactive at eta=0 (b_d <= b_0 for d>=1)
+            max cap_rate = 0.0e+00
+  [   PASS] G8a  kappa == 1.000 while the cap is inactive
+            max |kappa - 1| = 0.00e+00
+  [   PASS] G8b  eta=1 sparsemax produces exact zeros in the final coefficients
+            17/23 steps contain an exact zero; kappa in [0.242, 1.000] (<1 where the cap binds)
+  [   PASS] G13  support(p) / support(rho) / support(b*rho) / support(c) reported separately
+            eta=0.0180  p=0.841  rho=1.000  b*rho=1.000  c=1.000  -- dense residual (1-eta)*b_d survives wherever p = 0
+  [   PASS] G10  gradients finite and nonzero for W_Q, W_K, eta_hat, w
+            finite=True  nonzero={'W_Q': True, 'W_K': True, 'eta_hat': True, 'w': True}
+  [   PASS] G9   batched == per-window evaluation
+            max |err| = 0.00e+00
+  [   PASS] G11  state stays bounded at eta=1 under the recent-only policy, tau=[4,8,16,32]
+            max|u| = 2.385 (T=42), 2.385 (T=84); declared bound 60.0
+
+17 passed, 0 failed, 1 not run
