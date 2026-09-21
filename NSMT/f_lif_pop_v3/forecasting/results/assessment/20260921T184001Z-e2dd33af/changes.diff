@@ -1,0 +1,187 @@
+--- previous/docs/Population_fLIF_v3_prereg_KO.md
++++ current/docs/Population_fLIF_v3_prereg_KO.md
+@@ -662,3 +662,50 @@
+ **기록 정정 두 건.** ① §2C의 날짜를 2026-09-22에서 **2026-09-21**로 고친다(감사와 수정은 모두 2026-09-21 KST에 이루어졌다). ② "실제 30.504가 감사의 30.6887과 일치"는 과한 표현이다. 두 값은 **표본과 조건이 다르며**, 같은 성질의 측정 오류를 독립적으로 지지하는 값이지 동일 표본의 재현 일치가 아니다.
+ 
+ **수용하되 일반화하지 않는 것.** §9.2의 지적대로 r2에서도 `n_keys=8`이 `n_keys=5`보다 더 많은 key의 회상을 평가한다는 증거는 없다(실제 고유 재질의 key 2.98 / 4.32 / 3.86). 정확한 표현은 **"8개 도입, 평균 3.86개 재질의, 낮은 query coverage의 stress 조건"**이며, capacity scaling 일반화는 보류한다. 또 `lag_max`는 "sequence별 평균 lag의 최댓값을 sequence 평균한 값"이므로 표본 전체의 최장 lag로 읽지 않는다. 평가에서는 **recall-only MSE와 재등장 구간 첫 사건 MSE를 분리**해 고정한다(전체 사건 MSE만 보면 key가 많을수록 copy 사건 가중치가 늘어난다).
++
++---
++
++## 2D. 2026-09-22 Phase B/C 확장 — 점수 온도 보정 (O3 개정)
++
++### D-X. `θ`를 Phase B에서 보정한다 (O3 "θ 고정(d_q 스케일)"을 대체)
++
++**문제.** O3는 `θ`를 상수 1로 고정했고, D11은 `input_scale`만 보정했다. 둘을 잇는 검사가 없었다. D11 보정 후 가지 상태는 `max|u| ≈ 20`이 되는데, 초기값 `W_Q=W_K=[I 0]`에서 점수는 `−‖u_n−u_j‖²/(d_q·θ)`이므로 `θ=1`이면 **점수 폭이 수백**에 달한다. sparsemax가 사실상 hard argmax가 되고, 그 상태로 T=42 되먹임을 역전파하면 기울기가 폭주한다.
++
++**측정** (`f_lif_pop_v3/analysis/selector_gradient.txt`, 학습 없음, seed 3개 중앙값, `max|grad W_Q|`)
++
++| T | η=0.05 | η=0.2 | η=0.5 | η=1.0 |
++|---:|---:|---:|---:|---:|
++| 10 | 4.3e-05 | 3.4e-04 | 3.4e-03 | 5.6e-03 |
++| 20 | 1.6e-03 | 2.1e-03 | 1.1e-01 | 1.6e-01 |
++| 30 | 1.2e-03 | 2.8e-02 | 1.9e-01 | 5.7e+00 |
++| **42** | 6.6e-04 | 6.4e-03 | **1.8e+02** | **3.8e+03** |
++
++길이에 따라 지수적으로 커지므로 **되먹임 누적**이다. `η ≤ 0.2`에서는 어떤 길이에서도 문제없다.
++
++**θ가 실제 조절 손잡이이며 사용 가능한 창이 있다** (η=1, T=42)
++
++| θ | `max\|grad W_Q\|` | `support_p` | 판정 |
++|---:|---:|---:|---|
++| 1 (현행) | 3.8e+03 | 0.327 | 불안정 |
++| **4** | **2.4e+01** | **0.461** | **안정·희소** |
++| **16** | **2.5e-01** | **0.653** | **안정·희소** |
++| 64 | 7.4e-02 | 0.924 | 안정하나 사실상 `full` |
++| 1024 | 3.4e-04 | 1.000 | `full` |
++
++**결정.** `θ`를 `input_scale`과 같은 지위의 **보정 대상**으로 옮긴다. 규칙은 학습 구간의 고정 표본에서 한 번 측정해 고정하는 것이다.
++
++```
++θ = mean_{n,j} ‖W_Q ξ_n − W_K ξ_j‖² / d_q        (초기 가중치, mode='full')
++```
++
++회상 과제 r2·α=0.7·frozen·seed 7에서 **θ = 5.561**이며, 위 표의 안정·희소 창 안이다. 모든 비교 조건이 같은 값을 공유한다. `α`나 `input_scale`이 바뀌면 재측정한다.
++
++**부수 결정 `key_norm`.** `ξ`를 Q/K 앞에서 표준화하는 선택지를 추가했으나 **주 원인이 아니었다**(η=1에서 1–2자릿수만 감소). 기본값은 `none`이며 탐색용 옵션으로만 남긴다.
++
++**범위 제한.** 위 수치는 **학습 없이 초기 가중치에서 한 번의 역전파**를 잰 것이다. 학습이 진행되며 `W_Q/W_K`와 상태 분포가 움직이면 실효 점수 척도가 달라질 수 있으므로, **학습 중 `max|grad|`와 `support_p`를 epoch마다 기록**하고 폭주 시 보고한다.
++
++### D-Y. `η`의 학습 속도와 고정 `η` 조건의 지위
++
++파일럿(회상 r2, 2048 시퀀스, 15 epoch, θ=1)에서 `η`가 **0.0178 → 0.0298**로만 움직였다. 검증 손실은 0.277 → 0.226으로 내려갔으므로 **선택 기능이 거의 꺼진 채 임베딩·소마·readout만 학습된 것**이다. 원인은 D5·D-B가 택한 중립 출발의 구조적 결과다: `dη/dη̂ = σ'(η̂)`이고 `η̂=−4`에서 σ' = 0.0177이므로 기울기가 애초에 1/57로 눌린다.
++
++따라서 **D-B가 이미 규정한 고정 `η` 조건을 아이디어 검증의 주 경로로 승격한다.** 학습된 `η`는 "모형이 선택을 쓰도록 스스로 학습하는가"라는 **별도 질문**의 결과로 보고하며, 그 실패를 아이디어의 실패와 동일시하지 않는다. 고정 `η` 격자는 `{0(=full), 0.2, 0.5, 1.0}`으로 하고, `η ≥ 0.5`는 D-X의 θ 보정이 적용된 상태에서만 실행한다.
+--- previous/f_lif_pop_v3/forecasting/calibrate.py
++++ current/f_lif_pop_v3/forecasting/calibrate.py
+@@ -189,8 +189,27 @@
+         print(f"[calib] sparse at init (eta = {torch.sigmoid(embedding.neuron.selector.eta_hat).item():.4f}): "
+               f"firing rate {check['firing_rate']:.4f}  "
+               f"{'inside band' if BAND[0] <= check['firing_rate'] <= BAND[1] else 'OUTSIDE BAND'}")
++        # sparse가 실제로 학습되는 조건이므로 full과 같은 조건을 전부 적용한다.
++        # 발화율만 보면 상한 초과·비유한 sparse 초기값이 그대로 통과한다 (감사 결함 주입).
++        failures = []
+         if not BAND[0] <= check['firing_rate'] <= BAND[1]:
+-            picked, reason = None, 'sparse-at-init fell outside the band'   # check는 아래에 보존
++            failures.append(f"firing rate {check['firing_rate']:.4f} outside {BAND}")
++        if not check['finite']:
++            failures.append('non-finite state or current')
++        if not check['within_bound']:
++            failures.append(f"max|u| {check['max_abs_state']:.3f} at or above the declared "
++                            f"bound {check['declared_bound']:.3f}")
++        if failures:
++            picked, reason = None, 'sparse-at-init rejected: ' + '; '.join(failures)
++            print(f"[calib] FAILED: {reason}")
++
++    if picked is not None:
++        # theta도 같은 고정 표본에서 정한다. input_scale만 맞추면 점수 척도가 방치된다.
++        embedding.input_scale = picked['input_scale']
++        theta = embedding.neuron.score_scale(embedding.current(torch.cat(batches, dim=1)))
++        picked['theta'] = theta
++        print(f"[calib] score temperature theta = mean||W_Q xi_n - W_K xi_j||^2 / d_q = {theta:.3f} "
++              f"(the default 1.0 leaves the scores spanning hundreds)")
+ 
+     out = Path(TASK) / 'results' / 'calibration'
+     os.makedirs(out, exist_ok=True)
+--- previous/f_lif_pop_v3/forecasting/config.py
++++ current/f_lif_pop_v3/forecasting/config.py
+@@ -94,7 +94,10 @@
+     select_arg = parser.add_argument_group('selector')
+     select_arg.add_argument('--mode', default='sparse',
+                             choices=['full', 'dense', 'sparse', 'recent', 'mass_matched', 'oracle'])
+-    select_arg.add_argument('--theta', type=float, default=1., help='score temperature, d_q-scaled')
++    select_arg.add_argument('--theta', type=float, default=5.5,
++                            help='score temperature; Phase B calibrates it (recall r2: 5.5)')
++    select_arg.add_argument('--key_norm', choices=['none', 'frozen'], default='none',
++                            help='frozen standardises xi before Q/K; not the main stability fix')
+     select_arg.add_argument('--eta_init', type=float, default=-4., help='sigmoid pre-activation; -4 -> 0.018')
+     select_arg.add_argument('--eta_fixed', type=float, default=None, help='pin eta instead of learning it')
+     select_arg.add_argument('--cap', action=argparse.BooleanOptionalAction, default=True,
+@@ -167,5 +170,6 @@
+                 heterogeneous=config.heterogeneous, max_length=config.num_patches,
+                 theta=config.theta, eta_init=config.eta_init,
+                 eta_fixed=config.eta_fixed, cap=config.cap,      # audit A06: 이름만 바뀌면 안 된다
++                key_norm=config.key_norm,
+                 tau_s=config.tau_s, threshold=config.threshold,
+                 surrogate_scale=config.surrogate_scale)
+--- previous/f_lif_pop_v3/forecasting/layers.py
++++ current/f_lif_pop_v3/forecasting/layers.py
+@@ -123,7 +123,7 @@
+     also be trained from scratch rather than only injected at test time.
+     """
+     def __init__(self, num_population=4, query_dim=None, theta=1., eta_init=-4.,
+-                 eta_fixed=None, cap=True, key_norm='frozen'):
++                 eta_fixed=None, cap=True, key_norm='none'):
+         super().__init__()
+ 
+         if key_norm not in ('none', 'frozen'):
+@@ -292,7 +292,7 @@
+     """
+     def __init__(self, embed_dim, num_population=4, alpha=.7, tau=(4., 8., 16., 32.),
+                  heterogeneous=True, max_length=64, theta=1., eta_init=-4.,
+-                 eta_fixed=None, cap=True, key_norm='frozen', tau_s=2., threshold=1.,
++                 eta_fixed=None, cap=True, key_norm='none', tau_s=2., threshold=1.,
+                  surrogate_scale=5., query_dim=None):
+         super().__init__()
+ 
+@@ -382,6 +382,28 @@
+         return out, aux
+ 
+     @torch.no_grad()
++    def score_scale(self, x, mode='full'):
++        """mean ||W_Q xi_n - W_K xi_j||^2 / d_q over all (n, j), at the current weights.
++
++        This is the quantity theta has to match. With theta=1 and states of order 20 the raw
++        scores span hundreds, sparsemax becomes a hard argmax, and the backward pass through
++        T recurrent steps blows up (3.8e3 at eta=1, T=42, against 6e-3 at eta<=0.2). Setting
++        theta to this scale puts the score spread at order 1.
++        """
++        aux = self(x, mode=mode, return_aux=True)[1]
++        state, sel, total = aux['state'], self.selector, []
++        for n in range(1, x.shape[0]):
++            xi = torch.cat([state[n - 1], x[n].unsqueeze(-1)], dim=-1)
++            hist = torch.stack([torch.cat([state[j - 1] if j else torch.zeros_like(state[0]),
++                                           x[j].unsqueeze(-1)], dim=-1) for j in range(n)], dim=-2)
++            if sel.key_norm == 'frozen':
++                xi = (xi - sel.key_mean) / sel.key_std
++                hist = (hist - sel.key_mean) / sel.key_std
++            total.append((sel.query(xi).unsqueeze(-2) - sel.key(hist)).square().sum(-1).mean().item())
++
++        return float(sum(total) / len(total) / sel.query_dim)
++
++    @torch.no_grad()
+     def fit_key_norm(self, x, mode='full'):
+         """Freeze the query/key standardisation from train-split states. Idempotent."""
+         if self.selector.key_norm != 'frozen':
+--- previous/f_lif_pop_v3/forecasting/train.py
++++ current/f_lif_pop_v3/forecasting/train.py
+@@ -107,10 +107,14 @@
+         total[1] += error.abs().sum()
+         total[2] += y.numel()
+ 
+-    return {'loss': (total[0] / total[2]).item(), 'mse': (total[0] / total[2]).item(),
+-            'mae': (total[1] / total[2]).item(),
+-            'max_abs_state': peak, 'firing_rate': float(np.mean(rate)) if rate else None,
+-            **{k: (float(np.mean(v)) if v else None) for k, v in watched.items()}}
++    result = {'loss': (total[0] / total[2]).item(), 'mse': (total[0] / total[2]).item(),
++              'mae': (total[1] / total[2]).item()}
++    if rate:                                                  # GRU 등 비스파이킹 모델은 비운다
++        result['max_abs_state'] = peak
++        result['firing_rate'] = float(np.mean(rate))
++        result.update({k: float(np.mean(v)) for k, v in watched.items() if v})
++
++    return result
+ 
+ 
+ def val_one_epoch(model, data_loader, args):
+@@ -160,8 +164,9 @@
+     payload = test(args)
+     payload['train'] = {'epochs_run': epoch + 1, 'seconds': time.time() - started,
+                         'best_val_loss': float(stopper.val_loss_min),
+-                        'final_firing_rate': train_result['firing_rate'],
+-                        'train_max_abs_state': train_result['max_abs_state']}
++                        **{k: train_result[k] for k in
++                           ('firing_rate', 'max_abs_state', 'eta', 'kappa', 'would_cap_rate',
++                            'support_p') if k in train_result}}
+     payload['provenance'] = {
+         'run_uuid': args.run_uuid, 'config_hash': args.config_hash,
+         'calibration': {'file': args.calibration_file, 'input_scale': args.input_scale,

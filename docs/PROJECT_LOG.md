@@ -2927,3 +2927,72 @@ O3는 θ를 1로 고정했고 D11은 `input_scale`만 보정했다. **둘을 잇
 §3·§4의 수치는 **학습 없이 초기 가중치에서 한 번의 역전파**를 잰 것이다. 학습이 진행되면 `W_Q/W_K`와 상태 분포가 움직여 실효 점수 척도가 달라질 수 있으므로 학습 중 `max|grad|`·`support_p`·`η`를 epoch마다 기록한다. §2의 파일럿은 12–15 epoch·2048 시퀀스의 탐색적 실행이며 성능 결론이 아니다.
 
 Artifacts: `NSMT/f_lif_pop_v3/forecasting/{ours.py,model.py,train.py,test.py,utils.py}`, `NSMT/f_lif_pop_v3/analysis/selector_gradient.txt`, `NSMT/docs/Population_fLIF_v3_prereg_KO.md` §2D.
+
+
+## 2026-09-22 03:33 KST — v3 예약 추적 감사05: query/key 정규화 함수와 checkpoint 호환성
+
+- 예약 20260921T183001Z-0804948b; branch exp/f-lif-pop-v3, base329183b94f65090cc6b337f464c5aa4d8e127ad7, HEADc34fa1c68c49169c13947b674543512dd05a057f 위 layers.py 미커밋 변경 검토. source SHA001c4d8290c9901d6bba54368ef2c579aeec66307dc667df8c566482581d28db, snapshot03:30:45 KST /tmp/nsmt_assessment_20260921T183001Z-0804948b. 감사자 변경은 scripts/audit_v3_key_norm.py·텍스트 증거·append 문서뿐.
+- 환경/표본: snn_recall torch1.12 CPU2threads, seed7,float64 T12/B2/D3 난수 입력; 기존 pilot checkpoint를 복사 후 strict 로드 검사. 새 훈련/데이터 split 실험은 not run. 모듈 identity의 spike/state/input gradient 차0, 독립 mean/std 차0, 동일 Full 표본 재적합/causality/new-schema roundtrip 차0. 기존 pilot strict 로드는 새 buffer2개 누락으로 실패(A10-KEYNORM-CKPT OPEN).
+- Exact command(cwd NSMT): `OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python scripts/audit_v3_key_norm.py /tmp/nsmt_assessment_20260921T153001Z-ed6b3b26 /tmp/nsmt_assessment_20260921T183001Z-0804948b f_lif_pop_v3/forecasting/results/assessment/20260921T183001Z-0804948b/key_norm_probes.json`.
+- Artifacts NSMT/f_lif_pop_v3/forecasting/results/assessment/20260921T183001Z-0804948b/inventory.json,layers.diff,key_norm_probes.json,validation.json. 원본/사본 hash 보존 및 구문 확인. 학습·optimizer·GPU·설치·git 변이·commit/tag/push 없음. 결과 일반화/정규화 안정성 효과는 not run.
+- 결론: 함수 수준 확인, train/calibrate 연결은 캡처 시 미완. 감사 중 calibrate/config/layers 후속 변경은 다음 감사 범위. 기존 OPEN 유지. Pascanu2013 원문 근거로 clipping 전 gradient와 시간길이·validation 통제 비교 제안; ASSESMENT 감사05 참조.
+
+---
+
+## 2026-09-22 03:42 KST — 탐색적 파일럿: oracle은 성공하고 학습된 선택자는 실패한다
+
+**Branch:** `exp/f-lif-pop-v3` · **성격: 탐색적(exploratory).** 12 epoch, 2048 학습 시퀀스, **seed 7 하나**, 회상 과제 r2, θ=5.561, input_scale 8.0. **확정 결과가 아니며 O7 판정에 쓰지 않는다.** 효과 크기가 커서 방향은 읽을 수 있으나 반복·통계 없이 결론을 내리지 않는다.
+
+### 1. 결과
+
+| 조건 | **recall MSE** | copy MSE | 비고 |
+|---|---:|---:|---|
+| **oracle-trained, η=1** | **0.0297** | 0.0921 | 정답 정책을 고정하고 처음부터 학습 |
+| oracle-trained, η=0.5 | 0.0362 | 0.1096 | |
+| **GRU 대조군** | **0.2531** | **0.0164** | 압축 상태 기준선 (D-H) |
+| sparse, 학습된 η(≈0.026) | 0.2717 | 0.1460 | 주 조건 |
+| full (η=0) | 0.2763 | 0.1487 | 선택 없음 |
+| sparse, η=0.5 고정 | **0.4108** | 0.4517 | 선택을 켰더니 **더 나빠짐** |
+
+### 2. 읽어야 할 것 넷
+
+**① 구조는 검색을 쓸 수 있다.** oracle-trained가 full보다 **9.3배** 낫다(0.0297 vs 0.2763). "정답 위치를 알려주면 이 뉴런이 그것을 실제로 활용하는가"에 대한 답은 **예**다. 사전등록 G14(headroom 유효성)는 압도적으로 통과한다(여지 0.2466).
+
+**② 학습된 선택자는 그 여지의 1.9%만 가져온다.**
+
+```
+G = (E_full − E_learned) / (E_full − E_oracle-trained)
+  = (0.2763 − 0.2717) / (0.2763 − 0.0297) = 0.0046 / 0.2466 = 0.019
+```
+
+사전등록 O7-② 기준은 **G ≥ 0.5**다. 현재 0.019다.
+
+**③ 진단이 일관된다.** 모든 조건에서 `M_eff ≈ kernel_mass`였다(full 0.229/0.229, η=0.5 0.234/0.229, 학습 sparse 0.231/0.229). 즉 **선택은 희소하게 작동하지만(`support_p` 0.358–0.395) 정답 쪽으로 질량을 옮기지 못한다.** v2의 실패 양상이 반복된다 — 점수는 "닮음"이지 "유용함"이 아니다.
+
+**④ 나쁜 점수로 선택을 켜면 해롭다.** η=0.5 고정에서 recall이 0.4108로 full보다 나쁘고, **copy조차 0.4517로 무너진다**(full 0.1487). 정답이 입력에 들어 있는 사건까지 망가진다는 것은, 잘못된 재가중이 상태 표현 자체를 훼손한다는 뜻이다.
+
+따라서 현재 국면은 외부 감사 §5.2가 미리 지목한 **"oracle은 성공하고 learned selector만 실패한다"**에 해당한다. 사전등록 O7 판정표의 "고르지 못함 → 점수 함수·key 표현력 재검토" 가지다.
+
+### 3. 부수 관찰 — readout 병목의 징후
+
+oracle η=1에서 **recall(0.0297)이 copy(0.0921)보다 낫다.** copy는 정답이 현재 입력에 있는 쉬운 사건인데도 그렇다. 또 GRU의 copy는 **0.0164**로 우리 최고 조건보다 5.6배 좋다. 현재 입력이 임베딩·스파이크를 지나면서 손실되는 양이 크다는 뜻이며, **선택과 무관한 readout 병목**이 따로 있을 수 있다. D8의 막전위(analog) readout 진단이 이를 가리기 위한 조건이며 `--readout analog`로 실행 가능하다.
+
+### 4. GRU가 현재 우리보다 낫다
+
+GRU는 recall 0.2531로 full(0.2763)·학습 sparse(0.2717)보다 낫다. D-H가 이 대조군을 필수로 둔 이유가 그대로 드러났다. **현 상태에서는 "압축 상태로도 풀리는 과제를 우리 모형이 더 못 푼다"**가 정확한 서술이다. 단 oracle-trained(0.0297)는 GRU를 8.5배 앞선다.
+
+### 5. 함께 고친 것
+
+- `train.py`가 비스파이킹 모델에서 `None` 진단값을 TensorBoard에 기록하려다 **모든 GRU 실행이 첫 epoch에서 죽었다.** 해당 키를 생략하도록 고쳤다.
+- `Config.run_id`에 **모델 이름·α·readout이 없어** GRU와 myModel이 같은 이름으로 충돌했다(감사 A10 지적). run_id에 포함했다.
+- 감사의 결함 주입이 찾은 빈틈: `choose()`가 full probe의 상한·유한성만 보고 **실제 학습되는 sparse 초기값은 발화율만** 검사했다. 네 가지 주입 case가 이제 모두 올바르게 거부된다.
+
+### 6. 한계
+
+seed 1개·12 epoch·2048 시퀀스의 탐색적 실행이다. 학습이 수렴했는지 확인하지 않았고, oracle η=1은 구조상 `M_eff = 1.0`을 강제하므로 **학습 가능한 점수가 도달할 수 있는 목표라는 보장은 없다.** 또한 이 과제에서 GRU가 강하다는 사실은 §6.2에 이미 적은 과제 한계(압축 상태로도 풀림)의 확인이다.
+
+### 7. 다음 단계
+
+감사 §5.2의 권고 순서를 따른다. 먼저 **관측**한다: 실제 배치의 Q/K gradient 크기, sparsemax singleton support 비율, `cap_rate`, η 이동량, 점수 분산. 그 다음에야 dense warm-up, `Δu` key 추가, entmax 등 대안을 **탐색적 조건으로 분리해** 시도한다. 아직 O7 판정을 시도하지 않는다.
+
+Artifacts: `NSMT/f_lif_pop_v3/forecasting/results/pilot-theta-*/`, `pilot-oracle-*/`, `pilot-gru-*/`.
