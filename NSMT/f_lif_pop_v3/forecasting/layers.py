@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 
 
-__all__ = ['PopulationNeuron', 'Embedding']
+__all__ = ['PopulationNeuron', 'Embedding', 'to_patches']
 
 SELECTOR_MODES = ('full', 'dense', 'sparse', 'recent', 'mass_matched', 'oracle')
 
@@ -341,15 +341,53 @@ class PopulationNeuron(nn.Module):
         return torch.stack(out, dim=-1).reshape(T, *x.shape[1:], self.num_population)
 
 
+def to_patches(x, patch_size):
+    #  x: [B, L, C]  ->  [T, B*C, patch_size], T = L // patch_size
+    """Chronological non-overlapping patches, channel-independent (v2 idiom, unchanged)."""
+    B, L, C = x.shape
+    x = x.transpose(1, 2).reshape(B * C, L)
+
+    return x.unfold(-1, patch_size, patch_size).permute(1, 0, 2).contiguous()
+
+
 class Embedding(nn.Module):
-    """Patch -> input current -> population neuron. D11 fixes input_scale before training."""
-    def __init__(self, patch_size, embed_dim, input_scale=2., **neuron_args):
+    """Patch -> input current -> population neuron. D11 fixes input_scale before training.
+
+    ``input_norm='frozen'`` divides out a per-unit mean and std estimated ONCE on the train
+    split and then frozen into buffers. It exists because input_scale is a gain and a gain
+    cannot revive a unit whose drive is negative for every input -- on the recall task the
+    cue is one-hot, so a unit's drive takes only n_keys discrete levels and a unit whose
+    levels are all negative stays silent at any scale. Unlike BatchNorm this never reads
+    batch statistics, so a window's output does not depend on who it is batched with
+    (gate G9).
+    """
+    def __init__(self, patch_size, embed_dim, input_scale=2., input_norm='none', **neuron_args):
         super().__init__()
 
+        if input_norm not in ('none', 'frozen'):
+            raise ValueError("input_norm must be 'none' or 'frozen'")
         self.emb_linear = nn.Linear(patch_size, embed_dim, bias=True)
         self.input_scale = float(input_scale)
+        self.input_norm = input_norm
+        self.register_buffer('norm_mean', torch.zeros(embed_dim))
+        self.register_buffer('norm_std', torch.ones(embed_dim))
         self.neuron = PopulationNeuron(embed_dim, **neuron_args)
+
+    def current(self, x):
+        #  x: [T, B, patch_size]  ->  [T, B, D] input current
+        z = self.emb_linear(x)
+        if self.input_norm == 'frozen':
+            z = (z - self.norm_mean) / self.norm_std
+
+        return z * self.input_scale
+
+    @torch.no_grad()
+    def fit_norm(self, patches):
+        """Freeze the per-unit standardisation from train-split patches. Idempotent."""
+        z = self.emb_linear(patches)
+        self.norm_mean.copy_(z.mean(dim=(0, 1)))
+        self.norm_std.copy_(z.std(dim=(0, 1)).clamp_min(1e-6))
 
     def forward(self, x, mode='sparse', oracle_p=None, return_aux=False):
         #  x: [T, B, patch_size]  ->  spikes: [T, B, D]
-        return self.neuron(self.emb_linear(x) * self.input_scale, mode, oracle_p, return_aux)
+        return self.neuron(self.current(x), mode, oracle_p, return_aux)
