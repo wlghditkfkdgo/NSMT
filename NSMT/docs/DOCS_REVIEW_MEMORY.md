@@ -178,3 +178,8 @@ Forecasting/AD의 retrieval, auxiliary loss, causal ablation, 에너지 회계, 
 - Cap 이후 계수를 실제 수식과 지표의 공통 기준으로 쓴다. 확률 p만 보고 완전 배제나 M_eff를 주장하지 않는다.
 - 알려진 결과로 수정한 과제·threshold·key·surrogate는 탐색적 변경으로 기록한다. 옛 결과를 새 사전등록의 검증 결과로 합치지 않는다.
 - 지속 기억은 이 문서와 canonical log에 남긴다. 자동 갱신이나 다른 세션의 자동 확인이 설정된 것은 아니다.
+
+## 추적 갱신 — 2026-09-21 23:54 KST
+
+- `Population_fLIF_v3_prereg_KO.md` §2C가 추가됐다(문서 표기 날짜22일, 실제 관찰21일). D-P는 post-cap mass_matched/gradient 유지, D-Q는 실제 c의 M_eff와 .5 유지/집계 단위, D-R은 recall r2 min_gap 및 주3·5/stress8, D-S는 uniform-slot chance와 Full kernel mass 구분, D-T는 actual current 측정/안정성 범위 축소, D-U는 fixed eta/cap 배선, D-V는 G4 사유/G7b허용오차/G15 spike 검사 정정이다. 이전 상충 정의보다 이 append가 최신 계약이다. 학습 metric 구현 완료나 효과 입증을 뜻하지 않는다.
+- `ASSESMENT.md` §9 및 canonical PROJECT_LOG에 추적 감사01 추가. 고정 사본 독립 재실행19 pass/0 fail/1 not run; A01/A04/A06/A11의 명시한 수치·배선 범위 확인. r2 8-key의 실제 재질의 coverage 부족, bound 초과 후보 선택, branch 최대값·cap_rate 의미, 보정 충돌/실패 증거 보존 문제는 남는다. 문서별 최초 요약/역사 판정은 덮어쓰지 않았다.

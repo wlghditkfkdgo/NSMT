@@ -42,6 +42,7 @@ from config import TASK, Config, parse_arguments, set_random_seed, neuron_kwargs
 from data_provider.data_factory import data_provider
 
 BAND = (0.1, 0.3)                        # 사전등록 D11의 목표 발화율 구간
+G11_FACTOR = 10.                         # 선언 상한 = G11_FACTOR * max|I|  (D-T)
 TARGET = 0.2                             # 구간 중앙. 동률일 때의 선택 기준
 GRID = [1., 2., 3., 4., 6., 8., 10., 12., 14., 17., 20., 25., 30.]
 
@@ -70,7 +71,7 @@ def probe(embedding, batches, device, scale, mode='full'):
     """
     embedding.input_scale = float(scale)
     rate, per_unit, branch, peak, drive = [], [], [], 0., 0.
-    finite = True
+    branch_peak, finite = None, True
     for patch in batches:
         # G11은 뉴런에 실제로 들어가는 전류를 봐야 한다. raw patch * scale이 아니다 (audit A05).
         current = embedding.current(patch)
@@ -80,8 +81,12 @@ def probe(embedding, batches, device, scale, mode='full'):
         finite = finite and bool(torch.isfinite(aux['state']).all())
         rate.append(spikes.mean().item())
         per_unit.append(spikes.mean(dim=(0, 1)).cpu().numpy())   # [D] 유닛별 발화율
-        branch.append(aux['state'].abs().mean(dim=(0, 1, 2)).cpu().numpy())
-        peak = max(peak, aux['state'].abs().max().item())
+        magnitude = aux['state'].abs()
+        branch.append(magnitude.mean(dim=(0, 1, 2)).cpu().numpy())
+        # 배치별 평균의 max가 아니라 실제 최댓값이어야 한다 (audit 추적 §9.3)
+        per_branch = magnitude.amax(dim=(0, 1, 2)).cpu().numpy()
+        branch_peak = per_branch if branch_peak is None else np.maximum(branch_peak, per_branch)
+        peak = max(peak, magnitude.max().item())
 
     per_unit = np.concatenate([u[None] for u in per_unit]).mean(0)
 
@@ -90,9 +95,10 @@ def probe(embedding, batches, device, scale, mode='full'):
             'saturated_frac': float((per_unit > 0.9).mean()),
             'unit_rate_min': float(per_unit.min()), 'unit_rate_max': float(per_unit.max()),
             'branch_abs_mean': [float(v) for v in np.mean(branch, axis=0)],
-            'branch_abs_max': [float(v) for v in np.max(branch, axis=0)],
+            'branch_abs_max': [float(v) for v in branch_peak],
             'max_abs_state': float(peak), 'max_abs_current': float(drive),
-            'finite': bool(finite)}
+            'declared_bound': float(G11_FACTOR * drive),
+            'within_bound': bool(peak < G11_FACTOR * drive), 'finite': bool(finite)}
 
 
 def constituents_healthy(row):
@@ -105,11 +111,17 @@ def constituents_healthy(row):
 
 def choose(rows):
     """Apply the pre-registered rule. Returns (row or None, reason)."""
+    # 상한 초과는 거부 조건이다. 출력만 하고 통과시키면 G11을 만들어 놓고 쓰지 않는 것이다.
     ok = [r for r in rows if BAND[0] <= r['firing_rate'] <= BAND[1]
-          and constituents_healthy(r) and r['finite']]
+          and constituents_healthy(r) and r['finite'] and r['within_bound']]
     if not ok:
+        blocked = [r for r in rows if BAND[0] <= r['firing_rate'] <= BAND[1]
+                   and not (r['finite'] and r['within_bound'])]
+        detail = (f"; {len(blocked)} in-band candidate(s) rejected for exceeding the declared "
+                  f"bound or being non-finite") if blocked else ''
         return None, (f"no input_scale put the firing rate in {BAND} with every constituent "
-                      f"alive; widening the band is NOT allowed by D11")
+                      f"alive and the state inside {G11_FACTOR:g}*max|I|{detail}; widening the "
+                      f"band is NOT allowed by D11")
 
     return min(ok, key=lambda r: abs(r['firing_rate'] - TARGET)), 'closest to target'
 
@@ -164,24 +176,25 @@ def main():
         print(f"[calib] picked input_scale = {picked['input_scale']} "
               f"(firing rate {picked['firing_rate']:.4f}, {reason})")
         # G11: 학습 전에 상태 상한을 선언해 둔다. 학습 중 이 값을 넘으면 중단한다.
-        bound = 10. * picked['max_abs_current']
-        print(f"[calib] G11 declared bound = 10 * max|I| = {bound:.1f} "
+        bound = picked['declared_bound']
+        print(f"[calib] G11 declared bound = {G11_FACTOR:g} * max|I| = {bound:.1f} "
               f"(max|I| measured AFTER Linear/norm/scale = {picked['max_abs_current']:.3f}), "
               f"observed max|u| = {picked['max_abs_state']:.2f} "
               f"-> {'within' if picked['max_abs_state'] < bound else 'EXCEEDS'}")
 
     # 조건 간 공유를 위해 sparse 초기값에서도 같은 구간에 있는지 확인한다
+    check = None
     if picked is not None:
         check = probe(embedding, batches, config.device, picked['input_scale'], mode='sparse')
         print(f"[calib] sparse at init (eta = {torch.sigmoid(embedding.neuron.selector.eta_hat).item():.4f}): "
               f"firing rate {check['firing_rate']:.4f}  "
               f"{'inside band' if BAND[0] <= check['firing_rate'] <= BAND[1] else 'OUTSIDE BAND'}")
         if not BAND[0] <= check['firing_rate'] <= BAND[1]:
-            picked, reason = None, 'sparse-at-init fell outside the band'
+            picked, reason = None, 'sparse-at-init fell outside the band'   # check는 아래에 보존
 
     out = Path(TASK) / 'results' / 'calibration'
     os.makedirs(out, exist_ok=True)
-    stamp = datetime.now(ZoneInfo('Asia/Seoul')).strftime('%y%m%d-%H%M')
+    stamp = datetime.now(ZoneInfo('Asia/Seoul')).strftime('%y%m%d-%H%M%S')
     stem = f"{config.dataset}_k{config.n_keys}_r2" if config.task == 'recall' else config.dataset
     name = f"{stem}_a{config.alpha}_norm-{config.input_norm}_seed{config.seed}_{stamp}.json"
     payload = {'band': BAND, 'target': TARGET, 'mode': 'full', 'input_norm': config.input_norm,
@@ -194,13 +207,15 @@ def main():
                'probe_sample_sha256_16': sample_hash,
                'norm_stats': {'mean': embedding.norm_mean.tolist(),
                               'std': embedding.norm_std.tolist()} if config.input_norm == 'frozen' else None,
-               'sparse_at_init': check if picked is not None else None,
+               # 실패한 sparse 확인도 남긴다. 지워버리면 원인을 다시 볼 수 없다 (audit §9.3).
+               'sparse_at_init': check,
+               'g11_factor': G11_FACTOR,
                'source_sha256_16': {f: hashlib.sha256(Path(f).read_bytes()).hexdigest()[:16]
                                     for f in ('layers.py', 'calibrate.py', 'config.py',
                                               'data_provider/synthetic.py')},
                'args': {k: (str(v) if isinstance(v, (Path, torch.device)) else v)
                         for k, v in vars(config).items()}}
-    with open(out / name, 'w') as handle:
+    with open(out / name, 'x') as handle:                        # 'x': 덮어쓰기를 아예 막는다
         json.dump(payload, handle, indent=2)
     print(f"[calib] written to `{out / name}`")
 

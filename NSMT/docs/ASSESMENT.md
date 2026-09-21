@@ -357,3 +357,126 @@ cd NSMT/f_lif_pop_v3/forecasting
 - **A10 잔여:** 덮어쓰기 방지·고정 표본·source/표본 hash·full args·norm 통계·sparse 확인 저장은 완료. `Config.run_id`의 전체 설정 hash와 run UUID, checkpoint에 `norm_mean/std` 포함 및 fresh reload 확인, `stability_sweep.txt`의 F1/F2 출력 보충은 미완. PROJECT_LOG 23:16의 rate .2278/state 17.81과 JSON .2280505933/state 18.4044의 불일치 **원인은 확인됐다**: 그 사이에 `fit_norm`을 1배치에서 8배치로 바꾸었고 로그는 이전 실행값이다. 두 값 모두 r2 재보정으로 대체되었다.
 - **A03 잔여 제한:** r2에서도 T=42의 구간 수(약 12.4)가 상한이라 `n_keys=8`의 coverage는 48.2%다. 주 난이도 축을 `{3, 5}`로 두고 8은 stress 조건으로만 보고하도록 D-R에 명시했다.
 - **다음 단계:** A12의 진입 조건(`ours.py`/`train.py`/`test.py`, oracle 3종 분리, GRU 대조군, 학습 중 실제 전류 G11, neorecall 형식 저장)을 구현한 뒤 smoke → pilot → confirmatory 순으로 진행한다.
+
+---
+
+## 9. 추적 감사 01 — 2026-09-21 23:52 KST
+
+**범위:** 사용자의 지속 추적 요청에 따라, 다른 세션의 수정 코드·새 보정 결과·사전등록 §2C를 재검토했다. 기존 본문과 판정은 당시 기록으로 유지하며, 아래 상태가 이번 확인 범위를 갱신한다. 파일 변경만으로 완료 처리하지 않고 고정 사본에서 재실행했다. 현재 HEAD는 `df3a3407b9ae653b4b1031320c4e8240b4c943a0`, branch는 `exp/f-lif-pop-v3`이며 미커밋 변경을 검사했다.
+
+**증거:** 23:49:25 KST 사본의 [파일별 SHA256](../f_lif_pop_v3/forecasting/results/assessment/20260921-144925-utc/inventory.json), [기존 probe 재실행](../f_lif_pop_v3/forecasting/results/assessment/20260921-144925-utc/probes.json), [독립 후속 probe](../f_lif_pop_v3/forecasting/results/assessment/20260921-144925-utc/followup_probes.json), [게이트 결과](../f_lif_pop_v3/forecasting/results/assessment/20260921-144925-utc/gates.json). 사본 이후 추가된 §2C와 ETT 보정은 [별도 inventory](../f_lif_pop_v3/forecasting/results/assessment/20260921-144925-utc/later_inventory.json)로 식별한다. 디렉터리 시각은 UTC다.
+
+### 9.1 구현 및 검증 상태 갱신
+
+| ID | 이번 판정 | 확인 근거 / 남은 조건 |
+|---|---|---|
+| A01 | **VERIFIED — 동일 bank 수치 오류 수정** | cap 후 질량 대조에서 sparse/control kappa 모두 `0.569804778811738`, 질량 차 `6.006159352561638 → 0`, Full과 최대 계수 차 `.2956719406`. 별도 학습 대조군의 전체 궤적/효과는 아직 not run. |
+| A02 | **정의 정정 확인; metric 구현 OPEN** | §2C D-Q가 실제 `c`의 정답 비율로 정정했고 0.5를 유지했다. 기존 반례는 여전히 `.50902267` 대 `.13834116`. 학습 결과 집계 코드에서 이 정의를 지키는지는 아직 검사할 대상이 없다. |
+| A03 | **PARTIAL — 영구 배제 해결, 난이도 해석 제한** | r2에서 예전 8-key의 초기 4개 key도 재질의된다. 단 실제 고유 질의 key 평균은 `2.98 / 4.32 / 3.8567`. §2C가 3·5를 주 조건, 8을 stress로 낮춰 명시한 것은 이 제한에 대응한다. 자세한 판단은 §9.2. |
+| A04 | **VERIFIED — task_stats 두 기준** | 아래 표의 sequence 평균 chance와 Full kernel mass가 독립 재계산과 일치한다. 향후 모델 metric도 같은 mask·집계 단위를 사용해야 한다. |
+| A05 | **PARTIAL — 전류 측정 수정; 상한 판정 OPEN** | 실제 `embedding.current()`로 측정하고 finite·sparse 초기 발화율을 확인한다. 하지만 `choose()`는 여전히 상태 상한 초과 후보를 통과시킨다. 새 branch 최대값 필드에도 오류가 있다(§9.3). |
+| A06 | **VERIFIED — 배선·정확한 eta·동일 설정 복원** | `neuron_kwargs`에 cap/eta_fixed가 연결됐다. eta=0/1 정확값과 fixed 학습 제외, cap 해제 확인. eta=1/cap=False 설정으로 state_dict 저장·새 인스턴스 복원 후 spike/state가 일치한다. 정식 trainer의 config.pt 복원은 not run. |
+| A07 | **PARTIAL — G15·사유·허용오차 정정** | 독립 재실행 **19 pass / 0 fail / 1 not run(G4)**. G15 실제 마지막 spike 8개 변화·이전 변화0. G7b 1e-12가 §2C에 명시되었다. 이는 기존 관측 후의 개정이지 원래 bitwise 계약 통과가 아니다. G4는 여전히 not run. |
+| A08 | **PARTIAL** | 전체 history 시점의 support 네 종류와 has_history가 전달된다. 학습형 analog에 필요한 state/voltage는 여전히 detach 상태; rank·실제 데이터/학습 경로 검증은 남아 있다. |
+| A09 | **PARTIAL** | §2C에서 O7·chance·안정성 주장·난이도 범위를 정정했다. 아래 추가 기록/명칭 정확성은 보완해야 한다. |
+| A10 | **PARTIAL — 재현성 개선** | scale 후보 간 동일 입력 재사용, sample/source hash, 전체 args, frozen 통계, sparse 결과, 분 단위 timestamp가 생겼다. 같은 분 동일 조건 충돌 방지와 실패한 sparse 진단 보존, bound 저장은 남아 있다. |
+| A11 | **VERIFIED — codebook 생성** | 비복원 추출 구현 확인. 16개의 서로 다른 code 생성 및 17개 요청 ValueError를 독립 실행했다. r1과 codebook/과제가 바뀌었으므로 기존 r1 보정을 재사용하지 않는다. |
+| A12 | **OPEN / not run** | 이 확인 시점에는 정식 학습 파이프라인과 완료 성능 결과가 없다. Gate/calibration을 모델 효과 검증으로 해석하지 않는다. |
+
+### 9.2 r2 과제의 실제 의미와 다음 실험
+
+동일 code encoding, data seed20260921, T42, run2–5, min_gap1, 조건당300 sequences. Chance와 kernel은 query 평균 후 sequence 평균이다. 고유 key 수는 한 sequence에서 실제 다시 질의된 수이며, 전체 key 재질의 비율은 모든 key가 한 번 이상 재질의된 sequence의 비율이다.
+
+| n_keys | 평균 고유 재질의 key | 전체 key를 재질의한 sequence | recall 사건 비율 | uniform-slot chance | Full kernel mass |
+|---:|---:|---:|---:|---:|---:|
+| 3 | 2.9800 | 98% | .751984 | .1569355707 | .1305301421 |
+| 5 | 4.3200 | 41% | .585159 | .1263116365 | .1079814616 |
+| 8 | 3.8567 | 0% | .332460 | .1030723388 | .0912742649 |
+
+이는 r1의 영구 배제 오류가 해결되었음을 보여주지만 **8-key가 5-key보다 많은 key의 회상을 실제 평가한다는 증거는 아니다.** 반대로, 예측할 key가 미리 알려지지 않는다면 도입 key 전체를 저장할 필요가 있으므로 이 수치만으로 내부 저장 부하가 더 작다고 단정해서도 안 된다. 정확한 표현은 ‘8개 도입, 평균3.86개 재질의, 낮은 query coverage의 stress’다. §2C의 주 조건3/5 + 보조 stress8 구분을 유지하고 capacity scaling 일반화는 보류한다.
+
+또한 모든 사건의 MSE만 보고하면 key가 많을수록 copy 사건의 가중치가 늘어난다. **recall-only MSE와 재등장 run 첫 사건 MSE**를 함께 고정해야 한다. run 내부에서는 앞 사건에서 회상한 출력을 유지하는 쉬운 경로가 있을 수 있다. `lag_max`의 현재 구현은 ‘sequence별 query의 평균 source lag 중 최댓값을 구한 뒤 sequence 평균’이다. 출력의 `max`를 전체 표본의 실제 최장 lag로 읽으면 안 된다.
+
+관련 연구에 근거한 조건부 개선 방향은 §5의 [Zoology/MQAR](https://arxiv.org/abs/2312.04927)와 같다. 현재 exploratory r2와 별도로, **도입 key를 균형 있게 재질의하는 일정**, query 수 고정, 도입 key 수와 delay의 독립 조절을 설계하면 recall 부하와 지연 효과를 더 잘 분리할 수 있다. 이것은 문헌을 바탕으로 한 실험 설계 제안이며 해당 논문의 과제를 그대로 재현했다는 뜻은 아니다. T42 유지가 필수라면 run 수/길이와 coverage 제약의 양립 가능성을 먼저 계산하고 새 revision으로 기록한다. 현재 승인된 O7 0.5를 이 표본 때문에 내리지 않는다.
+
+### 9.3 새로 확인된 잔여 구현 문제 — 학습 전에 반영 권고
+
+**A05-후속, P1: 안정성 상한 초과가 거부 조건이 아니다.** `calibrate.choose()`에 firing_rate=.2, finite=True, 건강한 branch 평균, `max_abs_current=1`, `max_abs_state=1001`인 후보를 주면 ‘closest to target’으로 선택한다. 이는 실제 실행에서 폭주가 있었다는 뜻이 아니라 **선택 정책의 반례**다. 현재 main은 `EXCEEDS`를 출력할 뿐 picked를 무효화하지 않는다. Full과 sparse의 실제 상태/전류 finite, 사전 선언 bound와 초과 여부를 payload에 저장하고 초과 후보/보정을 명시적으로 실패 처리해야 한다. 학습 중 bound를 매번 새 최대값에 따라 올리면 frozen bound 검사가 아니므로 별도로 구분한다.
+
+**A05/A10-후속, P2: `branch_abs_max`가 최댓값을 재지 않는다.** 코드가 각 배치에서 `abs(state).mean(T,B,D)`를 모은 뒤 그 평균들의 max를 저장한다. 독립 64-sequence probe에서 저장값은 `[2.5546, 1.5537, .9099, .5078]`인 반면, 실제 K별 최대는 `[17.5061, 11.5224, 6.7558, 3.6820]`이었다. 기존 `max_abs_state` 자체는 올바르다. 새 필드는 `amax(T,B,D)`를 배치 간 max로 모으거나 이름을 ‘max_batch_mean’으로 바꿔야 한다. 현재 보정 JSON의 이 필드로 branch별 안정성 주장을 하지 않는다.
+
+**A06/A08-후속, P2: cap을 꺼도 `cap_rate`가 양수다.** cap=False/eta=1 실행에서 reported cap_rate 최대 `.200000003`. 실제 cap 동작 빈도가 아니라 `raw > b0`의 잠재 초과율이다. `cap_rate=0`과 별도의 `would_cap_rate`로 구분하거나 정의를 명시해야 한다. mass_matched에서도 이 값이 최종 대조 계수의 clipping 비율인지, 원래 선택 계수의 clipping 비율인지 구별한다.
+
+**A10-후속:** 새 timestamp는 분까지만 있으므로 동일 분 동일 seed/config의 재실행은 덮어쓸 수 있다. 초/UUID/run ID + exclusive creation 등으로 충돌을 막는다. sparse 초기 band 실패 시 `picked=None`이 되면서 payload의 `sparse_at_init`도 None으로 지워진다. 실패 row는 저장해야 원인을 재검토할 수 있다. 새 JSON에 `10*max_abs_current`를 재계산할 정보는 있지만 실제 적용할 frozen bound와 판정도 직접 저장하는 편이 안전하다.
+
+### 9.4 새 보정 결과와 재현성 제한
+
+새 recall r2 seed7 보정은 scale8, Full firing rate 약.1866, sparse 약.1867, max current30.50375, max state19.48979이다. 실제 exact 값은 [보정 artifact](../f_lif_pop_v3/forecasting/results/calibration/recall_k3_r2_a0.7_norm-frozen_seed7_260921-2348.json)를 기준으로 한다. 이전 r1 약.228과의 차이는 task/codebook 및 표본 생성·난수 소비 순서도 바뀐 조건 간 관측으로, 개선/악화 효과로 읽지 않는다. ETT에도 [새 seed7 보정](../f_lif_pop_v3/forecasting/results/calibration/ETTh1_a0.7_norm-frozen_seed7_260921-2350.json)이 추가됐다. 두 결과는 초기 동작점이며 학습 정확도가 아니다.
+
+§2C와 check_model에 기재된 ‘2026-09-22 감사’는 실제 최초/이번 감사가 **2026-09-21 KST**였다는 점과 다르다. 또한 새 보정 actual current30.504와 초기 독립 probe30.6887은 서로 다른 표본/조건에서 같은 측정 오류를 지지하는 수치이지 동일 표본 재현의 수치 일치는 아니다. 후속 정정으로 구분하면 된다. §2C D-R의 run 수 근사는 평균에 근거한 계획값이며 구조적/확률적 최대를 증명하지 않는다.
+
+### 9.5 실행·추적 방식
+
+CPU만 사용했으며 Python3.10/torch1.12, OMP/MKL threads2, torch seed7이다. 주요 명령(cwd NSMT):
+
+```bash
+OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 /home/yschoi/.conda/envs/snn_recall/bin/python scripts/audit_f_lif_pop_v3.py /tmp/nsmt_assessment_20260921-144925-utc
+OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 /home/yschoi/.conda/envs/snn_recall/bin/python scripts/audit_f_lif_pop_v3_followup.py /tmp/nsmt_assessment_20260921-144925-utc
+```
+
+Gate는 사본의 `check_model.GateReport()`에 `phase_a`, `phase_c`, `phase_c_audit`를 순서대로 호출해 JSON으로 저장했다. 감사자가 처음 시도한 `--json` CLI 옵션은 이 runner에 없어 exit2였고, 올바른 Python API 호출로 다시 실행했다. 이 명령 착오를 모델 실패로 세지 않았다. 원시 stdout/stderr는 task `log/assessment/20260921-144925-utc/`에 로컬 보관한다. 기존 파일/학습 작업/HEAD/index를 수정하지 않았다. 새 학습·GPU benchmark·golden reference·trained metric 검사는 **not run**.
+
+이 세션에서 확인되는 의미 있는 source/result 변경을 계속 관찰하고, 수정 → 재검사 → 근거 → 상태 변경 순서로 이 파일 끝에 기록한다. 관찰 중 코드가 바뀌면 사본별 판정을 분리한다. **세션 종료 후에도 동작하는 자동 감사 서비스나 예약 작업은 설정하지 않았다.** 따라서 ‘관찰함’은 위 inventory로 특정된 실제 확인 범위만 뜻한다.
+
+**23:54 KST 수치 정정:** §9.4의 recall Full firing rate ‘약.1866’은 감사 기록 전사 오류다. 저장 JSON의 정확한 값은 **.1847657673060894**, sparse는 **.18672253005206585**다. 새 ETTh1 보정은 scale6, Full **.18956471048295498**, sparse **.18921967595815659**, max current **50.75556945800781**, max state **19.68758773803711**이다. 그 밖의 판정은 동일하다.
+
+## 10. 추적 감사 02 — 2026-09-22 00:00 KST (G4 reference 확보 및 다음 수정 검토 중)
+
+**A07/G4의 소스 부재 사유 해소:** 감사자가 사전등록에 명시된 [PhysAGI/spikeDE 고정 커밋](https://github.com/PhysAGI/spikeDE/tree/fcd743befe504b1a471fa81887e6af7d6789da2e)의 원본 파일9개를 임시 경로 `/tmp/nsmt_spikede_ref_fcd743b`에 내려받았다. 패키지 설치나 소스 수정 없이 기존 `snn_jelly` CPU/torch2.11에서 import와 scalar 실행이 가능했다. 따라서 ‘고정 소스가 장비에 없다’를 지속적인 blocker로 취급할 근거는 없다. 원본은 [ICLR 2026 f-SNN 논문](https://proceedings.iclr.cc/paper_files/paper/2026/hash/80b4df828ee59926a5f2422f1c072d88-Abstract-Conference.html)의 공개 구현이며, reference commit/hash를 고정한다.
+
+원본 `LIFNeuron` + 공개 `pred_integrate_tuple`를 실제 호출한 첫 실행에서 alpha=.3/.5/.7/1 × tau4/8 × 상수/펄스/seed7 난수 입력의 **24개 조건 모두 spike 일치**, 독립 scalar 정의와 최대 상태 오차 **3.0184188481996443e-15**였다. 저장된 기존 `reset_conventions.py::code_convention()`과 원본은 **17 spikes, 상태 오차6.661338147750939e-16**. v3의 arctan surrogate와 원본(scale5)은 spike 일치, gradient 최대 오차 **4.440892098500626e-16**였다. [첫 실행 결과·원본 파일 SHA256](../f_lif_pop_v3/forecasting/results/assessment/20260921-1500-utc-reference/reference_results.json), [scalar 전체 궤적](../f_lif_pop_v3/forecasting/results/assessment/20260921-1500-utc-reference/scalar_trajectories.csv).
+
+이는 **원본 scalar 정의의 실제 실행 대조**다. 기존 v3의 비리셋 가지+별도 소마가 원본 reset 뉴런과 동일하다는 뜻은 아니며, full SNNWrapper/FX, compiled execution, adjoint backward, GPU, 학습은 not run이다. 공식 `check_model.py`의 G4는 아직 hard-coded not run이므로 총 gate 수를 임의로20 pass로 바꾸지 않는다. 담당 세션은 이 artifact를 연결해 scalar-reference 실행 범위와 남은 full-wrapper 검증을 구분할 수 있다. 최초 실행은 당시 live source를 읽었으며, 이후 관찰된 수정과 섞이지 않도록 23:59:54의 새 고정 사본으로 반복 확인 중이다.
+
+**Commit 경계:** 다른 세션이 `2da37e385dc134cdd798b40d6f9c2e72d065343b`에 수정과 감사 중간 파일을 저장했다. 이전23:49 사본의 forecasting Python 코드가 이 commit과 전부 일치함을 확인했다([mapping](../f_lif_pop_v3/forecasting/results/assessment/20260921-144925-utc/commit_mapping.json)). 감사자는 commit/tag/index를 조작하지 않았다. 동시 commit에 감사자의 미지원 CLI 시도 stderr 등 원시 로그4개도 들어갔다. 로컬 파일은 보존했고, 향후 담당 세션은 AGENTS의 원시 로그 로컬 보존 규칙에 맞게 추적 대상을 정리하되 실제 artifact를 삭제하지 않아야 한다. 이 동시 commit은 §9의 최종 부분이 작성되기 전 중간 snapshot이므로 작업 트리의 뒤쪽 append까지 확인한다.
+
+---
+
+2026-09-22 00:01 KST (작업 에이전트)
+대응 ID: 추적 감사 §9.3의 신규 3건 + §9.4 기록 정정
+구현 commit / 실행 당시 source hash: 아래 커밋. 파일 sha256[:12] — 609cfaf6170b layers.py;218e5c47317f check_model.py;e9aaa59716e9 calibrate.py;548933ad7e39 config.py;656bd4302131 data_provider/synthetic.py;
+변경 파일과 실제 동작:
+- `calibrate.py` — `choose()`가 `within_bound`를 통과 조건에 포함(거부 사유에 탈락 개수 명시), `declared_bound`/`within_bound`/`g11_factor` 저장, `branch_abs_max`를 `amax(T,B,D)`의 배치 간 max로 수정, timestamp를 초 단위로 + `open(...,'x')`로 덮어쓰기 차단, 실패한 `sparse_at_init` row 보존
+- `layers.py` — `cap_rate`를 "반환된 계수가 실제로 잘린 비율"로 정의하고 정책의 잠재 초과율은 `would_cap_rate`로 분리. 뉴런 aux에도 전달
+- `Population_fLIF_v3_prereg_KO.md` — §2C 날짜를 2026-09-21로 정정, 30.6887 "일치" 표현 정정, **D-W** 추가
+- `check_model.py` — 코드 내 감사 날짜 2026-09-22 → 2026-09-21
+사전등록 변경 여부 / 이미 관측한 결과: §2C에 D-W를 append. 학습 결과는 여전히 없으므로 결과를 본 뒤의 기준 변경이 아니다.
+정확한 실행 명령, 데이터 revision/hash, seeds:
+```bash
+export LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib
+cd NSMT/f_lif_pop_v3/forecasting
+/home/yschoi/.conda/envs/snn_recall/bin/python check_model.py --phase all
+/home/yschoi/.conda/envs/snn_recall/bin/python calibrate.py --task recall --n_train 1024 --cpu
+/home/yschoi/.conda/envs/snn_recall/bin/python calibrate.py --task ett --data ETTh1 --cpu
+```
+데이터 revision r2, data_seed 20260921, torch seed 7, CPU.
+수정 전 수치 → 수정 후 수치:
+| 항목 | 수정 전 | 수정 후 |
+|---|---|---|
+| `choose()` 상한 초과 후보 (max\|u\|=1001, bound=10) | **picked=True** ('closest to target') | **picked=False**, 사유에 "1 in-band candidate(s) rejected for exceeding the declared bound" |
+| `choose()` 정상 후보 (max\|u\|=5, bound=10) | — | picked=True (회귀 없음) |
+| `branch_abs_max` (독립 64-seq probe) | [2.0167, 1.1760, 0.6747, 0.3720] | 실제 최댓값 [12.3278, 6.8536, 3.6856, 2.0798] |
+| `branch_abs_max` (실제 보정 JSON) | — | [19.4898, 13.6371, 8.3487, 4.6658], mean [2.531, 1.535, 0.899, 0.503] |
+| `cap_rate` cap=True | 0.048780488 | 0.097561 / would 0.097561 |
+| `cap_rate` cap=False | **0.048780488** (cap을 껐는데 양수) | **0.000000** / would 0.097561 |
+| `cap_rate` mass_matched | — | **0.000000** / would 0.097561 |
+| 게이트 | 19 passed / 0 failed / 1 not run | **동일** (회귀 없음) |
+| 보정 recall r2 seed7 | scale 8.0, rate 0.1848 | **동일**, within_bound=True (bound 305.0, max\|u\| 19.49) |
+| 보정 ETTh1 seed7 | scale 6.0, rate 0.1896 | **동일**, bound 507.6, max\|u\| 19.69 |
+증거 artifact 경로: `f_lif_pop_v3/analysis/check_model_phaseAC.txt`, `f_lif_pop_v3/forecasting/results/calibration/*_2609*-*.json` (초 단위 timestamp)
+상태: §9.3 신규 3건 = FIXED-PENDING-REVIEW · §9.4 기록 정정 2건 = FIXED · A02 A03 A08 A09 A10 = OPEN(부분) · A12 = OPEN(not run)
+남은 제한과 다음 단계:
+- §9.2를 수용해 **capacity scaling 일반화를 보류**한다. r2에서도 고유 재질의 key는 2.98 / 4.32 / 3.86이므로 `n_keys=8`이 더 많은 key의 회상을 평가한다는 증거가 없다. D-W에 "8개 도입, 평균 3.86개 재질의, 낮은 coverage의 stress"로 표현을 고정했다.
+- §9.2의 평가 설계 요구(recall-only MSE와 재등장 첫 사건 MSE 분리, `lag_max` 해석 주의)를 D-W에 명시했다. 실제 구현은 `test.py`가 생길 때 들어간다.
+- A08의 analog readout 경로, A09의 IDEA_LOG 표현 정리, A10의 run UUID·checkpoint norm 통계 fresh reload는 여전히 미완이며 `ours.py`/`train.py`/`test.py` 작업과 함께 처리한다.
+- **다음 작업: `ours.py`(M1 백본 + readout) 구현.** A08의 gradient 유지 analog 경로를 여기서 함께 만든다.

@@ -179,6 +179,7 @@ class Selector(nn.Module):
             # p는 None이다. b/sum(b)를 p라고 부르면 latent uniform p와 혼동된다 (audit A08).
             return c, {'p': None, 'rho': torch.ones_like(c), 'score': None,
                        'eta': zeros, 'kappa': ones, 'cap_rate': zeros,
+                       'would_cap_rate': zeros,
                        'support_p': ones, 'support_rho': ones, 'support_braw': ones,
                        'support_c': ones}
 
@@ -202,6 +203,7 @@ class Selector(nn.Module):
         denom = (b_hist * p).sum(-1, keepdim=True).clamp_min(1e-12)
         rho = (1. - self.eta) + self.eta * mass * p / denom           # 볼록 결합: eta=0이면 rho == 1
         raw = b_hist * rho
+        would_cap = (raw > cap).to(raw.dtype).mean(-1)                # 정책의 잠재 초과율
         c = torch.minimum(raw, cap) if self.cap else raw             # R3 (--no-cap은 탐색 전용)
         if mode == 'mass_matched':
             # 상한을 적용한 뒤의 총질량을 맞춘다. 상한 이전에 맞추면 항상 B라서 full이 된다.
@@ -211,7 +213,12 @@ class Selector(nn.Module):
         aux = {'p': p.detach(), 'rho': rho.detach(), 'score': score.detach(),
                'eta': self.eta.detach().expand(*c.shape[:-1]),
                'kappa': (c.sum(-1) / mass).detach(),                 # 상한이 물리면 1보다 작아진다
-               'cap_rate': (raw > cap).to(c.dtype).mean(-1).detach(),
+               # cap_rate는 반환된 계수가 실제로 잘린 비율이다. cap=False면 0이고,
+               # mass_matched는 kappa*b <= b_0이라 구조적으로 0이다. 정책 자체의
+               # 잠재 초과율은 would_cap_rate로 따로 본다 (audit 추적 §9.3).
+               'cap_rate': ((c < raw - 1e-12).to(c.dtype).mean(-1).detach()
+                            if mode != 'mass_matched' else torch.zeros_like(would_cap)),
+               'would_cap_rate': would_cap.detach(),
                # D-K: 네 층위의 support는 서로 다르다. 각각 따로 보고한다 (gate G13).
                'support_p': (p > 0).to(c.dtype).mean(-1).detach(),
                'support_rho': (rho > 0).to(c.dtype).mean(-1).detach(),
@@ -308,7 +315,8 @@ class PopulationNeuron(nn.Module):
         u = x.new_zeros(B, D, self.num_population)                   # u_0 = 0, 리셋 없음
         v = x.new_zeros(B, D)
         incs, keys, spikes = [], [], []                              # f(j), xi_j, s_n
-        keep = ('kappa', 'cap_rate', 'eta', 'support_p', 'support_rho', 'support_braw', 'support_c')
+        keep = ('kappa', 'cap_rate', 'would_cap_rate', 'eta',
+            'support_p', 'support_rho', 'support_braw', 'support_c')
         logs = {k: [] for k in ('state', 'voltage', 'coeff') + keep}
 
         for t in range(T):

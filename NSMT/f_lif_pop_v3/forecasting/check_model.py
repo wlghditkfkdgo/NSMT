@@ -218,7 +218,7 @@ def phase_c(report, T=24, D=4):
                f"max |err| = {err:.2e} at eta=1; bitwise = {bitwise}. The registered wording said "
                f"bitwise, but the uniform-p path divides by sum(b*p) while `full` does not, so the "
                f"two differ in the last ulp by construction. Declared tolerance 1e-12 "
-               f"(prereg amendment 2026-09-22).")
+               f"(prereg amendment 2026-09-21).")
 
     # G12/G8a: eta=0에서 상한은 구조적으로 작동할 수 없고, 따라서 질량이 보존된다
     with torch.no_grad():
@@ -290,7 +290,7 @@ def phase_c(report, T=24, D=4):
 
 
 def phase_c_audit(report, T=42, D=2):
-    """Gates added after the 2026-09-22 audit. Each one is an issue's pass condition."""
+    """Gates added after the 2026-09-21 audit. Each one is an issue's pass condition."""
     torch.manual_seed(11)
     b = layers.fractional_coefficients(.7, T, dtype=torch.float64)
     b_hist, mass, b0 = b[1:T].flip(0), b[1:T].sum(), b[0].item()
@@ -346,7 +346,7 @@ def main():
     if args.phase in ('C', 'all'):
         print("[gate] Phase C -- population reduction, causality, selection")
         phase_c(report)
-        print("[gate] Phase C (audit) -- pass conditions for the 2026-09-22 audit issues")
+        print("[gate] Phase C (audit) -- pass conditions for the 2026-09-21 audit issues")
         phase_c_audit(report)
 
     failed, skipped = report.failures(), report.skipped()

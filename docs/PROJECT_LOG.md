@@ -2765,3 +2765,67 @@ query는 시간축에 균등하지 않고 n_keys가 커질수록 뒤로 밀린�
 감사의 종합 판정을 그대로 받아들인다. **현재 자료로 "검증 완료"나 "아이디어 성능 입증"을 주장할 수 없다.** 지금까지 확인된 것은 정의의 자기일관성과 초기 동작점뿐이다.
 
 Artifacts: `NSMT/f_lif_pop_v3/analysis/{check_model_phaseAC.txt,recall_task_sanity.txt}`, `NSMT/f_lif_pop_v3/forecasting/results/calibration/*_260921-23*.json`, `NSMT/docs/Population_fLIF_v3_prereg_KO.md` §2C, `NSMT/docs/ASSESMENT.md` 후속 기록.
+
+## 2026-09-21 23:54 KST — v3 추적 감사 01 (r2 수정 및 재보정, 학습 없음)
+
+- 목적: 사용자의 지속 관찰 요청에 따라 다른 세션의 수정/보정/사전등록 §2C를 검토하고 `NSMT/docs/ASSESMENT.md` §9를 append했다. 기존 감사/역사 기록은 보존했다. Branch `exp/f-lif-pop-v3`, HEAD `df3a3407b9ae653b4b1031320c4e8240b4c943a0`, v3 base `329183b94f65090cc6b337f464c5aa4d8e127ad7`; 미커밋 소스를 23:49:25 KST에 고정했다. 상세 SHA256/결과는 `NSMT/f_lif_pop_v3/forecasting/results/assessment/20260921-144925-utc/`와 later_inventory.json에 있다.
+- 환경/명령: CPU thread2, snn_recall Python3.10/torch1.12, torch seed7; `OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 /home/yschoi/.conda/envs/snn_recall/bin/python scripts/audit_f_lif_pop_v3.py /tmp/nsmt_assessment_20260921-144925-utc`; 같은 prefix/인자로 `scripts/audit_f_lif_pop_v3_followup.py`. GateReport에 phase_a/phase_c/phase_c_audit를 호출해19 pass/0 fail/1 not run(G4). 최초 --json CLI 시도는 미지원 옵션 exit2, 올바른 API 재실행 완료; 모델 실패 아님. 원시 로그는 task log/assessment 하위에 로컬 보존한다.
+- 확인: A01 cap 후 질량 대조 mismatch6.006159→0, kappa 둘 다 .5698047788. A06 cap/eta_fixed 배선 및 정확값/동일 설정 state_dict 복원 spike/state 일치. A11 codebook16개 중복0·17개 ValueError. A04 두 chance 정의가 독립 재계산과 일치. A02 정의는 §2C에서 post-cap c로 개정, 임계 .5 유지; 학습 metric은 not run.
+- 과제: r2 data seed20260921, T42/P8/run2–5/min_gap1/code encoding, n_keys3/5/8 각300 sequences. 고유 재질의 key2.98/4.32/3.8567, 모든 key 재질의 sequence98%/41%/0%. 영구 배제는 해결되었으나8-key의 coverage 부족은 남는다. §2C의 주3/5·stress8 구분을 확인. recall-only/첫 재등장 event 평가, 균형 query 및 delay 분리 제안은 ASSESMENT §9.2와 기존 Zoology 원문 근거를 따른다.
+- 남은 문제: A05 actual current 측정은 수정되었으나 choose는 상태1001/bound10인 후보도 통과시킴(정책 반례, 관측 폭주 아님). branch_abs_max가 실제 max가 아닌 배치평균 max임을 텐서로 확인. cap=False인데 cap_rate 양수인 명칭 문제, 실패 sparse row 소실/분 단위 filename 충돌 가능성(A10). 사전등록 시각 및 동일 표본 재현 표현 정정 권고.
+- 새 보정 결과 분석: recall r2 seed7 scale8 Full rate.1847657673060894/sparse.18672253005206585/current30.503751754760742/state19.48978614807129. ETT seed7 scale6 Full.18956471048295498/sparse.18921967595815659/current50.75556945800781/state19.68758773803711. 초기 보정이고 학습 정확도 아님. 과제/표본/난수 순서가 바뀌어 이전 보정과 인과적 성능 비교 불가. ASSESMENT §9.4의 Full rate 전사 오류를 즉시 후속 append로 정정했다.
+- 변경/한계: 감사 probe 추가 및 감사/기억 문서와 이 기록만 작성. 작업 중 모델 소스와 결과는 해당 세션이 수정했다. 정식 train/test·학습 중 bound·8 seeds·golden/GPU·성능 판정은 not run. Commit/tag/push는 not run: 진행 중 공유 HEAD/index 보존. main 통합 없음. 이 세션의 직접 관찰이며 종료 후 자동 감사 예약 서비스는 설정하지 않았다.
+
+---
+
+## 2026-09-22 00:01 KST — 추적 감사 §9 신규 3건 수정과 기록 정정 (학습 없음)
+
+**Branch:** `exp/f-lif-pop-v3` · 감사 문서 `NSMT/docs/ASSESMENT.md` §9 (추적 감사 01, 2026-09-21 23:52 KST)
+
+추적 감사가 내 수정을 재검증해 **A01·A04·A06·A11을 VERIFIED**로 올렸고, A02·A03·A05·A07·A08·A09·A10을 PARTIAL로 두었다. 동시에 **새 결함 3건**을 지적했고 전부 재현되어 수정했다.
+
+### 1. P1 — 보정이 상한 초과 후보를 거부하지 않았다
+
+`calibrate.choose()`에 `max_abs_state=1001`, 선언 상한 10인 후보를 주면 **"closest to target"으로 선택**했다. `EXCEEDS`를 출력만 하고 무효화하지 않았다. **G11을 만들어 놓고 판정에 쓰지 않은 것**이다.
+
+통과 조건에 `within_bound`를 넣고, 거부 시 사유에 탈락 개수를 적는다. `declared_bound`·`within_bound`·`g11_factor`를 JSON에 저장해 **학습 중에도 이 고정 상한을 쓴다**. 매 스텝 새 최댓값으로 상한을 올리면 상한 검사가 아니다.
+
+| | 수정 전 | 수정 후 |
+|---|---|---|
+| max\|u\|=1001 vs bound 10 | **선택됨** | 거부, "1 in-band candidate(s) rejected for exceeding the declared bound" |
+| max\|u\|=5 vs bound 10 | — | 선택됨 (회귀 없음) |
+
+### 2. P2 — `branch_abs_max`가 최댓값이 아니었다
+
+배치별 `mean`들의 max를 저장하고 있었다. 독립 64-sequence probe에서 저장값 **[2.02, 1.18, 0.67, 0.37]** vs 실제 **[12.33, 6.85, 3.69, 2.08]** — 6배 차이. `amax(T,B,D)`를 배치 간 max로 모으도록 고쳤다. 실제 보정 JSON에서 **[19.49, 13.64, 8.35, 4.67]**(평균 [2.53, 1.54, 0.90, 0.50])이고 가장 빠른 가지의 값이 `max_abs_state`와 일치한다.
+
+### 3. P2 — `cap=False`인데 `cap_rate`가 양수였다
+
+cap 유무와 무관하게 0.0488로 동일했다. 실제 clipping 빈도가 아니라 `raw > b₀` 잠재 초과율이었기 때문이다. 정의를 둘로 나눴다.
+
+| 조건 | `cap_rate` (실제 잘린 비율) | `would_cap_rate` (정책의 잠재 초과율) |
+|---|---:|---:|
+| cap=True | 0.097561 | 0.097561 |
+| cap=False | **0.000000** | 0.097561 |
+| mass_matched | **0.000000** (κb ≤ b₀이라 구조적) | 0.097561 |
+
+### 4. 내 기록의 부정확함 두 건 정정
+
+- **날짜:** 사전등록 §2C와 `check_model.py`에 감사 날짜를 "2026-09-22"로 적었으나 **감사와 수정 모두 2026-09-21 KST**였다. 사전등록과 코드를 정정했다. 직전 PROJECT_LOG 항목의 제목 "2026-09-22 23:52 KST"도 같은 오류이며, 본 로그는 append-only이므로 **여기서 정정한다: 실제는 2026-09-21 23:52 KST다.**
+- **과장:** "실제 30.504가 감사의 독립 probe 30.6887과 일치"라고 썼다. 두 값은 **표본과 조건이 다르므로** 같은 성질의 측정 오류를 독립적으로 지지하는 값이지 동일 표본의 재현 일치가 아니다.
+
+### 5. 수용하되 일반화하지 않는 것 (§9.2)
+
+추적 감사의 지적대로, r2에서도 `n_keys=8`이 `n_keys=5`보다 더 많은 key의 회상을 평가한다는 증거는 없다. 감사의 독립 측정으로 실제 고유 재질의 key는 **2.98 / 4.32 / 3.86**이고, 전체 key를 재질의한 sequence 비율은 **98% / 41% / 0%**다. 정확한 표현은 **"8개 도입, 평균 3.86개 재질의, 낮은 query coverage의 stress 조건"**이며 **capacity scaling 일반화는 보류한다.**
+
+추가로 `lag_max`는 "sequence별 평균 lag의 최댓값을 sequence 평균한 값"이므로 표본 전체의 최장 lag로 읽지 않는다. 평가에서 **recall-only MSE와 재등장 구간 첫 사건 MSE를 분리**해 고정한다(전체 사건 MSE만 보면 key가 많을수록 copy 사건 가중치가 늘어난다). 사전등록 D-W에 명시했다.
+
+### 6. 회귀 확인
+
+게이트 **19 passed / 0 failed / 1 not run** 유지, 보정 선택값도 recall 8.0 / ETTh1 6.0으로 동일하며 둘 다 `within_bound=True`(305.0 / 507.6 대비 19.49 / 19.69)다.
+
+### 7. 다음 단계
+
+`ours.py`(M1 백본 + readout). A08이 요구한 **gradient를 유지하는 analog readout 경로**를 여기서 함께 만든다. 현재 `state`/`voltage`는 detach된 진단값이라 거기에 head를 붙이면 뉴런까지 학습되지 않는다.
+
+Artifacts: `NSMT/f_lif_pop_v3/analysis/check_model_phaseAC.txt`, `NSMT/f_lif_pop_v3/forecasting/results/calibration/*_2609*.json`, `NSMT/docs/Population_fLIF_v3_prereg_KO.md` D-W, `NSMT/docs/ASSESMENT.md` 후속 기록.
