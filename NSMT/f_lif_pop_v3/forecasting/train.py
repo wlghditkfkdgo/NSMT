@@ -107,10 +107,14 @@ def train_one_epoch(model, data_loader, optimizer, args):
         total[1] += error.abs().sum()
         total[2] += y.numel()
 
-    return {'loss': (total[0] / total[2]).item(), 'mse': (total[0] / total[2]).item(),
-            'mae': (total[1] / total[2]).item(),
-            'max_abs_state': peak, 'firing_rate': float(np.mean(rate)) if rate else None,
-            **{k: (float(np.mean(v)) if v else None) for k, v in watched.items()}}
+    result = {'loss': (total[0] / total[2]).item(), 'mse': (total[0] / total[2]).item(),
+              'mae': (total[1] / total[2]).item()}
+    if rate:                                                  # GRU 등 비스파이킹 모델은 비운다
+        result['max_abs_state'] = peak
+        result['firing_rate'] = float(np.mean(rate))
+        result.update({k: float(np.mean(v)) for k, v in watched.items() if v})
+
+    return result
 
 
 def val_one_epoch(model, data_loader, args):
@@ -160,8 +164,9 @@ def train(args: Config):
     payload = test(args)
     payload['train'] = {'epochs_run': epoch + 1, 'seconds': time.time() - started,
                         'best_val_loss': float(stopper.val_loss_min),
-                        'final_firing_rate': train_result['firing_rate'],
-                        'train_max_abs_state': train_result['max_abs_state']}
+                        **{k: train_result[k] for k in
+                           ('firing_rate', 'max_abs_state', 'eta', 'kappa', 'would_cap_rate',
+                            'support_p') if k in train_result}}
     payload['provenance'] = {
         'run_uuid': args.run_uuid, 'config_hash': args.config_hash,
         'calibration': {'file': args.calibration_file, 'input_scale': args.input_scale,
