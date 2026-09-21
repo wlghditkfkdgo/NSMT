@@ -2488,3 +2488,48 @@ Artifact: `NSMT/f_lif_pop_v3/analysis/check_model_phaseAC.txt`
 `synthetic.py`(회상 과제 생성기) → `calibrate.py`(D11 보정, Phase B) → `ours.py`/`train.py`/`test.py` 이식 → Phase D.
 
 Artifacts: `NSMT/f_lif_pop_v3/forecasting/{layers.py,check_model.py}`, `NSMT/f_lif_pop_v3/analysis/check_model_phaseAC.txt`.
+
+---
+
+## 2026-09-21 22:35 KST — v3 코드를 기존 저장소 작성 스타일로 재작성 (동작 변경 없음)
+
+**Branch:** `exp/f-lif-pop-v3` · 사용자 요청: "기존 코드 작성 스타일을 그대로 모방하여 작성해줘".
+
+### 1. 점검 결과 — 모방하지 않은 상태였다
+
+저장소에는 목적에 따라 **두 가지 스타일**이 공존한다.
+
+| 파일군 | 예시 | 특징 |
+|---|---|---|
+| **모델·레이어 모듈** | `model_v1/forecasting/{layers.py, ours.py}` | 모듈 docstring 없음, `__all__` 선언, 클래스 docstring은 기전 산문 + 평문 수식(`V(t+1)=decay*V(t)+...`) + 근거 인용(`review 6.3`, `Zipser 1993`), `forward` 시그니처 뒤 shape 주석, `T, B, N, D = x.shape` 명시, 오른쪽 정렬 인라인 주석, 타입힌트 거의 없음, 작은따옴표 |
+| **독립 헬퍼 스크립트** | `model_v1/forecasting/{firing_rate.py, neo_bank.py}` | 모듈 docstring 있음, numpy식 `Args ----` 섹션, `print(f"[firing-rate] ...")` 태그 접두 출력 |
+
+초판 v3 코드는 둘 중 어느 쪽도 아니었다(압축형 한 줄 docstring `"""[N,D,K+1] -> c [N,D,J]"""`, shape 주석 없음, `__all__` 없음).
+
+### 2. 조치
+
+| 파일 | 적용한 스타일 | 주요 변경 |
+|---|---|---|
+| `f_lif_pop_v3/forecasting/layers.py` | 모델·레이어 모듈 | 모듈 docstring 제거, `__all__` 추가, 클래스 docstring을 기전 산문 + 평문 수식 + 사전등록 결정코드 인용(`R3`, `F1`, `D-A`, `D-D`, `D-K`, `O2`) 형태로 재작성, `forward` 뒤 shape 주석, `T, B, D = x.shape` 명시, 오른쪽 정렬 인라인 주석, `Selector.coefficients` → `Selector.forward`(레퍼런스의 `self.lif(pre)` 호출 관례에 맞춤), `Soma.step` → `Soma.forward`, 변수명 축약(`increment`→`f`, `current`→`x`, `coeff`→`c`) |
+| `f_lif_pop_v3/forecasting/check_model.py` | 독립 헬퍼 스크립트 | 모듈 docstring에 `Phases` / `Usage` 섹션, 함수에 numpy식 `Args ----`, 모든 출력을 `[gate]` 태그 접두로, `Report`→`GateReport`, `build`→`build_neuron`, `neutral`→`force_eta`(0/1 양쪽 지원), `argparse`에 저장소 관례대로 `dest=`·`nargs='?'`·`%(default)s` 적용 |
+
+### 3. 회귀 확인 — 17개 게이트 전부 동일 수치로 재통과
+
+Artifact: `NSMT/f_lif_pop_v3/analysis/check_model_phaseAC.txt` (갱신)
+
+| 게이트 | 재작성 전 | 재작성 후 |
+|---|---|---|
+| G1a / G1b | 1.78e-15 / 6.56e-07 | **동일** |
+| G2 / G3 | 0.00e+00 / 5.00e-16 (naive 0.945) | **동일** |
+| G15 | 2.2243, 이전 시점 0.00e+00 | **동일** |
+| G5a / G5b | 0.00e+00 / 0.00e+00, τ_hom 8.533 | **동일** |
+| G6 / G7 / G7b | 0.00e+00 / `torch.equal=True` / 3.33e-16 | **동일** |
+| G12 / G8a / G8b | 0.0 / 0.00e+00 / 17-23, κ∈[0.242,1.000] | **동일** |
+| G13 | η=0.0180, p=0.841 vs ρ=b·ρ=c=1.000 | **동일** |
+| G10 / G9 / G11 | 유한·비영 / 0.00e+00 / 2.385·2.385 | **동일** |
+
+**한 곳만 값이 바뀌었고, 이는 개선이다.** G11의 사전 선언 상한을 `10·2·3 = 60.0`(어림값)에서 실제 `10·max|I| = 67.5`로 고쳤다. 사전등록 §3A G11의 정의(`10 · max|I|`)와 일치시킨 것이며, 판정 결과(`max|u| = 2.385 < 상한`)는 그대로다.
+
+동작이 바뀌지 않았음은 위 17개 수치가 전부 일치한다는 사실로 확인했다. 학습·데이터셋 사용 없음.
+
+Artifacts: `NSMT/f_lif_pop_v3/forecasting/{layers.py,check_model.py}`, `NSMT/f_lif_pop_v3/analysis/check_model_phaseAC.txt`.

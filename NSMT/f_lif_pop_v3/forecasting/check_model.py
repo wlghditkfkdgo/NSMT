@@ -1,260 +1,311 @@
 """Pre-registered numerical gates for Population f-LIF v3-A.
 
-Gate list: NSMT/docs/Population_fLIF_v3_prereg_KO.md section 3 and 3A (rev.1).
-Every gate here runs without training and without a dataset.
+Runs every gate that needs no training and no dataset, so that a wrong definition
+is caught before any GPU time is spent. The gate list itself is pre-registered in
+``NSMT/docs/Population_fLIF_v3_prereg_KO.md`` sections 3 and 3A (rev.1); this file
+is only the executor and must not invent or relax a gate.
 
+Phases
+------
+A : scalar definition and reference parity  (G1, G2, G3, G4, G15)
+C : population reduction, causality, selection  (G5 - G13)
+
+Phase B (firing-rate calibration) needs data and lives in ``calibrate.py``.
+
+Usage
+-----
     python check_model.py --phase A
     python check_model.py --phase C
     python check_model.py --phase all
 """
-import argparse
+
 import math
+import argparse
 
 import torch
 
 import layers
 
-TOL = 1e-12
+TOL = 1e-12                    # float64 게이트의 공통 허용오차
 
 
-class Report:
-    def __init__(self):
+class GateReport:
+    """Collects gate outcomes and prints them in registration order.
+
+    ``passed`` is tri-state: True / False / None, where None means the gate could
+    not be run at all (missing reference environment, say). A not-run gate is never
+    silently dropped -- the prereg requires it be reported as "not run".
+    """
+    def __init__(self, tag='gate'):
+        self.tag = tag
         self.rows = []
 
     def add(self, gate, name, passed, detail):
         self.rows.append((gate, name, passed, detail))
         mark = {True: 'PASS', False: 'FAIL', None: 'NOT RUN'}[passed]
-        print(f'  [{mark:>7}] {gate:<4} {name}\n            {detail}')
+        print(f"[{self.tag}] {mark:>7} | {gate:<4} {name}")
+        print(f"[{self.tag}]         | {detail}")
 
     def failures(self):
-        return [r for r in self.rows if r[2] is False]
+        return [row for row in self.rows if row[2] is False]
+
+    def skipped(self):
+        return [row for row in self.rows if row[2] is None]
 
 
-def build(seed=0, embed_dim=6, double=True, **kwargs):
+def build_neuron(seed=0, embed_dim=6, double=True, **neuron_args):
+    """Fresh neuron with a fixed seed. float64 by default so 1e-12 gates are meaningful."""
     torch.manual_seed(seed)
-    model = layers.PopulationNeuron(embed_dim=embed_dim, **kwargs)
+    model = layers.PopulationNeuron(embed_dim=embed_dim, **neuron_args)
+
     return model.double() if double else model
 
 
-def neutral(model):
-    """Force eta = 0 exactly (sigmoid saturates, so the branch is the bare kernel)."""
+def force_eta(model, value):
+    """Saturate the sigmoid so eta is exactly 0 or exactly 1, not merely close."""
     with torch.no_grad():
-        model.selector.eta_hat.fill_(-1e30)
+        model.selector.eta_hat.fill_(-1e30 if value == 0 else 1e30)
+
     return model
 
 
-# --------------------------------------------------------------------------- Phase A
-def phase_a(report, steps=24, dim=4):
-    # G1a: the coefficient table telescopes to the exact fractional integral gain.
+@torch.no_grad()
+def phase_a(report, T=24, D=4):
+    """Scalar definition: does the branch integrate what the paper says it integrates?
+
+    Args
+    ----
+    report : GateReport
+    T : int, default 24
+        Sequence length. Long enough that the kernel tail matters, short enough to be fast.
+    D : int, default 4
+        Embedding dim.
+    """
+    # G1a: 계수표가 정확히 분수적분 이득으로 telescoping 되는가 (해석해 대조)
     worst = 0.
     for alpha in (.3, .5, .7, 1.):
-        b = layers.fractional_coefficients(alpha, steps, dtype=torch.float64)
-        exact = torch.arange(1, steps + 1, dtype=torch.float64).pow(alpha) / math.exp(math.lgamma(alpha + 1.))
+        b = layers.fractional_coefficients(alpha, T, dtype=torch.float64)
+        exact = torch.arange(1, T + 1, dtype=torch.float64).pow(alpha) / math.exp(math.lgamma(alpha + 1.))
         worst = max(worst, (b.cumsum(0) - exact).abs().max().item())
     report.add('G1a', 'sum_d b_d == (n+1)^alpha / Gamma(alpha+1)', worst < TOL,
-               f'max |err| = {worst:.2e} over alpha in 0.3/0.5/0.7/1.0, n<={steps}')
+               f"max |err| = {worst:.2e} over alpha in 0.3/0.5/0.7/1.0, n <= {T}")
 
-    # G1b: constant forcing on the model. A leak-free branch must trace U = c t^alpha/Gamma.
+    # G1b: 모델 수준 상수 forcing. tau를 크게 두어 누설을 억제하면 U = c t^alpha / Gamma 여야 한다
     big = 1e7
-    model = neutral(build(tau=(big,) * 4, embed_dim=dim, alpha=.7))
-    current = torch.ones(steps, 1, dim, dtype=torch.float64)
-    state = model(current, mode='full', return_aux=True)[1]['state'][:, 0, 0, 0]
-    exact = torch.arange(1, steps + 1, dtype=torch.float64).pow(.7) / (big * math.exp(math.lgamma(1.7)))
-    rel = ((state - exact).abs() / exact).max().item()
-    report.add('G1b', 'constant forcing integrator U = U0 + c t^alpha/Gamma(alpha+1)', rel < 1e-6,
-               f'max relative err = {rel:.2e} (tau = {big:.0e}, leak suppressed)')
+    model = force_eta(build_neuron(tau=(big,) * 4, embed_dim=D, alpha=.7), 0)
+    x = torch.ones(T, 1, D, dtype=torch.float64)
+    u = model(x, mode='full', return_aux=True)[1]['state'][:, 0, 0, 0]
+    exact = torch.arange(1, T + 1, dtype=torch.float64).pow(.7) / (big * math.exp(math.lgamma(1.7)))
+    rel = ((u - exact).abs() / exact).max().item()
+    report.add('G1b', 'constant forcing integrator U = U0 + c t^alpha / Gamma(alpha+1)', rel < 1e-6,
+               f"max relative err = {rel:.2e} (tau = {big:.0e}, leak suppressed; residual IS the leak)")
 
-    # G2: alpha = 1 with eta = 0 collapses onto the Euler leaky integrator.
-    model = neutral(build(alpha=1., embed_dim=dim))
+    # G2: alpha=1, eta=0, g=0 이면 보통 오일러 leaky integrator와 같아야 한다
+    model = force_eta(build_neuron(alpha=1., embed_dim=D), 0)
     torch.manual_seed(1)
-    current = torch.randn(steps, 3, dim, dtype=torch.float64)
-    state = model(current, mode='full', return_aux=True)[1]['state']
-    euler = torch.zeros(3, dim, 4, dtype=torch.float64)
-    reference = []
-    for n in range(steps):
-        euler = euler + (current[n].unsqueeze(-1) - euler) / model.tau
-        reference.append(euler.clone())
-    err = (state - torch.stack(reference)).abs().max().item()
+    x = torch.randn(T, 3, D, dtype=torch.float64)
+    u = model(x, mode='full', return_aux=True)[1]['state']
+    euler, ref = torch.zeros(3, D, 4, dtype=torch.float64), []
+    for t in range(T):
+        euler = euler + (x[t].unsqueeze(-1) - euler) / model.tau
+        ref.append(euler.clone())
+    err = (u - torch.stack(ref)).abs().max().item()
     report.add('G2', 'alpha=1, eta=0, g=0  ==  Euler leaky integrator', err < TOL,
-               f'max |err| = {err:.2e}  (the g=0 condition is what rev.0 omitted)')
+               f"max |err| = {err:.2e}  (the g=0 condition is exactly what rev.0 omitted)")
 
-    # G3: the loop equals the closed form, and the naive B @ I / tau does not.
-    model = neutral(build(embed_dim=dim))
-    state = model(current, mode='full', return_aux=True)[1]['state']
-    fast = model.fast_path(current)
-    b = model.b[:steps]
-    rows = torch.arange(steps).unsqueeze(1) - torch.arange(steps).unsqueeze(0)
-    kernel = torch.where(rows >= 0, b[rows.clamp_min(0)], torch.zeros(1, dtype=b.dtype))
-    naive = torch.einsum('nm,mdc->ndc', kernel, current).unsqueeze(-1) / model.tau
-    err, err_naive = (state - fast).abs().max().item(), (state - naive).abs().max().item()
+    # G3: 루프와 폐형식이 같은가. 그리고 되먹임을 빠뜨린 단순 행렬곱은 틀려야 한다
+    model = force_eta(build_neuron(embed_dim=D), 0)
+    u = model(x, mode='full', return_aux=True)[1]['state']
+    fast = model.fast_path(x)
+    b = model.b[:T]
+    lag = torch.arange(T).unsqueeze(1) - torch.arange(T).unsqueeze(0)
+    kernel = torch.where(lag >= 0, b[lag.clamp_min(0)], torch.zeros(1, dtype=b.dtype))
+    naive = torch.einsum('nm,mbd->nbd', kernel, x).unsqueeze(-1) / model.tau
+    err, err_naive = (u - fast).abs().max().item(), (u - naive).abs().max().item()
     report.add('G3', 'loop == (Id + B J/tau)^-1 B/tau   (and != B/tau)', err < 1e-10,
-               f'|loop - H_eff| = {err:.2e}   |loop - naive B@I/tau| = {err_naive:.3f}')
+               f"|loop - H_eff| = {err:.2e}   |loop - naive B@I/tau| = {err_naive:.3f}")
 
-    # G4: parity against a pinned spikeDE trajectory. Needs a CPU torch 2.x environment.
+    # G4: 원본(spikeDE) 궤적 대조. CPU torch 2.x 환경이 있어야 돌릴 수 있다
     report.add('G4', 'golden trajectory parity against pinned f-SNN code', None,
-               'blocked: spikeDE needs torch>=2.0 (snn_recall is 1.12, snn_jelly has no CUDA). '
-               'Grade stays "mathematical validation" until reference/make_golden.py can run.')
+               "blocked: no spikeDE source on this box and no torch>=2.0 CPU env "
+               "(snn_recall is 1.12, snn_jelly has no CUDA). Reference grade stays "
+               "'mathematical validation' per prereg O9.")
 
-    # G15: the last patch must reach the last spike (D-D soma alignment).
-    model = build(embed_dim=dim, double=False)
+    # G15: D-D 정렬. 마지막 patch가 마지막 스파이크에 도달해야 한다
+    model = build_neuron(embed_dim=D, double=False)
     torch.manual_seed(2)
-    current = torch.randn(steps, 2, dim)
-    with torch.no_grad():
-        model.soma.weight.fill_(1. / model.num_population)
-    base = model(current, mode='sparse', return_aux=True)[1]['voltage']
-    bumped = current.clone(); bumped[-1] += 50.
+    x = torch.randn(T, 2, D)
+    base = model(x, mode='sparse', return_aux=True)[1]['voltage']
+    bumped = x.clone()
+    bumped[-1] += 50.
     moved = model(bumped, mode='sparse', return_aux=True)[1]['voltage']
-    delta_last = (base[-1] - moved[-1]).abs().max().item()
-    delta_prev = (base[:-1] - moved[:-1]).abs().max().item()
-    report.add('G15', 'perturbing I_{T-1} moves v_{T-1} and nothing earlier', delta_last > 1e-3 and delta_prev == 0.,
-               f'|d v_last| = {delta_last:.4f}, |d v_earlier| = {delta_prev:.2e}')
+    last = (base[-1] - moved[-1]).abs().max().item()
+    earlier = (base[:-1] - moved[:-1]).abs().max().item()
+    report.add('G15', 'perturbing I_{T-1} moves v_{T-1} and nothing earlier',
+               last > 1e-3 and earlier == 0., f"|d v_last| = {last:.4f}, |d v_earlier| = {earlier:.2e}")
 
 
-# --------------------------------------------------------------------------- Phase B/C
-def phase_c(report, steps=24, dim=4):
+def phase_c(report, T=24, D=4):
+    """Population behaviour: reductions, causality, and what the selection actually does.
+
+    Args
+    ----
+    report : GateReport
+    T, D : int
+        Sequence length and embedding dim, as in :func:`phase_a`.
+    """
     torch.manual_seed(3)
-    current = torch.randn(steps, 3, dim, dtype=torch.float64)
+    x64 = torch.randn(T, 3, D, dtype=torch.float64)
+    x32 = x64.float()
 
-    # G5a: K=1 reduces to a scalar fractional branch driving the soma.
-    single = neutral(build(num_population=1, tau=(8.,), embed_dim=dim))
-    state = single(current, mode='full', return_aux=True)[1]['state'][..., 0]
-    scalar, trace = torch.zeros(3, dim, dtype=torch.float64), []
-    increments = []
-    for n in range(steps):
-        increments.append((current[n] - scalar) / 8.)
-        scalar = sum(single.b[n - j] * increments[j] for j in range(n + 1))
-        trace.append(scalar.clone())
-    err = (state - torch.stack(trace)).abs().max().item()
-    report.add('G5a', 'K=1 == scalar fractional branch (not the paper neuron: no branch reset)',
-               err < TOL, f'max |err| = {err:.2e}')
+    # G5a: K=1은 scalar fractional branch + 소마다. 원 논문 뉴런과 같지 않다 (D-L)
+    with torch.no_grad():
+        model = force_eta(build_neuron(num_population=1, tau=(8.,), embed_dim=D), 0)
+        u = model(x64, mode='full', return_aux=True)[1]['state'][..., 0]
+        scalar, incs, ref = torch.zeros(3, D, dtype=torch.float64), [], []
+        for t in range(T):
+            incs.append((x64[t] - scalar) / 8.)
+            scalar = sum(model.b[t - j] * incs[j] for j in range(t + 1))
+            ref.append(scalar.clone())
+        err = (u - torch.stack(ref)).abs().max().item()
+    report.add('G5a', 'K=1 == scalar fractional branch (no branch reset, so not the paper neuron)',
+               err < TOL, f"max |err| = {err:.2e}")
 
-    # G5b: a homogeneous population must hold identical constituents.
-    homo = neutral(build(embed_dim=dim, heterogeneous=False))
-    state = homo(current, mode='full', return_aux=True)[1]['state']
-    spread = (state - state[..., :1]).abs().max().item()
-    report.add('G5b', 'homogeneous tau => identical constituents (tau_hom = K/sum(1/tau_k))',
-               spread < TOL, f'max spread = {spread:.2e}, tau_hom = {homo.tau[0].item():.3f}')
+    # G5b: 동질 population이면 구성원이 모두 같아야 한다
+    with torch.no_grad():
+        model = force_eta(build_neuron(embed_dim=D, heterogeneous=False), 0)
+        u = model(x64, mode='full', return_aux=True)[1]['state']
+        spread = (u - u[..., :1]).abs().max().item()
+    report.add('G5b', 'homogeneous tau => identical constituents', spread < TOL,
+               f"max spread = {spread:.2e}, tau_hom = K/sum(1/tau_k) = {model.tau[0].item():.3f}")
 
-    # G6: causality -- a future patch may not touch any earlier quantity.
-    model = build(embed_dim=dim, double=False)
-    cut = steps // 2
-    base = model(current.float(), mode='sparse', return_aux=True)[1]
-    bumped = current.float().clone(); bumped[cut:] += 7.
-    moved = model(bumped, mode='sparse', return_aux=True)[1]
-    err = max((base[k][:cut] - moved[k][:cut]).abs().max().item() for k in ('state', 'voltage', 'spikes'))
-    report.add('G6', 'perturbing patches >= t leaves every state/score/spike before t intact',
-               err == 0., f'max |err| over state/voltage/spikes = {err:.2e}')
+    # G6: 인과성. 미래 patch를 건드려도 과거 어느 양도 변하면 안 된다
+    with torch.no_grad():
+        model = build_neuron(embed_dim=D, double=False)
+        cut = T // 2
+        base = model(x32, mode='sparse', return_aux=True)[1]
+        bumped = x32.clone()
+        bumped[cut:] += 7.
+        moved = model(bumped, mode='sparse', return_aux=True)[1]
+        err = max((base[k][:cut] - moved[k][:cut]).abs().max().item()
+                  for k in ('state', 'voltage', 'spikes'))
+    report.add('G6', 'perturbing patches >= t leaves every state/voltage/spike before t intact',
+               err == 0., f"max |err| over state/voltage/spikes = {err:.2e}")
 
-    # G7: eta = 0 is bitwise the full-history branch.
-    model = neutral(build(embed_dim=dim))
-    a = model(current, mode='sparse', return_aux=True)[1]['state']
-    c = model(current, mode='full', return_aux=True)[1]['state']
+    # G7: 중립극한. eta=0이면 sparse 경로가 full과 비트 단위로 같아야 한다
+    with torch.no_grad():
+        model = force_eta(build_neuron(embed_dim=D), 0)
+        a = model(x64, mode='sparse', return_aux=True)[1]['state']
+        c = model(x64, mode='full', return_aux=True)[1]['state']
     report.add('G7', 'neutral limit: eta=0 sparse == full, bitwise', torch.equal(a, c),
-               f'allclose(atol=0, rtol=0) = {torch.equal(a, c)}')
+               f"torch.equal (atol=0, rtol=0) = {torch.equal(a, c)}")
 
-    # G7b: a uniform p is mathematically the same condition, so `uniform` is not a control.
-    model = neutral(build(embed_dim=dim))
+    # G7b: uniform p도 같은 조건이다. `uniform`을 대조군에서 뺀 이유의 직접 확인 (D-H)
     with torch.no_grad():
-        model.selector.eta_hat.fill_(1e30)                       # eta = 1: rho = rho_tilde
-    uniform = [None] + [torch.full((3, dim, n), 1. / n, dtype=torch.float64) for n in range(1, steps)]
-    a = model(current, mode='oracle', oracle_p=uniform, return_aux=True)[1]['state']
-    c = model(current, mode='full', return_aux=True)[1]['state']
-    err = (a - c).abs().max().item()
-    report.add('G7b', 'uniform p == full  (why `uniform` was dropped as a control)', err < 1e-12,
-               f'max |err| = {err:.2e} at eta=1')
+        model = force_eta(build_neuron(embed_dim=D), 1)
+        flat = [None] + [torch.full((3, D, t), 1. / t, dtype=torch.float64) for t in range(1, T)]
+        a = model(x64, mode='oracle', oracle_p=flat, return_aux=True)[1]['state']
+        c = model(x64, mode='full', return_aux=True)[1]['state']
+        err = (a - c).abs().max().item()
+    report.add('G7b', 'uniform p == full  (why `uniform` is a gate, not a control)', err < 1e-12,
+               f"max |err| = {err:.2e} at eta=1")
 
-    # G8/G12: mass and cap behaviour.
-    model = neutral(build(embed_dim=dim))
-    aux = model(current, mode='sparse', return_aux=True)[1]
-    kappa_err = (aux['kappa'][1:] - 1.).abs().max().item()
-    cap = aux['cap_rate'].max().item()
-    report.add('G12', 'cap is inactive at eta=0 (b_d <= b_0 for d>=1)', cap == 0.,
-               f'max cap_rate = {cap:.1e}')
+    # G12/G8a: eta=0에서 상한은 구조적으로 작동할 수 없고, 따라서 질량이 보존된다
+    with torch.no_grad():
+        model = force_eta(build_neuron(embed_dim=D), 0)
+        aux = model(x64, mode='sparse', return_aux=True)[1]
+        cap_rate = aux['cap_rate'].max().item()
+        kappa_err = (aux['kappa'][1:] - 1.).abs().max().item()
+    report.add('G12', 'cap is inactive at eta=0 (b_d <= b_0 for d >= 1)', cap_rate == 0.,
+               f"max cap_rate = {cap_rate:.1e}")
     report.add('G8a', 'kappa == 1.000 while the cap is inactive', kappa_err < 1e-12,
-               f'max |kappa - 1| = {kappa_err:.2e}')
+               f"max |kappa - 1| = {kappa_err:.2e}")
 
-    model = build(embed_dim=dim, double=False)
+    # G8b: eta=1이면 sparsemax의 0이 최종 계수까지 살아남고, 상한이 실제로 물린다
     with torch.no_grad():
-        model.selector.eta_hat.fill_(1e30)
-    aux = model(current.float(), mode='sparse', return_aux=True)[1]
-    zeros = [(c == 0.).any().item() for c in aux['coeff'][1:] if c is not None]
-    kappa = aux['kappa'][1:]
-    report.add('G8b', 'eta=1 sparsemax produces exact zeros in the final coefficients', any(zeros),
-               f'{sum(zeros)}/{len(zeros)} steps contain an exact zero; '
-               f'kappa in [{kappa.min():.3f}, {kappa.max():.3f}] (<1 where the cap binds)')
+        model = force_eta(build_neuron(embed_dim=D, double=False), 1)
+        aux = model(x32, mode='sparse', return_aux=True)[1]
+        zeros = [(c == 0.).any().item() for c in aux['coeff'][1:] if c is not None]
+        kappa = aux['kappa'][1:]
+    report.add('G8b', 'eta=1 sparsemax leaves exact zeros in the final coefficients', any(zeros),
+               f"{sum(zeros)}/{len(zeros)} steps contain an exact zero; "
+               f"kappa in [{kappa.min():.3f}, {kappa.max():.3f}] -- below 1 wherever the cap binds")
 
-    # G13: support has to be reported per layer, because they differ.
-    model = build(embed_dim=dim, double=False)
-    aux = model(current.float(), mode='sparse', return_aux=True)[1]
-    eta = model.selector.eta.item()
-    n = steps - 1
-    b_hist = model.b[1:n + 1].flip(0)
+    # G13: support는 층위마다 다르다. "sparse"를 최종 계수에 쓰면 틀린다 (D-K)
     with torch.no_grad():
-        xi_now = torch.cat([aux['state'][n - 1], current.float()[n].unsqueeze(-1)], dim=-1)
-        hist = torch.stack([torch.cat([aux['state'][j - 1] if j else torch.zeros_like(aux['state'][0]),
-                                       current.float()[j].unsqueeze(-1)], dim=-1) for j in range(n)], dim=-2)
-        coeff, sel = model.selector.coefficients(xi_now, hist, b_hist, model.b[0].item(), 'sparse')
-    sizes = {'p': (sel['p'] > 0).double().mean().item(), 'rho': (sel['rho'] > 0).double().mean().item(),
-             'b*rho': (b_hist * sel['rho'] > 0).double().mean().item(),
-             'c': (coeff > 0).double().mean().item()}
+        model = build_neuron(embed_dim=D, double=False)
+        aux = model(x32, mode='sparse', return_aux=True)[1]
+        t = T - 1
+        b_hist = model.b[1:t + 1].flip(0)
+        zero = torch.zeros_like(aux['state'][0])
+        xi = torch.cat([aux['state'][t - 1], x32[t].unsqueeze(-1)], dim=-1)
+        keys = torch.stack([torch.cat([aux['state'][j - 1] if j else zero, x32[j].unsqueeze(-1)], dim=-1)
+                            for j in range(t)], dim=-2)
+        c, sel = model.selector(xi, keys, b_hist, model.b[0].item(), 'sparse')
+        support = {'p': (sel['p'] > 0).double().mean().item(),
+                   'rho': (sel['rho'] > 0).double().mean().item(),
+                   'b*rho': ((b_hist * sel['rho']) > 0).double().mean().item(),
+                   'c': (c > 0).double().mean().item()}
     report.add('G13', 'support(p) / support(rho) / support(b*rho) / support(c) reported separately',
-               sizes['p'] <= sizes['rho'],
-               f'eta={eta:.4f}  ' + '  '.join(f'{k}={v:.3f}' for k, v in sizes.items())
-               + '  -- dense residual (1-eta)*b_d survives wherever p = 0')
+               support['p'] <= support['rho'],
+               f"eta = {model.selector.eta.item():.4f}   "
+               + "   ".join(f"{k} = {v:.3f}" for k, v in support.items())
+               + "   -- the dense residual (1-eta)*b_d survives wherever p = 0")
 
-    # G10: every selector parameter must receive a finite, nonzero gradient.
-    model = build(embed_dim=dim, double=False)
-    out = model(current.float(), mode='sparse')
-    out.sum().backward()
+    # G10: 선택자 파라미터 전부에 유한하고 0이 아닌 gradient가 흘러야 한다
+    model = build_neuron(embed_dim=D, double=False)
+    model(x32, mode='sparse').sum().backward()
     grads = {'W_Q': model.selector.query.weight.grad, 'W_K': model.selector.key.weight.grad,
              'eta_hat': model.selector.eta_hat.grad, 'w': model.soma.weight.grad}
     finite = all(g is not None and torch.isfinite(g).all() for g in grads.values())
-    nonzero = {k: (g is not None and g.abs().sum().item() > 0) for k, g in grads.items()}
-    report.add('G10', 'gradients finite and nonzero for W_Q, W_K, eta_hat, w', finite and all(nonzero.values()),
-               'finite=' + str(finite) + '  nonzero=' + str(nonzero))
+    nonzero = {k: bool(g is not None and g.abs().sum().item() > 0) for k, g in grads.items()}
+    report.add('G10', 'gradients finite and nonzero for W_Q, W_K, eta_hat, w',
+               finite and all(nonzero.values()), f"finite = {finite}   nonzero = {nonzero}")
 
-    # G9: windows must not talk to each other through the batch axis.
-    model = build(embed_dim=dim, double=False)
-    batched = model(current.float(), mode='sparse', return_aux=True)[1]['state']
-    single = torch.cat([model(current.float()[:, i:i + 1], mode='sparse', return_aux=True)[1]['state']
-                        for i in range(current.shape[1])], dim=1)
-    err = (batched - single).abs().max().item()
-    report.add('G9', 'batched == per-window evaluation', err < 1e-6, f'max |err| = {err:.2e}')
+    # G9: 창끼리 배치 축을 통해 정보가 새면 안 된다
+    with torch.no_grad():
+        model = build_neuron(embed_dim=D, double=False)
+        batched = model(x32, mode='sparse', return_aux=True)[1]['state']
+        single = torch.cat([model(x32[:, i:i + 1], mode='sparse', return_aux=True)[1]['state']
+                            for i in range(x32.shape[1])], dim=1)
+        err = (batched - single).abs().max().item()
+    report.add('G9', 'batched == per-window evaluation', err < 1e-6, f"max |err| = {err:.2e}")
 
-    # G11: bounded state under the adversarial-worst policy the sweep identified.
-    worst = {}
-    for length in (42, 84):
-        model = build(embed_dim=dim, max_length=96, double=False)
-        with torch.no_grad():
-            model.selector.eta_hat.fill_(1e30)                   # eta = 1, the worst case
-        torch.manual_seed(5)
-        drive = torch.randn(length, 2, dim) * 2.
-        aux = model(drive, mode='recent', return_aux=True)[1]     # recent-only == the loop policy
-        worst[length] = aux['state'].abs().max().item()
-    bound = 10. * 2. * 3.                                          # 10 * max|I|, roughly
-    report.add('G11', 'state stays bounded at eta=1 under the recent-only policy, tau=[4,8,16,32]',
+    # G11: F1(tau 이동)이 실제 모델에서도 상태를 유계로 유지하는가. eta=1이 최악 조건이다
+    with torch.no_grad():
+        worst = {}
+        for length in (42, 84):
+            model = force_eta(build_neuron(embed_dim=D, max_length=96, double=False), 1)
+            torch.manual_seed(5)
+            drive = torch.randn(length, 2, D) * 2.
+            aux = model(drive, mode='recent', return_aux=True)[1]
+            worst[length] = aux['state'].abs().max().item()
+        bound = 10. * drive.abs().max().item()                       # 사전 선언 상한 10 * max|I|
+    report.add('G11', 'state stays bounded at eta=1, recent-only policy, tau=[4,8,16,32]',
                max(worst.values()) < bound,
-               f'max|u| = {worst[42]:.3f} (T=42), {worst[84]:.3f} (T=84); declared bound {bound:.1f}')
+               f"max|u| = {worst[42]:.3f} (T=42), {worst[84]:.3f} (T=84); declared bound {bound:.1f}")
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--phase', default='all', choices=['A', 'C', 'all'])
+    parser = argparse.ArgumentParser(description='pre-registered numerical gates for v3-A')
+    parser.add_argument('--phase', dest='phase', nargs='?', default='all', choices=['A', 'C', 'all'],
+                        help='Which gate phase to run \n\t default: %(default)s')
     args = parser.parse_args()
-    report = Report()
+
+    report = GateReport()
     if args.phase in ('A', 'all'):
-        print('Phase A -- scalar definition and reference parity')
+        print("[gate] Phase A -- scalar definition and reference parity")
         phase_a(report)
-        print()
     if args.phase in ('C', 'all'):
-        print('Phase C -- population reduction, causality, selection')
+        print("[gate] Phase C -- population reduction, causality, selection")
         phase_c(report)
-        print()
-    failed = report.failures()
-    skipped = [r for r in report.rows if r[2] is None]
-    print(f'{len(report.rows) - len(failed) - len(skipped)} passed, {len(failed)} failed, {len(skipped)} not run')
+
+    failed, skipped = report.failures(), report.skipped()
+    passed = len(report.rows) - len(failed) - len(skipped)
+    print(f"[gate] {passed} passed, {len(failed)} failed, {len(skipped)} not run")
     for gate, name, _, _ in failed:
-        print(f'  FAILED {gate}: {name}')
+        print(f"[gate] FAILED {gate}: {name}")
+
     return 1 if failed else 0
 
 
