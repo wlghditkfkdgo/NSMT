@@ -659,3 +659,69 @@ f_lif_pop_v3/forecasting/results/assessment/20260921T153001Z-ed6b3b26/pilot_prob
 이번 판정은 새 pilot의 평가 재현과 오류 확인 범위다. 진행 중인 후속 수정은 다음 캡처로 검토하며, 이 기록만으로 어떤 OPEN 이슈도 닫지 않는다.
 
 <!-- assessment-watch:20260921T153001Z-ed6b3b26 -->
+
+
+## 추적 감사 05 — 2026-09-22 03:33 KST (예약 `20260921T183001Z-0804948b`)
+
+**범위:** 최신 기억/감사04/사전등록 D-W/canonical log와 trigger를 대조했다. 직전 감사 대비 모델 변경은 `layers.py`의 query/key frozen normalization 추가이며 **새 학습 결과는 없다**. 감사 자신의 문서 append는 변화로 세지 않았다. Branch `exp/f-lif-pop-v3`, base `329183b94f65090cc6b337f464c5aa4d8e127ad7`, 관찰 HEAD `c34fa1c68c49169c13947b674543512dd05a057f` 위 미커밋 변경이다.
+
+재현 전 **03:30:45 KST**에 대상 문서·소스·기존 결과·pilot checkpoint/config를 `/tmp/nsmt_assessment_20260921T183001Z-0804948b`에 복사하고 hash를 기록했다. `layers.py` SHA256은 **`001c4d8290c9901d6bba54368ef2c579aeec66307dc667df8c566482581d28db`**, 직전은 `9a22930223040bc6f1e6fc0647ea32401d8b056f29638eb2cf8caf340f77c0a4`이다. [Inventory](../f_lif_pop_v3/forecasting/results/assessment/20260921T183001Z-0804948b/inventory.json), [변경 diff](../f_lif_pop_v3/forecasting/results/assessment/20260921T183001Z-0804948b/layers.diff), [CPU probe](../f_lif_pop_v3/forecasting/results/assessment/20260921T183001Z-0804948b/key_norm_probes.json), [보존 검사](../f_lif_pop_v3/forecasting/results/assessment/20260921T183001Z-0804948b/validation.json).
+
+### (a) 구현: 함수 수준 확인, 전체 연결은 진행 중
+
+**A08-KEYNORM / A05, 진행 중:** `Selector`에 key_mean/key_std buffer 및 `key_norm` 옵션을 추가하고, `PopulationNeuron.fit_key_norm()`이 Full 궤적의 갱신 전 상태와 현재 입력으로 통계를 계산한다. CPU seed7/float64/T12,B2,D3의 작은 난수 입력에서 다음을 확인했다.
+
+- 통계 미적합 기본값(mean0/std1)은 기존 소스와 spike/state/input gradient의 최대 차이가 모두0이다. 기본 이름이 frozen이어도 실제 적합 전에는 identity 변환이다.
+- Full 궤적에서 독립 구성한 `[u_before, x]`의 mean/std와 저장 buffer 차이0. 같은 입력·Full mode로 재적합한 차이0이다. 이는 같은 표본에 대한 반복 검사이며 어떤 mode/표본 변경에도 불변이라는 뜻은 아니다.
+- 적합 후 미래6번 이후 입력 변경에 앞선 analog 출력 차이0, 새 schema state_dict roundtrip 출력 차이0, 상태/전압 유한성을 확인했다.
+
+캡처 시 `fit_key_norm` 호출은 정의 외에 없고 config/model/calibrate/train에도 key_norm 선택·적합 연결이 없었다. 따라서 **함수 수준 구현은 확인했으나 학습에 적용된 안정화라고 판단할 수 없다.** 진행 중 추가를 완성된 수정 실패로 세지 않는다. 적합 표본/시점/Full mode/고정 이후 재적합 정책과 통계 hash를 선언하고 train-only로 연결한 다음에 검토해야 한다. Input frozen norm과 selector key frozen norm은 서로 다른 통계이므로 별도로 기록할 것.
+
+### (b) 검증: 과거 checkpoint 호환성 문제 재현, 기존 OPEN 유지
+
+**A10-KEYNORM-CKPT, P2 OPEN:** 새 buffer 때문에 실제 strict loader로 기존 pilot checkpoint를 읽으면 RuntimeError가 발생한다. 누락 키는 `embedding.neuron.selector.key_mean`, `embedding.neuron.selector.key_std` 두 개다. 원본 checkpoint/config는 그대로 보존했고 감사04의 이전 소스에서는 이미 로드/평가를 재현했다. 따라서 모델 성능 실패가 아니라 **새 schema와 과거 checkpoint의 로드 호환성 문제**다.
+
+남은 조건: schema/version을 명시하고 과거 실험 재평가에는 해당 소스를 사용하거나, 검증된 legacy 경로에서 누락된 두 buffer만 mean0/std1로 복원하도록 할 것. 전체 `strict=False`로 다른 누락까지 숨기지 않는다. 새 fitted checkpoint는 실제 stats가 저장·복원되어야 하며 loader 설정과 provenance에도 key_norm이 포함되어야 한다. 이번 probe의 identity parity는 작은 모듈 검사이며 전체 legacy checkpoint migration을 검증한 것은 아니다.
+
+A02 지표 집계, A05 sparse finite/bound, A10-CAL/HASH/LOG, A12 oracle/ETT/GRU/test-off는 캡처 시 관련 소스와 결과가 같아 기존 OPEN을 유지한다. 중복 실패 probe와 pilot 성능 재평가는 **not run**이다. 정식 학습/8seed/정규화 비교 결과도 **not run**이다.
+
+### (c) 개선: gradient 안정화는 가설로 검증, 성능 판단은 보류
+
+새 주석의 ‘정규화가 없으면 역전파가 폭주한다’는 확정적 설명은 현재 audit 증거로 확인되지 않았다. 이번 작은 검사에서 state/gradient가 유한한 사실도 긴 sequence 학습 안정성을 보장하지 않는다. `1/std`는 작은 분산 축의 미분 크기를 키울 수 있으므로 평균·표준편차 조정만으로 안정화 성공을 단정하지 않는다.
+
+[Pascanu, Mikolov & Bengio(2013), 원문 PDF](https://proceedings.mlr.press/v28/pascanu13.pdf)의 §2는 시간축 Jacobian 곱으로 gradient 소실·폭주를 설명하며 gradient-norm clipping을 제안한다. 이번에 학회 원문을 실제 열어 확인했다. 이를 이 모델에 적용하는 **검증 제안**은 동일 seed/데이터/예산에서 key_norm none/frozen을 비교하고, clipping 이전 gradient norm·clipping 빈도·시간길이에 따른 gradient·state finite와 validation 성능을 함께 기록하는 것이다. 이 논문이 현재 f-LIF 정규화의 효과를 입증한다는 뜻은 아니다. 기존 trainer는 clip norm1을 사용하므로 clipped 결과만 보고 폭주 원인을 판정하지 않는다.
+
+먼저 train-only 적합·보정 계약·checkpoint schema를 연결하고 frozen 통계가 달라지는 실험을 사전등록/로그에 구분한다. 그 뒤 기존 primary 문헌에 근거한 재학습 대조군/독립 seed 비교를 진행한다. **새 성능 판단 근거 없음; 효과 판단 보류.**
+
+### 실행/동시 변경
+
+```bash
+OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib \
+/home/yschoi/.conda/envs/snn_recall/bin/python scripts/audit_v3_key_norm.py \
+/tmp/nsmt_assessment_20260921T153001Z-ed6b3b26 \
+/tmp/nsmt_assessment_20260921T183001Z-0804948b \
+f_lif_pop_v3/forecasting/results/assessment/20260921T183001Z-0804948b/key_norm_probes.json
+```
+
+CPU torch1.12.0+cu113/2threads, 새 진단 스크립트만 작성. 학습/optimizer/GPU/설치/모델 소스 수정/프로세스 중단/git add·commit·tag·push·reset·switch/다른 세션 대화 열람·메시지 전송 없음. 사본 hash/원본 checkpoint 보존/스크립트 구문을 확인했다. 감사 중 **calibrate.py/config.py/layers.py가 추가 변경**되어 다음 주기에 검토한다. 따라서 위 연결 미완 판정은03:30:45 사본에 한정하며, 진행 중 수정의 최종 상태로 단정하지 않는다. 예약 재생성/반복 polling은 하지 않았다.
+
+<!-- assessment-watch:20260921T183001Z-0804948b -->
+
+---
+
+2026-09-22 03:34 KST (작업 에이전트)
+대응 ID: `calibration_failure_paths_corrected.json`의 결함 주입 결과
+구현 commit / 실행 당시 source hash: 아래 커밋
+변경 파일과 실제 동작: `calibrate.py` — sparse 초기 확인에 `finite`와 `within_bound`를 추가했다. 기존에는 full probe의 상한·유한성만 검사하고 **실제로 학습되는 sparse 조건은 발화율만** 봤으므로, 상한을 넘거나 비유한인 sparse 초기값이 그대로 통과했다.
+사전등록 변경 여부: 없음 (D-T의 취지를 sparse 경로에도 적용한 구현 수정)
+정확한 실행 명령: 감사와 동일한 4가지 주입 case를 `calibrate.choose` + sparse 조건으로 재현
+수정 전 수치 → 수정 후 수치:
+| case | 수정 전 accepted | 수정 후 accepted | 사유 |
+|---|---|---|---|
+| healthy | True | True | closest to target |
+| sparse_over_bound (max\|u\|=1001) | **True** | **False** | sparse-at-init rejected: over bound |
+| sparse_nonfinite | **True** | **False** | sparse-at-init rejected: non-finite |
+| sparse_out_of_band | False | False | firing rate |
+증거 artifact 경로: `results/assessment/20260921-145954-utc/calibration_failure_paths_corrected.json` (감사), 본 커밋의 `calibrate.py`
+상태: FIXED-PENDING-REVIEW
+남은 제한과 다음 단계: 학습 파이프라인이 완성되어 `ours.py`/`model.py`/`train.py`/`test.py`/`utils.py`가 들어왔으므로 **A12는 이제 "미구현"이 아니라 "결과 미확보"** 상태다. 별도로 두 가지 새 발견을 PROJECT_LOG와 사전등록 §2D에 기록했다: ① `η`가 학습으로 거의 움직이지 않는다(15 epoch에 0.0178 → 0.0298, 원인은 `σ'(−4)=0.0177`), ② 선택자 역전파가 긴 T·큰 η에서 폭주하며(T=42·η=1에서 `max|grad W_Q|` 3.8e3) 원인은 보정되지 않은 점수 온도 θ였다. θ를 Phase B 보정 대상으로 옮겨 5.561로 고정했다(D-X). 이에 따라 고정 η 조건을 아이디어 검증의 주 경로로 승격했다(D-Y).

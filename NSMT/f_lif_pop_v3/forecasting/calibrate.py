@@ -189,8 +189,19 @@ def main():
         print(f"[calib] sparse at init (eta = {torch.sigmoid(embedding.neuron.selector.eta_hat).item():.4f}): "
               f"firing rate {check['firing_rate']:.4f}  "
               f"{'inside band' if BAND[0] <= check['firing_rate'] <= BAND[1] else 'OUTSIDE BAND'}")
+        # sparse가 실제로 학습되는 조건이므로 full과 같은 조건을 전부 적용한다.
+        # 발화율만 보면 상한 초과·비유한 sparse 초기값이 그대로 통과한다 (감사 결함 주입).
+        failures = []
         if not BAND[0] <= check['firing_rate'] <= BAND[1]:
-            picked, reason = None, 'sparse-at-init fell outside the band'   # check는 아래에 보존
+            failures.append(f"firing rate {check['firing_rate']:.4f} outside {BAND}")
+        if not check['finite']:
+            failures.append('non-finite state or current')
+        if not check['within_bound']:
+            failures.append(f"max|u| {check['max_abs_state']:.3f} at or above the declared "
+                            f"bound {check['declared_bound']:.3f}")
+        if failures:
+            picked, reason = None, 'sparse-at-init rejected: ' + '; '.join(failures)
+            print(f"[calib] FAILED: {reason}")
 
     if picked is not None:
         # theta도 같은 고정 표본에서 정한다. input_scale만 맞추면 점수 척도가 방치된다.
