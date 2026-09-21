@@ -300,10 +300,17 @@ class PopulationNeuron(nn.Module):
         self.selector = Selector(num_population, query_dim, theta, eta_init, eta_fixed, cap)
         self.soma = Soma(embed_dim, num_population, tau_s, threshold, surrogate_scale)
 
-    def forward(self, x, mode='sparse', oracle_p=None, return_aux=False):
+    def forward(self, x, mode='sparse', oracle_p=None, return_aux=False, analog=False):
         #  x: [T, B, D] input current (B = batch * channel flattened)  ->  spikes: [T, B, D]
         """
         oracle_p[n] is [B, D, n] when mode == 'oracle'; every other mode ignores it.
+
+        `analog=True` additionally returns aux['analog'], the membrane sequence WITH its
+        graph attached, so a readout placed on it trains the neuron end to end. aux['voltage']
+        stays detached and remains a diagnostic. Keeping the two apart is deliberate: a probe
+        on the detached value measures whether the information is present, while the analog
+        readout measures whether the spike path is the bottleneck, and those are different
+        claims (audit A08).
         """
         if x.ndim != 3 or x.shape[0] < 1:
             raise ValueError('Expected nonempty [T, B, D] current')
@@ -314,9 +321,9 @@ class PopulationNeuron(nn.Module):
         b0 = self.b[0].item()
         u = x.new_zeros(B, D, self.num_population)                   # u_0 = 0, 리셋 없음
         v = x.new_zeros(B, D)
-        incs, keys, spikes = [], [], []                              # f(j), xi_j, s_n
+        incs, keys, spikes, live = [], [], [], []                    # f(j), xi_j, s_n, v_n(graph)
         keep = ('kappa', 'cap_rate', 'would_cap_rate', 'eta',
-            'support_p', 'support_rho', 'support_braw', 'support_c')
+                'support_p', 'support_rho', 'support_braw', 'support_c')
         logs = {k: [] for k in ('state', 'voltage', 'coeff') + keep}
 
         for t in range(T):
@@ -340,6 +347,8 @@ class PopulationNeuron(nn.Module):
             u = nxt                                                  # u(t+1)
             v, s = self.soma(u, v)                                   # D-D: 갱신된 상태를 읽는다
             spikes.append(s)
+            if analog:
+                live.append(v)                                       # detach하지 않는다
 
             if return_aux:
                 logs['state'].append(u.detach())
@@ -350,11 +359,13 @@ class PopulationNeuron(nn.Module):
 
         out = torch.stack(spikes)                                    # [T, B, D]
         if not return_aux:
-            return out
+            return (out, {'analog': torch.stack(live)}) if analog else out
 
         has_history = torch.zeros(T, dtype=torch.bool, device=x.device)
         has_history[1:] = True                                       # t=0은 집계에서 뺀다
         aux = {'spikes': out.detach(), 'coeff': logs['coeff'], 'has_history': has_history}
+        if analog:
+            aux['analog'] = torch.stack(live)                        # graph 유지
         aux.update({k: torch.stack(logs[k]) for k in ('state', 'voltage') + keep})
 
         return out, aux
@@ -430,6 +441,6 @@ class Embedding(nn.Module):
         self.norm_mean.copy_(z.mean(dim=(0, 1)))
         self.norm_std.copy_(z.std(dim=(0, 1)).clamp_min(1e-6))
 
-    def forward(self, x, mode='sparse', oracle_p=None, return_aux=False):
+    def forward(self, x, mode='sparse', oracle_p=None, return_aux=False, analog=False):
         #  x: [T, B, patch_size]  ->  spikes: [T, B, D]
-        return self.neuron(self.current(x), mode, oracle_p, return_aux)
+        return self.neuron(self.current(x), mode, oracle_p, return_aux, analog)

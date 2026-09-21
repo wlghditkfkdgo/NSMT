@@ -76,7 +76,10 @@ def make_sequence(rng, n_events=42, patch_size=8, n_keys=3, run_range=(2, 5), mi
     truth : (n_events, n_events) bool, truth[n, j] = "j is a place where y[n] was shown".
         The source set is the key's FIRST run, i.e. where the value was actually presented,
         not the previous re-appearance (audit A03 asked for this to be stated).
-    recall : (n_events,) bool, events whose answer is NOT in the current input
+    kind : (n_events,) int8 event type, so evaluation can split the three populations that
+        D-W requires. 0 = copy (the value is in the input), 1 = recall, 2 = recall and the
+        first event of its run. Reporting only the pooled MSE would let a higher n_keys look
+        better simply by carrying more copy events.
     """
     assert cue_mode in CUE_MODES
     key, run = make_run_sequence(rng, n_events, n_keys, run_range, min_gap)
@@ -106,7 +109,11 @@ def make_sequence(rng, n_events=42, patch_size=8, n_keys=3, run_range=(2, 5), mi
         source = np.flatnonzero(shown & (key == key[n]))
         truth[n, source[source < n]] = True                      # 과거만. 인과성 유지
 
-    return (x.reshape(-1, 1).astype(np.float32), y.astype(np.float32), truth, ~shown)
+    kind = (~shown).astype(np.int8)
+    run_start = np.concatenate([[True], run[1:] != run[:-1]])
+    kind[(~shown) & run_start] = 2                               # 재등장 구간의 첫 사건
+
+    return (x.reshape(-1, 1).astype(np.float32), y.astype(np.float32), truth, kind)
 
 
 def rng_codes(n_keys, cue_dim, seed=20260921):
@@ -157,7 +164,7 @@ class Dataset_Recall(Dataset):
         self.recall = torch.from_numpy(np.stack(self.recall))
 
     def __getitem__(self, index):
-        # x [L,1], y [T], truth [T,T] bool, recall [T] bool
+        # x [L,1], y [T], truth [T,T] bool, kind [T] int8 (0 copy / 1 recall / 2 recall-first)
         return self.x[index], self.y[index], self.truth[index], self.recall[index]
 
     def __len__(self):
@@ -190,7 +197,8 @@ def task_stats(n_seq=300, seed=20260921, alpha=.7, **kwargs):
                            'queries_per_key', 'lag_mean', 'lag_max', 'first_query_frac', 'run_len')}
     n_keys = kwargs.get('n_keys', 3)
     for _ in range(n_seq):
-        x, y, truth, recall = make_sequence(rng, **kwargs)
+        x, y, truth, kind = make_sequence(rng, **kwargs)
+        recall = kind > 0
         T = y.shape[0]
         idx = np.flatnonzero(recall)
         out['recall_frac'].append(recall.mean())
@@ -226,8 +234,7 @@ def task_stats(n_seq=300, seed=20260921, alpha=.7, **kwargs):
         out['coverage'].append(len(queried) / n_keys)
         out['queries_per_key'].append(len(idx) / max(len(queried), 1))
         # 재등장 구간의 첫 칸인가 (전환 반응 속도용)
-        first = recall & np.concatenate([[True], key[1:] != key[:-1]])
-        out['first_query_frac'].append(first.sum() / max(len(idx), 1))
+        out['first_query_frac'].append((kind == 2).sum() / max(len(idx), 1))
 
     return {k: (float(np.mean(v)) if v else float('nan')) for k, v in out.items() if k != 'run_len'}
 
@@ -237,7 +244,8 @@ def sanity_check(n_seq=200, verbose=True, **kwargs):
     rng = np.random.default_rng(0)
     runs, gaps, recall_frac, source_count = [], [], [], []
     for _ in range(n_seq):
-        x, y, truth, recall = make_sequence(rng, **kwargs)
+        x, y, truth, kind = make_sequence(rng, **kwargs)
+        recall = kind > 0
         T = y.shape[0]
         patch = x.reshape(T, -1)
         n_keys = kwargs.get('n_keys', 3)

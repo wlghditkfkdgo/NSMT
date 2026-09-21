@@ -37,7 +37,7 @@ def set_seed_worker(worker_id):
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Population f-LIF v3-A')
-    parser.add_argument('--model', default='myModel', choices=['myModel'])
+    parser.add_argument('--model', default='myModel', choices=['myModel', 'GRU'])
     parser.add_argument('--task', default='recall', choices=['recall', 'ett'])
     parser.add_argument('--data', default='ETTh1', choices=['ETTh1', 'ETTh2', 'recall'])
     parser.add_argument('--root_path', default=str(NSMT / 'forecasting/dataset/ETT-small'))
@@ -74,6 +74,8 @@ def parse_arguments():
     shape_arg.add_argument('-emb', '--embedding_dim', dest='embed_dim', type=int, default=32)
     shape_arg.add_argument('--head_dim', type=int, default=32)
     shape_arg.add_argument('--head_mode', choices=['flatten', 'last'], default='flatten')
+    shape_arg.add_argument('--readout', choices=['spike', 'analog'], default='spike',
+                           help='analog reads the soma membrane WITH gradient (diagnostic, D8)')
 
     # 뉴런. tau와 alpha는 사전등록 고정값이며 학습하지 않는다 (D7, F1).
     neuron_arg = parser.add_argument_group('population f-LIF neuron')
@@ -98,6 +100,7 @@ def parse_arguments():
     select_arg.add_argument('--cap', action=argparse.BooleanOptionalAction, default=True,
                             help='R3 coefficient cap; --no-cap is the ablation only')
 
+    parser.add_argument('--g11_every', type=int, default=10, help='watch max|u| every N train batches')
     parser.add_argument('--max_train_batches', type=int, default=0, help='Smoke only; zero uses all windows')
     parser.add_argument('--max_eval_batches', type=int, default=0, help='Smoke only; zero uses all windows')
     parser.add_argument('--test', action=argparse.BooleanOptionalAction, default=True)
