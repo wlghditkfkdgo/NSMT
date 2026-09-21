@@ -1,0 +1,49 @@
+{
+  "source_root": "/tmp/nsmt_assessment_20260921-145954-utc",
+  "fault_injection_only": true,
+  "results": [
+    {
+      "case": "healthy",
+      "injected_sparse_fields": {},
+      "calibration_accepted": true,
+      "sparse_diagnostic_preserved": true,
+      "reason": "closest to target",
+      "main_return": 0,
+      "process_exit_if_main_called_normally": 0
+    },
+    {
+      "case": "sparse_over_bound",
+      "injected_sparse_fields": {
+        "max_abs_state": 1001.0,
+        "within_bound": false
+      },
+      "calibration_accepted": true,
+      "sparse_diagnostic_preserved": true,
+      "reason": "closest to target",
+      "main_return": 0,
+      "process_exit_if_main_called_normally": 0
+    },
+    {
+      "case": "sparse_nonfinite",
+      "injected_sparse_fields": {
+        "finite": false
+      },
+      "calibration_accepted": true,
+      "sparse_diagnostic_preserved": true,
+      "reason": "closest to target",
+      "main_return": 0,
+      "process_exit_if_main_called_normally": 0
+    },
+    {
+      "case": "sparse_out_of_band",
+      "injected_sparse_fields": {
+        "firing_rate": 0.01
+      },
+      "calibration_accepted": false,
+      "sparse_diagnostic_preserved": true,
+      "reason": "sparse-at-init fell outside the band",
+      "main_return": 1,
+      "process_exit_if_main_called_normally": 1
+    }
+  ]
+}

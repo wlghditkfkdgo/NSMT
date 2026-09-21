@@ -2829,3 +2829,101 @@ cap 유무와 무관하게 0.0488로 동일했다. 실제 clipping 빈도가 아
 `ours.py`(M1 백본 + readout). A08이 요구한 **gradient를 유지하는 analog readout 경로**를 여기서 함께 만든다. 현재 `state`/`voltage`는 detach된 진단값이라 거기에 head를 붙이면 뉴런까지 학습되지 않는다.
 
 Artifacts: `NSMT/f_lif_pop_v3/analysis/check_model_phaseAC.txt`, `NSMT/f_lif_pop_v3/forecasting/results/calibration/*_2609*.json`, `NSMT/docs/Population_fLIF_v3_prereg_KO.md` D-W, `NSMT/docs/ASSESMENT.md` 후속 기록.
+
+## 2026-09-22 00:03 KST — v3 추적 감사 02: 재보정 수정 확인 및 원본 scalar reference 실제 실행
+
+- Branch `exp/f-lif-pop-v3`, base `329183b94f65090cc6b337f464c5aa4d8e127ad7`. 감사01의 source는 다른 세션 commit `2da37e385dc134cdd798b40d6f9c2e72d065343b`과 일치. 감사02는 이 HEAD 위23:59:54 KST 미커밋 source 고정; 이후 담당 세션의 `0afda35825ba160689209177c0f0e9e173c618fa` 관찰. 감사자 commit/tag/push 없음.
+- 목적/변경: ASSESMENT §10에 append. `scripts/audit_spikede_reference.py`와 `scripts/audit_calibration_failure_paths.py` 추가, followup probe는 새 bound row schema에 맞춰 일관된 실패 필드 명시. 모델/trainer 소스를 감사자가 수정하지 않음. Canonical 기록과 문서 기억은 append.
+- 재검사: snn_recall CPU2threads/seed7, 64-sequence r2/data seed20260921. branch_abs_max가 actual tensor max와 정확히 일치, cap=False cap_rate0, choose의 Full 상한 초과 거부 확인. 초 단위 exclusive 생성과 sparse 실패 row 보존 확인. 단 main sparse 초기 확인에 finite/bound 실패를 주입하면 여전히 picked 유지/exit0; band 실패는 pickedNone/exit1. A05 전체는 OPEN이며 실제 폭주 관측으로 해석하지 않음.
+- Reference: 공개 PhysAGI/spikeDE commit `fcd743befe504b1a471fa81887e6af7d6789da2e`의 원본9개 파일을 /tmp/nsmt_spikede_ref_fcd743b에 다운로드, hash/URL 보존. 패키지 설치/소스 수정 없이 snn_jelly torch2.11 CPU/float64 실행. 원본 LIFNeuron + pred_integrate_tuple의 alpha.3/.5/.7/1 × tau4/8 × 상수/펄스/seed7난수40steps, 24조건 spike 일치·최대 상태 오차3.0184e-15. 기존 reset_conventions port17spikes/오차6.6613e-16; scale5 arctan gradient 차4.4409e-16. 고정 사본 재실행도 같은CSV hash. G4 원본 소스 부재는 해소 가능/실제 해소됨. Full-wrapper/FX/compiled/adjoint/GPU/훈련은 not run, v3 soma와 원본 동등성 주장이 아님.
+- Artifacts: `NSMT/f_lif_pop_v3/forecasting/results/assessment/20260921-145954-utc/` (inventory, followup_probes, calibration_failure_paths_corrected, reference JSON/전체CSV), 최초 live reference 실행은 `20260921-1500-utc-reference/`. Fault harness의 첫 파일 CLI exit 필드는 감사자 표기 오류로 corrected JSON이 우선함을 ASSESMENT에 append했다. 데이터/체크포인트 생성/설치/GPU 작업 없음.
+- Exact commands: OMP_NUM_THREADS=2 MKL_NUM_THREADS=2, cwd NSMT. snn_recall python `scripts/audit_f_lif_pop_v3_followup.py /tmp/nsmt_assessment_20260921-145954-utc`; 같은 python `scripts/audit_calibration_failure_paths.py /tmp/nsmt_assessment_20260921-145954-utc f_lif_pop_v3/forecasting/results/assessment/20260921-145954-utc/calibration_failure_paths_corrected.json`; snn_jelly python `scripts/audit_spikede_reference.py /tmp/nsmt_spikede_ref_fcd743b /tmp/nsmt_assessment_20260921-145954-utc f_lif_pop_v3/forecasting/results/assessment/20260921-145954-utc/reference`. 감사 runtime별 모델 소스 hash는 inventory.
+- 보존/제한: 동시 담당 commit에 원시 audit stderr4개가 포함된 점을 기록하고 로컬 파일 보존. 감사자 index 변경하지 않음. 정식 학습/8seeds/성능 판정은 not run. 작업 에이전트의 ASSESMENT 후속 append도 보존하며 별도로 판정함.
+
+
+## 2026-09-22 00:16 KST — f_lif_pop_v3 자동 추적 감사 예약 활성화
+
+- 사용자 승인: 자동 감시 예약 설정을 명시적으로 요청. 현재 experiment branch에서 감사 운영만 추가하며 새 훈련 실험 아님. Branch `exp/f-lif-pop-v3`, 관찰 HEAD `0afda35825ba160689209177c0f0e9e173c618fa`, v3 base `329183b94f65090cc6b337f464c5aa4d8e127ad7`. 기존 변경과 작업을 보존했다.
+- 구현: `NSMT/scripts/watch_f_lif_pop_v3.py`, `NSMT/docs/ASSESSMENT_WATCH_PROMPT.md`, 운영 문서 `NSMT/docs/ASSESSMENT_WATCH.md`, queue runtime ignore. Canonical 감사 파일은 ASSESMENT.md append만 사용. Cron `*/10 * * * *`로 기존 감사 thread에 queue; 무변경 skip·single pending·완료 marker+ack·실행 중 변경의 다음 주기 처리. 모델/학습 코드는 수정하지 않음.
+- 설정/환경: /usr/bin/python3 stdlib, 활성 cron 서비스, 기존 Codex CLI/계정. 기존 crontab 보존/백업 후 전용 블록 추가. Init 명령 `python3 scripts/watch_f_lif_pop_v3.py init --thread 01a0c453-2d06-7ee2-bf44-dafb878d4a96`; 실제 전송 `python3 scripts/watch_f_lif_pop_v3.py tick --force`; 운영 상태 `python3 scripts/watch_f_lif_pop_v3.py status`. root는 NSMT.
+- 검사: 임시 fixture + mock delivery9개 검사 통과, 실제 CLI queue healthcheck 및 첫 감사 접수, crontab 재조회 일치, cron active, Python 구문/whitespace 확인. 첫 감사 `20260921T151514Z-5f69481c`는 pending이며 완료 결과를 선취하지 않음. GPU/새 학습/통계 실험/commit/tag/push는 not run.
+- 보존: lock/queue/state는 NSMT/scripts/queues/assessment_watch/ 로컬, raw cron stdout은 task log/assessment_watch/, 검사/설치 JSON은 task results/assessment/automation-setup-20260922/. 사용량은 기존 계정에 적용. 서버 및 CLI 연결이 필요. Pause/resume/status 명령은 운영 문서에 기록.
+
+
+## 2026-09-22 00:28 KST — f_lif_pop_v3 예약 추적 감사03: 첫 smoke 재평가와 평가 경로 검증
+
+- 목적: 사용자 승인 예약 `20260921T151514Z-5f69481c`의 구현/검증/개선 방향 감사. Branch `exp/f-lif-pop-v3`, base `329183b94f65090cc6b337f464c5aa4d8e127ad7`, snapshot HEAD `0afda35825ba160689209177c0f0e9e173c618fa`, 종료 전 다른 세션 HEAD `c34fa1c68c49169c13947b674543512dd05a057f`. 감사자 commit/tag/push 없음.
+- 변경: `NSMT/scripts/audit_v3_pipeline.py` 신규 진단, ASSESMENT/DOCS_REVIEW_MEMORY/canonical log append, task results/assessment 텍스트 증거. 모델/훈련 소스와 환경은 수정하지 않음. 00:18:04 KST에62파일과 기존 checkpoint를 /tmp 사본으로 고정·hash한 후 CPU만 사용.
+- 데이터/설정: 기존 smoke-001655, recall r2/k3/data_seed20260921, train/val/test512/128/128, seed7,2epochs,batch64,alpha0.7,D32,G4,input_scale8,frozen norm. 감사는 test128개를 batch128/16으로 평가해 집계 의존성도 확인. 원래 학습을 재실행하지 않음.
+- 환경/명령: snn_recall torch1.12.0+cu113 CPU2threads. cwd NSMT, `OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python scripts/audit_v3_pipeline.py /tmp/nsmt_assessment_20260922-0017-kst-scheduled f_lif_pop_v3/forecasting/results/assessment/20260922-0017-kst-scheduled/pipeline_probes.json`.
+- 결과: checkpoint all/copy/recall/first MSE .35197442620527725/.3153044522647635/.36387251826727696/.35899281812515704, 원래 JSON과 최대차5.56e-17. causal/nonoracle truth 분리 probe 차0, analog gradient 연결 확인. 기존 M_eff .22736488은 copy 혼입/집계 문제; 독립 recall-only sequence mean .12957217(Full kernel .12994454). ETT empty truth IndexError, GRU None scalar logger 오류, incompatible tau/cue 요청의 calibration 수용을 재현했다. A02/A05/A08/A10/A12는 명시한 범위만 확인하고 잔여 항목 OPEN.
+- 증거: `NSMT/f_lif_pop_v3/forecasting/results/assessment/20260922-0017-kst-scheduled/` inventory/checkpoint_inventory/pipeline_probes/observed_smoke/validation JSON. Checkpoint hash375628a1dfe871dfa9a7f518018a1f08777e5279b6abc7780739da3a3952463b. source hash는 inventory. trainer만 smoke provenance 당시와 달라 ‘학습 재현’으로 부르지 않음. 표준 CSV 두 개 미생성 확인.
+- 검사/제한: 고정 사본 hash와 기존3문서 prefix 및 원본 checkpoint 보존 확인. metadata 검사의 zoneinfo import 오류는 stdlib UTC+09로 재실행 성공; 모델 오류 아님. 신규 학습/optimizer/GPU/설치/정식8seed/Full·GRU·oracle-trained 비교는 not run. 성능 우위 보류. primary MQAR/Zoology 및 Wiegreffe-Pinter 원문 확인 후 대조군·집계·coverage 개선을 ASSESMENT에 제안. 새 예약 없음;00:20 cron은 pending 중복 방지 확인. 이후 변경/결과는 다음 주기 감사.
+
+
+## 2026-09-22 00:33 KST — v3 예약 추적 감사04: pilot 재평가와 checkpoint provenance 불일치
+
+- 예약 20260921T153001Z-ed6b3b26; branch exp/f-lif-pop-v3, base329183b94f65090cc6b337f464c5aa4d8e127ad7, 관찰 HEADc34fa1c68c49169c13947b674543512dd05a057f. 감사 목적/범위: 감사03 이후 pilot 완료 결과만 추가 검토. 모델·설정 소스는 감사03 사본과 동일; 변경은 감사 스크립트/텍스트 증거/append 문서만.
+- Snapshot /tmp/nsmt_assessment_20260921T153001Z-ed6b3b26,00:30:37 KST에 source/result와 checkpoint/config를 별도 복사·hash. Artifacts NSMT/f_lif_pop_v3/forecasting/results/assessment/20260921T153001Z-ed6b3b26/(inventory,observed_pilot,pilot_probes,validation). 원본 보존.
+- 기존 pilot: r2 k3/onehot,min_gap1,data_seed20260921; seed7, train/val/test2048/256/256,batch64,15epochs,lr.001,wd.01,eta_init-4,spike/scale8/frozen norm. 재학습 없이 snn_recall torch1.12 CPU2threads로 평가. Exact command(cwd NSMT): `OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python scripts/audit_v3_pilot.py /tmp/nsmt_assessment_20260921T153001Z-ed6b3b26 f_lif_pop_v3/forecasting/results/assessment/20260921T153001Z-ed6b3b26/pilot_probes.json`.
+- 재현: recall MSE .26989367121801305; 같은 checkpoint Full .2804213865590815/oracle .20338486806976538, 저장 recall 수치 최대차5.56e-17. 독립 recall M_eff .13309303 대 기존 .23146702; A02 OPEN. A10-HASH JSON14a5650… 대 best50d4af2… 불일치 실제 확인; checkpoint 파일 SHA259794eb9a1620113fa50d0779fcfba95acec45197c7eabd8af788ea817f6679. 평가 결과는 재현되므로 parameter identity 기록 문제로 분류.
+- 검산: source provenance11개 일치, 사본/원본 artifact hash 및 감사 구문 확인. 제한: 동일 seed pilot, 기존 smoke와 동일 data_seed; 재학습 Full/GRU/oracle-trained·8seed통계·새 학습/GPU는 not run. 성능 일반화 보류; 수정 우선순위 및 기존 primary 문헌 방향은 ASSESMENT 감사04 참조. 감사자 git add/commit/tag/push/reset/switch 없음.
+
+---
+
+## 2026-09-22 03:33 KST — 학습 파이프라인 완성과 선택자 역전파 안정성 발견
+
+**Branch:** `exp/f-lif-pop-v3` · 파일럿은 **탐색적(exploratory)**이며 확정 결과가 아니다.
+
+### 1. 파이프라인 완성
+
+`ours.py`(M1 백본·두 head·analog 경로·GRU 대조군), `model.py`, `train.py`, `test.py`, `utils.py`(v2 이식)를 추가해 **end-to-end가 돈다.**
+
+smoke에서 두 가지를 잡았다. ① `train.py`가 `fit_norm`을 호출하지 않아 frozen 표준화가 항등이었고 발화율이 **0.077**(보정값 0.185)이었다. 학습 시작 시 적합하도록 고쳐 **0.192**가 됐다. ② 버퍼가 등록되어 있으므로 **fresh reload가 test MSE를 정확히 재현**한다(0.351974426 양쪽 동일).
+
+### 2. η가 사실상 움직이지 않는다
+
+파일럿(2048 시퀀스, 15 epoch, θ=1): **η 0.0178 → 0.0298**. 이 속도면 0.5에 닿는 데 ~600 epoch이 필요한데 예산은 50이다. 검증 손실은 0.277 → 0.226으로 내려갔으므로 **선택은 꺼진 채 나머지만 학습된 것**이다.
+
+구조적 원인이다. `dη/dη̂ = σ'(η̂)`이고 `η̂=−4`에서 **σ' = 0.0177**이라 기울기가 1/57로 눌린다. D5·D-B의 중립 출발이 의도한 대로 작동하되, 학습으로 빠져나오지 못한다.
+
+### 3. 선택자 역전파가 긴 시퀀스·큰 η에서 폭주한다
+
+Artifact: `NSMT/f_lif_pop_v3/analysis/selector_gradient.txt` (학습 없음, seed 3개 중앙값)
+
+| T | η=0.05 | η=0.2 | η=0.5 | η=1.0 |
+|---:|---:|---:|---:|---:|
+| 10 | 4.3e-05 | 3.4e-04 | 3.4e-03 | 5.6e-03 |
+| 30 | 1.2e-03 | 2.8e-02 | 1.9e-01 | 5.7e+00 |
+| **42** | 6.6e-04 | 6.4e-03 | **1.8e+02** | **3.8e+03** |
+
+길이에 지수적이므로 **되먹임 누적**이다. R3 상한은 **순전파** 상태만 막고 역전파는 막지 못한다. 과거 key 경로만 detach하면 η=1에서 24배 줄지만(3.8e3 → 1.6e2) 유일한 원인은 아니다.
+
+### 4. 원인은 보정되지 않은 점수 온도 θ — 사용 가능한 창이 있다
+
+O3는 θ를 1로 고정했고 D11은 `input_scale`만 보정했다. **둘을 잇는 검사가 없었다.** 보정 후 `max|u| ≈ 20`인데 점수가 `−‖u_n−u_j‖²/(d_q·θ)`이므로 θ=1이면 점수 폭이 수백이 되고 sparsemax가 hard argmax가 된다.
+
+| θ | `max\|grad W_Q\|` (η=1, T=42) | `support_p` | 판정 |
+|---:|---:|---:|---|
+| 1 (현행) | 3.8e+03 | 0.327 | 불안정 |
+| **4** | 2.4e+01 | 0.461 | **안정·희소** |
+| **16** | 2.5e-01 | 0.653 | **안정·희소** |
+| 64 | 7.4e-02 | 0.924 | 안정하나 사실상 `full` |
+
+**θ를 `input_scale`과 같은 지위의 보정 대상으로 옮겼다**(D-X). 규칙은 `θ = mean‖W_Q ξ_n − W_K ξ_j‖²/d_q`를 학습 구간 고정 표본에서 한 번 재는 것이고, 회상 r2에서 **θ = 5.561**로 위 창 안에 들어온다.
+
+### 5. 자체 정정
+
+작업 중 "θ 규칙으로는 폭주가 안 잡힌다"고 보고했다. **틀렸다.** seed 하나짜리 표본으로 판단했고, seed를 고정해 3회 중앙값으로 다시 재니 θ=4에서 이미 23.6으로 안정했다. 잡음 표본으로 설계 결론을 내린 것이 문제였고, 이후 측정은 전부 seed 고정·다회 중앙값으로 바꿨다.
+
+`key_norm`(Q/K 앞 표준화)도 추가했다가 **주 원인이 아님을 확인**해 기본값을 `none`으로 되돌렸다(η=1에서 1–2자릿수만 감소).
+
+### 6. 검증 설계에 미치는 영향 (D-Y)
+
+**D-B가 이미 규정한 고정 η 조건을 아이디어 검증의 주 경로로 승격한다.** 학습된 η는 "모형이 스스로 선택을 쓰도록 학습하는가"라는 별도 질문이며, 그 실패를 아이디어의 실패와 동일시하지 않는다. 고정 η 격자는 `{0, 0.2, 0.5, 1.0}`이고 η ≥ 0.5는 θ 보정 적용 하에서만 실행한다.
+
+### 7. 범위 제한
+
+§3·§4의 수치는 **학습 없이 초기 가중치에서 한 번의 역전파**를 잰 것이다. 학습이 진행되면 `W_Q/W_K`와 상태 분포가 움직여 실효 점수 척도가 달라질 수 있으므로 학습 중 `max|grad|`·`support_p`·`η`를 epoch마다 기록한다. §2의 파일럿은 12–15 epoch·2048 시퀀스의 탐색적 실행이며 성능 결론이 아니다.
+
+Artifacts: `NSMT/f_lif_pop_v3/forecasting/{ours.py,model.py,train.py,test.py,utils.py}`, `NSMT/f_lif_pop_v3/analysis/selector_gradient.txt`, `NSMT/docs/Population_fLIF_v3_prereg_KO.md` §2D.

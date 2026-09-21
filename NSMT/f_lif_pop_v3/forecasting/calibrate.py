@@ -192,6 +192,14 @@ def main():
         if not BAND[0] <= check['firing_rate'] <= BAND[1]:
             picked, reason = None, 'sparse-at-init fell outside the band'   # check는 아래에 보존
 
+    if picked is not None:
+        # theta도 같은 고정 표본에서 정한다. input_scale만 맞추면 점수 척도가 방치된다.
+        embedding.input_scale = picked['input_scale']
+        theta = embedding.neuron.score_scale(embedding.current(torch.cat(batches, dim=1)))
+        picked['theta'] = theta
+        print(f"[calib] score temperature theta = mean||W_Q xi_n - W_K xi_j||^2 / d_q = {theta:.3f} "
+              f"(the default 1.0 leaves the scores spanning hundreds)")
+
     out = Path(TASK) / 'results' / 'calibration'
     os.makedirs(out, exist_ok=True)
     stamp = datetime.now(ZoneInfo('Asia/Seoul')).strftime('%y%m%d-%H%M%S')

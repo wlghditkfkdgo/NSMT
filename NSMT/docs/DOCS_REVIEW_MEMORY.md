@@ -183,3 +183,29 @@ Forecasting/AD의 retrieval, auxiliary loss, causal ablation, 에너지 회계, 
 
 - `Population_fLIF_v3_prereg_KO.md` §2C가 추가됐다(문서 표기 날짜22일, 실제 관찰21일). D-P는 post-cap mass_matched/gradient 유지, D-Q는 실제 c의 M_eff와 .5 유지/집계 단위, D-R은 recall r2 min_gap 및 주3·5/stress8, D-S는 uniform-slot chance와 Full kernel mass 구분, D-T는 actual current 측정/안정성 범위 축소, D-U는 fixed eta/cap 배선, D-V는 G4 사유/G7b허용오차/G15 spike 검사 정정이다. 이전 상충 정의보다 이 append가 최신 계약이다. 학습 metric 구현 완료나 효과 입증을 뜻하지 않는다.
 - `ASSESMENT.md` §9 및 canonical PROJECT_LOG에 추적 감사01 추가. 고정 사본 독립 재실행19 pass/0 fail/1 not run; A01/A04/A06/A11의 명시한 수치·배선 범위 확인. r2 8-key의 실제 재질의 coverage 부족, bound 초과 후보 선택, branch 최대값·cap_rate 의미, 보정 충돌/실패 증거 보존 문제는 남는다. 문서별 최초 요약/역사 판정은 덮어쓰지 않았다.
+
+## 추적 갱신 — 2026-09-22 00:03 KST
+
+- 사전등록 §2C의 D-W가 추가됐다: r2 8-key는 낮은 coverage stress로만 해석, capacity scaling 일반화 보류, recall-only MSE와 재등장 run 첫 사건 MSE 분리. 과제의 통계적 최대와 평균 run 예산을 구분해야 한다. §2C 날짜/독립 current probe ‘일치’ 표현도 담당 세션에서 정정했다.
+- ASSESMENT §10의 감사자 재검사: Full 보정의 bound 거부, branch별 actual max, cap=False 실제 cap_rate0, exclusive 파일생성/실패 row 보존 확인. sparse 초기 main의 finite/bound 검사는 아직 누락됐으며 fault injection으로 재현했다. 실제 학습 폭주 증거는 아니다. A05 전체/학습 안정성은 OPEN.
+- A07의 원본 부재 사유는 해소했다. pinned spikeDE fcd743b 원본 neuron+predictor를 기존 torch2 CPU에서 직접 실행: 24scalar조건 최대오차3.0184e-15/allspikes같음, 기존 reset port17spikes 확인, arctan5gradient차4.4409e-16. 원본 scalar 실행 대조 증거가 생겼지만 공식 runner G4/fullwrapper·GPU·학습 검사는 별도다. ‘원본 설치 불가능’으로 기억하지 않는다.
+
+
+## 자동 감시 설정 — 2026-09-22 00:16 KST
+
+사용자 요청으로 cron 10분 변경 감지와 기존 감사 세션 호출을 활성화했다. `ASSESSMENT_WATCH.md`는 운영/중지 방법, `ASSESSMENT_WATCH_PROMPT.md`는 3개 감사 항목과 append·snapshot·완료 ack 절차다. ASSESMENT/기억/canonical log 자체는 trigger에서 제외되지만 매 감사에서 읽는다. 이전 예약 미설정 설명은 역사적 상태다.
+
+
+## 추적 갱신 — 2026-09-22 00:28 KST (예약 감사03)
+
+- 사전등록 최신 계약은 D-W까지이며 이번 감사에서 변경하지 않았다. 새 M1/GRU/trainer/test와 첫 smoke checkpoint가 존재한다. 과거 ‘v3 학습 결과 없음’은 당시 상태다. 현재는 seed7/2epoch/r2 k3/512·128·128 기능 확인 결과만 독립 평가 재현했으며 정식 성능 판정은 보류한다.
+- synthetic kind API는 bool에서 int8(0 copy/1 recall/2 recall-first)로 바뀌었다. evaluate의 사건별 MSE는 맞지만 selection_diagnostics는 kind를 무시해 copy933건을 섞고 batch×시점 평균을 취한다. 기존 M_eff0.22736 대 독립 recall-only sequence 평균0.12957. A02/A08 진단 OPEN.
+- A08 analog live graph와 recall causal head를 소규모 CPU에서 확인했다. A12 oracle first-run uniform 설명 불일치(copy610건 nonuniform), ETT 빈 truth IndexError, GRU None metric 로깅 실패가 남는다. A10 calibration 요청 호환성/표준 CSV/평가 checkpoint provenance, A05 sparse finite/bound 연결도 OPEN. --no-test가 train 경로에 반영되지 않는다.
+- ASSESMENT 추적 감사03과 `results/assessment/20260922-0017-kst-scheduled/`를 함께 읽는다. 캡처00:18:04 KST/HEAD0afda35, 종료 전 HEADc34fa1c 관찰(62개 캡처 파일 hash 동일). 이후 새 pilot 결과는 다음 주기의 범위다. 신규 진단 코드는 `scripts/audit_v3_pipeline.py`; optimizer step/학습은 수행하지 않았다.
+
+
+## 추적 갱신 — 2026-09-22 00:33 KST (예약 감사04)
+
+- Trigger의 코드 변경은 감사03과 같은 hash였다. 새 범위는 pilot-eta-001742의15epoch/seed7/2048·256·256 결과다. CPU에서 recall MSE .26989367 및 Full/recent/mass_matched/oracle 개입을 재현했다. 동일-checkpoint Full 대비3.75% 감소, oracle은27.47% 감소이나 재학습 대조·정식8seed 효과 판정은 아니다.
+- A02 집계 오류 지속: 저장 M_eff .231467 대 독립 recall-only sequence 평균 .133093(Full kernel .130329). A10-HASH는 잠재 위험에서 실제 불일치 사례로 갱신: JSON parameter hash14a5650… 대 평가 best50d4af2…. 평가 MSE 자체는 재현된다. 기타 OPEN 상태 유지.
+- ASSESMENT 감사04 및 results/assessment/20260921T153001Z-ed6b3b26/ 증거를 참조. 모델 소스/사전등록 변경 없음; 새 감사 스크립트 audit_v3_pilot.py만 작성. 기존 smoke와 같은 data_seed의 확장 표본이므로 독립 복제로 세지 않는다.

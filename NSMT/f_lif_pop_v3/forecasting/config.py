@@ -94,7 +94,10 @@ def parse_arguments():
     select_arg = parser.add_argument_group('selector')
     select_arg.add_argument('--mode', default='sparse',
                             choices=['full', 'dense', 'sparse', 'recent', 'mass_matched', 'oracle'])
-    select_arg.add_argument('--theta', type=float, default=1., help='score temperature, d_q-scaled')
+    select_arg.add_argument('--theta', type=float, default=5.5,
+                            help='score temperature; Phase B calibrates it (recall r2: 5.5)')
+    select_arg.add_argument('--key_norm', choices=['none', 'frozen'], default='none',
+                            help='frozen standardises xi before Q/K; not the main stability fix')
     select_arg.add_argument('--eta_init', type=float, default=-4., help='sigmoid pre-activation; -4 -> 0.018')
     select_arg.add_argument('--eta_fixed', type=float, default=None, help='pin eta instead of learning it')
     select_arg.add_argument('--cap', action=argparse.BooleanOptionalAction, default=True,
@@ -167,5 +170,6 @@ def neuron_kwargs(config):
                 heterogeneous=config.heterogeneous, max_length=config.num_patches,
                 theta=config.theta, eta_init=config.eta_init,
                 eta_fixed=config.eta_fixed, cap=config.cap,      # audit A06: 이름만 바뀌면 안 된다
+                key_norm=config.key_norm,
                 tau_s=config.tau_s, threshold=config.threshold,
                 surrogate_scale=config.surrogate_scale)

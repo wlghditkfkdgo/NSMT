@@ -123,8 +123,14 @@ class Selector(nn.Module):
     also be trained from scratch rather than only injected at test time.
     """
     def __init__(self, num_population=4, query_dim=None, theta=1., eta_init=-4.,
-                 eta_fixed=None, cap=True):
+                 eta_fixed=None, cap=True, key_norm='none'):
         super().__init__()
+
+        if key_norm not in ('none', 'frozen'):
+            raise ValueError("key_norm must be 'none' or 'frozen'")
+        self.key_norm = key_norm
+        self.register_buffer('key_mean', torch.zeros(num_population + 1))
+        self.register_buffer('key_std', torch.ones(num_population + 1))
 
         self.num_population = num_population
         self.query_dim = num_population if query_dim is None else query_dim
@@ -183,6 +189,11 @@ class Selector(nn.Module):
                        'support_p': ones, 'support_rho': ones, 'support_braw': ones,
                        'support_c': ones}
 
+        if self.key_norm == 'frozen':
+            # 점수를 원시 상태 크기에서 떼어 놓는다. 이것이 없으면 d(score)/d(u)가 |u|에
+            # 비례하고, 그 값이 T 스텝 되먹임으로 누적되어 역전파가 폭주한다.
+            xi = (xi - self.key_mean) / self.key_std
+            xi_hist = (xi_hist - self.key_mean) / self.key_std
         score = -(self.query(xi).unsqueeze(-2) - self.key(xi_hist)).square().sum(-1)
         score = score / (self.query_dim * self.theta)                # theta는 d_q 스케일로 고정 (O3)
         if mode == 'sparse' or mode == 'mass_matched':
@@ -281,8 +292,8 @@ class PopulationNeuron(nn.Module):
     """
     def __init__(self, embed_dim, num_population=4, alpha=.7, tau=(4., 8., 16., 32.),
                  heterogeneous=True, max_length=64, theta=1., eta_init=-4.,
-                 eta_fixed=None, cap=True, tau_s=2., threshold=1., surrogate_scale=5.,
-                 query_dim=None):
+                 eta_fixed=None, cap=True, key_norm='none', tau_s=2., threshold=1.,
+                 surrogate_scale=5., query_dim=None):
         super().__init__()
 
         tau = torch.as_tensor(tau, dtype=torch.float32)
@@ -297,7 +308,7 @@ class PopulationNeuron(nn.Module):
         self.num_population = num_population
         self.alpha = float(alpha)
         self.max_length = int(max_length)
-        self.selector = Selector(num_population, query_dim, theta, eta_init, eta_fixed, cap)
+        self.selector = Selector(num_population, query_dim, theta, eta_init, eta_fixed, cap, key_norm)
         self.soma = Soma(embed_dim, num_population, tau_s, threshold, surrogate_scale)
 
     def forward(self, x, mode='sparse', oracle_p=None, return_aux=False, analog=False):
@@ -369,6 +380,41 @@ class PopulationNeuron(nn.Module):
         aux.update({k: torch.stack(logs[k]) for k in ('state', 'voltage') + keep})
 
         return out, aux
+
+    @torch.no_grad()
+    def score_scale(self, x, mode='full'):
+        """mean ||W_Q xi_n - W_K xi_j||^2 / d_q over all (n, j), at the current weights.
+
+        This is the quantity theta has to match. With theta=1 and states of order 20 the raw
+        scores span hundreds, sparsemax becomes a hard argmax, and the backward pass through
+        T recurrent steps blows up (3.8e3 at eta=1, T=42, against 6e-3 at eta<=0.2). Setting
+        theta to this scale puts the score spread at order 1.
+        """
+        aux = self(x, mode=mode, return_aux=True)[1]
+        state, sel, total = aux['state'], self.selector, []
+        for n in range(1, x.shape[0]):
+            xi = torch.cat([state[n - 1], x[n].unsqueeze(-1)], dim=-1)
+            hist = torch.stack([torch.cat([state[j - 1] if j else torch.zeros_like(state[0]),
+                                           x[j].unsqueeze(-1)], dim=-1) for j in range(n)], dim=-2)
+            if sel.key_norm == 'frozen':
+                xi = (xi - sel.key_mean) / sel.key_std
+                hist = (hist - sel.key_mean) / sel.key_std
+            total.append((sel.query(xi).unsqueeze(-2) - sel.key(hist)).square().sum(-1).mean().item())
+
+        return float(sum(total) / len(total) / sel.query_dim)
+
+    @torch.no_grad()
+    def fit_key_norm(self, x, mode='full'):
+        """Freeze the query/key standardisation from train-split states. Idempotent."""
+        if self.selector.key_norm != 'frozen':
+            return None
+        aux = self(x, mode=mode, return_aux=True)[1]
+        xi = torch.cat([torch.cat([torch.zeros_like(aux['state'][:1]), aux['state'][:-1]]),
+                        x.unsqueeze(-1)], dim=-1)
+        self.selector.key_mean.copy_(xi.mean(dim=(0, 1, 2)))
+        self.selector.key_std.copy_(xi.std(dim=(0, 1, 2)).clamp_min(1e-6))
+
+        return True
 
     @torch.no_grad()
     def fast_path(self, x):                                          # x: [T, B, D] -> [T, B, D, K]
