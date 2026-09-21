@@ -2634,3 +2634,134 @@ D11이 금지하는 것은 **구성원별(K축)** gain·threshold 조정이고 �
 `ours.py`(M1 백본 + readout) → `utils.py`·`train.py`·`test.py` 이식 → Phase D 실행.
 
 Artifacts: `NSMT/f_lif_pop_v3/forecasting/{config.py,calibrate.py,layers.py,data_provider/*}`, `NSMT/f_lif_pop_v3/forecasting/results/calibration/*.json`, `NSMT/f_lif_pop_v3/analysis/recall_task_sanity.txt`.
+
+---
+
+## 2026-09-21 23:42 KST — v3 독립 감사와 문서별 검토 메모 (새 학습 없음)
+
+- 목적/범위: 사용자 요청으로 NSMT/docs 전체(archive/manifest 및 canonical log 링크 포함)와 루트 docs 환경 inventory를 검토하고, 다른 세션의 `f_lif_pop_v3` 구현·수치 검증·보정 결과를 감사했다. 다음 세션용 문서별 지속 메모 `NSMT/docs/DOCS_REVIEW_MEMORY.md`, 감사/조치 추적 문서 `NSMT/docs/ASSESMENT.md`를 생성했다. 다른 세션의 대화 내용은 보지 않았으며 저장된 코드·commit·artifact만 검토했다.
+- 식별: 현재 branch `exp/f-lif-pop-v3`, 감사 HEAD `df3a3407b9ae653b4b1031320c4e8240b4c943a0`, v3의 실제 선택 base `329183b94f65090cc6b337f464c5aa4d8e127ad7`. 조회한 origin/main은 `191f366c6b9dd3cbfaeeb28bb49e7800c8ab488e`다. 새 학습 실험/브랜치가 아니라 진행 중인 v3의 감사다. 모델·config·생성기·기존 결과 및 pre-existing untracked `NSMT/papers/`는 보존했다.
+- 방법: 초기 대상 파일49개의 path/SHA256/bytes inventory 및 임시 사본 `/tmp/nsmt_assessment_20260921`를 만들고, 고정 사본에서 CPU 게이트와 독립 반례를 실행했다. Markdown 본문·수식·개정 이력을 읽었으며, 긴 실행 표는 전 행 파싱/수치 재집계로 보완했다. Canonical log의73개 표/864개 table 행을 파싱하고8개 긴 per-run 표(총400행)의 finite metric/best epoch 범위와 v2 horizon/variant macro를 재계산했다. 과거 훈련/체크포인트 전체 재평가는 not run.
+- 코드/문서 변경: 읽기 전용 재현 도구 `NSMT/scripts/audit_f_lif_pop_v3.py`, 위 두 문서 및 이 append entry만 작성했다. 감사 증거 JSON/명령은 `NSMT/f_lif_pop_v3/forecasting/results/assessment/20260921-2327-kst/`, raw gate stdout은 같은 task `log/assessment/20260921-2327-kst/gates.stdout`에 로컬 보존한다. Raw logs/checkpoint/data를 Git에 추가하지 않는다.
+- 환경/설정: snn_recall Python3.10.18, torch1.12.0+cu113, CPU thread2, torch seed7. Synthetic probe는 data RNG20260921, n_keys3/5/8 각각300 sequences, code encoding, T42/patch8/run2–5/gap1–3/alpha.7/K4; actual-current 진단은 onehot 기본 생성256 sequences, frozen norm, scale8이다. DataProvider의 정식8000/1000/1000 학습이나 optimizer step은 수행하지 않았다.
+- 실제 명령(cwd NSMT): `OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 /home/yschoi/.conda/envs/snn_recall/bin/python scripts/audit_f_lif_pop_v3.py /tmp/nsmt_assessment_20260921`; 같은 env prefix로 `/home/yschoi/.conda/envs/snn_recall/bin/python /tmp/nsmt_assessment_20260921/f_lif_pop_v3/forecasting/check_model.py --phase all`. ETT loader inline Python 및 snn_jelly CPU 확인 명령 전체는 결과 폴더 `commands.md`에 기록했다. 사용자 작업 코드 변경 없이 실행했다.
+- 수치 게이트: 재실행17 pass/0 fail/1 not run(G4), exit0. 핵심 branch/soma/shared selector/causality/중립극한은 최신 계약과 대체로 대응한다. G4 source parity, 실제 GPU/dtype parity, semantic recall, 학습 중 안정성은 이 숫자로 확인되지 않는다.
+- **확인된 구현 오류 A01:** cap 이전 질량으로 `mass_matched`를 만들어 Full로 퇴화한다. 동일 bank/eta.5의 반례에서 sparse kappa=.569804778811738, control=1.0000000000000002, control–Full 최대 차이1.11e-16, 실제 질량 차이6.006159352561638이다. Cap 후 kappa로 대조를 만들고 동일 bank에서 합을 확인해야 한다.
+- **O7 공식 정정 필요 A02:** `(1-eta)*m0+eta`는 cap 이전 perfect oracle 식이다. 해당 반례에서 옛 식 .5090226726020335 대 실제 cap 후 정답 계수 비율 .13834115533070288. 학습 성능이 아니라 수식 반례다. 승인된0.5를 임의 변경하지 않고 실제 c로 metric을 정의해야 한다.
+- **과제/통계 정정 필요 A03/A04:** fresh key를 모두 먼저 넣고 gap1–3만 허용하면 오래된 도입 key는 재질의되지 않는다. n_keys3/5/8에서 실제 질의한 고유 key 평균은2.5233/2.5867/2.5467이다. 실제 uniform-slot chance `mean_query(|A_n|/n)`의 sequence 평균은.157525/.125956/.101110이다. 직전23:16 기록의 “chance가 세 수준에서 같다”는 근거는 `source_count/(T/2)` 근사의 산물이므로 이 항목으로 정정 대상으로 남긴다. 기존 파일은 덮어쓰지 않았다.
+- **G11 보정 오류 A05:** raw patch×scale를 actual current로 기록한다. 감사256-sequence probe의 raw 값8 대 projection/frozen norm을 지난 actual max current30.6887283; max branch state17.4722176. 이 표본에서 폭주를 관측한 것은 아니다. 측정 대상·초과 판정·학습 monitor를 수정해야 한다.
+- **배선/기록 불일치:** `eta_fixed/no-cap`은 현재 constructor에 전달되지 않는다(A06). snn_jelly torch2.11.0+cu130의 CPU forward/backward는 실행되었으므로 G4의 “torch2 CPU 환경 없음” 사유는 부정확하다(A07); spikeDE 설치/golden은 not run. G7b/G15·support/analog 진단·문서 모순·calibration provenance는 A07–A10에 통과 조건을 명시했다. 직전23:16 및 HEAD 메시지의 `rng_codes` 비복원 추출 수정 완료 설명과 달리 현재 소스에는 rejection while loop가 남아 있다(A11). n_keys>16/cue_dim4의 hang 실행은 하지 않았다.
+- 기존 결과 분석: recall frozen scale8은 seed7/13/21/42에서 rate.2270–.2297, dead0; ETTh1 frozen scale6은 rate.18610, dead0이다. 이는 초기 train calibration이며 정확도 결과가 아니다. seed7 현 JSON은 rate.2280505933/state18.4044304로 직전 log의.2278/17.81과 다르다. 원인을 추정하지 않고 artifact hash와 함께 기록했다. 실제 ETTh1 loader는 train-only scaler 및 target boundary 검사를 통과했고 H96 counts8209/2785/2785, H7207585/2161/2161이었다.
+- 문서 manifest 검산:1852 moves/20574 recorded files, source/destination 중복0. 두 tuning raw.txt의228/1045행 및 분할 hash/원문 복원 hash 일치. 현재 copy44개 중42개 hash 일치, 불일치는 config.py와 그 pycache로 역사 inventory와 현재 동일성을 구분했다.
+- 문헌 검토: 원문 기반으로 Zoology/MQAR, sparsemax, entmax, constrained sparsemax, DH-SNN, f-SNN, LongSpike, NvoFDE 및 attention 설명력 논쟁을 확인했다. `ASSESMENT.md` §5에 직접 링크와 조건부 수정 방향을 기록했다. LongSpike는 확인한 arXiv v1 preprint로 표시했다. 논문 모델을 설치·학습 재현하거나 완전한 신규성 조사를 수행한 것은 아니다.
+- 결론: 핵심 구현은 있으나 기전 판정을 훼손하는 오류와 미완성 검증이 남아 있다. A01–A06 등 수정/재검증 후 task 계약과 oracle/GRU 비교를 고정해야 한다. 현재 경로에 train/test 파이프라인·완료 성능 결과가 없어 v3 효과 판정은 보류한다. 각 이슈의 수치·위치·수정/통과 기준과 다른 에이전트의 append 양식을 `ASSESMENT.md`에 마련했다. 자동 감시/주기적 확인 설정은 하지 않았다.
+- 검증/보존: 새 probe의 Python 구문, JSON parse, Markdown local link, 원본 log prefix 보존, 소스 hash 불변, Git whitespace를 점검한다. Commit/tag는 **not run**: 진행 중 실험의 공유 HEAD/자동화 guard를 유지하고 감사 파일을 작업 트리에 전달한다. 완료된 훈련 실험으로 tag하지 않는다. 이후 v3 완료 시 담당 세션이 코드·감사·canonical log를 함께 명시적으로 보존한다. Main 통합/remote push/package 설치/GPU 학습: not run.
+
+---
+
+## 2026-09-22 23:52 KST — 외부 감사(ASSESMENT.md) 수용과 수정 (학습 없음)
+
+**Branch:** `exp/f-lif-pop-v3` · 감사 대상 HEAD `df3a3407b` · 감사 문서 `NSMT/docs/ASSESMENT.md`
+
+사용자 지시로 `docs/ASSESMENT.md`를 확인하고, 검증 가능한 지적을 **독립 재계산으로 먼저 확인한 뒤** 수용했다. 감사가 보고한 수치가 내 재계산과 소수점까지 일치했다(A01 kappa 1.000000000000000·질량차 6.006159352561638, A02 0.5090226726020335→0.1383411553307029, A03 재질의 key 2.5233/2.5867/2.5467, A04 0.166217→0.157525). 환경 주장(A07)도 확인했다: `snn_jelly`는 torch 2.11.0+cu130이고 CPU autograd·`torch.compile`이 동작한다.
+
+**P1 6건과 A11은 전부 사실이었다.** 요약하면 내가 만든 오류는 네 종류다. ① 대조군이 수학적으로 퇴화(A01), ② 판정식이 상한 도입 후 무효가 된 것을 방치(A02), ③ 난이도 축이 의도한 축이 아니었음(A03·A04), ④ 배선·측정 대상 오류(A05·A06·A11).
+
+### 1. A01 — `mass_matched` 대조군이 항상 `full`이었다
+
+`Σ_j b_j·ρ_j = (1−η)B + η·B = B`가 **항등식**이다. 상한 이전에 질량을 맞추면 배율이 항상 1이므로 대조군이 `full`과 같아진다.
+
+| | 수정 전 | 수정 후 |
+|---|---|---|
+| 대조군 kappa | 1.000000000000000 | 선택 모델과 동일 0.589396241989 |
+| `\|대조군 − full\|` | 1.11e-16 | **0.2957** |
+| `\|Σc_control − Σc_sel\|` | 6.0062 | **1.78e-15** |
+| 상한 만족 | — | max c_control 0.3916 ≤ b₀ 1.1005 |
+| η=0에서 full과 일치 | — | 비트 단위 일치 |
+
+수정 계약: `c_sel = min(b·ρ, b₀)` → `κ = Σc_sel/B` → `c_control = κ·b`. `κ≤1`이고 `b_j≤b₀`이므로 상한이 자동 충족된다. 게이트 **G16** 신설. 대조군의 정확한 이름은 "내용 무관"이 아니라 **"총질량 보존, slot 배분 제거"**다(κ 자체가 선택자가 만든 상태 의존량이므로).
+
+### 2. A02 — O7-①의 `M_eff` 공식이 상한 도입 후 무효
+
+`(1−η)m₀ + η`는 **상한 이전의 완벽한 oracle p**에서만 성립한다. 같은 반례에서 공식 **0.5090**, 실제 **0.1383**. 정의를 실측으로 교체했다.
+
+```
+M_eff(n) = Σ_{j∈A_n} c(n,j) / Σ_{j<n} c(n,j) ,   c = min(b·ρ, b₀)
+```
+
+**임계값 0.5는 감사 권고대로 유지한다.** 결과를 보기 전이므로 사후 조정이 아니다. 집계 순서(query 내부 → sequence → seed)와 `t=0`·빈 정답집합 제외 규칙을 사전등록에 고정했다.
+
+### 3. A03 — 난이도 축이 기억 용량 축이 아니었다 (과제 revision r2)
+
+r1은 모든 key를 먼저 소개한 뒤 "마지막 등장이 1–3 구간 전"인 key만 후보로 뒀다. T=42에는 구간이 약 12개뿐이라 **먼저 소개된 key는 영구히 후보에서 빠진다.** 실측한 재질의 고유 key 수는 n_keys 3/5/8에서 **2.52 / 2.59 / 2.55**로 사실상 동일했다. n_keys를 올린 것은 방해 신호를 늘렸을 뿐이다.
+
+r2: 1단계 모든 key 한 번씩 소개 → 2단계 `min_gap` 이상 지난 key 중 **균등 재질의**.
+
+| n_keys (r2) | 회상 사건 | key coverage | key당 질의 | 평균 정답 lag |
+|---:|---:|---:|---:|---:|
+| 3 | 75.2% | **99.3%** | 10.63 | 21.18 |
+| 5 | 58.5% | **86.4%** | 5.80 | 21.26 |
+| 8 | 33.2% | **48.2%** | 3.71 | 22.01 |
+
+**T=42의 구조적 상한을 명시했다.** coverage ≈ min(1, (12.4−n_keys)/n_keys). 따라서 주 난이도 축은 **`{3, 5}`**, `n_keys=8`은 coverage 48%를 밝힌 stress 조건으로만 쓴다. r1 결과와 합치지 않는다(r1 학습 결과는 없다).
+
+부수 효과로 평균 정답 lag가 21 event가 되었다. 재등장이 더 이상 근거리가 아니므로 과제가 실제 장거리 회상을 요구하게 됐다.
+
+### 4. A04 — chance 계산의 분모 오류
+
+query는 시간축에 균등하지 않고 n_keys가 커질수록 뒤로 밀린다. 따라서 `E[|A_n|/n]`을 `E[|A_n|]/(T/2)`로 대체할 수 없다. 또한 **균등 slot 확률과 `full`의 정답 커널 질량은 별개**이며, 선택자가 실제로 이겨야 하는 것은 후자다.
+
+| n_keys (r2) | 기존 `E[r]/(T/2)` | uniform_slot_chance | **full_kernel_mass** | 0.5 / kernel |
+|---:|---:|---:|---:|---:|
+| 3 | 0.1662 | 0.1569 | **0.1305** | 3.83× |
+| 5 | 0.1649 | 0.1263 | **0.1080** | 4.63× |
+| 8 | 0.1640 | 0.1031 | **0.0913** | 5.48× |
+
+**D-O의 근거 문장("세 난이도의 chance가 같으므로 0.5의 의미도 같다")을 철회한다.** chance는 난이도마다 다르다.
+
+### 5. A05 — G11이 실제 전류를 재지 않았다
+
+`max|raw patch| × scale`을 `max|I|`라고 불렀으나 실제 전류는 `Linear → frozen 표준화 → scale`을 지난 값이다. 회상 과제에서 **8.0 vs 실제 30.504**로 3.8배 어긋났다(감사의 독립 probe 30.6887과 일치). 보정이 실제 전류를 측정하고, 비유한 값이면 후보를 탈락시키며, sparse 초기 확인이 구간을 벗어나면 보정 실패로 처리하도록 고쳤다.
+
+안정성 주장의 범위도 좁혔다: "모든 η·T에서 유계"가 아니라 **"검사한 입력·정책·길이 범위에서 유계"**다.
+
+### 6. A06 — `--eta_fixed`·`--no-cap`이 이름만 바꾸고 있었다
+
+두 옵션이 parser와 variant 이름에만 존재하고 `neuron_kwargs`에서 빠져 모델에 전달되지 않았다. 그대로 trainer를 붙였다면 **라벨만 다른 실험**이 될 뻔했다. `eta_fixed`는 sigmoid 큰 logit 근사가 아니라 정확한 덮어쓰기로 구현하고(η=0, η=1을 정확히 표현) `eta_hat`을 동결한다. 게이트 **G17** 신설 — eta_fixed 0→0.0, 1→1.0, no-cap에서 max c 7.107 > b₀ 1.101.
+
+### 7. A07 — 게이트 의미 정정
+
+- **G4 사유가 틀렸다.** "torch≥2 CPU 환경 없음"이라고 적었으나 `snn_jelly`는 torch 2.11.0+cu130이고 CPU에서 정상 동작한다. 실제 사유는 **고정 커밋 spikeDE 소스 부재**다. CUDA 불가는 CPU golden 불가의 근거가 아니다. 등급은 O9대로 `mathematical validation` 유지.
+- **G7b**: 등록 문구는 비트 단위였으나 uniform-p 경로가 `Σ(b·p)`로 나누므로 마지막 ulp에서 구조적으로 다르다(관측 3.33e-16). 허용오차 1e-12를 사전등록에 명시했다.
+- **G15**: 전압 변화만 보던 것을 **실제 스파이크 변화**로 바꿨다 — T−1에서 8개 변화, 이전 시점 0.
+
+### 8. A11 — 수정했다고 기록했으나 코드에 반영되지 않았다
+
+`rng_codes`의 비복원 추출 수정이 파일에 적용되지 않은 채 PROJECT_LOG 23:16과 commit 메시지에 "고쳤다"고 기록되어 있었다. **기록과 코드가 어긋난 provenance 오류**다. 이후 실행이 `cue_dim=5`를 써서 우연히 종료된 탓에 드러나지 않았다(cue_dim=4·n_keys=16이면 시도당 성공 확률 1.2e-7). 지금 수정 후 `rng_codes(16,4)`는 0.0001초에 16개 distinct를 반환하고 `(17,4)`는 ValueError를 낸다.
+
+### 9. A10 — 재현성 보완(부분)
+
+고정 표본으로 모든 후보 scale을 비교하도록 바꿨고(기존에는 scale마다 shuffle loader를 새로 순회), 파일명에 timestamp와 task revision을 넣어 덮어쓰기를 막았으며, source sha256·표본 sha256·full args·norm 통계·sparse 확인 결과를 JSON에 저장한다.
+
+**PROJECT_LOG 23:16의 rate .2278/state 17.81과 JSON .2280505933/state 18.4044의 불일치 원인을 확인했다**: 그 사이에 `fit_norm`을 1배치에서 8배치로 바꿨고 로그는 이전 실행값이다. 추정이 아니라 실제 편집 이력이다. 두 값 모두 r2 재보정으로 대체됐다.
+
+### 10. 재검증 결과
+
+| 항목 | 수정 전 | 수정 후 |
+|---|---|---|
+| 게이트 | 17 passed / 0 failed / 1 not run | **19 passed / 0 failed / 1 not run** |
+| 보정 (recall r2, frozen) | scale 8.0, rate 0.2278, max\|I\| 8.0(오류) | scale 8.0, rate 0.1848, **max\|I\| 30.504**, bound 305.0, max\|u\| 19.49 |
+| 보정 (ETTh1, frozen) | scale 6.0, rate 0.1861 | scale 6.0, rate 0.1896, max\|I\| 50.756, max\|u\| 19.69 |
+
+### 11. 아직 열려 있는 항목
+
+- **A08(부분):** support 4종과 `has_history`는 aux에 넣었으나 score/QK norm, branch 상관·유효 rank, 선택 gradient norm은 없다. **gradient를 유지하는 analog readout 경로**는 `ours.py` 미구현이라 없다. 현재 `state`/`voltage`는 detach된 진단값이며, 거기에 head를 붙이면 뉴런까지 학습되지 않는다는 지적은 유효하다.
+- **A09(부분):** 사전등록은 §2C로 정정했으나 `IDEA_LOG.md`와 `IDEA_SUMMARY_FOR_REPORT.md`의 표현(w 초기값·η·cap 후 M_eff·속도 이득)은 미정리.
+- **A10(부분):** `Config.run_id`의 전체 설정 hash·run UUID, checkpoint의 `norm_mean/std` 포함과 fresh reload 확인, `stability_sweep.txt`의 F1/F2 출력 보충 미완.
+- **A12:** 학습 파이프라인 전체가 not run.
+
+### 12. 주장 범위
+
+감사의 종합 판정을 그대로 받아들인다. **현재 자료로 "검증 완료"나 "아이디어 성능 입증"을 주장할 수 없다.** 지금까지 확인된 것은 정의의 자기일관성과 초기 동작점뿐이다.
+
+Artifacts: `NSMT/f_lif_pop_v3/analysis/{check_model_phaseAC.txt,recall_task_sanity.txt}`, `NSMT/f_lif_pop_v3/forecasting/results/calibration/*_260921-23*.json`, `NSMT/docs/Population_fLIF_v3_prereg_KO.md` §2C, `NSMT/docs/ASSESMENT.md` 후속 기록.

@@ -1,0 +1,81 @@
+{
+  "passed": 17,
+  "failed": 0,
+  "not_run": 1,
+  "exit_code": 0,
+  "command": "OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 /home/yschoi/.conda/envs/snn_recall/bin/python /tmp/nsmt_assessment_20260921/f_lif_pop_v3/forecasting/check_model.py --phase all",
+  "rows": [
+    {
+      "status": "PASS",
+      "detail": "G1a  sum_d b_d == (n+1)^alpha / Gamma(alpha+1)"
+    },
+    {
+      "status": "PASS",
+      "detail": "G1b  constant forcing integrator U = U0 + c t^alpha / Gamma(alpha+1)"
+    },
+    {
+      "status": "PASS",
+      "detail": "G2   alpha=1, eta=0, g=0  ==  Euler leaky integrator"
+    },
+    {
+      "status": "PASS",
+      "detail": "G3   loop == (Id + B J/tau)^-1 B/tau   (and != B/tau)"
+    },
+    {
+      "status": "NOT RUN",
+      "detail": "G4   golden trajectory parity against pinned f-SNN code"
+    },
+    {
+      "status": "PASS",
+      "detail": "G15  perturbing I_{T-1} moves v_{T-1} and nothing earlier"
+    },
+    {
+      "status": "PASS",
+      "detail": "G5a  K=1 == scalar fractional branch (no branch reset, so not the paper neuron)"
+    },
+    {
+      "status": "PASS",
+      "detail": "G5b  homogeneous tau => identical constituents"
+    },
+    {
+      "status": "PASS",
+      "detail": "G6   perturbing patches >= t leaves every state/voltage/spike before t intact"
+    },
+    {
+      "status": "PASS",
+      "detail": "G7   neutral limit: eta=0 sparse == full, bitwise"
+    },
+    {
+      "status": "PASS",
+      "detail": "G7b  uniform p == full  (why `uniform` is a gate, not a control)"
+    },
+    {
+      "status": "PASS",
+      "detail": "G12  cap is inactive at eta=0 (b_d <= b_0 for d >= 1)"
+    },
+    {
+      "status": "PASS",
+      "detail": "G8a  kappa == 1.000 while the cap is inactive"
+    },
+    {
+      "status": "PASS",
+      "detail": "G8b  eta=1 sparsemax leaves exact zeros in the final coefficients"
+    },
+    {
+      "status": "PASS",
+      "detail": "G13  support(p) / support(rho) / support(b*rho) / support(c) reported separately"
+    },
+    {
+      "status": "PASS",
+      "detail": "G10  gradients finite and nonzero for W_Q, W_K, eta_hat, w"
+    },
+    {
+      "status": "PASS",
+      "detail": "G9   batched == per-window evaluation"
+    },
+    {
+      "status": "PASS",
+      "detail": "G11  state stays bounded at eta=1, recent-only policy, tau=[4,8,16,32]"
+    }
+  ]
+}

@@ -113,8 +113,17 @@ class Selector(nn.Module):
     `uniform` is NOT a control mode here but a gate (G7b). The cap is what stops the state
     blowing up: mass conservation alone let an adversarial policy reach max|u| = 397,853
     (log 2026-09-21 22:19). D-A drops the tempered prior pi_k, so rho carries no k index.
+
+    `mass_matched` matches the mass AFTER the cap (audit A01). Matching before it is vacuous:
+    sum_j b_j rho_j = (1-eta) B + eta B = B identically, so the control collapses onto `full`
+    (reproduced: control kappa 1.000000000000000, |control - full| = 1.11e-16 where the
+    selection model's own kappa was 0.5698). kappa is a state-dependent quantity produced by
+    the selector, so the honest name for this control is "total mass preserved, slot
+    allocation removed" rather than "content-free". Its gradient is kept, so the control can
+    also be trained from scratch rather than only injected at test time.
     """
-    def __init__(self, num_population=4, query_dim=None, theta=1., eta_init=-4.):
+    def __init__(self, num_population=4, query_dim=None, theta=1., eta_init=-4.,
+                 eta_fixed=None, cap=True):
         super().__init__()
 
         self.num_population = num_population
@@ -133,10 +142,22 @@ class Selector(nn.Module):
             self.query.weight[:eye, :eye] = torch.eye(eye)
             self.key.weight[:eye, :eye] = torch.eye(eye)
         self.eta_hat = nn.Parameter(torch.tensor(float(eta_init)))   # D-B: -4 -> eta ~ 0.018, 중립 출발
+        self.cap = bool(cap)
+        # eta_fixed는 sigmoid의 큰 logit 근사가 아니라 정확한 덮어쓰기여야 한다 (audit A06).
+        # eta=0과 eta=1을 정확히 표현할 수 있어야 중립극한과 완전 배제가 성립한다.
+        self.register_buffer('eta_value', torch.tensor(float('nan') if eta_fixed is None
+                                                       else float(eta_fixed)))
+        if eta_fixed is not None:
+            if not 0. <= float(eta_fixed) <= 1.:
+                raise ValueError('eta_fixed must lie in [0, 1]')
+            self.eta_hat.requires_grad_(False)
 
     @property
     def eta(self):
-        return torch.sigmoid(self.eta_hat)
+        if torch.isnan(self.eta_value):
+            return torch.sigmoid(self.eta_hat)
+
+        return self.eta_value
 
     def forward(self, xi, xi_hist, b_hist, b0, mode='sparse', oracle_p=None):
         #  xi: [B, D, K+1]   xi_hist: [B, D, J, K+1]   b_hist: [J]   ->  c: [B, D, J]
@@ -155,9 +176,11 @@ class Selector(nn.Module):
         if mode == 'full':                                           # eta=0 경로를 점수 계산 없이 빠르게
             c = b_hist.expand(*xi.shape[:-1], J).clone()
             ones, zeros = torch.ones_like(c[..., 0]), torch.zeros_like(c[..., 0])
-            return c, {'p': c / c.sum(-1, keepdim=True), 'rho': torch.ones_like(c),
-                       'score': torch.zeros_like(c), 'eta': zeros,
-                       'kappa': ones, 'cap_rate': zeros}
+            # p는 None이다. b/sum(b)를 p라고 부르면 latent uniform p와 혼동된다 (audit A08).
+            return c, {'p': None, 'rho': torch.ones_like(c), 'score': None,
+                       'eta': zeros, 'kappa': ones, 'cap_rate': zeros,
+                       'support_p': ones, 'support_rho': ones, 'support_braw': ones,
+                       'support_c': ones}
 
         score = -(self.query(xi).unsqueeze(-2) - self.key(xi_hist)).square().sum(-1)
         score = score / (self.query_dim * self.theta)                # theta는 d_q 스케일로 고정 (O3)
@@ -179,15 +202,21 @@ class Selector(nn.Module):
         denom = (b_hist * p).sum(-1, keepdim=True).clamp_min(1e-12)
         rho = (1. - self.eta) + self.eta * mass * p / denom           # 볼록 결합: eta=0이면 rho == 1
         raw = b_hist * rho
+        c = torch.minimum(raw, cap) if self.cap else raw             # R3 (--no-cap은 탐색 전용)
         if mode == 'mass_matched':
-            # D4 대조군: 정책의 총질량만 남기고 내용 의존성을 지운다 (감쇠와 구분하기 위해)
-            raw = (raw.sum(-1, keepdim=True) / mass) * b_hist.expand_as(raw)
-        c = torch.minimum(raw, cap)                                  # R3
+            # 상한을 적용한 뒤의 총질량을 맞춘다. 상한 이전에 맞추면 항상 B라서 full이 된다.
+            # kappa <= 1 이고 b_j <= b_0 이므로 kappa*b_j <= b_0, 즉 이 대조군은 상한도 만족한다.
+            c = (c.sum(-1, keepdim=True) / mass) * b_hist.expand_as(c)
 
         aux = {'p': p.detach(), 'rho': rho.detach(), 'score': score.detach(),
                'eta': self.eta.detach().expand(*c.shape[:-1]),
                'kappa': (c.sum(-1) / mass).detach(),                 # 상한이 물리면 1보다 작아진다
-               'cap_rate': (raw > cap).to(c.dtype).mean(-1).detach()}
+               'cap_rate': (raw > cap).to(c.dtype).mean(-1).detach(),
+               # D-K: 네 층위의 support는 서로 다르다. 각각 따로 보고한다 (gate G13).
+               'support_p': (p > 0).to(c.dtype).mean(-1).detach(),
+               'support_rho': (rho > 0).to(c.dtype).mean(-1).detach(),
+               'support_braw': (raw > 0).to(c.dtype).mean(-1).detach(),
+               'support_c': (c > 0).to(c.dtype).mean(-1).detach()}
 
         return c, aux
 
@@ -245,7 +274,8 @@ class PopulationNeuron(nn.Module):
     """
     def __init__(self, embed_dim, num_population=4, alpha=.7, tau=(4., 8., 16., 32.),
                  heterogeneous=True, max_length=64, theta=1., eta_init=-4.,
-                 tau_s=2., threshold=1., surrogate_scale=5., query_dim=None):
+                 eta_fixed=None, cap=True, tau_s=2., threshold=1., surrogate_scale=5.,
+                 query_dim=None):
         super().__init__()
 
         tau = torch.as_tensor(tau, dtype=torch.float32)
@@ -260,7 +290,7 @@ class PopulationNeuron(nn.Module):
         self.num_population = num_population
         self.alpha = float(alpha)
         self.max_length = int(max_length)
-        self.selector = Selector(num_population, query_dim, theta, eta_init)
+        self.selector = Selector(num_population, query_dim, theta, eta_init, eta_fixed, cap)
         self.soma = Soma(embed_dim, num_population, tau_s, threshold, surrogate_scale)
 
     def forward(self, x, mode='sparse', oracle_p=None, return_aux=False):
@@ -278,7 +308,8 @@ class PopulationNeuron(nn.Module):
         u = x.new_zeros(B, D, self.num_population)                   # u_0 = 0, 리셋 없음
         v = x.new_zeros(B, D)
         incs, keys, spikes = [], [], []                              # f(j), xi_j, s_n
-        logs = {k: [] for k in ('state', 'voltage', 'coeff', 'kappa', 'cap_rate', 'eta')}
+        keep = ('kappa', 'cap_rate', 'eta', 'support_p', 'support_rho', 'support_braw', 'support_c')
+        logs = {k: [] for k in ('state', 'voltage', 'coeff') + keep}
 
         for t in range(T):
             f = (x[t].unsqueeze(-1) - u) / self.tau                  # [B, D, K] 같은 전류, 다른 시간척도
@@ -292,8 +323,9 @@ class PopulationNeuron(nn.Module):
                                        None if oracle_p is None else oracle_p[t])
                 nxt = nxt + torch.einsum('bdj,bdjk->bdk', c, past)   # 과거 증분 재합산
             elif return_aux:
-                aux = {'kappa': x.new_zeros(B, D), 'cap_rate': x.new_zeros(B, D),
-                       'eta': self.selector.eta.detach().expand(B, D)}
+                # t=0은 history가 없다. 평균에서 빼도록 별도 mask로 표시한다 (audit A08).
+                aux = {k: x.new_zeros(B, D) for k in keep}
+                aux['eta'] = self.selector.eta.detach().expand(B, D)
 
             incs.append(f)
             keys.append(xi)
@@ -305,15 +337,17 @@ class PopulationNeuron(nn.Module):
                 logs['state'].append(u.detach())
                 logs['voltage'].append(v.detach())
                 logs['coeff'].append(None if c is None else c.detach())
-                for key in ('kappa', 'cap_rate', 'eta'):
+                for key in keep:
                     logs[key].append(aux[key])
 
         out = torch.stack(spikes)                                    # [T, B, D]
         if not return_aux:
             return out
 
-        aux = {'spikes': out.detach(), 'coeff': logs['coeff']}
-        aux.update({k: torch.stack(logs[k]) for k in ('state', 'voltage', 'kappa', 'cap_rate', 'eta')})
+        has_history = torch.zeros(T, dtype=torch.bool, device=x.device)
+        has_history[1:] = True                                       # t=0은 집계에서 뺀다
+        aux = {'spikes': out.detach(), 'coeff': logs['coeff'], 'has_history': has_history}
+        aux.update({k: torch.stack(logs[k]) for k in ('state', 'voltage') + keep})
 
         return out, aux
 

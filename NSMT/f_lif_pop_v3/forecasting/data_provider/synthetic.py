@@ -8,8 +8,17 @@ from torch.utils.data import Dataset
 CUE_MODES = ('onehot', 'code')
 
 
-def make_run_sequence(rng, n_events, n_keys, run_range, gap_range):
-    """Lay out the key runs so that a key reappears after 1-3 intervening runs.
+def make_run_sequence(rng, n_events, n_keys, run_range, min_gap):
+    """Lay out the key runs: introduce every key once, then re-query them uniformly.
+
+    Task revision r2 (audit A03). The r1 layout introduced every fresh key first and then
+    only admitted keys whose last run was 1-3 runs back. With 8 keys and only ~12 runs in
+    T=42 the keys introduced first fell out of that window permanently and were never
+    queried again, so raising n_keys raised the number of distractors but NOT the number of
+    keys actually held and recalled: measured 2.52 / 2.59 / 2.55 distinct re-queried keys at
+    n_keys 3 / 5 / 8. Here phase 2 samples uniformly among every key last seen at least
+    `min_gap` runs ago, so each key keeps an equal chance of being needed again and the
+    source lag grows with n_keys, which is what a memory-capacity axis has to do.
 
     Returns
     -------
@@ -17,16 +26,16 @@ def make_run_sequence(rng, n_events, n_keys, run_range, gap_range):
     run : (n_events,) int, which run the event belongs to
     """
     keys, lengths, seen, total = [], [], {}, 0
+    order = rng.permutation(n_keys)
     while total < n_events:
         r = len(keys)
-        fresh = [k for k in range(n_keys) if k not in seen]
-        if fresh:                                                # 도입부: 아직 안 쓴 신호 먼저
-            cand = fresh
+        if r < n_keys:
+            k = int(order[r])                                    # 1단계: 모든 key를 한 번씩 소개
         else:
-            cand = [k for k in range(n_keys) if gap_range[0] <= r - seen[k] - 1 <= gap_range[1]]
-            if not cand:                                         # 신호 수가 많아 창을 못 맞추면 가장 오래된 것
+            cand = [j for j in range(n_keys) if r - seen[j] - 1 >= min_gap]
+            if not cand:                                         # min_gap이 key 수보다 크면 가장 오래된 것
                 cand = [min(seen, key=seen.get)]
-        k = int(rng.choice(cand))
+            k = int(rng.choice(cand))                            # 2단계: 균등 재질의 -> coverage 보장
         keys.append(k)
         lengths.append(int(rng.integers(run_range[0], run_range[1] + 1)))
         seen[k] = r
@@ -38,7 +47,7 @@ def make_run_sequence(rng, n_events, n_keys, run_range, gap_range):
     return key, run
 
 
-def make_sequence(rng, n_events=42, patch_size=8, n_keys=3, run_range=(2, 5), gap_range=(1, 3),
+def make_sequence(rng, n_events=42, patch_size=8, n_keys=3, run_range=(2, 5), min_gap=1,
                   cue_mode='onehot', cue_dim=None, cue_noise=0., distractor=0.,
                   value_range=(-1., 1.)):
     """One recall sequence.
@@ -64,11 +73,13 @@ def make_sequence(rng, n_events=42, patch_size=8, n_keys=3, run_range=(2, 5), ga
     -------
     x : (n_events * patch_size, 1) float32, raw single-channel series
     y : (n_events,) float32, target value per event
-    truth : (n_events, n_events) bool, truth[n, j] = "j is a place where y[n] was shown"
+    truth : (n_events, n_events) bool, truth[n, j] = "j is a place where y[n] was shown".
+        The source set is the key's FIRST run, i.e. where the value was actually presented,
+        not the previous re-appearance (audit A03 asked for this to be stated).
     recall : (n_events,) bool, events whose answer is NOT in the current input
     """
     assert cue_mode in CUE_MODES
-    key, run = make_run_sequence(rng, n_events, n_keys, run_range, gap_range)
+    key, run = make_run_sequence(rng, n_events, n_keys, run_range, min_gap)
     value = rng.uniform(value_range[0], value_range[1], size=n_keys)
     first_run = {k: run[key == k].min() for k in range(n_keys) if (key == k).any()}
 
@@ -99,13 +110,21 @@ def make_sequence(rng, n_events=42, patch_size=8, n_keys=3, run_range=(2, 5), ga
 
 
 def rng_codes(n_keys, cue_dim, seed=20260921):
-    """Fixed +-1 cue codes, shared by every sequence so a key means the same thing."""
-    gen = np.random.default_rng(seed)
-    code = gen.choice([-1., 1.], size=(n_keys, cue_dim))
-    while len(np.unique(code, axis=0)) < n_keys:                 # 중복 코드가 나오면 다시
-        code = gen.choice([-1., 1.], size=(n_keys, cue_dim))
+    """Fixed +-1 cue codes, shared by every sequence so a key means the same thing.
 
-    return code / np.sqrt(cue_dim)
+    Drawn WITHOUT replacement from the 2**cue_dim distinct sign patterns. Rejection
+    sampling does not work here and the earlier draft that used it was never actually
+    replaced in the file (audit A11): at cue_dim=4 only 16 patterns exist, so redrawing
+    the whole matrix until 16 rows come out distinct has probability 1.2e-7 per attempt.
+    """
+    if n_keys > 2 ** cue_dim:
+        raise ValueError(f'cue_dim={cue_dim} holds at most {2 ** cue_dim} distinct codes, '
+                         f'asked for {n_keys}')
+    grid = np.array([[1. if (i >> d) & 1 else -1. for d in range(cue_dim)]
+                     for i in range(2 ** cue_dim)])
+    pick = np.random.default_rng(seed).permutation(len(grid))[:n_keys]
+
+    return grid[pick] / np.sqrt(cue_dim)
 
 
 class Dataset_Recall(Dataset):
@@ -126,7 +145,7 @@ class Dataset_Recall(Dataset):
             x, y, truth, recall = make_sequence(
                 rng, n_events=args.num_patches, patch_size=args.patch_size,
                 n_keys=args.n_keys, run_range=tuple(args.run_range),
-                gap_range=tuple(args.gap_range), cue_mode=args.cue_mode,
+                min_gap=args.min_gap, cue_mode=args.cue_mode,
                 cue_noise=args.cue_noise, distractor=args.distractor)
             self.x.append(x)
             self.y.append(y)
@@ -143,6 +162,74 @@ class Dataset_Recall(Dataset):
 
     def __len__(self):
         return self.x.shape[0]
+
+
+def task_stats(n_seq=300, seed=20260921, alpha=.7, **kwargs):
+    """Measure what the task actually is, with the aggregation unit stated for each number.
+
+    Two "chance" quantities exist and they are NOT the same (audit A04):
+
+    uniform_slot_chance
+        A reader that picks one past slot uniformly. Per query that is |A_n| / n, so the
+        sequence-level number is the mean of |A_n|/n over queries -- NOT mean(|A_n|) / (T/2),
+        which is what the first draft reported. The two differ because queries are not
+        uniformly placed in time and drift later as n_keys grows.
+    full_kernel_mass
+        The fraction of the FULL (eta=0) fractional kernel that sits on the answer slots,
+        sum_{j in A_n} b(n-j) / sum_{j<n} b(n-j). A uniform p also produces this kernel, so
+        this -- not uniform_slot_chance -- is the baseline the selector has to beat.
+
+    Both are averaged per query inside a sequence first, then across sequences.
+    """
+    from math import lgamma, exp
+    rng = np.random.default_rng(seed)
+    gamma = exp(lgamma(alpha + 1.))
+    b = np.array([((d + 1.) ** alpha - d ** alpha) / gamma for d in range(kwargs.get('n_events', 42))])
+
+    out = {k: [] for k in ('recall_frac', 'sources', 'slot_chance', 'kernel_mass', 'coverage',
+                           'queries_per_key', 'lag_mean', 'lag_max', 'first_query_frac', 'run_len')}
+    n_keys = kwargs.get('n_keys', 3)
+    for _ in range(n_seq):
+        x, y, truth, recall = make_sequence(rng, **kwargs)
+        T = y.shape[0]
+        idx = np.flatnonzero(recall)
+        out['recall_frac'].append(recall.mean())
+        out['run_len'] += np.diff(np.flatnonzero(np.diff(np.concatenate([[np.nan], y])) != 0).tolist()
+                                  + [T]).tolist() if False else []
+        if len(idx) == 0:
+            out['coverage'].append(0.)
+            continue
+        slot, kern, lag, src = [], [], [], []
+        for n in idx:
+            a = np.flatnonzero(truth[n])
+            if n == 0 or a.size == 0:
+                continue
+            slot.append(a.size / n)                              # |A_n| / n
+            kern.append(b[n - a].sum() / b[1:n + 1].sum())        # 정답 slot이 가진 full 커널 질량
+            lag.append(float((n - a).mean()))
+            src.append(a.size)
+        if not slot:
+            continue
+        out['sources'].append(np.mean(src))
+        out['slot_chance'].append(np.mean(slot))
+        out['kernel_mass'].append(np.mean(kern))
+        out['lag_mean'].append(np.mean(lag))
+        out['lag_max'].append(np.max(lag))
+        # 실제로 다시 질의된 고유 key 수 / 전체 key 수
+        cue_dim = n_keys if kwargs.get('cue_mode', 'onehot') == 'onehot' \
+            else (kwargs.get('cue_dim') or min(x.shape[0] // T - 1, 4))
+        book = np.eye(n_keys) if kwargs.get('cue_mode', 'onehot') == 'onehot' \
+            else rng_codes(n_keys, cue_dim)
+        cue = x.reshape(T, -1)[:, :cue_dim]
+        key = np.linalg.norm(cue[:, None, :] - book[None], axis=-1).argmin(-1)
+        queried = np.unique(key[recall])
+        out['coverage'].append(len(queried) / n_keys)
+        out['queries_per_key'].append(len(idx) / max(len(queried), 1))
+        # 재등장 구간의 첫 칸인가 (전환 반응 속도용)
+        first = recall & np.concatenate([[True], key[1:] != key[:-1]])
+        out['first_query_frac'].append(first.sum() / max(len(idx), 1))
+
+    return {k: (float(np.mean(v)) if v else float('nan')) for k, v in out.items() if k != 'run_len'}
 
 
 def sanity_check(n_seq=200, verbose=True, **kwargs):
@@ -190,14 +277,22 @@ def sanity_check(n_seq=200, verbose=True, **kwargs):
         return False
 
     if verbose:
-        run_hist = np.bincount(runs)[1:]
-        print(f"[recall] {n_seq} sequences, T={y.shape[0]}, keys={kwargs.get('n_keys', 3)}")
-        print(f"[recall] run length   : {np.mean(runs):.2f} avg, histogram {run_hist.tolist()}")
-        print(f"[recall] gap (runs)   : {np.mean(gaps):.2f} avg, "
-              f"min {np.min(gaps)}, max {np.max(gaps)}")
-        print(f"[recall] recall events: {100 * np.mean(recall_frac):.1f}% of the sequence")
-        print(f"[recall] sources/event: {np.mean(source_count):.2f} correct past slots")
-        print(f"[recall] chance mass  : {np.mean(source_count) / (0.5 * y.shape[0]):.3f} "
-              f"(uniform read over the average history)")
+        stats = task_stats(n_seq=min(n_seq, 300), **kwargs)
+        print(f"[recall] {n_seq} sequences, T={y.shape[0]}, keys={kwargs.get('n_keys', 3)}, "
+              f"revision r2")
+        print(f"[recall] run length   : {np.mean(runs):.2f} avg (마지막 run은 잘릴 수 있음), "
+              f"histogram {np.bincount(runs)[1:].tolist()}")
+        print(f"[recall] recall events: {100 * stats['recall_frac']:.1f}% of the sequence, "
+              f"{stats['sources']:.2f} source slots per query")
+        print(f"[recall] key coverage : {100 * stats['coverage']:.1f}% of keys re-queried, "
+              f"{stats['queries_per_key']:.2f} queries per queried key")
+        print(f"[recall] source lag   : {stats['lag_mean']:.2f} avg, {stats['lag_max']:.2f} max "
+              f"(events back to the first run)")
+        print(f"[recall] first-query  : {100 * stats['first_query_frac']:.1f}% of queries are a "
+              f"run's first event")
+        print(f"[recall] uniform-slot chance : {stats['slot_chance']:.4f}   "
+              f"(mean over queries of |A_n|/n)")
+        print(f"[recall] full-kernel mass    : {stats['kernel_mass']:.4f}   "
+              f"(what eta=0 already puts on the answer; the baseline to beat)")
 
     return True

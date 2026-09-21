@@ -57,7 +57,7 @@ def parse_arguments():
     recall_arg = parser.add_argument_group('synthetic recall task')
     recall_arg.add_argument('--n_keys', type=int, default=3)
     recall_arg.add_argument('--run_range', nargs=2, type=int, default=[2, 5])
-    recall_arg.add_argument('--gap_range', nargs=2, type=int, default=[1, 3])
+    recall_arg.add_argument('--min_gap', type=int, default=1, help='minimum intervening runs before re-query')
     recall_arg.add_argument('--cue_mode', choices=['onehot', 'code'], default='onehot')
     recall_arg.add_argument('--cue_noise', type=float, default=0.)
     recall_arg.add_argument('--distractor', type=float, default=0.)
@@ -162,5 +162,7 @@ def neuron_kwargs(config):
     """The subset of Config that PopulationNeuron accepts, so callers do not drift."""
     return dict(num_population=config.num_population, alpha=config.alpha, tau=tuple(config.tau),
                 heterogeneous=config.heterogeneous, max_length=config.num_patches,
-                theta=config.theta, eta_init=config.eta_init, tau_s=config.tau_s,
-                threshold=config.threshold, surrogate_scale=config.surrogate_scale)
+                theta=config.theta, eta_init=config.eta_init,
+                eta_fixed=config.eta_fixed, cap=config.cap,      # audit A06: 이름만 바뀌면 안 된다
+                tau_s=config.tau_s, threshold=config.threshold,
+                surrogate_scale=config.surrogate_scale)

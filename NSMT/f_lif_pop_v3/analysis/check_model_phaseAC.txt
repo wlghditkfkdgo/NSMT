@@ -8,9 +8,9 @@
 [gate]    PASS | G3   loop == (Id + B J/tau)^-1 B/tau   (and != B/tau)
 [gate]         | |loop - H_eff| = 5.00e-16   |loop - naive B@I/tau| = 0.945
 [gate] NOT RUN | G4   golden trajectory parity against pinned f-SNN code
-[gate]         | blocked: no spikeDE source on this box and no torch>=2.0 CPU env (snn_recall is 1.12, snn_jelly has no CUDA). Reference grade stays 'mathematical validation' per prereg O9.
-[gate]    PASS | G15  perturbing I_{T-1} moves v_{T-1} and nothing earlier
-[gate]         | |d v_last| = 2.2243, |d v_earlier| = 0.00e+00
+[gate]         | blocked: the pinned spikeDE source is not present on this machine (find / -iname '*spikede*' returns nothing). An earlier note blamed the environment; that was wrong -- snn_jelly has torch 2.11.0+cu130 with working CPU autograd and torch.compile, and CUDA availability is irrelevant to a CPU golden run. Reference grade stays 'mathematical validation' per prereg O9.
+[gate]    PASS | G15  perturbing I_{T-1} flips s_{T-1} and leaves every earlier spike alone
+[gate]         | changed spikes at T-1 = 8 (rate 0.052), |d v_last| = 2.224; earlier: d spikes = 0, |d v| = 0.00e+00
 [gate] Phase C -- population reduction, causality, selection
 [gate]    PASS | G5a  K=1 == scalar fractional branch (no branch reset, so not the paper neuron)
 [gate]         | max |err| = 0.00e+00
@@ -21,19 +21,24 @@
 [gate]    PASS | G7   neutral limit: eta=0 sparse == full, bitwise
 [gate]         | torch.equal (atol=0, rtol=0) = True
 [gate]    PASS | G7b  uniform p == full  (why `uniform` is a gate, not a control)
-[gate]         | max |err| = 3.33e-16 at eta=1
+[gate]         | max |err| = 3.33e-16 at eta=1; bitwise = False. The registered wording said bitwise, but the uniform-p path divides by sum(b*p) while `full` does not, so the two differ in the last ulp by construction. Declared tolerance 1e-12 (prereg amendment 2026-09-22).
 [gate]    PASS | G12  cap is inactive at eta=0 (b_d <= b_0 for d >= 1)
 [gate]         | max cap_rate = 0.0e+00
 [gate]    PASS | G8a  kappa == 1.000 while the cap is inactive
 [gate]         | max |kappa - 1| = 0.00e+00
 [gate]    PASS | G8b  eta=1 sparsemax leaves exact zeros in the final coefficients
 [gate]         | 17/23 steps contain an exact zero; kappa in [0.242, 1.000] -- below 1 wherever the cap binds
-[gate]    PASS | G13  support(p) / support(rho) / support(b*rho) / support(c) reported separately
-[gate]         | eta = 0.0180   p = 0.841   rho = 1.000   b*rho = 1.000   c = 1.000   -- the dense residual (1-eta)*b_d survives wherever p = 0
+[gate]    PASS | G13  support(p) / support(rho) / support(b*rho) / support(c) over the whole run
+[gate]         | eta = 0.0180   p = 0.924   rho = 1.000   braw = 1.000   c = 1.000   over 23 steps with history   -- the dense residual (1-eta)*b_d survives wherever p = 0
 [gate]    PASS | G10  gradients finite and nonzero for W_Q, W_K, eta_hat, w
 [gate]         | finite = True   nonzero = {'W_Q': True, 'W_K': True, 'eta_hat': True, 'w': True}
 [gate]    PASS | G9   batched == per-window evaluation
 [gate]         | max |err| = 0.00e+00
 [gate]    PASS | G11  state stays bounded at eta=1, recent-only policy, tau=[4,8,16,32]
 [gate]         | max|u| = 2.385 (T=42), 2.385 (T=84); declared bound 67.5
-[gate] 17 passed, 0 failed, 1 not run
+[gate] Phase C (audit) -- pass conditions for the 2026-09-22 audit issues
+[gate]    PASS | G16  mass_matched matches the POST-cap mass and does not collapse onto full
+[gate]         | kappa sel 0.589396241989 vs control 0.589396241989; |sum c_control - sum c_sel| = 1.78e-15; |control - full| = 0.2957; max c_control <= b_0: True; cap-inactive => full bitwise: True
+[gate]    PASS | G17  --eta_fixed is an exact override and --no-cap actually removes the cap
+[gate]         | eta_fixed 0 -> 0.0, 1 -> 1.0 (exact, not a sigmoid approximation); eta_hat trainable: fixed False, free True; no-cap max c = 7.107 > b_0 = 1.101
+[gate] 19 passed, 0 failed, 1 not run

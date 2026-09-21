@@ -29,7 +29,10 @@ Usage
 
 import os
 import json
+import hashlib
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import torch
@@ -44,12 +47,16 @@ GRID = [1., 2., 3., 4., 6., 8., 10., 12., 14., 17., 20., 25., 30.]
 
 
 @torch.no_grad()
-def probe(embedding, loader, device, scale, max_batches=8, mode='full'):
+def probe(embedding, batches, device, scale, mode='full'):
     """Run a few train batches at one input_scale and summarise the operating point.
 
     Args
     ----
     embedding : layers.Embedding
+    batches : list of [T, B*C, patch_size]
+        Materialised ONCE and reused for every candidate, so the scales are compared on the
+        same inputs. Re-walking a shuffled loader per scale would change the subset too
+        (audit A10).
     scale : float
         Candidate input_scale. Set on the module, so the linear projection is shared
         across candidates and only the gain moves.
@@ -62,18 +69,19 @@ def probe(embedding, loader, device, scale, max_batches=8, mode='full'):
     dict with firing rate, dead/saturated fraction, per-constituent |u| and max|u|.
     """
     embedding.input_scale = float(scale)
-    rate, per_unit, branch, peak, drive = [], [], [], 0., []
-    for i, batch in enumerate(loader):
-        if i >= max_batches:
-            break
-        x = batch[0].to(device)                                  # [B, L, C]
-        patch = layers.to_patches(x, embedding.emb_linear.in_features)
+    rate, per_unit, branch, peak, drive = [], [], [], 0., 0.
+    finite = True
+    for patch in batches:
+        # G11은 뉴런에 실제로 들어가는 전류를 봐야 한다. raw patch * scale이 아니다 (audit A05).
+        current = embedding.current(patch)
+        drive = max(drive, current.abs().max().item())
+        finite = finite and bool(torch.isfinite(current).all())
         spikes, aux = embedding(patch, mode=mode, return_aux=True)
+        finite = finite and bool(torch.isfinite(aux['state']).all())
         rate.append(spikes.mean().item())
         per_unit.append(spikes.mean(dim=(0, 1)).cpu().numpy())   # [D] 유닛별 발화율
         branch.append(aux['state'].abs().mean(dim=(0, 1, 2)).cpu().numpy())
         peak = max(peak, aux['state'].abs().max().item())
-        drive.append(patch.abs().max().item() * scale)
 
     per_unit = np.concatenate([u[None] for u in per_unit]).mean(0)
 
@@ -82,7 +90,9 @@ def probe(embedding, loader, device, scale, max_batches=8, mode='full'):
             'saturated_frac': float((per_unit > 0.9).mean()),
             'unit_rate_min': float(per_unit.min()), 'unit_rate_max': float(per_unit.max()),
             'branch_abs_mean': [float(v) for v in np.mean(branch, axis=0)],
-            'max_abs_state': float(peak), 'max_abs_drive': float(np.max(drive))}
+            'branch_abs_max': [float(v) for v in np.max(branch, axis=0)],
+            'max_abs_state': float(peak), 'max_abs_current': float(drive),
+            'finite': bool(finite)}
 
 
 def constituents_healthy(row):
@@ -95,7 +105,8 @@ def constituents_healthy(row):
 
 def choose(rows):
     """Apply the pre-registered rule. Returns (row or None, reason)."""
-    ok = [r for r in rows if BAND[0] <= r['firing_rate'] <= BAND[1] and constituents_healthy(r)]
+    ok = [r for r in rows if BAND[0] <= r['firing_rate'] <= BAND[1]
+          and constituents_healthy(r) and r['finite']]
     if not ok:
         return None, (f"no input_scale put the firing rate in {BAND} with every constituent "
                       f"alive; widening the band is NOT allowed by D11")
@@ -116,30 +127,34 @@ def main():
     config.device = torch.device('cpu' if config.cpu else f'cuda:{config.num_device}')
 
     _, loader = data_provider(config, 'train')
+    batches = []
+    for i, batch in enumerate(loader):
+        if i >= 8:
+            break
+        batches.append(layers.to_patches(batch[0].to(config.device), config.patch_size))
+    sample_hash = hashlib.sha256(b''.join(t.cpu().numpy().tobytes() for t in batches)).hexdigest()[:16]
+    print(f"[calib] fixed probe sample: {len(batches)} batches, "
+          f"{sum(t.shape[1] for t in batches)} windows, sha256[:16] = {sample_hash}")
+
     embedding = layers.Embedding(config.patch_size, config.embed_dim, config.input_scale,
                                  input_norm=config.input_norm, **neuron_kwargs(config)).to(config.device)
     if config.input_norm == 'frozen':
         # 여러 배치를 모아 적합한다. 한 배치로는 추정이 흔들린다.
-        sample = []
-        for i, batch in enumerate(loader):
-            if i >= 8:
-                break
-            sample.append(layers.to_patches(batch[0].to(config.device), config.patch_size))
-        embedding.fit_norm(torch.cat(sample, dim=1))
+        embedding.fit_norm(torch.cat(batches, dim=1))
         print(f"[calib] frozen norm fitted: mean in "
               f"[{embedding.norm_mean.min():.3f}, {embedding.norm_mean.max():.3f}], "
               f"std in [{embedding.norm_std.min():.3f}, {embedding.norm_std.max():.3f}]")
 
     print(f"[calib] band {BAND}, target {TARGET}, mode 'full' (neutral limit)")
     print(f"[calib] {'scale':>6} {'rate':>7} {'dead':>6} {'sat':>6} "
-          f"{'unit min/max':>14} {'max|u|':>8}  branch |u| by tau")
+          f"{'unit min/max':>14} {'max|I|':>8} {'max|u|':>8}  branch |u| by tau")
     rows = []
     for scale in GRID:
-        row = probe(embedding, loader, config.device, scale)
+        row = probe(embedding, batches, config.device, scale)
         rows.append(row)
         print(f"[calib] {scale:>6.1f} {row['firing_rate']:>7.4f} {row['dead_frac']:>6.2f} "
               f"{row['saturated_frac']:>6.2f} {row['unit_rate_min']:>6.3f}/{row['unit_rate_max']:<7.3f} "
-              f"{row['max_abs_state']:>8.2f}  "
+              f"{row['max_abs_current']:>8.2f} {row['max_abs_state']:>8.2f}  "
               + " ".join(f"{v:.3f}" for v in row['branch_abs_mean']))
 
     picked, reason = choose(rows)
@@ -149,26 +164,42 @@ def main():
         print(f"[calib] picked input_scale = {picked['input_scale']} "
               f"(firing rate {picked['firing_rate']:.4f}, {reason})")
         # G11: 학습 전에 상태 상한을 선언해 둔다. 학습 중 이 값을 넘으면 중단한다.
-        print(f"[calib] G11 declared bound = 10 * max|I| = {10 * picked['max_abs_drive']:.1f}, "
-              f"observed max|u| = {picked['max_abs_state']:.2f}")
+        bound = 10. * picked['max_abs_current']
+        print(f"[calib] G11 declared bound = 10 * max|I| = {bound:.1f} "
+              f"(max|I| measured AFTER Linear/norm/scale = {picked['max_abs_current']:.3f}), "
+              f"observed max|u| = {picked['max_abs_state']:.2f} "
+              f"-> {'within' if picked['max_abs_state'] < bound else 'EXCEEDS'}")
 
     # 조건 간 공유를 위해 sparse 초기값에서도 같은 구간에 있는지 확인한다
     if picked is not None:
-        check = probe(embedding, loader, config.device, picked['input_scale'], mode='sparse')
+        check = probe(embedding, batches, config.device, picked['input_scale'], mode='sparse')
         print(f"[calib] sparse at init (eta = {torch.sigmoid(embedding.neuron.selector.eta_hat).item():.4f}): "
               f"firing rate {check['firing_rate']:.4f}  "
               f"{'inside band' if BAND[0] <= check['firing_rate'] <= BAND[1] else 'OUTSIDE BAND'}")
+        if not BAND[0] <= check['firing_rate'] <= BAND[1]:
+            picked, reason = None, 'sparse-at-init fell outside the band'
 
     out = Path(TASK) / 'results' / 'calibration'
     os.makedirs(out, exist_ok=True)
-    stem = f"{config.dataset}_k{config.n_keys}" if config.task == 'recall' else config.dataset
-    name = f"{stem}_a{config.alpha}_norm-{config.input_norm}_seed{config.seed}.json"
+    stamp = datetime.now(ZoneInfo('Asia/Seoul')).strftime('%y%m%d-%H%M')
+    stem = f"{config.dataset}_k{config.n_keys}_r2" if config.task == 'recall' else config.dataset
+    name = f"{stem}_a{config.alpha}_norm-{config.input_norm}_seed{config.seed}_{stamp}.json"
     payload = {'band': BAND, 'target': TARGET, 'mode': 'full', 'input_norm': config.input_norm,
                'grid': rows,
                'picked': picked, 'reason': reason,
                'neuron': {k: (list(v) if isinstance(v, tuple) else v)
                           for k, v in neuron_kwargs(config).items()},
-               'task': config.task, 'dataset': config.dataset, 'seed': config.seed}
+               'task': config.task, 'dataset': config.dataset, 'seed': config.seed,
+               'task_revision': 'r2' if config.task == 'recall' else None,
+               'probe_sample_sha256_16': sample_hash,
+               'norm_stats': {'mean': embedding.norm_mean.tolist(),
+                              'std': embedding.norm_std.tolist()} if config.input_norm == 'frozen' else None,
+               'sparse_at_init': check if picked is not None else None,
+               'source_sha256_16': {f: hashlib.sha256(Path(f).read_bytes()).hexdigest()[:16]
+                                    for f in ('layers.py', 'calibrate.py', 'config.py',
+                                              'data_provider/synthetic.py')},
+               'args': {k: (str(v) if isinstance(v, (Path, torch.device)) else v)
+                        for k, v in vars(config).items()}}
     with open(out / name, 'w') as handle:
         json.dump(payload, handle, indent=2)
     print(f"[calib] written to `{out / name}`")

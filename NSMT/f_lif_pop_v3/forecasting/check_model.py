@@ -127,22 +127,28 @@ def phase_a(report, T=24, D=4):
 
     # G4: 원본(spikeDE) 궤적 대조. CPU torch 2.x 환경이 있어야 돌릴 수 있다
     report.add('G4', 'golden trajectory parity against pinned f-SNN code', None,
-               "blocked: no spikeDE source on this box and no torch>=2.0 CPU env "
-               "(snn_recall is 1.12, snn_jelly has no CUDA). Reference grade stays "
-               "'mathematical validation' per prereg O9.")
+               "blocked: the pinned spikeDE source is not present on this machine "
+               "(find / -iname '*spikede*' returns nothing). An earlier note blamed the "
+               "environment; that was wrong -- snn_jelly has torch 2.11.0+cu130 with working "
+               "CPU autograd and torch.compile, and CUDA availability is irrelevant to a CPU "
+               "golden run. Reference grade stays 'mathematical validation' per prereg O9.")
 
     # G15: D-D 정렬. 마지막 patch가 마지막 스파이크에 도달해야 한다
     model = build_neuron(embed_dim=D, double=False)
     torch.manual_seed(2)
-    x = torch.randn(T, 2, D)
-    base = model(x, mode='sparse', return_aux=True)[1]['voltage']
+    x = torch.randn(T, 2, D) * 6.                            # 임계값을 실제로 넘는 구동
+    base_s, base = model(x, mode='sparse', return_aux=True)
     bumped = x.clone()
     bumped[-1] += 50.
-    moved = model(bumped, mode='sparse', return_aux=True)[1]['voltage']
-    last = (base[-1] - moved[-1]).abs().max().item()
-    earlier = (base[:-1] - moved[:-1]).abs().max().item()
-    report.add('G15', 'perturbing I_{T-1} moves v_{T-1} and nothing earlier',
-               last > 1e-3 and earlier == 0., f"|d v_last| = {last:.4f}, |d v_earlier| = {earlier:.2e}")
+    moved_s, moved = model(bumped, mode='sparse', return_aux=True)
+    dv = (base['voltage'][-1] - moved['voltage'][-1]).abs().max().item()
+    ds = (base_s[-1] - moved_s[-1]).abs().sum().item()       # 마지막 스파이크가 실제로 바뀌는가
+    quiet_v = (base['voltage'][:-1] - moved['voltage'][:-1]).abs().max().item()
+    quiet_s = (base_s[:-1] - moved_s[:-1]).abs().sum().item()
+    report.add('G15', 'perturbing I_{T-1} flips s_{T-1} and leaves every earlier spike alone',
+               ds > 0 and quiet_s == 0. and quiet_v == 0.,
+               f"changed spikes at T-1 = {ds:.0f} (rate {base_s.mean():.3f}), |d v_last| = {dv:.3f}; "
+               f"earlier: d spikes = {quiet_s:.0f}, |d v| = {quiet_v:.2e}")
 
 
 def phase_c(report, T=24, D=4):
@@ -207,8 +213,12 @@ def phase_c(report, T=24, D=4):
         a = model(x64, mode='oracle', oracle_p=flat, return_aux=True)[1]['state']
         c = model(x64, mode='full', return_aux=True)[1]['state']
         err = (a - c).abs().max().item()
+    bitwise = torch.equal(a, c)
     report.add('G7b', 'uniform p == full  (why `uniform` is a gate, not a control)', err < 1e-12,
-               f"max |err| = {err:.2e} at eta=1")
+               f"max |err| = {err:.2e} at eta=1; bitwise = {bitwise}. The registered wording said "
+               f"bitwise, but the uniform-p path divides by sum(b*p) while `full` does not, so the "
+               f"two differ in the last ulp by construction. Declared tolerance 1e-12 "
+               f"(prereg amendment 2026-09-22).")
 
     # G12/G8a: eta=0에서 상한은 구조적으로 작동할 수 없고, 따라서 질량이 보존된다
     with torch.no_grad():
@@ -231,25 +241,18 @@ def phase_c(report, T=24, D=4):
                f"{sum(zeros)}/{len(zeros)} steps contain an exact zero; "
                f"kappa in [{kappa.min():.3f}, {kappa.max():.3f}] -- below 1 wherever the cap binds")
 
-    # G13: support는 층위마다 다르다. "sparse"를 최종 계수에 쓰면 틀린다 (D-K)
+    # G13: support는 층위마다 다르다. 실제 실행 전체의 aux에서 모은다 (D-K, audit A08)
     with torch.no_grad():
         model = build_neuron(embed_dim=D, double=False)
         aux = model(x32, mode='sparse', return_aux=True)[1]
-        t = T - 1
-        b_hist = model.b[1:t + 1].flip(0)
-        zero = torch.zeros_like(aux['state'][0])
-        xi = torch.cat([aux['state'][t - 1], x32[t].unsqueeze(-1)], dim=-1)
-        keys = torch.stack([torch.cat([aux['state'][j - 1] if j else zero, x32[j].unsqueeze(-1)], dim=-1)
-                            for j in range(t)], dim=-2)
-        c, sel = model.selector(xi, keys, b_hist, model.b[0].item(), 'sparse')
-        support = {'p': (sel['p'] > 0).double().mean().item(),
-                   'rho': (sel['rho'] > 0).double().mean().item(),
-                   'b*rho': ((b_hist * sel['rho']) > 0).double().mean().item(),
-                   'c': (c > 0).double().mean().item()}
-    report.add('G13', 'support(p) / support(rho) / support(b*rho) / support(c) reported separately',
+        live = aux['has_history']                            # t=0은 history가 없어 평균에서 뺀다
+        support = {k.replace('support_', ''): aux[k][live].mean().item()
+                   for k in ('support_p', 'support_rho', 'support_braw', 'support_c')}
+    report.add('G13', 'support(p) / support(rho) / support(b*rho) / support(c) over the whole run',
                support['p'] <= support['rho'],
                f"eta = {model.selector.eta.item():.4f}   "
                + "   ".join(f"{k} = {v:.3f}" for k, v in support.items())
+               + f"   over {int(live.sum())} steps with history"
                + "   -- the dense residual (1-eta)*b_d survives wherever p = 0")
 
     # G10: 선택자 파라미터 전부에 유한하고 0이 아닌 gradient가 흘러야 한다
@@ -286,6 +289,50 @@ def phase_c(report, T=24, D=4):
                f"max|u| = {worst[42]:.3f} (T=42), {worst[84]:.3f} (T=84); declared bound {bound:.1f}")
 
 
+def phase_c_audit(report, T=42, D=2):
+    """Gates added after the 2026-09-22 audit. Each one is an issue's pass condition."""
+    torch.manual_seed(11)
+    b = layers.fractional_coefficients(.7, T, dtype=torch.float64)
+    b_hist, mass, b0 = b[1:T].flip(0), b[1:T].sum(), b[0].item()
+    xi = torch.randn(1, D, 5, dtype=torch.float64)
+    hist = torch.randn(1, D, T - 1, 5, dtype=torch.float64) * 3.
+    hist[0, :, 0] = xi[0]                                    # 가장 오래된 slot이 정답이 되도록
+
+    # G16 (audit A01): mass_matched는 cap 뒤의 질량을 맞춰야 한다
+    with torch.no_grad():
+        sel = layers.Selector(4, None, 1., 0.).double()       # eta = 0.5
+        c_sel, a_sel = sel(xi, hist, b_hist, b0, 'sparse')
+        c_mm, a_mm = sel(xi, hist, b_hist, b0, 'mass_matched')
+        c_full, _ = sel(xi, hist, b_hist, b0, 'full')
+        same_mass = (c_mm.sum(-1) - c_sel.sum(-1)).abs().max().item()
+        differs = (c_mm - c_full).abs().max().item()
+        under_cap = c_mm.max().item() <= b0 + 1e-12
+        sel0 = layers.Selector(4, None, 1., 0., eta_fixed=0.).double()
+        neutral = torch.equal(sel0(xi, hist, b_hist, b0, 'mass_matched')[0],
+                              sel0(xi, hist, b_hist, b0, 'full')[0])
+    report.add('G16', 'mass_matched matches the POST-cap mass and does not collapse onto full',
+               same_mass < 1e-12 and differs > 1e-6 and under_cap and neutral,
+               f"kappa sel {a_sel['kappa'].mean():.12f} vs control {a_mm['kappa'].mean():.12f}; "
+               f"|sum c_control - sum c_sel| = {same_mass:.2e}; |control - full| = {differs:.4f}; "
+               f"max c_control <= b_0: {under_cap}; cap-inactive => full bitwise: {neutral}")
+
+    # G17 (audit A06): --eta_fixed / --no-cap이 실제 모델을 바꾸는가
+    with torch.no_grad():
+        exact = {}
+        for value in (0., 1.):
+            fixed = layers.Selector(4, None, 1., -4., eta_fixed=value).double()
+            exact[value] = (fixed.eta.item(), fixed.eta_hat.requires_grad)
+        free = layers.Selector(4, None, 1., -4.).double()
+        uncapped = layers.Selector(4, None, 1., 0., cap=False).double()
+        c_un, _ = uncapped(xi, hist, b_hist, b0, 'sparse')
+    report.add('G17', '--eta_fixed is an exact override and --no-cap actually removes the cap',
+               exact[0.][0] == 0. and exact[1.][0] == 1. and not exact[0.][1]
+               and free.eta_hat.requires_grad and c_un.max().item() > b0,
+               f"eta_fixed 0 -> {exact[0.][0]!r}, 1 -> {exact[1.][0]!r} (exact, not a sigmoid "
+               f"approximation); eta_hat trainable: fixed {exact[0.][1]}, free {free.eta_hat.requires_grad}; "
+               f"no-cap max c = {c_un.max().item():.3f} > b_0 = {b0:.3f}")
+
+
 def main():
     parser = argparse.ArgumentParser(description='pre-registered numerical gates for v3-A')
     parser.add_argument('--phase', dest='phase', nargs='?', default='all', choices=['A', 'C', 'all'],
@@ -299,6 +346,8 @@ def main():
     if args.phase in ('C', 'all'):
         print("[gate] Phase C -- population reduction, causality, selection")
         phase_c(report)
+        print("[gate] Phase C (audit) -- pass conditions for the 2026-09-22 audit issues")
+        phase_c_audit(report)
 
     failed, skipped = report.failures(), report.skipped()
     passed = len(report.rows) - len(failed) - len(skipped)

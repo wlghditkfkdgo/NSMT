@@ -1,35 +1,32 @@
-=== recall task sanity check (no training) ===
+=== recall task sanity check, revision r2 (no training) ===
 
-/home/yschoi/CLS_spiking_transformer/Bio-inspired-Spiking-Memory-Transformer-for-time-series-representation-learning/NSMT/f_lif_pop_v3/forecasting/./data_provider/synthetic.py:182: RuntimeWarning: Mean of empty slice.
-  source_count.append(truth.sum(-1)[recall].mean())
-/home/yschoi/.conda/envs/snn_recall/lib/python3.10/site-packages/numpy/core/_methods.py:129: RuntimeWarning: invalid value encountered in scalar divide
-  ret = ret.dtype.type(ret / rcount)
-[recall] 300 sequences, T=42, keys=3
-[recall] run length   : 3.40 avg, histogram [92, 929, 961, 868, 859]
-[recall] gap (runs)   : 1.35 avg, min 1, max 3
-[recall] recall events: 74.8% of the sequence
-[recall] sources/event: 3.53 correct past slots
-[recall] chance mass  : 0.168 (uniform read over the average history)
+[recall] 300 sequences, T=42, keys=3, revision r2
+[recall] run length   : 3.39 avg (마지막 run은 잘릴 수 있음), histogram [91, 954, 915, 924, 832]
+[recall] recall events: 75.2% of the sequence, 3.49 source slots per query
+[recall] key coverage : 99.3% of keys re-queried, 10.63 queries per queried key
+[recall] source lag   : 21.18 avg, 37.63 max (events back to the first run)
+[recall] first-query  : 30.1% of queries are a run's first event
+[recall] uniform-slot chance : 0.1569   (mean over queries of |A_n|/n)
+[recall] full-kernel mass    : 0.1305   (what eta=0 already puts on the answer; the baseline to beat)
 
-[recall] 300 sequences, T=42, keys=5
-[recall] run length   : 3.36 avg, histogram [81, 1040, 909, 863, 852]
-[recall] gap (runs)   : 1.54 avg, min 1, max 3
-[recall] recall events: 58.9% of the sequence
-[recall] sources/event: 3.48 correct past slots
-[recall] chance mass  : 0.166 (uniform read over the average history)
+[recall] 300 sequences, T=42, keys=5, revision r2
+[recall] run length   : 3.40 avg (마지막 run은 잘릴 수 있음), histogram [88, 945, 916, 901, 854]
+[recall] recall events: 58.5% of the sequence, 3.48 source slots per query
+[recall] key coverage : 86.4% of keys re-queried, 5.80 queries per queried key
+[recall] source lag   : 21.26 avg, 35.66 max (events back to the first run)
+[recall] first-query  : 30.3% of queries are a run's first event
+[recall] uniform-slot chance : 0.1263   (mean over queries of |A_n|/n)
+[recall] full-kernel mass    : 0.1080   (what eta=0 already puts on the answer; the baseline to beat)
 
-[recall] 300 sequences, T=42, keys=8
-[recall] run length   : 3.41 avg, histogram [69, 955, 893, 938, 838]
-[recall] gap (runs)   : 1.68 avg, min 1, max 3
-[recall] recall events: 33.1% of the sequence
-[recall] sources/event: 3.55 correct past slots
-[recall] chance mass  : 0.169 (uniform read over the average history)
+[recall] 300 sequences, T=42, keys=8, revision r2
+[recall] run length   : 3.40 avg (마지막 run은 잘릴 수 있음), histogram [75, 992, 898, 878, 867]
+[recall] recall events: 33.2% of the sequence, 3.52 source slots per query
+[recall] key coverage : 48.2% of keys re-queried, 3.71 queries per queried key
+[recall] source lag   : 22.01 avg, 33.59 max (events back to the first run)
+[recall] first-query  : 31.8% of queries are a run's first event
+[recall] uniform-slot chance : 0.1031   (mean over queries of |A_n|/n)
+[recall] full-kernel mass    : 0.0913   (what eta=0 already puts on the answer; the baseline to beat)
 
---- 난이도 축 상한 확인: T=42에서 12/16개는 재등장이 없다 ---
-[recall] 50 sequences, T=42, keys=12
-[recall] run length   : 3.49 avg, histogram [16, 127, 166, 133, 160]
-[recall] gap (runs)   : 2.38 avg, min 1, max 3
-[recall] recall events: 1.8% of the sequence
-[recall] sources/event: nan correct past slots
-[recall] chance mass  : nan (uniform read over the average history)
-[recall] NO REAPPEARANCE at keys=16, T=42: 3.45-event runs leave only ~12 runs, fewer than the key count.
+--- A11 회귀: cue_dim=4, n_keys=16은 이제 즉시 끝나거나 명확히 거부되어야 한다 ---
+rng_codes(16,4): 16 distinct rows in 0.0001s
+rng_codes(17,4) -> cue_dim=4 holds at most 16 distinct codes, asked for 17

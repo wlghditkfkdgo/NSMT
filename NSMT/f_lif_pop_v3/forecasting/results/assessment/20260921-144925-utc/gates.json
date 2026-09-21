@@ -1,0 +1,128 @@
+{
+  "rows": [
+    [
+      "G1a",
+      "sum_d b_d == (n+1)^alpha / Gamma(alpha+1)",
+      true,
+      "max |err| = 1.78e-15 over alpha in 0.3/0.5/0.7/1.0, n <= 24"
+    ],
+    [
+      "G1b",
+      "constant forcing integrator U = U0 + c t^alpha / Gamma(alpha+1)",
+      true,
+      "max relative err = 6.56e-07 (tau = 1e+07, leak suppressed; residual IS the leak)"
+    ],
+    [
+      "G2",
+      "alpha=1, eta=0, g=0  ==  Euler leaky integrator",
+      true,
+      "max |err| = 0.00e+00  (the g=0 condition is exactly what rev.0 omitted)"
+    ],
+    [
+      "G3",
+      "loop == (Id + B J/tau)^-1 B/tau   (and != B/tau)",
+      true,
+      "|loop - H_eff| = 5.00e-16   |loop - naive B@I/tau| = 0.945"
+    ],
+    [
+      "G4",
+      "golden trajectory parity against pinned f-SNN code",
+      null,
+      "blocked: the pinned spikeDE source is not present on this machine (find / -iname '*spikede*' returns nothing). An earlier note blamed the environment; that was wrong -- snn_jelly has torch 2.11.0+cu130 with working CPU autograd and torch.compile, and CUDA availability is irrelevant to a CPU golden run. Reference grade stays 'mathematical validation' per prereg O9."
+    ],
+    [
+      "G15",
+      "perturbing I_{T-1} flips s_{T-1} and leaves every earlier spike alone",
+      true,
+      "changed spikes at T-1 = 8 (rate 0.052), |d v_last| = 2.224; earlier: d spikes = 0, |d v| = 0.00e+00"
+    ],
+    [
+      "G5a",
+      "K=1 == scalar fractional branch (no branch reset, so not the paper neuron)",
+      true,
+      "max |err| = 0.00e+00"
+    ],
+    [
+      "G5b",
+      "homogeneous tau => identical constituents",
+      true,
+      "max spread = 0.00e+00, tau_hom = K/sum(1/tau_k) = 8.533"
+    ],
+    [
+      "G6",
+      "perturbing patches >= t leaves every state/voltage/spike before t intact",
+      true,
+      "max |err| over state/voltage/spikes = 0.00e+00"
+    ],
+    [
+      "G7",
+      "neutral limit: eta=0 sparse == full, bitwise",
+      true,
+      "torch.equal (atol=0, rtol=0) = True"
+    ],
+    [
+      "G7b",
+      "uniform p == full  (why `uniform` is a gate, not a control)",
+      true,
+      "max |err| = 3.33e-16 at eta=1; bitwise = False. The registered wording said bitwise, but the uniform-p path divides by sum(b*p) while `full` does not, so the two differ in the last ulp by construction. Declared tolerance 1e-12 (prereg amendment 2026-09-22)."
+    ],
+    [
+      "G12",
+      "cap is inactive at eta=0 (b_d <= b_0 for d >= 1)",
+      true,
+      "max cap_rate = 0.0e+00"
+    ],
+    [
+      "G8a",
+      "kappa == 1.000 while the cap is inactive",
+      true,
+      "max |kappa - 1| = 0.00e+00"
+    ],
+    [
+      "G8b",
+      "eta=1 sparsemax leaves exact zeros in the final coefficients",
+      true,
+      "17/23 steps contain an exact zero; kappa in [0.242, 1.000] -- below 1 wherever the cap binds"
+    ],
+    [
+      "G13",
+      "support(p) / support(rho) / support(b*rho) / support(c) over the whole run",
+      true,
+      "eta = 0.0180   p = 0.924   rho = 1.000   braw = 1.000   c = 1.000   over 23 steps with history   -- the dense residual (1-eta)*b_d survives wherever p = 0"
+    ],
+    [
+      "G10",
+      "gradients finite and nonzero for W_Q, W_K, eta_hat, w",
+      true,
+      "finite = True   nonzero = {'W_Q': True, 'W_K': True, 'eta_hat': True, 'w': True}"
+    ],
+    [
+      "G9",
+      "batched == per-window evaluation",
+      true,
+      "max |err| = 0.00e+00"
+    ],
+    [
+      "G11",
+      "state stays bounded at eta=1, recent-only policy, tau=[4,8,16,32]",
+      true,
+      "max|u| = 2.385 (T=42), 2.385 (T=84); declared bound 67.5"
+    ],
+    [
+      "G16",
+      "mass_matched matches the POST-cap mass and does not collapse onto full",
+      true,
+      "kappa sel 0.589396241989 vs control 0.589396241989; |sum c_control - sum c_sel| = 1.78e-15; |control - full| = 0.2957; max c_control <= b_0: True; cap-inactive => full bitwise: True"
+    ],
+    [
+      "G17",
+      "--eta_fixed is an exact override and --no-cap actually removes the cap",
+      true,
+      "eta_fixed 0 -> 0.0, 1 -> 1.0 (exact, not a sigmoid approximation); eta_hat trainable: fixed False, free True; no-cap max c = 7.107 > b_0 = 1.101"
+    ]
+  ],
+  "pass": 19,
+  "fail": 0,
+  "not_run": 1,
+  "invocation": "import check_model; r=check_model.GateReport(); check_model.phase_a(r); check_model.phase_c(r); check_model.phase_c_audit(r)"
+}
