@@ -1,0 +1,109 @@
+--- old/f_lif_pop_v3/forecasting/calibrate.py
++++ new/f_lif_pop_v3/forecasting/calibrate.py
+@@ -217,7 +217,7 @@
+     os.makedirs(out, exist_ok=True)
+     stamp = datetime.now(ZoneInfo('Asia/Seoul')).strftime('%y%m%d-%H%M%S')
+     stem = f"{config.dataset}_k{config.n_keys}_r2" if config.task == 'recall' else config.dataset
+-    qk = '_qknorm' if config.qk_norm else ''
++    qk = f'_qknorm-eps{config.qk_eps:g}' if config.qk_norm else ''
+     name = f"{stem}_a{config.alpha}_norm-{config.input_norm}{qk}_seed{config.seed}_{stamp}.json"
+     payload = {'band': BAND, 'target': TARGET, 'mode': 'full', 'input_norm': config.input_norm,
+                'grid': rows,
+--- old/f_lif_pop_v3/forecasting/train.py
++++ new/f_lif_pop_v3/forecasting/train.py
+@@ -30,7 +30,7 @@
+     the bound would follow it (audit follow-up 9.3).
+     """
+     stem = f"{args.dataset}_k{args.n_keys}_r2" if args.task == 'recall' else args.dataset
+-    qk = '_qknorm' if args.qk_norm else ''
++    qk = f'_qknorm-eps{args.qk_eps:g}' if args.qk_norm else ''
+     pattern = str(TASK / 'results' / 'calibration'
+                   / f'{stem}_a{args.alpha}_norm-{args.input_norm}{qk}_seed*.json')
+     files = sorted(glob.glob(pattern))
+@@ -53,7 +53,8 @@
+         have = neuron.get(field)
+         if have is not None and list(have) != want if isinstance(want, list) else have != want:
+             mismatch.append(f'{field}: calibration {have} vs requested {want}')
+-    for field in ('patch_size', 'embed_dim', 'input_norm', 'qk_norm', 'key_norm',
++    # qk_eps는 변환과 score scale을 모두 바꾸므로 식별자에 포함되어야 한다 (audit 18 A10-CAL).
++    for field in ('patch_size', 'embed_dim', 'input_norm', 'qk_norm', 'qk_eps', 'key_norm',
+                   'cue_mode', 'n_keys', 'seq_len'):
+         have = saved.get(field)
+         if have is not None and have != getattr(args, field, have):
+@@ -100,10 +101,11 @@
+     criterion = nn.MSELoss()
+     total = torch.zeros(3, dtype=torch.float64, device=args.device)
+     peak, rate = 0., []
++    every_batch = {'grad_total_norm_pre': [], 'clip_rate': []}   # 표본이 아니라 전 배치
+     watched = {k: [] for k in ('eta', 'kappa', 'would_cap_rate', 'support_p', 'score_std')}
+     selector_grad = {k: [] for k in ('grad_WQ_norm', 'grad_WK_norm', 'grad_eta_hat_norm',
+                                      'grad_WQ_absmax', 'grad_WK_absmax', 'grad_absmax_all',
+-                                     'grad_total_norm_pre', 'clip_rate', 'singleton_frac')}
++                                     'singleton_frac')}
+     for i, batch in enumerate(data_loader):
+         if args.max_train_batches and i >= args.max_train_batches:
+             break
+@@ -134,9 +136,8 @@
+                     default=0.))
+         # 이름을 total로 두면 위의 누적 변수를 덮어쓴다. clip_grad_norm_은 clipping 전 norm을 준다.
+         pre_clip = torch.nn.utils.clip_grad_norm_(model.parameters(), 1., error_if_nonfinite=True)
+-        if watch and args.model == 'myModel':
+-            selector_grad['grad_total_norm_pre'].append(pre_clip.item())
+-            selector_grad['clip_rate'].append(1. if pre_clip.item() > 1. else 0.)
++        every_batch['grad_total_norm_pre'].append(pre_clip.item())
++        every_batch['clip_rate'].append(1. if pre_clip.item() > 1. else 0.)
+         optimizer.step()
+         if watch:
+             # G11: 학습 중에도 보정에서 고정한 상한을 본다. 넘으면 즉시 중단한다.
+@@ -148,9 +149,19 @@
+             # sparsemax가 한 칸만 고르면 score gradient가 0이다 (audit 5.2). 비율을 본다.
+             selector_grad['singleton_frac'].append((aux['support_size'][live] == 1).double().mean().item())
+             if args.g11_bound and peak >= args.g11_bound:
++                # 예외만 던지면 stdout 밖에 증거가 남지 않는다 (audit 19 A05/G11).
++                record = {'event': 'G11_violation', 'run_id': args.run_id,
++                          'run_uuid': getattr(args, 'run_uuid', None), 'epoch': args.current_epoch,
++                          'batch': i, 'max_abs_state': peak, 'bound': args.g11_bound,
++                          'calibration_file': args.calibration_file,
++                          'mode': args.mode, 'eta_fixed': args.eta_fixed,
++                          'qk_norm': args.qk_norm, 'qk_eps': args.qk_eps,
++                          'utc': datetime.now(timezone.utc).isoformat()}
++                write_json(os.path.join(args.save_result_path, 'G11_violation.json'), record)
+                 raise FloatingPointError(
+                     f'G11 violated: max|u| = {peak:.3f} reached the bound {args.g11_bound:.3f} '
+-                    f'frozen at calibration')
++                    f'frozen at calibration (epoch {args.current_epoch}, batch {i}); '
++                    f'record written to {args.save_result_path}/G11_violation.json')
+         error = (output.detach() - y).double()
+         total[0] += error.square().sum()
+         total[1] += error.abs().sum()
+@@ -162,7 +173,11 @@
+         result['max_abs_state'] = peak
+         result['firing_rate'] = float(np.mean(rate))
+         # 진단에 NaN이 섞이면 조용히 퍼지지 않도록 여기서 걸러 기록한다.
+-        for source in (watched, selector_grad):
++        every = {'grad_total_norm_pre_mean': [np.mean(every_batch['grad_total_norm_pre'])],
++                 'grad_total_norm_pre_max': [np.max(every_batch['grad_total_norm_pre'])],
++                 'clip_rate_all_batches': [np.mean(every_batch['clip_rate'])],
++                 'batches_seen': [len(every_batch['clip_rate'])]}
++        for source in (watched, selector_grad, every):
+             for key, values in source.items():
+                 finite = [v for v in values if np.isfinite(v)]
+                 if finite:
+@@ -209,6 +224,7 @@
+     args.print_info()
+ 
+     for epoch in range(args.epoch):
++        args.current_epoch = epoch
+         train_result = train_one_epoch(model, train_loader, optimizer, args)
+         val_result = val_one_epoch(model, val_loader, args)
+         # write()가 TensorBoard·콘솔·CSV를 모두 처리한다. logging/verbose만 부르면
+@@ -234,7 +250,8 @@
+                            ('firing_rate', 'max_abs_state', 'eta', 'kappa', 'would_cap_rate',
+                             'support_p', 'score_std', 'grad_WQ_norm', 'grad_WK_norm',
+                             'grad_eta_hat_norm', 'grad_WQ_absmax', 'grad_WK_absmax',
+-                            'grad_absmax_all', 'grad_total_norm_pre', 'clip_rate',
++                            'grad_absmax_all', 'grad_total_norm_pre_mean',
++                            'grad_total_norm_pre_max', 'clip_rate_all_batches', 'batches_seen',
+                             'singleton_frac')
+                            if k in train_result}
+                         | {k: v for k, v in train_result.items() if k.endswith('_nonfinite')}}

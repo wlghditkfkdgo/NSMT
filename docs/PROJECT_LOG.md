@@ -3766,3 +3766,73 @@ seed 1개·12 epoch의 탐색적 실행이다. ε는 **기울기 진단**으로 
 ### 6. 다음
 
 순위 ③(causal key 표현 ablation)으로 넘어간다. §2의 진단이 "점수가 정답을 못 고른다"를 가리키므로, 감사의 조건부 규칙("score 순위는 괜찮은데 p에서 질량이 사라지면 ④를 ③보다 앞당긴다")의 판정 근거를 먼저 만든다 — `score` 단계의 순위와 `p` 단계의 질량을 같은 표본에서 분리 측정한다.
+
+
+## 2026-09-22 14:24 KST — 예약 추적 감사19: QK η.5·학습η 재현, 인과 해석·η1 사건 근거 분리
+
+- Branch exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7/HEADb6d4baf6a54ee950403df1f60d05f290073bee07,snapshot14:20:35/208파일,manifest불일치0/연구소스변경0. 감사commit/tag없음.
+- CPU torch1.12/2threads/seed7/data_seed20260921,2048/256/256,batch64,12epoch,softε.01/θ.381469877/spike/α.7/K4/key3. 새완료η.5·학습ηtest256/8085query MSE·M_eff차0/hash일치. Recall .319099823128/.273289752622, M_eff .130831132549/.133798540174,기존oracle1공통분모G −.1771581586/+ .0126314219. 모든η에서G음수아님. η.5오차개선은있으나full미달.
+- **14:18 해석 정정 요청:** support확대만으로uniform접근·개선원인단정불가. 대응비정규화η.5 testmax는20.9183이지full22.7아님. 진짜gradient최대/빈도충족선언은현watch/reducer와불일치(A09OPEN). θ/ε/학습경로교란유의.
+- η1 qk2 CSV8행/e1chk1행·완료JSON없음. 332.547>305.038 G11중단은canonical보고,원시예외tasklog에서미확인;그사건VERIFIED아님. 요약qknorm_grid TypeError는None출력오류와구별. η1평가/중단재현/새학습/8seedCI not run. Samevalidation score/p/c진단후③key/④entmax분기권고.
+- Artifact NSMT/f_lif_pop_v3/forecasting/results/assessment/20260922T052001Z-759f71ff/(inventory,completion_probe.py,completion_probes.json,validation,append_validation);rawlog forecasting/log/assessment/동일run/completion_probe.log. Exactcommand·문헌은ASSESMENT감사19. 학습/GPU/설치/소스수정/git변이/프로세스중단/타세션대화접근·전송없음,감사3문서append·진단artifact만작성.
+
+---
+
+## 2026-09-22 15:10 KST — 감사 18·19 수용: 내 인과 단정 정정과 결함 셋 수정 (학습 없음)
+
+### 1. 정정 ① — hard/soft 전환이 유계성을 만든 것이 **아니다**
+
+나는 "정규화의 Jacobian이 ‖x‖→0에서 발산하므로 soft norm으로 바꿔 유계로 만들었다"고 썼다. **틀렸다.** 내 hard 구현은 `x/max(‖x‖,ε)`였고, 이것도 미분 가능 영역에서 **1/ε로 유계**다. 직접 확인했다(d=4, x≈0).
+
+| ε | hard `x/max(‖x‖,ε)` | soft `x/√(‖x‖²+ε²)` |
+|---:|---:|---:|
+| 1e-6 | **1e+06** | **1e+06** |
+| 1e-3 | 1000 | 1000 |
+| 1e-2 | 100 | 100 |
+| 1e-1 | 10 | 10 |
+
+**두 형태가 정확히 같다.** 따라서 관측된 개선의 변수는 **ε 크기**이지 hard/soft가 아니다. 또 한 스텝의 1/ε 상한(1e6)과 전체 BPTT gradient(1e13)를 "규모가 일치한다"고 쓴 것도 **같은 양의 비교가 아니다.** "원인을 정확히 특정", "남은 폭주는 T스텝 누적이며 정규화는 원리적으로 고칠 수 없다"는 단정을 철회하고 **"ε를 키우면 gradient가 줄어드는 것을 관측했다"**로 제한한다. Artifact: `analysis/qk_norm_form.txt`
+
+### 2. 정정 ② — "모든 사용 가능한 η에서 G 음수"는 틀렸다
+
+학습 η의 G는 **+0.0126**이다. 음수는 **고정 η 0.2(−0.1772)와 0.5** 관찰로 제한한다.
+
+### 3. 정정 ③ — "성능 개선의 원인" 서술은 가설이다
+
+"정책이 더 균등해져 full에 가까워진 것이 개선 원인"이라고 썼다. `support_p`는 **양수 원소 비율**일 뿐 entropy나 균등분포까지의 거리, full과의 실제 계수 차를 재지 않는다. 각 조건은 가중치·학습 경로·θ·ε가 모두 달라 통제되지 않았다. **가설로 격하**하며, 고정 checkpoint에서 정책만 바꾼 통제 비교로 확인한다.
+
+### 4. 정정 ④ — "clipping 전 진짜 최대·빈도 충족" 선언 철회
+
+필드가 존재하는 것과 요구한 통계가 구현된 것은 다르다. 기존 수집은 `batch % g11_every == 0`인 **표본**이었다. 전 배치 수집으로 고쳤다.
+
+| 지표 | 값 (η=1, qk_norm ε=0.01, 8배치) |
+|---|---:|
+| `grad_total_norm_pre_mean` | 8.79e+08 |
+| **`grad_total_norm_pre_max`** | **3.91e+09** |
+| **`clip_rate_all_batches`** | **1.0** (8/8) |
+
+### 5. 수정 ⑤ — 보정 호환성에서 `qk_eps` 누락 (A10-CAL)
+
+보정 `qk_eps=0.01`에 요청 `qk_eps=1.0`을 그대로 승인하고 있었다. ε는 변환과 score scale을 모두 바꾸므로 **식별자와 호환성 검사 양쪽에** 넣었다. 확인: 불일치 시 거부된다.
+
+### 6. 수정 ⑥ — G11 중단의 원시 근거 (A05/G11)
+
+감사 지적대로, 예외만 던지면 stdout 밖에 증거가 남지 않았다. 구조화 기록을 남기도록 했다.
+
+```json
+{"event": "G11_violation", "run_id": "...sparse_qknorm_eta1_k3_seed7",
+ "run_uuid": "44e2b2349fc29e28", "epoch": 1, "batch": 0,
+ "max_abs_state": 332.54718017578125, "bound": 305.0375175476074,
+ "calibration_file": "recall_k3_r2_a0.7_norm-frozen_qknorm-eps0.01_seed7_260922-151001.json",
+ "mode": "sparse", "eta_fixed": 1.0, "qk_norm": true, "qk_eps": 0.01, "utc": "..."}
+```
+
+값 332.547이 앞선 실행과 **정확히 재현**되며 이제 epoch·batch까지 특정된다.
+
+### 7. 수용 — 과거 관측의 provenance
+
+`gcmp-*`·`qkchk2-*`의 수치는 **hard 변환 소스에서 측정**됐고 당시 config에 `qk_eps`가 없다. 현재 soft 소스로 같은 의미의 재현을 했다고 부르지 않고 **"당시 기록 관찰"**로 남긴다.
+
+### 8. 다음
+
+감사가 요구한 통제 비교를 한다 — **고정 checkpoint에서 정책·계수만 바꿔** score → p → pre-cap → post-cap 각 단계의 정답 질량과 순위를 같은 표본에서 분리 측정한다. 이것이 감사의 조건부 규칙(④를 ③보다 앞당길지)의 판정 근거다.

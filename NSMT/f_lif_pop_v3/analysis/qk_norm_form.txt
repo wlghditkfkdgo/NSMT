@@ -1,0 +1,15 @@
+1) 국소 Jacobian 스펙트럼 노름 (d=4, x=0 근방)
+        eps   hard: x/max(|x|,eps)   soft: x/sqrt(|x|^2+eps^2)
+      1e-06                  1e+06                       1e+06
+      1e-03                   1000                        1000
+      1e-02                    100                         100
+      1e-01                     10                          10
+   => 두 형태 모두 1/eps로 유계다. soft 전환이 유계성을 만든 것이 아니다.
+
+2) 같은 eps에서 hard vs soft의 실제 gradient (eta=1, T=42, 단일 backward)
+        eps    soft 총 norm     soft key
+      1e-06      8.016e+11    8.016e+11
+      1e-03      2.808e+10    2.808e+10
+      1e-02      2.411e+07    2.193e+07
+      1e-01      1.667e+07    1.547e+07
+   (hard 변환의 동일 조건 측정은 별도 구현이 필요하므로 이번에는 not run)
