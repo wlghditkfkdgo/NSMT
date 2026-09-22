@@ -1,0 +1,170 @@
+--- old/calibrate.py
++++ new/calibrate.py
+@@ -217,7 +217,8 @@
+     os.makedirs(out, exist_ok=True)
+     stamp = datetime.now(ZoneInfo('Asia/Seoul')).strftime('%y%m%d-%H%M%S')
+     stem = f"{config.dataset}_k{config.n_keys}_r2" if config.task == 'recall' else config.dataset
+-    name = f"{stem}_a{config.alpha}_norm-{config.input_norm}_seed{config.seed}_{stamp}.json"
++    qk = '_qknorm' if config.qk_norm else ''
++    name = f"{stem}_a{config.alpha}_norm-{config.input_norm}{qk}_seed{config.seed}_{stamp}.json"
+     payload = {'band': BAND, 'target': TARGET, 'mode': 'full', 'input_norm': config.input_norm,
+                'grid': rows,
+                'picked': picked, 'reason': reason,
+--- old/config.py
++++ new/config.py
+@@ -100,6 +100,10 @@
+                             help='frozen standardises xi before Q/K; not the main stability fix')
+     select_arg.add_argument('--eta_init', type=float, default=-4., help='sigmoid pre-activation; -4 -> 0.018')
+     select_arg.add_argument('--eta_fixed', type=float, default=None, help='pin eta instead of learning it')
++    select_arg.add_argument('--qk_eps', type=float, default=1e-6,
++                            help='soft-norm floor; the Jacobian of the normalisation is bounded by 1/eps')
++    select_arg.add_argument('--qk_norm', action=argparse.BooleanOptionalAction, default=False,
++                            help='L2-normalise the projected q and k before the distance (priority 2)')
+     select_arg.add_argument('--cap', action=argparse.BooleanOptionalAction, default=True,
+                             help='R3 coefficient cap; --no-cap is the ablation only')
+ 
+@@ -135,6 +139,8 @@
+         self.data_path = self.data + '.csv'
+         self.num_patches = self.seq_len // self.patch_size
+         self.variant = ('heterogeneous' if self.heterogeneous else 'homogeneous') + '_' + self.mode
++        if self.qk_norm:
++            self.variant += '_qknorm'
+         if not self.cap:
+             self.variant += '_nocap'
+         if self.eta_fixed is not None:
+@@ -188,6 +194,6 @@
+                 heterogeneous=config.heterogeneous, max_length=config.num_patches,
+                 theta=config.theta, eta_init=config.eta_init,
+                 eta_fixed=config.eta_fixed, cap=config.cap,      # audit A06: 이름만 바뀌면 안 된다
+-                key_norm=config.key_norm,
++                key_norm=config.key_norm, qk_norm=config.qk_norm, qk_eps=config.qk_eps,
+                 tau_s=config.tau_s, threshold=config.threshold,
+                 surrogate_scale=config.surrogate_scale)
+--- old/layers.py
++++ new/layers.py
+@@ -123,11 +123,18 @@
+     also be trained from scratch rather than only injected at test time.
+     """
+     def __init__(self, num_population=4, query_dim=None, theta=1., eta_init=-4.,
+-                 eta_fixed=None, cap=True, key_norm='none'):
++                 eta_fixed=None, cap=True, key_norm='none', qk_norm=False, qk_eps=1e-6):
+         super().__init__()
+ 
+         if key_norm not in ('none', 'frozen'):
+             raise ValueError("key_norm must be 'none' or 'frozen'")
++        # QK 정규화: 투영된 q, k를 x/sqrt(||x||^2 + eps^2)로 만든다. 하드 clamp가 아니라
++        # soft norm인 이유는 Jacobian 때문이다. x/||x||의 Jacobian은 (I - xx^T)/||x||이라
++        # ||x||->0에서 발산하는데, key는 [I 0]으로 초기화되어 k=u_j이고 초기 상태의 norm이
++        # 0에 가깝다. 측정: eps=1e-6 하드 clamp에서 key gradient가 1.75e13까지 갔다.
++        # soft norm의 Jacobian은 1/eps로 유계다. 시점 n의 q는 갱신 전 상태로만 만들어지므로
++        # 인과성은 변하지 않는다.
++        self.qk_norm, self.qk_eps = bool(qk_norm), float(qk_eps)
+         self.key_norm = key_norm
+         self.register_buffer('key_mean', torch.zeros(num_population + 1))
+         self.register_buffer('key_std', torch.ones(num_population + 1))
+@@ -195,7 +202,12 @@
+             # 비례하고, 그 값이 T 스텝 되먹임으로 누적되어 역전파가 폭주한다.
+             xi = (xi - self.key_mean) / self.key_std
+             xi_hist = (xi_hist - self.key_mean) / self.key_std
+-        score = -(self.query(xi).unsqueeze(-2) - self.key(xi_hist)).square().sum(-1)
++        q, kk = self.query(xi), self.key(xi_hist)
++        if self.qk_norm:
++            e2 = self.qk_eps ** 2
++            q = q / (q.square().sum(-1, keepdim=True) + e2).sqrt()
++            kk = kk / (kk.square().sum(-1, keepdim=True) + e2).sqrt()
++        score = -(q.unsqueeze(-2) - kk).square().sum(-1)
+         score = score / (self.query_dim * self.theta)                # theta는 d_q 스케일로 고정 (O3)
+         if mode == 'sparse' or mode == 'mass_matched':
+             p = sparsemax(score)                                     # 정확한 0을 만든다 (gate G8b)
+@@ -297,8 +309,8 @@
+     """
+     def __init__(self, embed_dim, num_population=4, alpha=.7, tau=(4., 8., 16., 32.),
+                  heterogeneous=True, max_length=64, theta=1., eta_init=-4.,
+-                 eta_fixed=None, cap=True, key_norm='none', tau_s=2., threshold=1.,
+-                 surrogate_scale=5., query_dim=None, dtype=torch.float32):
++                 eta_fixed=None, cap=True, key_norm='none', qk_norm=False, qk_eps=1e-6, tau_s=2.,
++                 threshold=1., surrogate_scale=5., query_dim=None, dtype=torch.float32):
+         super().__init__()
+ 
+         # 계수표는 생성 시점의 dtype으로 만든다. float32로 만든 뒤 .double()로 올리면
+@@ -315,7 +327,8 @@
+         self.num_population = num_population
+         self.alpha = float(alpha)
+         self.max_length = int(max_length)
+-        self.selector = Selector(num_population, query_dim, theta, eta_init, eta_fixed, cap, key_norm)
++        self.selector = Selector(num_population, query_dim, theta, eta_init, eta_fixed, cap,
++                                 key_norm, qk_norm, qk_eps)
+         self.soma = Soma(embed_dim, num_population, tau_s, threshold, surrogate_scale)
+ 
+     def forward(self, x, mode='sparse', oracle_p=None, return_aux=False, analog=False):
+@@ -408,7 +421,14 @@
+             if sel.key_norm == 'frozen':
+                 xi = (xi - sel.key_mean) / sel.key_std
+                 hist = (hist - sel.key_mean) / sel.key_std
+-            total.append((sel.query(xi).unsqueeze(-2) - sel.key(hist)).square().sum(-1).mean().item())
++            # 선택자가 실제로 쓰는 변환과 같아야 한다. qk_norm을 빠뜨리면
++            # 정규화된 점수에 정규화 안 된 theta를 물리게 된다.
++            q, kk = sel.query(xi), sel.key(hist)
++            if sel.qk_norm:
++                e2 = sel.qk_eps ** 2
++                q = q / (q.square().sum(-1, keepdim=True) + e2).sqrt()
++                kk = kk / (kk.square().sum(-1, keepdim=True) + e2).sqrt()
++            total.append((q.unsqueeze(-2) - kk).square().sum(-1).mean().item())
+ 
+         return float(sum(total) / len(total) / sel.query_dim)
+ 
+--- old/train.py
++++ new/train.py
+@@ -30,8 +30,9 @@
+     the bound would follow it (audit follow-up 9.3).
+     """
+     stem = f"{args.dataset}_k{args.n_keys}_r2" if args.task == 'recall' else args.dataset
++    qk = '_qknorm' if args.qk_norm else ''
+     pattern = str(TASK / 'results' / 'calibration'
+-                  / f'{stem}_a{args.alpha}_norm-{args.input_norm}_seed*.json')
++                  / f'{stem}_a{args.alpha}_norm-{args.input_norm}{qk}_seed*.json')
+     files = sorted(glob.glob(pattern))
+     if not files:
+         return None
+@@ -52,7 +53,8 @@
+         have = neuron.get(field)
+         if have is not None and list(have) != want if isinstance(want, list) else have != want:
+             mismatch.append(f'{field}: calibration {have} vs requested {want}')
+-    for field in ('patch_size', 'embed_dim', 'input_norm', 'cue_mode', 'n_keys', 'seq_len'):
++    for field in ('patch_size', 'embed_dim', 'input_norm', 'qk_norm', 'key_norm',
++                  'cue_mode', 'n_keys', 'seq_len'):
+         have = saved.get(field)
+         if have is not None and have != getattr(args, field, have):
+             mismatch.append(f'{field}: calibration {have} vs requested {getattr(args, field)}')
+@@ -101,7 +103,7 @@
+     watched = {k: [] for k in ('eta', 'kappa', 'would_cap_rate', 'support_p', 'score_std')}
+     selector_grad = {k: [] for k in ('grad_WQ_norm', 'grad_WK_norm', 'grad_eta_hat_norm',
+                                      'grad_WQ_absmax', 'grad_WK_absmax', 'grad_absmax_all',
+-                                     'singleton_frac')}
++                                     'grad_total_norm_pre', 'clip_rate', 'singleton_frac')}
+     for i, batch in enumerate(data_loader):
+         if args.max_train_batches and i >= args.max_train_batches:
+             break
+@@ -130,7 +132,11 @@
+             selector_grad['grad_absmax_all'].append(
+                 max((p.grad.abs().max().item() for p in model.parameters() if p.grad is not None),
+                     default=0.))
+-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1., error_if_nonfinite=True)
++        # 이름을 total로 두면 위의 누적 변수를 덮어쓴다. clip_grad_norm_은 clipping 전 norm을 준다.
++        pre_clip = torch.nn.utils.clip_grad_norm_(model.parameters(), 1., error_if_nonfinite=True)
++        if watch and args.model == 'myModel':
++            selector_grad['grad_total_norm_pre'].append(pre_clip.item())
++            selector_grad['clip_rate'].append(1. if pre_clip.item() > 1. else 0.)
+         optimizer.step()
+         if watch:
+             # G11: 학습 중에도 보정에서 고정한 상한을 본다. 넘으면 즉시 중단한다.
+@@ -228,7 +234,8 @@
+                            ('firing_rate', 'max_abs_state', 'eta', 'kappa', 'would_cap_rate',
+                             'support_p', 'score_std', 'grad_WQ_norm', 'grad_WK_norm',
+                             'grad_eta_hat_norm', 'grad_WQ_absmax', 'grad_WK_absmax',
+-                            'grad_absmax_all', 'singleton_frac')
++                            'grad_absmax_all', 'grad_total_norm_pre', 'clip_rate',
++                            'singleton_frac')
+                            if k in train_result}
+                         | {k: v for k, v in train_result.items() if k.endswith('_nonfinite')}}
+     payload['provenance'] = {
