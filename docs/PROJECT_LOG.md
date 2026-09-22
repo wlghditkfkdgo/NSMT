@@ -3949,3 +3949,70 @@ A09의 개별 WQ/WK absmax가 여전히 watch 표본 구조인 점과 post-clip 
 - **단일 seed, test 집합 개입**이다. test는 이미 반복 관찰됐으므로 이 수치를 확증으로 쓰지 않는다. 같은 비교를 validation에서 다시 해야 한다.
 - 0.2681 vs 0.2763의 차이는 상대 3%로 v2에서 측정한 MDE(상대 1.2%)보다는 크지만 **seed 1개**다.
 - §2는 학습·추론 η 불일치 조건이며 현재 사전등록에 없다.
+
+
+## 2026-09-22 16:13 KST — 예약 추적 감사22: absmax 수정 주장 미재현·관찰 count 결함
+
+- Branch exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7/HEAD031fb758af0fc2dc9257acc100783b5cd44404fe,snapshot16:10:35/206파일,manifest불일치0. 감사commit/tag없음.
+- **16:07 §1 정정 요구:** 실제train reducer는np.mean유지. AST직접검사 absmax[1,9]→5/WK[2,10]→6,grad_observations[1,1]→1. Pre-norm max9는기존별도np.max결과라absmax수정증거아님. 관찰count는CSV만있고trainJSON누락. A09-ABSMAX/OBSERVATIONS OPEN,postclip없음.
+- Absmaxchk seed7/data_seed20260921,1epoch,512/64/64,batch64,g11_every10,비정규화 sparse학습η/θ5.56134335. CPUtorch1.12/2threads test64/2022query 재평가전체MSE .3704960201865058/recall .3698382646185705/M_eff .13170154071437468,저장차0/parameter·checkpoint hash일치. 관찰1회라mean=max및count오류가숨음. 전체batch norm평균1.82371974/최대2.99063730/clip1/count8의완료JSON·CSV보존확인. Gradient재계산/새학습/8seedCI not run.
+- 우선실제reducer/count/JSON전달을서로다른두관찰값으로검증한뒤같은validation경로진단. 기존③key/④entmax조건부순위및범위밖OPEN유지. Artifact NSMT/f_lif_pop_v3/forecasting/results/assessment/20260922T071001Z-738a6a1c/(inventory,source.diff,absmax_probe.py,absmax_probes.json,validation,append_validation),rawlog forecasting/log/assessment/동일run/absmax_probe.log. Exactcommand·문헌은ASSESMENT감사22. 학습/backward/optimizer/GPU/설치/소스수정/git변이/프로세스중단/타세션대화접근·전송없음,감사3문서append·진단artifact만작성.
+
+
+## 2026-09-22 16:26 KST — 예약 추적 감사23: 단계·η 개입 재현, 순위 기준 정정 및 η1 상태 초과
+
+- Branch exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7/HEADadb43e4ae47848d682a06b7ba5b067ed3d8015ab,snapshot16:20:44/231파일,manifest불일치0. 감사commit/tag없음. Forecasting소스변경없음.
+- CPUtorch1.12/2threads,seed7/data20260921,test256/8085recallquery:stage6행및2checkpoint×4η개입8행표재현;QK고정η.2의추가stage검사. 가중치bytes보존. QKη.2개입 recall .26806750424450215/G .0342670는탐색개선. QKη1개입maxstate664.141357421875>305.0375175476074로상태기준위반,학습중단사건과구별(A05-ETA-INTERVENTION-BOUND OPEN).
+- 16:13 해석정정:복수정답best-rank무작위기준 .214817733876(0.5아님);p→bp/Σbp→η혼합분리. η변경은순환상태와score변경:QKscore .340716→η1 .189319이므로η1 c hit .341513과원score의근접을신호보존증명으로못씀. QKη.2학습score .150596957(.1214는비QK). 첫양의G주장/V2 MDE이식/이력유용성원인단정제한.
+- 동일validation checkpoint에서η0/원η/격자+고정궤적계수대조/G11우선. η.2후보보류검증,η1안정성실패병기;entmax자동승격없음. η개입원실행코드/명령/정밀기록미비잔여. A09absmax/count등OPEN유지. Validation/독립8seedCI/새학습not run.
+- Artifact NSMT/f_lif_pop_v3/forecasting/results/assessment/20260922T072001Z-785d6d29/(inventory,stage_probe.py,stage_probes.json,supplement_probe.py,supplement_probes.json,rank_formula_check,validation,append_validation);rawlog forecasting/log/assessment/동일run/. Exact command·문헌링크는ASSESMENT감사23. Snapshot source만CPUforward,학습/backward/optimizer/GPU/설치/연구소스수정/git변이/프로세스중단/타세션접근·전송없음. 문서prefix보존·감사3문서append.
+
+---
+
+## 2026-09-22 17:03 KST — 감사 23 지시 수행: 희석과 상태 되먹임을 분리한다 (validation, 탐색적)
+
+**감사 지시:** "궤적 고정 계수 재계산과 모델 전체 forward 개입을 구분하면 실제 희석과 상태 피드백을 분리할 수 있다." **validation 표본**에서 수행했다(test는 반복 관찰됐으므로). Artifact: `analysis/eta_intervention_split.{py,txt}`
+
+checkpoint: `learned η + QK` (seed 7, 12 epoch), 학습된 η = 0.0263, G11 상한 305.038.
+
+| 개입 | η | val recall | score top1 | p mass | pre-cap | post-cap | max\|u\| | G11 |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| **궤적 고정** | 0.00 | — | 0.3463 | 0.2962 | 0.1332 | 0.1332 | 22.07 | OK |
+| 궤적 고정 | 0.20 | — | 0.3463 | 0.2962 | 0.1608 | 0.1606 | 22.07 | OK |
+| 궤적 고정 | 0.50 | — | 0.3463 | 0.2962 | 0.2021 | 0.1928 | 22.07 | OK |
+| **궤적 고정** | 1.00 | — | 0.3463 | 0.2962 | 0.2710 | **0.2741** | 22.07 | OK |
+| 전체 forward | 0.00 | 0.2635 | 0.3486 | 0.2999 | 0.1332 | 0.1332 | 22.01 | OK |
+| **전체 forward** | **0.20** | **0.2543** | 0.2865 | 0.2730 | 0.1556 | 0.1559 | 22.48 | OK |
+| 전체 forward | 0.50 | 0.2601 | 0.2529 | 0.2558 | 0.1796 | 0.1814 | 43.10 | OK |
+| 전체 forward | 1.00 | 0.2936 | **0.1960** | 0.2100 | 0.1840 | 0.2100 | **656.13** | **FAIL** |
+
+η=0에서 두 방식의 post-cap이 정확히 같다(0.1332) — 구현 정합성 확인이다.
+
+### 1. 희석은 실재하고 크다
+
+**궤적 고정**에서 score와 p는 정의상 불변인데 post-cap이 **0.1332 → 0.2741**로 오른다. 이것이 `ρ = (1−η) + η·ρ̃`의 **순수 희석 효과**이며, η=1에서 p mass 0.2962에 근접한다(남은 차이는 cap).
+
+### 2. 상태 되먹임이 그 이득을 상당 부분 상쇄한다
+
+**전체 forward**에서 η를 올리면 **점수 자체가 망가진다**: score top1 0.3486 → **0.1960**, p mass 0.2999 → 0.2100. 그래서 post-cap이 궤적 고정의 0.2741이 아니라 **0.2100**에 그친다.
+
+**즉 감사가 지적한 대로 "가중치 고정 ≠ 점수 고정"이다.** η가 분수 재귀에 들어가 `u`·질의·이력을 모두 바꾸므로, 내가 앞서 "η=1의 hit 0.3415가 원래 궤적의 score top1 0.3407과 일치한다"고 쓴 것은 **서로 다른 궤적의 통계를 섞은 것**이다. 철회한다.
+
+### 3. validation에서도 η=0.2가 가장 낫다
+
+**val recall 0.2543 < 0.2635**(η=0)로, test에서 본 방향이 **validation에서 재현**된다. 개선폭 0.0092(상대 3.5%).
+
+### 4. η=1은 안정성 불합격
+
+max\|u\| **656.13 > 305.038**로 G11 위반이다(감사가 test에서 측정한 664.14와 같은 성질). **사후 상한 확대 없이 이 조건을 불합격으로 보고한다.** M_eff 0.2100도 O7-① 0.5에 미달이다.
+
+### 5. 함께 고친 것
+
+- **A09-ABSMAX**: 내 수정이 **두 번 다 소스에 반영되지 않았다**(A11과 같은 실패). `grad_total_norm_pre_max`가 맞아 보인 것은 그 값이 사전에 `np.max`된 단일값이라 평균이 곧 최댓값이었기 때문이다. 이번에는 행 인덱스로 편집하고 되읽어 확인했으며, 같은 실행에서 `grad_absmax_all`이 0.8511(평균) → **1.4417(최댓값)**로 바뀐다.
+- **A09-OBSERVATIONS**: `grad_observations`가 1의 평균이라 항상 1이었다. 개수로 바꿔 8.0을 기록한다. `grad_total_norm_post_max`(0.99999967)도 추가하고 결과 JSON에 전달한다.
+- **A02-STAGE-RANK**: "0.5 = 무작위"는 m=1에서만 맞다. 정확한 기준은 `(n−m)/((m+1)(n−1))`이며 이 표본에서 **0.2148**로 감사 값(0.214817733876)과 일치한다. 이 기준으로 보면 **`learned+QK`(0.1959)만 무작위보다 낫고** `learned`(0.2589)를 포함한 나머지는 전부 나쁘다.
+- **조건 혼용 정정**: QK η=0.2의 score top1은 **0.1506**이며 내가 인용한 0.1214는 비QK 모델 값이다.
+
+### 6. 한계
+
+seed 1개다. 궤적 고정 조건은 출력이 없으므로 MSE를 낼 수 없고 계수 지표만 비교한다. §3의 개선은 validation 단일 표본이며 독립 seed·paired CI는 여전히 **not run**이다.
