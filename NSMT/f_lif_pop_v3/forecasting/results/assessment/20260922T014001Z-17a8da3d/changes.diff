@@ -1,0 +1,202 @@
+--- prior/config.py
++++ current/config.py
+@@ -74,7 +74,7 @@
+     shape_arg.add_argument('-emb', '--embedding_dim', dest='embed_dim', type=int, default=32)
+     shape_arg.add_argument('--head_dim', type=int, default=32)
+     shape_arg.add_argument('--head_mode', choices=['flatten', 'last'], default='flatten')
+-    shape_arg.add_argument('--readout', choices=['spike', 'analog'], default='spike',
++    shape_arg.add_argument('--readout', choices=['spike', 'analog', 'drive'], default='spike',
+                            help='analog reads the soma membrane WITH gradient (diagnostic, D8)')
+ 
+     # 뉴런. tau와 alpha는 사전등록 고정값이며 학습하지 않는다 (D7, F1).
+--- prior/layers.py
++++ current/layers.py
+@@ -270,10 +270,10 @@
+ 
+     def forward(self, u, v):                                         # u: [B, D, K]   v: [B, D]
+         a = (self.weight * u).sum(-1)                                # 구성원 혼합 -> 소마 입력 전류
+-        v = v + (a - v) / self.tau_s
+-        s = arctan_spike(v - self.threshold, self.surrogate_scale)
+-
+-        return v - self.threshold * s.detach(), s                    # detach_reset
++        charge = v + (a - v) / self.tau_s
++        s = arctan_spike(charge - self.threshold, self.surrogate_scale)
++
++        return charge - self.threshold * s.detach(), s, a            # detach_reset
+ 
+ 
+ class PopulationNeuron(nn.Module):
+@@ -363,10 +363,12 @@
+             incs.append(f)
+             keys.append(xi)
+             u = nxt                                                  # u(t+1)
+-            v, s = self.soma(u, v)                                   # D-D: 갱신된 상태를 읽는다
++            v, s, drive = self.soma(u, v)                            # D-D: 갱신된 상태를 읽는다
+             spikes.append(s)
+             if analog:
+-                live.append(v)                                       # detach하지 않는다
++                # 'analog'는 리셋 이후 막전위, 'drive'는 소마 이전 가지 혼합이다.
++                # 전자는 스파이크 경로가 병목인지, 후자는 정보가 가지에 있는지를 묻는다.
++                live.append(drive if analog == 'drive' else v)
+ 
+             if return_aux:
+                 logs['state'].append(u.detach())
+--- prior/ours.py
++++ current/ours.py
+@@ -7,22 +7,27 @@
+ __all__ = ['myModel', 'GRUBaseline', 'truth_to_oracle_p']
+ 
+ 
+-def truth_to_oracle_p(truth, step, embed_dim):
++def truth_to_oracle_p(truth, kind, step, embed_dim):
+     """Turn the generator's answer set into the oracle policy p for one step.
+ 
+     truth : [B, T, T] bool, truth[b, n, j] = "j is where y[b, n] was shown"
++    kind  : [B, T] int8, 0 = copy, 1 = recall, 2 = recall and first of its run
+     step  : n, the event being answered
+-    returns p : [B, D, n], uniform over the answer slots
++    returns p : [B, D, n], uniform over the answer slots on recall events
+ 
+-    Fallback, declared here rather than left implicit (audit A12): an event with no answer
+-    slot -- n = 0, and every event inside a key's first run, where the value is in the input
+-    and nothing has to be recalled -- gets a UNIFORM p over the whole past. Uniform p is
+-    exactly the eta=0 kernel (gate G7b), so the fallback injects no information; it neither
+-    helps nor handicaps the oracle on events that need no recall.
++    The policy is uniform -- that is, exactly the eta=0 kernel (gate G7b), injecting nothing
++    -- on n = 0 and on every COPY event. The first draft applied the answer set wherever
++    truth was non-empty, which also caught copy events inside a key's first run that already
++    had an earlier presentation behind them: 610 of them in one test split (audit A12-ORACLE).
++    That made the oracle stronger than its own description and inflated the headroom that
++    O7's G divides by. Confining it to recall events keeps the oracle's advantage where the
++    claim is, and `kind` must be passed for oracle mode for that reason.
+     """
+     if step == 0:
+         return None
+     mask = truth[:, step, :step].to(torch.float32)                  # [B, n]
++    if kind is not None:
++        mask = mask * (kind[:, step] > 0).to(mask.dtype).unsqueeze(-1)
+     total = mask.sum(-1, keepdim=True)
+     mask = torch.where(total > 0, mask / total.clamp_min(1.), torch.full_like(mask, 1. / step))
+ 
+@@ -38,10 +43,12 @@
+     keeps the v2 flatten/last head. Mixing the two would let the recall task see the whole
+     sequence at once and stop testing recall at all.
+ 
+-    `readout='analog'` reads the soma membrane instead of the spike, WITH its graph, so the
+-    neuron still trains end to end. It answers a different question from a probe on the
+-    detached state: this one asks whether the spike path is the bottleneck, that one asks
+-    whether the information is there at all. Results are labelled with which was run.
++    Three readouts, asking three different questions, all with the graph attached so the
++    neuron still trains end to end. `spike` is the model. `analog` reads the soma membrane
++    after reset, so it asks whether the spike nonlinearity is the bottleneck. `drive` reads
++    the branch mixture before the soma at all, so it asks whether the information is in the
++    branch states in the first place. Results are labelled with which was run; a probe on
++    the detached state would answer a fourth, weaker question and is not what these are.
+     """
+     def __init__(self, task='recall', seq_len=336, pred_len=96, patch_size=8, embed_dim=32,
+                  head_dim=32, head_mode='flatten', readout='spike', input_scale=8.,
+@@ -50,7 +57,7 @@
+ 
+         if seq_len < patch_size or seq_len % patch_size:
+             raise ValueError('Require complete chronological non-overlapping patches')
+-        if head_mode not in ('flatten', 'last') or readout not in ('spike', 'analog'):
++        if head_mode not in ('flatten', 'last') or readout not in ('spike', 'analog', 'drive'):
+             raise ValueError('Invalid readout configuration')
+         self.task, self.readout = task, readout
+         self.seq_len, self.pred_len = seq_len, pred_len
+@@ -63,7 +70,7 @@
+         self.head_compress = nn.Linear(embed_dim, head_dim)
+         self.head = nn.Linear(head_dim * (self.num_patches if head_mode == 'flatten' else 1), pred_len)
+ 
+-    def forward(self, x, mode='sparse', truth=None, return_aux=False):
++    def forward(self, x, mode='sparse', truth=None, kind=None, return_aux=False):
+         #  x: [B, L, C]  ->  recall: [B, T]   ett: [B, pred_len, C]
+         if x.ndim != 3 or x.shape[1] != self.seq_len:
+             raise ValueError('Expected [B, seq_len, C] input')
+@@ -72,17 +79,19 @@
+ 
+         oracle_p = None
+         if mode == 'oracle':
+-            if truth is None:
+-                raise ValueError('oracle mode needs the generator truth')
++            if truth is None or kind is None:
++                raise ValueError('oracle mode needs the generator truth and the event kinds')
+             if C != 1:
+                 raise ValueError('oracle policy is defined for the single-channel recall task')
+             embed_dim = self.recall_head.in_features
+-            oracle_p = [truth_to_oracle_p(truth, n, embed_dim) for n in range(self.num_patches)]
++            oracle_p = [truth_to_oracle_p(truth, kind, n, embed_dim)
++                        for n in range(self.num_patches)]
+ 
+-        want = return_aux or self.readout == 'analog'
+-        result = self.embedding(patch, mode, oracle_p, want, self.readout == 'analog')
++        want = return_aux or self.readout != 'spike'
++        analog = False if self.readout == 'spike' else self.readout
++        result = self.embedding(patch, mode, oracle_p, want, analog)
+         spikes, aux = result if want else (result, {})
+-        z = aux['analog'] if self.readout == 'analog' else spikes    # [T, B*C, D]
++        z = spikes if self.readout == 'spike' else aux['analog']      # [T, B*C, D]
+ 
+         if self.task == 'recall':
+             output = self.recall_head(z).squeeze(-1).transpose(0, 1)  # [B*C, T] -> 채널 1개
+@@ -114,7 +123,7 @@
+         self.head_compress = nn.Linear(embed_dim, head_dim)
+         self.head = nn.Linear(head_dim * (self.num_patches if head_mode == 'flatten' else 1), pred_len)
+ 
+-    def forward(self, x, mode='sparse', truth=None, return_aux=False):
++    def forward(self, x, mode='sparse', truth=None, kind=None, return_aux=False):
+         #  x: [B, L, C]  ->  recall: [B, T]   ett: [B, pred_len, C]
+         B, L, C = x.shape
+         patch = to_patches(x, self.patch_size)
+--- prior/test.py
++++ current/test.py
+@@ -37,7 +37,7 @@
+         x, y, truth, kind = batch
+         x, y = x.float().to(args.device), y.float().to(args.device)
+         truth = truth.to(args.device) if truth.numel() else None
+-        output = model(x, mode=mode, truth=truth)
++        output = model(x, mode=mode, truth=truth, kind=kind.to(args.device) if mode == 'oracle' else None)
+         error = (output - y).double()
+         if args.task == 'recall':
+             kind = kind.to(args.device)
+@@ -114,7 +114,8 @@
+         truth = truth.to(args.device)
+         kind = kind.to(args.device)
+         has_truth = truth.dim() == 3 and truth.shape[-1] > 0        # ETT는 truth가 비어 있다
+-        _, aux = model(x, mode=mode, truth=truth if has_truth else None, return_aux=True)
++        _, aux = model(x, mode=mode, truth=truth if has_truth else None,
++                       kind=kind if has_truth else None, return_aux=True)
+         live = aux['has_history']
+         for key in pooled:
+             pooled[key].append(aux[key][live].mean().item())
+--- prior/train.py
++++ current/train.py
+@@ -103,11 +103,12 @@
+     for i, batch in enumerate(data_loader):
+         if args.max_train_batches and i >= args.max_train_batches:
+             break
+-        x, y, truth, _ = batch
++        x, y, truth, kind = batch
+         x, y = x.float().to(args.device), y.float().to(args.device)
++        kinds = kind.to(args.device) if args.mode == 'oracle' else None
+         truth = truth.to(args.device) if args.mode == 'oracle' else None
+         watch = args.model == 'myModel' and i % max(args.g11_every, 1) == 0
+-        result = model(x, mode=args.mode, truth=truth, return_aux=watch)
++        result = model(x, mode=args.mode, truth=truth, kind=kinds, return_aux=watch)
+         output, aux = result if watch else (result, None)
+         loss = criterion(output, y)
+         if not torch.isfinite(loss):
+@@ -195,9 +196,10 @@
+     for epoch in range(args.epoch):
+         train_result = train_one_epoch(model, train_loader, optimizer, args)
+         val_result = val_one_epoch(model, val_loader, args)
+-        logger.logging(epoch=epoch, train_result=train_result, val_result=val_result)
+-        logger.verbose(epoch=epoch, lr=optimizer.param_groups[0]['lr'],
+-                       train_result=train_result, val_result=val_result)
++        # write()가 TensorBoard·콘솔·CSV를 모두 처리한다. logging/verbose만 부르면
++        # 프로젝트 표준인 log/best_log_0.csv가 생기지 않는다 (audit A10-LOG).
++        logger.write(epoch=epoch, lr=optimizer.param_groups[0]['lr'],
++                     train_result=train_result, val_result=val_result)
+         scheduler.step(val_result['loss'])
+         stopper(val_result['loss'], model, args.save_model_state_path)
+         if stopper.early_stop:

@@ -10,10 +10,19 @@ SHAPE_KEYS = ['task', 'seq_len', 'pred_len', 'patch_size', 'embed_dim', 'head_di
               'head_mode', 'readout', 'input_scale', 'input_norm']
 
 
-# 뒤에 추가된 buffer들. 기본값이 항등이라 없으면 옛 동작과 같다.
-OPTIONAL_BUFFERS = ('embedding.neuron.selector.key_mean', 'embedding.neuron.selector.key_std',
-                    'embedding.norm_mean', 'embedding.norm_std',
-                    'embedding.neuron.selector.eta_value')
+# 뒤에 추가된 buffer들. 누락을 허용하려면 그 값이 **그 설정에서** 항등이어야 한다.
+# 무조건 허용하면 frozen으로 학습한 통계가 빠진 checkpoint가 조용히 승인되고
+# 다른 동작점에서 돌아간다 (감사 측정: 같은 입력에 예측 최대 0.8707 차이).
+def optional_buffers(args):
+    names = []
+    if getattr(args, 'key_norm', 'none') == 'none':
+        names += ['embedding.neuron.selector.key_mean', 'embedding.neuron.selector.key_std']
+    if getattr(args, 'input_norm', 'none') == 'none':
+        names += ['embedding.norm_mean', 'embedding.norm_std']
+    if getattr(args, 'eta_fixed', None) is None:
+        names += ['embedding.neuron.selector.eta_value']
+
+    return tuple(names)
 
 
 def _restore(model, args, train):
@@ -23,10 +32,14 @@ def _restore(model, args, train):
         missing, unexpected = model.load_state_dict(state, strict=False)
         # strict=False로 열되 무엇이 빠졌는지 직접 검사한다. frozen 통계가 조용히
         # 항등으로 되돌아가면 재로드 모델이 다른 동작점에서 돌게 된다.
-        surprising = [k for k in missing if k not in OPTIONAL_BUFFERS]
+        surprising = [k for k in missing if k not in optional_buffers(args)]
         if surprising or unexpected:
-            raise RuntimeError(f'checkpoint schema mismatch: missing {surprising}, '
-                               f'unexpected {list(unexpected)}')
+            raise RuntimeError(
+                f'checkpoint schema mismatch: missing {surprising}, unexpected {list(unexpected)}. '
+                f'A buffer is only allowed to be missing when it is the identity under THIS '
+                f'config (input_norm={getattr(args, "input_norm", None)!r}, '
+                f'key_norm={getattr(args, "key_norm", None)!r}, '
+                f'eta_fixed={getattr(args, "eta_fixed", None)!r}).')
         if missing:
             print(f"[model] checkpoint predates {len(missing)} optional buffer(s) "
                   f"({', '.join(missing)}); they keep their identity defaults")

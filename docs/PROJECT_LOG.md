@@ -3189,3 +3189,48 @@ seed 1개·12 epoch의 탐색적 실행이다. `drive`는 **스파이크가 전�
 `drive`와 `spike`의 격차는 **점수 함수만 고쳐서는 안 될 수도 있다**는 뜻이다. 다만 seed 1개 결과이므로 먼저 **재현**해야 한다. 정책 수정 후 oracle을 다시 돌리고, seed를 늘려 이 격차가 유지되는지 확인한 뒤에야 구조 변경을 논한다.
 
 Artifacts: `NSMT/f_lif_pop_v3/forecasting/results/{diag3-*,drive-*}/`.
+
+
+## 2026-09-22 10:45 KST — v3 예약 감사11: readout·oracle 버전·실제 기능 결과 검토
+
+- Branch exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7/HEAD639d2293dcf12e3db3738641ff774a30e9f7439a. Snapshot /tmp/nsmt_assessment_20260922T014001Z-17a8da3d(10:40:39,143파일),ETT CSV SHA f18de3ad269cef59bb07b5438d79bb3042d3be49bdeecf01c1cd6d29695ee066. 모델수정/새학습없음,감사commit/tag없음.
+- CPU Python3.10/torch1.12/2threads/seed7,data_seed20260921,r2k3,2048/256/256,batch64,12epoch 기존checkpoint평가. Sparse recall spike.272620149439/analog.261619795824/drive.212159097751;각MSE차0. DriveMeff.134012595802/kernel.130328894. 1seed탐색이며성능우위/검색성공일반화보류;8seedCI not run.
+- A12-ORACLE copyuniform수정 VERIFIED,현재정책copy비균등0/옛1243. 과거12epochoracle은옛정책에서만저장MSE재현. 새정책재평가 recall spike.035348084881/analog.071973921201/drive.045209064883은재학습아님. Driveoracle JSON의새sourcehash와실행정책불일치가 A10-PROVENANCE 재확인근거.
+- Drive혼합값차0/유한gradient/앞20patch인과성차0. 실제CSV2행확인(A10-LOG부분VERIFIED),final+result.csv미생성. Hash분리새artifact모두일치/driveoracle last≠best. ETTmax_train/eval_batches3 기능실행test192/2785창MSE.911763752704재현,window_mean.856615248951;전체성능주장금지. No-testartifact확인,해당test미접근.
+- Exact command와근거는 NSMT/docs/ASSESMENT.md 감사11, NSMT/f_lif_pop_v3/forecasting/results/assessment/20260922T014001Z-17a8da3d/readout_probe.py 및readout_probes.json/inventory/data_snapshot/validation; rawstdout forecasting/log/assessment/20260922T014001Z-17a8da3d/readout_probe.log. OMP/MKL2,LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib,snn_recall python으로snapshot인자실행. 새학습/optimizer/GPU/설치/git변이/프로세스중단없음,원본checkpoint/문서prefix보존. A10-RESTORE-STATS 등미수정이슈유지.
+
+---
+
+## 2026-09-22 10:47 KST — 추적 감사 08–11 수용: 복원 결함과 진단 표현 정정 (학습 없음)
+
+### 1. A10-RESTORE-STATS (신규 P1) — 누락을 안전하게 거부하지 못했다
+
+`OPTIONAL_BUFFERS`에 `embedding.norm_mean/std`를 **무조건** 넣어, `input_norm='frozen'`으로 학습한 checkpoint에서 그 통계가 빠져도 경고만 내고 승인했다. 감사 측정에서 같은 입력에 대한 예측이 **최대 0.8706527948** 차이 났다. 조용히 다른 동작점에서 도는 모델이 된다.
+
+누락 허용을 **그 설정에서 항등인 경우로 한정**했다. `input_norm='none'`일 때만 `norm_mean/std`, `key_norm='none'`일 때만 `key_mean/std`, `eta_fixed=None`일 때만 `eta_value`. 확인: `input_norm=frozen` checkpoint에서 통계를 지우면 **거부**되고, 온전하면 승인된다.
+
+### 2. A09-GRAD — 내 직전 표현을 정정한다
+
+직전 항목에서 `singleton_frac` 0.038, `grad_WQ` 5.3e-3 등을 근거로 **"singleton 가설 기각", "폭주도 소멸도 없다", "η 포화가 유력 원인"**이라고 썼다. 감사 지적대로 이는 **관측 표본에 대한 진술을 인과 결론으로 넘긴 것**이다.
+
+정확히는 이렇다. ① 기록값은 `g11_every` 표본의 **L2 norm 평균**이지 사전등록이 요구한 `max|grad|`가 아니었다. ② 최종 JSON은 마지막 epoch의 표본 평균이다. ③ `*_nonfinite` 개수가 payload에서 빠져 있었다.
+
+따라서 올바른 서술은 **"관측한 표본에서 singleton 점유가 낮았고(0.037–0.068) Q/K gradient가 유한했다"**이며, 원인 판정은 query·시점·unit별 분포와 고정 η 통제 결과로 확인해야 한다.
+
+지표 이름과 수집을 고쳤다: `grad_*_norm`(L2 평균)과 `grad_*_absmax`를 분리하고 **모델 전체 `grad_absmax_all`**을 추가했다(관측값 1.44166). `*_nonfinite` 개수도 payload에 싣는다.
+
+### 3. A10 기록 범위
+
+`calibrated_fields`가 `config.pt`에만 있고 결과 JSON에는 없었다. 결과만 받은 사람이 어떤 값이 보정에서 왔는지 알 수 없다. JSON `provenance.calibration`에 `theta`와 `calibrated_fields`를 포함했다.
+
+### 4. 감사가 VERIFIED로 올린 항목
+
+A10-THETA 전달(D-Z), A10-PATH spike/analog(D-AA), A07/G4 분수적분기 대조(D-AB), A02-DIAG 집계(D-AC, 기존 독립값과 7e-10 차이), A05-BRANCH 거부 배선, A12-ORACLE(copy 비균등 사건 **1243 → 0**), A08-DRIVE 배선·인과성, A12-ETT 빈 truth 경로, A12-TEST-SPLIT·A10-HASH.
+
+감사가 짚은 사소한 정정 하나: 내가 `hit = 0.0000`이라고 쓴 값의 실제는 **3.72888448e-5**이며 0이 아니라 반올림값이다.
+
+### 5. 남은 OPEN
+
+`log/final+result.csv` 미생성과 동적 `*_nonfinite` 열의 CSV 스키마 문제(A10-LOG), `make_golden.py`의 실행 가능한 재생성 경로(A07-REGEN), 보정 artifact의 ID/hash 기반 호환 계약(A10-CAL), `key_norm=frozen`일 때 통계 적합 연결.
+
+Artifacts: 본 커밋의 `model.py`·`train.py`.

@@ -99,7 +99,9 @@ def train_one_epoch(model, data_loader, optimizer, args):
     total = torch.zeros(3, dtype=torch.float64, device=args.device)
     peak, rate = 0., []
     watched = {k: [] for k in ('eta', 'kappa', 'would_cap_rate', 'support_p', 'score_std')}
-    selector_grad = {'grad_WQ': [], 'grad_WK': [], 'grad_eta_hat': [], 'singleton_frac': []}
+    selector_grad = {k: [] for k in ('grad_WQ_norm', 'grad_WK_norm', 'grad_eta_hat_norm',
+                                     'grad_WQ_absmax', 'grad_WK_absmax', 'grad_absmax_all',
+                                     'singleton_frac')}
     for i, batch in enumerate(data_loader):
         if args.max_train_batches and i >= args.max_train_batches:
             break
@@ -119,8 +121,15 @@ def train_one_epoch(model, data_loader, optimizer, args):
             sel = model.embedding.neuron.selector
             for name, tensor in (('grad_WQ', sel.query.weight), ('grad_WK', sel.key.weight),
                                  ('grad_eta_hat', sel.eta_hat)):
-                selector_grad[name].append(0. if tensor.grad is None
-                                           else tensor.grad.norm().item())
+                grad = tensor.grad
+                selector_grad[name + '_norm'].append(0. if grad is None else grad.norm().item())
+                if name != 'grad_eta_hat':
+                    selector_grad[name + '_absmax'].append(0. if grad is None
+                                                           else grad.abs().max().item())
+            # 사전등록이 요구한 것은 norm 평균이 아니라 max|grad|다. 모델 전체에 대해 남긴다.
+            selector_grad['grad_absmax_all'].append(
+                max((p.grad.abs().max().item() for p in model.parameters() if p.grad is not None),
+                    default=0.))
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1., error_if_nonfinite=True)
         optimizer.step()
         if watch:
@@ -217,12 +226,17 @@ def train(args: Config):
                         'best_val_loss': float(stopper.val_loss_min),
                         **{k: train_result[k] for k in
                            ('firing_rate', 'max_abs_state', 'eta', 'kappa', 'would_cap_rate',
-                            'support_p', 'score_std', 'grad_WQ', 'grad_WK', 'grad_eta_hat',
-                            'singleton_frac') if k in train_result}}
+                            'support_p', 'score_std', 'grad_WQ_norm', 'grad_WK_norm',
+                            'grad_eta_hat_norm', 'grad_WQ_absmax', 'grad_WK_absmax',
+                            'grad_absmax_all', 'singleton_frac')
+                           if k in train_result}
+                        | {k: v for k, v in train_result.items() if k.endswith('_nonfinite')}}
     payload['provenance'] = {
         'run_uuid': args.run_uuid, 'config_hash': args.config_hash,
+        # JSON 단독으로도 추적되어야 한다. config.pt에만 있으면 결과만 받은 사람은 모른다.
         'calibration': {'file': args.calibration_file, 'input_scale': args.input_scale,
-                        'g11_bound': args.g11_bound},
+                        'theta': args.theta, 'g11_bound': args.g11_bound,
+                        'calibrated_fields': getattr(args, 'calibrated_fields', [])},
         'source_sha256': {name: sha256(str(TASK / name)) for name in SOURCE_FILES},
         'parameter_hash_last_epoch': parameter_hash(model), 'trainable_parameters': active,
         'data': {'train': len(train_set), 'val': len(val_set),
