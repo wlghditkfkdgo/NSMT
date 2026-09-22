@@ -4274,3 +4274,48 @@ $PY train.py --task recall --data recall --suite <새 이름> --mode sparse \
 | 2026-09-22 | *(이 항목의 commit은 다음 항목에 기록)* | 통합 요약 |
 
 (전체 이력은 `git log --oneline exp/f-lif-pop-v3`)
+
+---
+
+## 2026-09-22 17:28 KST — 기록 규칙 확정과 원격 branch 게시
+
+**성격:** 문서·운영. 학습 없음.
+
+### 1. 사용자 지시로 확정한 기록 규칙
+
+위 「통합 요약 §0」에 규칙을 명문화했다. 요지는 넷이다.
+
+1. 모든 실행을 이 문서에 **날짜부 항목**으로, 성격·조건·결과·해석·한계·artifact·commit을 갖춰 기록한다.
+2. **로그 갱신 후 반드시 현재 실험 branch에 commit + push**하고 그 commit 정보를 이 문서에 기록한다. `main`에는 커밋·푸시하지 않는다.
+3. 과거 항목을 **덮어쓰지 않고** 새 항목에 정정을 append한다.
+4. **탐색과 확증을 섞지 않는다.**
+
+### 2. 통합 요약 추가
+
+다른 세션·에이전트가 **이 문서 하나로** 전체를 이해할 수 있도록 「통합 요약」 절을 추가했다(§0 기록 규칙, §1 현재 상태, §2 아이디어, §3 v3-A 사양, §4 검증 설계, §5 실험 결과, §6 현재 판정, §7 개선 후보, §8 발견된 결함, §9 코드 지도, §10 재현, §11 미결, §12 commit 기록). 문서 길이 4,035 → 4,276행.
+
+### 3. 원격 branch 게시
+
+이 저장소의 실험 branch를 처음으로 원격에 올렸다. AGENTS.md대로 **의도한 branch 하나만** 푸시했고 `--all`·`--mirror`·force를 쓰지 않았다.
+
+```
+git push -u origin exp/f-lif-pop-v3
+  * [new branch]  exp/f-lif-pop-v3 -> exp/f-lif-pop-v3
+  Branch 'exp/f-lif-pop-v3' set up to track remote branch 'exp/f-lif-pop-v3' from 'origin'.
+```
+
+- 원격: `git@github.com:wlghditkfkdgo/NSMT.git`
+- `main`은 건드리지 않았다. base commit `329183b94`에서 **54 commit** 앞서 있다.
+
+### 4. Commit
+
+| 대상 | commit | 비고 |
+|---|---|---|
+| 통합 요약 | **`4f797efaa`** | 위 §12 표의 "다음 항목에 기록"이 이것이다 |
+| 본 항목 | 다음 항목에 기록 | 자기 hash는 커밋 안에 넣을 수 없다 |
+
+### 5. 한계
+
+이 항목은 **문서·운영 작업**이며 새 실험 결과가 없다. 통합 요약의 모든 수치는 기존 항목에서 옮긴 것으로, **전부 seed 1개·12 epoch의 탐색적 실행**이라는 제한이 그대로 적용된다.
+
+**Artifacts:** `docs/PROJECT_LOG.md` (본 문서)
