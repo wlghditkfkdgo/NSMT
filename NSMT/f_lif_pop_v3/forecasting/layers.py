@@ -238,7 +238,8 @@ class Selector(nn.Module):
                'support_c': (c > 0).to(c.dtype).mean(-1).detach(),
                # singleton support에서는 sparsemax의 score gradient가 0이다. 비율을 본다.
                'support_size': (p > 0).sum(-1).to(c.dtype).detach(),
-               'score_std': score.std(-1).detach()}
+               # 과거가 1칸인 시점(n=1)에서 표본표준편차는 NaN이다. 모표준편차를 쓴다.
+               'score_std': score.std(-1, unbiased=False).detach()}
 
         return c, aux
 

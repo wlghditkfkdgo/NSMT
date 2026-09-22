@@ -123,8 +123,14 @@ def train_one_epoch(model, data_loader, optimizer, args):
     if rate:                                                  # GRU 등 비스파이킹 모델은 비운다
         result['max_abs_state'] = peak
         result['firing_rate'] = float(np.mean(rate))
-        result.update({k: float(np.mean(v)) for k, v in watched.items() if v})
-        result.update({k: float(np.mean(v)) for k, v in selector_grad.items() if v})
+        # 진단에 NaN이 섞이면 조용히 퍼지지 않도록 여기서 걸러 기록한다.
+        for source in (watched, selector_grad):
+            for key, values in source.items():
+                finite = [v for v in values if np.isfinite(v)]
+                if finite:
+                    result[key] = float(np.mean(finite))
+                if len(finite) < len(values):
+                    result[key + '_nonfinite'] = len(values) - len(finite)
 
     return result
 
