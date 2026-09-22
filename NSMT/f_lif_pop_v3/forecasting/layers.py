@@ -128,10 +128,12 @@ class Selector(nn.Module):
 
         if key_norm not in ('none', 'frozen'):
             raise ValueError("key_norm must be 'none' or 'frozen'")
-        # QK 정규화: 투영된 q, k를 단위 L2로 만든 뒤 거리를 잰다. 그러면
-        # -||q-k||^2 = 2(q.k - 1)이 되어 점수가 [-4/(d_q*theta), 0]으로 유계가 되고,
-        # 상태 크기에서 분리된다. eps는 norm이 0인 경우를 막는 고정 상수이며
-        # 시점 n의 q는 갱신 전 상태로만 만들어지므로 인과성은 변하지 않는다.
+        # QK 정규화: 투영된 q, k를 x/sqrt(||x||^2 + eps^2)로 만든다. 하드 clamp가 아니라
+        # soft norm인 이유는 Jacobian 때문이다. x/||x||의 Jacobian은 (I - xx^T)/||x||이라
+        # ||x||->0에서 발산하는데, key는 [I 0]으로 초기화되어 k=u_j이고 초기 상태의 norm이
+        # 0에 가깝다. 측정: eps=1e-6 하드 clamp에서 key gradient가 1.75e13까지 갔다.
+        # soft norm의 Jacobian은 1/eps로 유계다. 시점 n의 q는 갱신 전 상태로만 만들어지므로
+        # 인과성은 변하지 않는다.
         self.qk_norm, self.qk_eps = bool(qk_norm), float(qk_eps)
         self.key_norm = key_norm
         self.register_buffer('key_mean', torch.zeros(num_population + 1))
@@ -202,8 +204,9 @@ class Selector(nn.Module):
             xi_hist = (xi_hist - self.key_mean) / self.key_std
         q, kk = self.query(xi), self.key(xi_hist)
         if self.qk_norm:
-            q = q / q.norm(dim=-1, keepdim=True).clamp_min(self.qk_eps)
-            kk = kk / kk.norm(dim=-1, keepdim=True).clamp_min(self.qk_eps)
+            e2 = self.qk_eps ** 2
+            q = q / (q.square().sum(-1, keepdim=True) + e2).sqrt()
+            kk = kk / (kk.square().sum(-1, keepdim=True) + e2).sqrt()
         score = -(q.unsqueeze(-2) - kk).square().sum(-1)
         score = score / (self.query_dim * self.theta)                # theta는 d_q 스케일로 고정 (O3)
         if mode == 'sparse' or mode == 'mass_matched':
@@ -306,7 +309,7 @@ class PopulationNeuron(nn.Module):
     """
     def __init__(self, embed_dim, num_population=4, alpha=.7, tau=(4., 8., 16., 32.),
                  heterogeneous=True, max_length=64, theta=1., eta_init=-4.,
-                 eta_fixed=None, cap=True, key_norm='none', qk_norm=False, tau_s=2.,
+                 eta_fixed=None, cap=True, key_norm='none', qk_norm=False, qk_eps=1e-6, tau_s=2.,
                  threshold=1., surrogate_scale=5., query_dim=None, dtype=torch.float32):
         super().__init__()
 
@@ -325,7 +328,7 @@ class PopulationNeuron(nn.Module):
         self.alpha = float(alpha)
         self.max_length = int(max_length)
         self.selector = Selector(num_population, query_dim, theta, eta_init, eta_fixed, cap,
-                                 key_norm, qk_norm)
+                                 key_norm, qk_norm, qk_eps)
         self.soma = Soma(embed_dim, num_population, tau_s, threshold, surrogate_scale)
 
     def forward(self, x, mode='sparse', oracle_p=None, return_aux=False, analog=False):
@@ -422,8 +425,9 @@ class PopulationNeuron(nn.Module):
             # 정규화된 점수에 정규화 안 된 theta를 물리게 된다.
             q, kk = sel.query(xi), sel.key(hist)
             if sel.qk_norm:
-                q = q / q.norm(dim=-1, keepdim=True).clamp_min(sel.qk_eps)
-                kk = kk / kk.norm(dim=-1, keepdim=True).clamp_min(sel.qk_eps)
+                e2 = sel.qk_eps ** 2
+                q = q / (q.square().sum(-1, keepdim=True) + e2).sqrt()
+                kk = kk / (kk.square().sum(-1, keepdim=True) + e2).sqrt()
             total.append((q.unsqueeze(-2) - kk).square().sum(-1).mean().item())
 
         return float(sum(total) / len(total) / sel.query_dim)

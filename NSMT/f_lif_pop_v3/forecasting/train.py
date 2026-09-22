@@ -132,10 +132,11 @@ def train_one_epoch(model, data_loader, optimizer, args):
             selector_grad['grad_absmax_all'].append(
                 max((p.grad.abs().max().item() for p in model.parameters() if p.grad is not None),
                     default=0.))
-        total = torch.nn.utils.clip_grad_norm_(model.parameters(), 1., error_if_nonfinite=True)
+        # 이름을 total로 두면 위의 누적 변수를 덮어쓴다. clip_grad_norm_은 clipping 전 norm을 준다.
+        pre_clip = torch.nn.utils.clip_grad_norm_(model.parameters(), 1., error_if_nonfinite=True)
         if watch and args.model == 'myModel':
-            selector_grad['grad_total_norm_pre'].append(total.item())
-            selector_grad['clip_rate'].append(1. if total.item() > 1. else 0.)
+            selector_grad['grad_total_norm_pre'].append(pre_clip.item())
+            selector_grad['clip_rate'].append(1. if pre_clip.item() > 1. else 0.)
         optimizer.step()
         if watch:
             # G11: 학습 중에도 보정에서 고정한 상한을 본다. 넘으면 즉시 중단한다.
