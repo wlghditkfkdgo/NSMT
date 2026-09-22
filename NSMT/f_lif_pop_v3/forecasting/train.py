@@ -42,6 +42,7 @@ def load_calibration(args):
         return None
 
     return {'file': os.path.basename(files[-1]), 'input_scale': picked['input_scale'],
+            'theta': picked.get('theta'),                     # D-X: 보정에서 정해 그대로 쓴다
             'g11_bound': picked['declared_bound'], 'firing_rate': picked['firing_rate']}
 
 
@@ -200,10 +201,14 @@ def main():
     calibration = load_calibration(config)
     config.calibration_file = calibration['file'] if calibration else None
     config.g11_bound = calibration['g11_bound'] if calibration else None
-    if calibration and config.input_scale != calibration['input_scale']:
-        print(f"[train] input_scale {config.input_scale} overridden by calibration "
-              f"{calibration['input_scale']}")
-        config.input_scale = calibration['input_scale']
+    # 보정이 정한 값은 CLI 기본값을 덮어쓴다. 하나라도 빠지면 이름만 보정된 실험이 된다.
+    for field in ('input_scale', 'theta'):
+        value = calibration.get(field) if calibration else None
+        if value is not None and getattr(config, field) != value:
+            print(f"[train] {field} {getattr(config, field)} overridden by calibration {value}")
+            setattr(config, field, value)
+    config.calibrated_fields = [f for f in ('input_scale', 'theta')
+                                if calibration and calibration.get(f) is not None]
     blob = json.dumps({k: str(v) for k, v in sorted(vars(config).items())
                        if k not in ('device',)}, sort_keys=True)
     config.config_hash = hashlib.sha256(blob.encode()).hexdigest()[:16]

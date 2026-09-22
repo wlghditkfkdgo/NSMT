@@ -293,17 +293,19 @@ class PopulationNeuron(nn.Module):
     def __init__(self, embed_dim, num_population=4, alpha=.7, tau=(4., 8., 16., 32.),
                  heterogeneous=True, max_length=64, theta=1., eta_init=-4.,
                  eta_fixed=None, cap=True, key_norm='none', tau_s=2., threshold=1.,
-                 surrogate_scale=5., query_dim=None):
+                 surrogate_scale=5., query_dim=None, dtype=torch.float32):
         super().__init__()
 
-        tau = torch.as_tensor(tau, dtype=torch.float32)
+        # 계수표는 생성 시점의 dtype으로 만든다. float32로 만든 뒤 .double()로 올리면
+        # 정밀도가 이미 소실되어 외부 float64 기준(G4)과 3e-8 어긋난다.
+        tau = torch.as_tensor(tau, dtype=dtype)
         if tau.numel() != num_population or (tau <= 1.).any():
             raise ValueError('Require one tau per constituent, each > 1')
         if not heterogeneous:
             # 동질 대조군: 조화평균으로 총 누설을 맞춘다. tau=[4,8,16,32]이면 8.533
             tau = torch.full_like(tau, float(num_population / (1. / tau).sum()))
         self.register_buffer('tau', tau)
-        self.register_buffer('b', fractional_coefficients(alpha, max_length))
+        self.register_buffer('b', fractional_coefficients(alpha, max_length, dtype))
 
         self.num_population = num_population
         self.alpha = float(alpha)

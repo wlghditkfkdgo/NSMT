@@ -19,12 +19,18 @@ Usage
     python check_model.py --phase all
 """
 
+import csv
 import math
+import hashlib
 import argparse
+from pathlib import Path
 
 import torch
 
 import layers
+
+GOLDEN = Path(__file__).resolve().parents[1] / 'reference' / 'golden' / 'scalar_trajectories.csv'
+GOLDEN_SHA256 = '2fda1abbb03743e1b9074d2fb7b7b84feeec8e322201b42b0b66bc0fc657a7b7'
 
 TOL = 1e-12                    # float64 게이트의 공통 허용오차
 
@@ -56,9 +62,10 @@ class GateReport:
 def build_neuron(seed=0, embed_dim=6, double=True, **neuron_args):
     """Fresh neuron with a fixed seed. float64 by default so 1e-12 gates are meaningful."""
     torch.manual_seed(seed)
-    model = layers.PopulationNeuron(embed_dim=embed_dim, **neuron_args)
+    dtype = torch.float64 if double else torch.float32
+    model = layers.PopulationNeuron(embed_dim=embed_dim, dtype=dtype, **neuron_args)
 
-    return model.double() if double else model
+    return model.to(dtype)
 
 
 def force_eta(model, value):
@@ -125,13 +132,8 @@ def phase_a(report, T=24, D=4):
     report.add('G3', 'loop == (Id + B J/tau)^-1 B/tau   (and != B/tau)', err < 1e-10,
                f"|loop - H_eff| = {err:.2e}   |loop - naive B@I/tau| = {err_naive:.3f}")
 
-    # G4: 원본(spikeDE) 궤적 대조. CPU torch 2.x 환경이 있어야 돌릴 수 있다
-    report.add('G4', 'golden trajectory parity against pinned f-SNN code', None,
-               "blocked: the pinned spikeDE source is not present on this machine "
-               "(find / -iname '*spikede*' returns nothing). An earlier note blamed the "
-               "environment; that was wrong -- snn_jelly has torch 2.11.0+cu130 with working "
-               "CPU autograd and torch.compile, and CUDA availability is irrelevant to a CPU "
-               "golden run. Reference grade stays 'mathematical validation' per prereg O9.")
+    # G4: 고정 커밋 spikeDE 궤적과의 대조. 가지가 리셋하지 않으므로 첫 스파이크 전까지만 같다.
+    report.add(*golden_parity())
 
     # G15: D-D 정렬. 마지막 patch가 마지막 스파이크에 도달해야 한다
     model = build_neuron(embed_dim=D, double=False)
@@ -149,6 +151,52 @@ def phase_a(report, T=24, D=4):
                ds > 0 and quiet_s == 0. and quiet_v == 0.,
                f"changed spikes at T-1 = {ds:.0f} (rate {base_s.mean():.3f}), |d v_last| = {dv:.3f}; "
                f"earlier: d spikes = {quiet_s:.0f}, |d v| = {quiet_v:.2e}")
+
+
+def golden_parity(atol=1e-10):
+    """Compare the fractional integrator against the pinned upstream trajectories.
+
+    The comparison is deliberately partial. v3-A's branches never reset (prereg D1), while
+    the upstream neuron subtracts at threshold, so the two are the same recurrence only up to
+    the step before the first spike. 7 of the 24 recorded conditions never spike, and the
+    rest are compared on their pre-spike prefix. This is parity for the integrator core, not
+    for the full neuron, and the grade is reported as such.
+    """
+    if not GOLDEN.exists():
+        return ('G4', 'golden trajectory parity against pinned f-SNN code', None,
+                f'golden file missing at {GOLDEN}; run reference/make_golden.py')
+    digest = hashlib.sha256(GOLDEN.read_bytes()).hexdigest()
+    if digest != GOLDEN_SHA256:
+        return ('G4', 'golden trajectory parity against pinned f-SNN code', False,
+                f'golden file changed: sha256 {digest[:16]} != pinned {GOLDEN_SHA256[:16]}')
+
+    rows = list(csv.DictReader(GOLDEN.open()))
+    cases, worst, compared, clean = {}, 0., 0, 0
+    for row in rows:
+        cases.setdefault((row['input'], float(row['alpha']), float(row['tau'])), []).append(row)
+    for (name, alpha, tau), steps in cases.items():
+        steps.sort(key=lambda r: int(r['n']))
+        spike = [i for i, r in enumerate(steps) if float(r['upstream_spike']) > 0]
+        limit = spike[0] if spike else len(steps)             # 첫 스파이크 이후는 규약이 갈린다
+        if limit == 0:
+            continue
+        clean += not spike
+        model = build_neuron(num_population=1, tau=(tau,), embed_dim=1, alpha=alpha,
+                             max_length=len(steps) + 1)
+        force_eta(model, 0)
+        current = torch.tensor([float(r['current']) for r in steps],
+                               dtype=torch.float64).reshape(-1, 1, 1)
+        state = model(current, mode='full', return_aux=True)[1]['state'][:, 0, 0, 0]
+        target = torch.tensor([float(r['upstream_U_next']) for r in steps], dtype=torch.float64)
+        worst = max(worst, (state[:limit] - target[:limit]).abs().max().item())
+        compared += limit
+
+    passed = worst < atol
+    return ('G4', 'integrator parity against the pinned spikeDE commit fcd743b', passed,
+            f'max |err| = {worst:.2e} over {compared} steps in {len(cases)} conditions '
+            f'({clean} of them spike-free, the rest compared before their first spike); '
+            f'golden sha256 {GOLDEN_SHA256[:16]}. Grade: source parity for the fractional '
+            f'integrator. The full v3-A neuron differs by design (D1: branches never reset).')
 
 
 def phase_c(report, T=24, D=4):

@@ -2996,3 +2996,63 @@ seed 1개·12 epoch·2048 시퀀스의 탐색적 실행이다. 학습이 수렴�
 감사 §5.2의 권고 순서를 따른다. 먼저 **관측**한다: 실제 배치의 Q/K gradient 크기, sparsemax singleton support 비율, `cap_rate`, η 이동량, 점수 분산. 그 다음에야 dense warm-up, `Δu` key 추가, entmax 등 대안을 **탐색적 조건으로 분리해** 시도한다. 아직 O7 판정을 시도하지 않는다.
 
 Artifacts: `NSMT/f_lif_pop_v3/forecasting/results/pilot-theta-*/`, `pilot-oracle-*/`, `pilot-gru-*/`.
+
+
+## 2026-09-22 03:45 KST — v3 예약 추적 감사06: sparse 실패 처리 재검사와 θ/oracle pilot
+
+- 예약 20260921T184001Z-e2dd33af, branch exp/f-lif-pop-v3, base329183b94f65090cc6b337f464c5aa4d8e127ad7, HEAD5512135e7c2570f50b6f4f33ad4f88ffdf16acb1.03:40:36 KST92개 source/docs/results/checkpoint 사본 고정, /tmp/nsmt_assessment_20260921T184001Z-e2dd33af. 소스 변경 없음; 감사 코드/텍스트/문서 append만.
+- 재검사: snn_recall torch1.12 CPU2threads. A05 finite/bound/band 실패 pickedNone·exit1/row보존, 건강exit0. 추가 branch dead/ratio1000은 accepted라 OPEN. GRU 반환 dict만 실행해 실제 logging/verbose 성공; train 함수/optimizer는 실행하지 않음.
+- 데이터/모델: 기존 새6pilot, r2 k3/onehot/min_gap1,data_seed20260921,seed7,2048·256·256,batch64,12epochs,lr.001/wd.01,spike/frozen norm/scale8,key_norm none,theta5.5. CPU best 재평가 오차≤1.12e-16. Recall Full.2763386362,sparse학습η.2717429156,sparseη.5 .4107734982,oracleη.5 .0362117806,oracleη1 .0296800174. Oracleη.5의 독립 recall M_eff.46655238(기존.52672184); A02 판정 오류 중요.
+- θ 보정값5.5613433501은 loader 반환 누락. 학습η pilot best/last parameter hash 불일치 지속. 새로운 oracle-trained 증거는 탐색적이며 sparse성능/8seed 검증 완료 아님. A10 legacy config에도 key_norm migration 필요.
+- Artifacts NSMT/f_lif_pop_v3/forecasting/results/assessment/20260921T184001Z-e2dd33af/inventory.json,changes.diff,calibration_failure_paths.json,theta_pilot_probes.json,branch_failure_paths.json,validation.json. Exact commands(cwd NSMT, OMP/MKL2,LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib): snn_recall python `scripts/audit_calibration_failure_paths.py /tmp/nsmt_assessment_20260921T184001Z-e2dd33af f_lif_pop_v3/forecasting/results/assessment/20260921T184001Z-e2dd33af/calibration_failure_paths.json`; python `scripts/audit_v3_theta_pilots.py /tmp/nsmt_assessment_20260921T184001Z-e2dd33af f_lif_pop_v3/forecasting/results/assessment/20260921T184001Z-e2dd33af/theta_pilot_probes.json`; python `f_lif_pop_v3/forecasting/results/assessment/20260921T184001Z-e2dd33af/branch_failure_probe.py /tmp/nsmt_assessment_20260921T184001Z-e2dd33af f_lif_pop_v3/forecasting/results/assessment/20260921T184001Z-e2dd33af/branch_failure_paths.json`.
+- 검산/제한: 원본checkpoint/사본hash·구문·append prefix 보존. 새 학습/GPU/환경 설치/git 변이/commit/tag/push 없음.8seed통계·GRU학습·gradient표 재현 not run. D-X/Y 최신 계약 복구, clipped 이전gradient/동일대조군 개선은 기존 primary 문헌 기반. 감사 중 config/기록 후속변경은 다음 주기로 남김.
+
+
+## 2026-09-22 03:53 KST — v3 예약 추적 감사07: GRU 완료 결과와 run 경로 검증
+
+- 예약 20260921T185001Z-86f72a84; branch exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7/HEADd1fb43edaec12c7f87adcf06aade82b361c7187c.03:50:37 KST snapshot /tmp/nsmt_assessment_20260921T185001Z-86f72a84. Config SHAbe713ae2cdde9bbabe149381fe3b365e3e687cb6fb2aa0ce3d0e41e44cb3a2af. 모델 소스 수정 없음; 감사 스크립트/증거/문서 append만.
+- 기존 GRU: r2 k3,data_seed20260921,seed7,2048·256·256,12epochs,batch64,lr.001/wd.01,hidden32/patch8. CPU torch1.12/2threads로 best 재평가, all/copy/recall/first MSE .1943944133/.0164127504/.2531052475/.2563219884; JSON 최대차3.47e-18 및 parameter hash일치.2표본 causal/truth차0. Checkpoint SHA64327b40a745f0ecbf6d4a8170b087cbc8e850225a65d4229aa91d0293d5e304.
+- A10-PATH JSON 이름 구분 확인, 같은 suite analog/spike log/model_state 충돌 남음. 사용 recall 모듈 GRU4065/myModel490(selector포함)로 parameter-matched가 아님. **이전 pilot 해석의 θ=5.561 표기는 실제 config5.5로 정정한다**(보정값5.56134335의 전달 누락은 감사06 증거). Readout 병목은 copy gap만으로 확정하지 않는다.
+- Exact command(cwd NSMT): `OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python scripts/audit_v3_gru.py /tmp/nsmt_assessment_20260921T185001Z-86f72a84 f_lif_pop_v3/forecasting/results/assessment/20260921T185001Z-86f72a84/gru_probes.json`. Artifacts inventory/config.diff/observed_gru/gru_probes/validation은 해당 assessment 디렉터리.
+- 보존/한계: snapshot/원본checkpoint·source provenance11개/구문/append prefix 확인. 새로운 학습/optimizer/GPU/설치/git변이/commit/tag/push 없음.8seed·CI·용량통제·수렴 확인 not run. A12-GRU 완료 평가범위만 확인, 기존 나머지 OPEN 유지. 성능 우위 일반화 보류.
+
+---
+
+## 2026-09-22 10:12 KST — 추적 감사 07 수용, G4 최초 실행 (학습 없음)
+
+**Branch:** `exp/f-lif-pop-v3` · 감사 `NSMT/docs/ASSESMENT.md` 추적 07 및 02
+
+### 1. θ가 보정에서 학습으로 전달되지 않았다 — 직전 로그 기재 정정
+
+D-X로 θ를 보정 대상으로 옮겼으나 `train.py`는 보정 artifact에서 `input_scale`과 `g11_bound`만 읽었다. 저장된 config를 확인한 결과 **파일럿은 θ=5.5(CLI 기본값)로 실행됐다.** 직전 PROJECT_LOG 항목의 "θ=5.561"은 **그 실행에 대해서는 틀린 기재**다. 본 로그는 append-only이므로 여기서 정정한다.
+
+A06(`--eta_fixed`·`--no-cap` 미전달)과 **같은 종류의 결함**이 다시 나왔다. 보정이 정한 필드를 일괄 덮어쓰고 `calibrated_fields`를 결과에 남기도록 고쳤다. 확인: `theta 5.5 overridden by calibration 5.561343350061557`.
+
+### 2. readout이 로그·checkpoint 경로에 없었다
+
+`run_id`에는 들어갔으나 `save_result_path`에는 없어 같은 suite에서 `spike` 다음 `analog`가 `FileExistsError`로 막혔다. **D8이 요구하는 readout 비교가 한 suite에서 불가능**했다. 경로와 tag에 포함했다.
+
+### 3. G4를 처음으로 실행했다 — 그리고 정밀도 결함을 찾았다
+
+감사가 사전등록의 spikeDE 고정 커밋 `fcd743b`를 확보해 `snn_jelly`(torch 2.11 CPU)에서 궤적을 생성했다. golden을 `reference/golden/`에 고정하고 SHA256을 `check_model.py`에 박았다.
+
+**첫 실행 결과가 FAIL이었다: max 오차 3.35e-08.** 원인은 `fractional_coefficients`가 계수표를 **float32로 만든 뒤 `.double()`로 올린 것**이다. 이미 소실된 정밀도는 복구되지 않는다. 내부 게이트들은 같은 버퍼로 기준을 만들어 오차가 상쇄돼 전부 통과하고 있었다. **외부 float64 기준과 대조하는 G4가 아니었으면 드러나지 않았다.**
+
+생성 시점 dtype으로 만들도록 고친 뒤 **7.77e-16**이 됐다.
+
+| | 수정 전 | 수정 후 |
+|---|---|---|
+| G4 | NOT RUN → FAIL 3.35e-08 | **PASS 7.77e-16** (360스텝 / 24조건) |
+| 게이트 총계 | 19 passed / 1 not run | **20 passed / 0 failed / 0 not run** |
+
+**대조 범위를 과장하지 않는다.** v3-A 가지는 리셋하지 않고(D1) 원본은 임계에서 차감하므로 두 재귀는 **첫 스파이크 직전까지만** 같다. 24조건 중 7개는 스파이크가 없어 전 구간, 나머지는 스파이크 이전 구간을 비교했다. 등급은 **"분수적분 핵심부의 source parity"**이며 뉴런 전체가 아니다.
+
+### 4. GRU 비교 기재 정정 (A10-PARAM)
+
+총 parameter는 GRU 134,241 대 myModel 130,666으로 비슷하나 둘 다 recall에서 쓰지 않는 forecasting head가 대부분이다. **recall 경로만 세면 GRU 4,065 대 myModel 490으로 GRU가 8.3배 많다.** 직전 항목의 "GRU가 현재 우리보다 낫다"는 관찰 자체는 유효하지만 **용량 동등 비교가 아니다.** 용량 통제가 필요하면 미사용 head를 제외한 기준을 사전에 정하고 기존 결과에 소급 적용하지 않는다.
+
+### 5. readout 병목은 가설로 격하
+
+직전 항목에서 copy 오차 차이를 근거로 "readout 병목이 따로 있을 수 있다"고 적었다. 감사 지적대로 **copy 오차만으로는 손실 위치(임베딩/스파이크/readout)가 식별되지 않는다.** 가설로 두고 `--readout analog`를 같은 데이터·seed·예산의 통제 조건으로 돌려 구분한다. 이제 경로가 분리되었으므로 같은 suite에서 실행 가능하다.
+
+Artifacts: `NSMT/f_lif_pop_v3/reference/golden/{scalar_trajectories.csv,SHA256SUMS,reference_results.json}`, `NSMT/f_lif_pop_v3/analysis/check_model_phaseAC.txt`, `NSMT/docs/Population_fLIF_v3_prereg_KO.md` §2E.

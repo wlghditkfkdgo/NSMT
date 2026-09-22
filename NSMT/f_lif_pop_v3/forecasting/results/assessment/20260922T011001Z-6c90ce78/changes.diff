@@ -1,0 +1,174 @@
+--- audit07/f_lif_pop_v3/forecasting/check_model.py
++++ audit08/f_lif_pop_v3/forecasting/check_model.py
+@@ -19,12 +19,18 @@
+     python check_model.py --phase all
+ """
+ 
++import csv
+ import math
++import hashlib
+ import argparse
++from pathlib import Path
+ 
+ import torch
+ 
+ import layers
++
++GOLDEN = Path(__file__).resolve().parents[1] / 'reference' / 'golden' / 'scalar_trajectories.csv'
++GOLDEN_SHA256 = '2fda1abbb03743e1b9074d2fb7b7b84feeec8e322201b42b0b66bc0fc657a7b7'
+ 
+ TOL = 1e-12                    # float64 게이트의 공통 허용오차
+ 
+@@ -56,9 +62,10 @@
+ def build_neuron(seed=0, embed_dim=6, double=True, **neuron_args):
+     """Fresh neuron with a fixed seed. float64 by default so 1e-12 gates are meaningful."""
+     torch.manual_seed(seed)
+-    model = layers.PopulationNeuron(embed_dim=embed_dim, **neuron_args)
+-
+-    return model.double() if double else model
++    dtype = torch.float64 if double else torch.float32
++    model = layers.PopulationNeuron(embed_dim=embed_dim, dtype=dtype, **neuron_args)
++
++    return model.to(dtype)
+ 
+ 
+ def force_eta(model, value):
+@@ -125,13 +132,8 @@
+     report.add('G3', 'loop == (Id + B J/tau)^-1 B/tau   (and != B/tau)', err < 1e-10,
+                f"|loop - H_eff| = {err:.2e}   |loop - naive B@I/tau| = {err_naive:.3f}")
+ 
+-    # G4: 원본(spikeDE) 궤적 대조. CPU torch 2.x 환경이 있어야 돌릴 수 있다
+-    report.add('G4', 'golden trajectory parity against pinned f-SNN code', None,
+-               "blocked: the pinned spikeDE source is not present on this machine "
+-               "(find / -iname '*spikede*' returns nothing). An earlier note blamed the "
+-               "environment; that was wrong -- snn_jelly has torch 2.11.0+cu130 with working "
+-               "CPU autograd and torch.compile, and CUDA availability is irrelevant to a CPU "
+-               "golden run. Reference grade stays 'mathematical validation' per prereg O9.")
++    # G4: 고정 커밋 spikeDE 궤적과의 대조. 가지가 리셋하지 않으므로 첫 스파이크 전까지만 같다.
++    report.add(*golden_parity())
+ 
+     # G15: D-D 정렬. 마지막 patch가 마지막 스파이크에 도달해야 한다
+     model = build_neuron(embed_dim=D, double=False)
+@@ -151,6 +153,52 @@
+                f"earlier: d spikes = {quiet_s:.0f}, |d v| = {quiet_v:.2e}")
+ 
+ 
++def golden_parity(atol=1e-10):
++    """Compare the fractional integrator against the pinned upstream trajectories.
++
++    The comparison is deliberately partial. v3-A's branches never reset (prereg D1), while
++    the upstream neuron subtracts at threshold, so the two are the same recurrence only up to
++    the step before the first spike. 7 of the 24 recorded conditions never spike, and the
++    rest are compared on their pre-spike prefix. This is parity for the integrator core, not
++    for the full neuron, and the grade is reported as such.
++    """
++    if not GOLDEN.exists():
++        return ('G4', 'golden trajectory parity against pinned f-SNN code', None,
++                f'golden file missing at {GOLDEN}; run reference/make_golden.py')
++    digest = hashlib.sha256(GOLDEN.read_bytes()).hexdigest()
++    if digest != GOLDEN_SHA256:
++        return ('G4', 'golden trajectory parity against pinned f-SNN code', False,
++                f'golden file changed: sha256 {digest[:16]} != pinned {GOLDEN_SHA256[:16]}')
++
++    rows = list(csv.DictReader(GOLDEN.open()))
++    cases, worst, compared, clean = {}, 0., 0, 0
++    for row in rows:
++        cases.setdefault((row['input'], float(row['alpha']), float(row['tau'])), []).append(row)
++    for (name, alpha, tau), steps in cases.items():
++        steps.sort(key=lambda r: int(r['n']))
++        spike = [i for i, r in enumerate(steps) if float(r['upstream_spike']) > 0]
++        limit = spike[0] if spike else len(steps)             # 첫 스파이크 이후는 규약이 갈린다
++        if limit == 0:
++            continue
++        clean += not spike
++        model = build_neuron(num_population=1, tau=(tau,), embed_dim=1, alpha=alpha,
++                             max_length=len(steps) + 1)
++        force_eta(model, 0)
++        current = torch.tensor([float(r['current']) for r in steps],
++                               dtype=torch.float64).reshape(-1, 1, 1)
++        state = model(current, mode='full', return_aux=True)[1]['state'][:, 0, 0, 0]
++        target = torch.tensor([float(r['upstream_U_next']) for r in steps], dtype=torch.float64)
++        worst = max(worst, (state[:limit] - target[:limit]).abs().max().item())
++        compared += limit
++
++    passed = worst < atol
++    return ('G4', 'integrator parity against the pinned spikeDE commit fcd743b', passed,
++            f'max |err| = {worst:.2e} over {compared} steps in {len(cases)} conditions '
++            f'({clean} of them spike-free, the rest compared before their first spike); '
++            f'golden sha256 {GOLDEN_SHA256[:16]}. Grade: source parity for the fractional '
++            f'integrator. The full v3-A neuron differs by design (D1: branches never reset).')
++
++
+ def phase_c(report, T=24, D=4):
+     """Population behaviour: reductions, causality, and what the selection actually does.
+ 
+--- audit07/f_lif_pop_v3/forecasting/config.py
++++ audit08/f_lif_pop_v3/forecasting/config.py
+@@ -133,11 +133,11 @@
+         self.run_id = (f'{self.model}_{self.task}_{self.dataset}_p{self.pred_len}_{self.head_mode}'
+                        f'_a{self.alpha}_{self.readout}_{self.variant}_seed{self.seed}')
+         tag = self.date
+-        for name in ['model', 'task', 'seq_len', 'pred_len', 'patch_size', 'embed_dim',
++        for name in ['model', 'task', 'readout', 'seq_len', 'pred_len', 'patch_size', 'embed_dim',
+                      'num_population', 'alpha', 'head_dim', 'lr']:
+             tag += f'+{name}+{getattr(self, name)}'
+         self.save_result_path = str(TASK / 'log' / self.suite / self.dataset / self.date / tag
+-                                    / f'seed{self.seed}_{self.head_mode}_{self.variant}')
++                                    / f'seed{self.seed}_{self.head_mode}_{self.readout}_{self.variant}')
+         self.save_log_path = os.path.join(self.save_result_path, 'log')
+         self.save_model_state_path = os.path.join(self.save_result_path, 'model_state')
+         self.result_path = str(TASK / 'results' / self.suite / (self.run_id + '.json'))
+--- audit07/f_lif_pop_v3/forecasting/layers.py
++++ audit08/f_lif_pop_v3/forecasting/layers.py
+@@ -293,17 +293,19 @@
+     def __init__(self, embed_dim, num_population=4, alpha=.7, tau=(4., 8., 16., 32.),
+                  heterogeneous=True, max_length=64, theta=1., eta_init=-4.,
+                  eta_fixed=None, cap=True, key_norm='none', tau_s=2., threshold=1.,
+-                 surrogate_scale=5., query_dim=None):
++                 surrogate_scale=5., query_dim=None, dtype=torch.float32):
+         super().__init__()
+ 
+-        tau = torch.as_tensor(tau, dtype=torch.float32)
++        # 계수표는 생성 시점의 dtype으로 만든다. float32로 만든 뒤 .double()로 올리면
++        # 정밀도가 이미 소실되어 외부 float64 기준(G4)과 3e-8 어긋난다.
++        tau = torch.as_tensor(tau, dtype=dtype)
+         if tau.numel() != num_population or (tau <= 1.).any():
+             raise ValueError('Require one tau per constituent, each > 1')
+         if not heterogeneous:
+             # 동질 대조군: 조화평균으로 총 누설을 맞춘다. tau=[4,8,16,32]이면 8.533
+             tau = torch.full_like(tau, float(num_population / (1. / tau).sum()))
+         self.register_buffer('tau', tau)
+-        self.register_buffer('b', fractional_coefficients(alpha, max_length))
++        self.register_buffer('b', fractional_coefficients(alpha, max_length, dtype))
+ 
+         self.num_population = num_population
+         self.alpha = float(alpha)
+--- audit07/f_lif_pop_v3/forecasting/train.py
++++ audit08/f_lif_pop_v3/forecasting/train.py
+@@ -42,6 +42,7 @@
+         return None
+ 
+     return {'file': os.path.basename(files[-1]), 'input_scale': picked['input_scale'],
++            'theta': picked.get('theta'),                     # D-X: 보정에서 정해 그대로 쓴다
+             'g11_bound': picked['declared_bound'], 'firing_rate': picked['firing_rate']}
+ 
+ 
+@@ -200,10 +201,14 @@
+     calibration = load_calibration(config)
+     config.calibration_file = calibration['file'] if calibration else None
+     config.g11_bound = calibration['g11_bound'] if calibration else None
+-    if calibration and config.input_scale != calibration['input_scale']:
+-        print(f"[train] input_scale {config.input_scale} overridden by calibration "
+-              f"{calibration['input_scale']}")
+-        config.input_scale = calibration['input_scale']
++    # 보정이 정한 값은 CLI 기본값을 덮어쓴다. 하나라도 빠지면 이름만 보정된 실험이 된다.
++    for field in ('input_scale', 'theta'):
++        value = calibration.get(field) if calibration else None
++        if value is not None and getattr(config, field) != value:
++            print(f"[train] {field} {getattr(config, field)} overridden by calibration {value}")
++            setattr(config, field, value)
++    config.calibrated_fields = [f for f in ('input_scale', 'theta')
++                                if calibration and calibration.get(f) is not None]
+     blob = json.dumps({k: str(v) for k, v in sorted(vars(config).items())
+                        if k not in ('device',)}, sort_keys=True)
+     config.config_hash = hashlib.sha256(blob.encode()).hexdigest()[:16]

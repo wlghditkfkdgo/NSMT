@@ -133,11 +133,11 @@ class Config():
         self.run_id = (f'{self.model}_{self.task}_{self.dataset}_p{self.pred_len}_{self.head_mode}'
                        f'_a{self.alpha}_{self.readout}_{self.variant}_seed{self.seed}')
         tag = self.date
-        for name in ['model', 'task', 'seq_len', 'pred_len', 'patch_size', 'embed_dim',
+        for name in ['model', 'task', 'readout', 'seq_len', 'pred_len', 'patch_size', 'embed_dim',
                      'num_population', 'alpha', 'head_dim', 'lr']:
             tag += f'+{name}+{getattr(self, name)}'
         self.save_result_path = str(TASK / 'log' / self.suite / self.dataset / self.date / tag
-                                    / f'seed{self.seed}_{self.head_mode}_{self.variant}')
+                                    / f'seed{self.seed}_{self.head_mode}_{self.readout}_{self.variant}')
         self.save_log_path = os.path.join(self.save_result_path, 'log')
         self.save_model_state_path = os.path.join(self.save_result_path, 'model_state')
         self.result_path = str(TASK / 'results' / self.suite / (self.run_id + '.json'))

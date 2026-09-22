@@ -725,3 +725,149 @@ CPU torch1.12.0+cu113/2threads, 새 진단 스크립트만 작성. 학습/optimi
 증거 artifact 경로: `results/assessment/20260921-145954-utc/calibration_failure_paths_corrected.json` (감사), 본 커밋의 `calibrate.py`
 상태: FIXED-PENDING-REVIEW
 남은 제한과 다음 단계: 학습 파이프라인이 완성되어 `ours.py`/`model.py`/`train.py`/`test.py`/`utils.py`가 들어왔으므로 **A12는 이제 "미구현"이 아니라 "결과 미확보"** 상태다. 별도로 두 가지 새 발견을 PROJECT_LOG와 사전등록 §2D에 기록했다: ① `η`가 학습으로 거의 움직이지 않는다(15 epoch에 0.0178 → 0.0298, 원인은 `σ'(−4)=0.0177`), ② 선택자 역전파가 긴 T·큰 η에서 폭주하며(T=42·η=1에서 `max|grad W_Q|` 3.8e3) 원인은 보정되지 않은 점수 온도 θ였다. θ를 Phase B 보정 대상으로 옮겨 5.561로 고정했다(D-X). 이에 따라 고정 η 조건을 아이디어 검증의 주 경로로 승격했다(D-Y).
+
+
+## 추적 감사 06 — 2026-09-22 03:45 KST (예약 `20260921T184001Z-e2dd33af`)
+
+### 관찰과 고정 범위
+
+기억/감사05/담당 세션의03:34 FIXED-PENDING-REVIEW/사전등록 신규 §2D D-X·D-Y/canonical log를 복구했다. D-X는 θ를 train 표본의 Full 초기 궤적으로 보정하고, D-Y는 고정 η={0,.2,.5,1}를 주 검증 경로로 승격한다. 결과 관찰 뒤 수정된 탐색적 계약임을 구분하고 이전 실험에 소급해 확증으로 적용하지 않는다. key_norm 기본값은 frozen→none으로 변경됐다.
+
+Branch `exp/f-lif-pop-v3`, base `329183b94f65090cc6b337f464c5aa4d8e127ad7`, 관찰 HEAD **`5512135e7c2570f50b6f4f33ad4f88ffdf16acb1`**. 재현 전에 **03:40:36 KST**, 문서·소스·결과·기존/new pilot checkpoint/config92개를 `/tmp/nsmt_assessment_20260921T184001Z-e2dd33af`로 별도 복사·hash했다. Trigger manifest와 일치했다. 감사05의 후속 변경을 이번 사본으로 검토했으며 감사자 append를 새 연구 결과로 세지 않았다.
+
+주요 source SHA256: layers `2f41dbb105a8103420948a9d383a5f4ee8f6911a7b47aede9ac799f43cbcfd8d`, calibrate `1409e2ab5345291dddb60cf6e1c839d700f42dd4d262bd6fbb9942168d78f163`, train `32168ab8aaf55689108cc212784f886562e6413c6625164235c4d74bf93ef7d8`. [전체 inventory/checkpoint hash](../f_lif_pop_v3/forecasting/results/assessment/20260921T184001Z-e2dd33af/inventory.json), [변경 diff](../f_lif_pop_v3/forecasting/results/assessment/20260921T184001Z-e2dd33af/changes.diff), [pilot/로깅/θ 독립 검사](../f_lif_pop_v3/forecasting/results/assessment/20260921T184001Z-e2dd33af/theta_pilot_probes.json).
+
+### (a) 구현: 명시한 수정 두 건 확인, 보정·진단 연결은 OPEN
+
+**A05 sparse finite/bound 실패 처리, VERIFIED(한정):** 현재 main에 기존 감사와 같은 건강/상한 초과/비유한/발화율 band 밖 네 경우를 주입했다. 건강은 picked 유지·exit0, 나머지 세 경우는 picked=None·exit1이고 실패 sparse row가 보존됐다. 담당 세션의 FIXED-PENDING-REVIEW를 이 범위에서 독립 확인했다. [재검사](../f_lif_pop_v3/forecasting/results/assessment/20260921T184001Z-e2dd33af/calibration_failure_paths.json).
+
+**A05-BRANCH는 OPEN:** Full의 `constituents_healthy()`는 sparse 승인에 아직 연결되지 않았다. 정상 Full 뒤 sparse branch_abs_mean=[0,1,1,1] 또는 [.01,1,1,10]을 주입하면 둘 다 picked 유지·exit0이다. 첫 경우 죽은 branch, 둘째 max/min=1000으로 Full 정책에서는 거부 대상이다. 실제 새 pilot에서 죽은 branch를 관측했다는 뜻은 아니며 실패 정책 검사다. [추가 두 경우](../f_lif_pop_v3/forecasting/results/assessment/20260921T184001Z-e2dd33af/branch_failure_paths.json). A05 전체/학습 중 finite·bound 보장은 닫지 않는다.
+
+**A12-GRU 로깅 반환 schema, VERIFIED(한정):** trainer가 비스파이킹 분기에서 None 진단을 넣지 않도록 바뀌었다. 학습 루프를 실행하지 않고 해당 함수의 순수 반환 dict 부분만 평가한 뒤 실제 `EpochLog.logging/verbose`에 전달했다. 필드는 loss/mse/mae만 있고 둘 다 성공했다. 최종 payload도 존재하는 진단만 기록하는 것을 소스로 확인했다. GRU end-to-end 학습/최종 결과 검증은 not run이므로 A12 전체를 완료로 부르지 않는다.
+
+**A10-THETA / D-X, P1 OPEN — 보정값이 trainer에 전달되지 않음:** 새 calibration 파일의 picked.theta는 **5.561343350061557**이지만 `load_calibration()` 반환에는 theta가 없다. 새 pilot6개의 저장 config는 모두 **5.5**이며 main도 보정 theta를 대입하지 않는다. 현행 값 차이가 성능 악화의 원인임을 주장하는 것은 아니다. 보정 artifact에서 읽은 값과 명령/기본값을 구분하고, task/alpha/scale별 재보정 계약을 실제로 연결해야 한다. Sparse 초기 확인도 theta 계산·적용 전에 이루어지므로 최종 선택된 θ에서 검증한 것인지 명시·검사할 것. 기존 A10-CAL의 계약 매칭/파일 정렬/실패 시 bound 없이 진행 문제도 남는다.
+
+**D-X 집계 정의 명확화:** `score_scale()`은 n별 과거칸 평균을 구한 뒤 n을 균등 평균한다. 문구의 mean over all(n,j)를 모든 pair 균등 평균으로 읽으면 다른 값이다. 독립 T12/B2/D3 probe에서 구현=query-weighted **0.0394969892**, pair-weighted **0.0419951281**이었다. 어느 가중이 옳다고 선결하지 않고 의도한 집계식·표본 수를 고정하도록 요구한다.
+
+**A10-KEYNORM-CKPT OPEN:** key_norm 기본값을 none으로 바꾸어도 과거 config에는 속성이 없다. 복사한 기존 pilot-eta의 실제 loader는 이번에는 buffer 검사보다 먼저 `AttributeError: ... no attribute key_norm`으로 실패했다. config migration과 buffer schema 호환성을 모두 처리해야 한다. 탐색 key_norm=frozen의 통계 적합 연결은 아직 없으며 기본 none 경로와 구분한다.
+
+### (b) 검증: 새 재학습 대조 결과 재현, 통계와 지표 계약은 미완
+
+새 두 suite는 공통 seed7, recall r2/k3/onehot/min_gap1, data_seed20260921, train/val/test2048/256/256,12epochs,batch64,lr.001/wd.01,spike,scale8/input_norm frozen,key_norm none,θ5.5다. 저장 best를 CPU로 새로 로드해 **6개 JSON 모두 평가 MSE를 최대1.12e-16 차이로 재현**했다. 같은 모델/평가 소스이며 일부 앞선 pilot의 train/calibrate source hash 차이는 artifact에 남겼다. 따라서 새 학습 재현이 아니라 checkpoint 평가 재현이다.
+
+| 재학습 조건 | recall MSE | 첫 recall 사건 MSE | 독립 recall-only sequence 평균 M_eff |
+|---|---:|---:|---:|
+| Full (두 suite에서 같은 값) | 0.2763386362 | 0.2772469290 | 0.1303288936 |
+| sparse, 학습 η | 0.2717429156 | 0.2752070388 | 0.1327187545 |
+| sparse, 고정 η=.5 | **0.4107734982** | 0.4172819664 | **0.1313177651** |
+| oracle-trained, 고정 η=.5 | **0.0362117806** | 0.0485621035 | **0.4665523809** |
+| oracle-trained, 고정 η=1 | **0.0296800174** | 0.0521265067 | **1.0** |
+
+**A02-DIAG의 판정 영향이 커졌다:** oracle η=.5의 기존 JSON M_eff는 **0.5267218364**로0.5를 넘지만, copy 제외·sequence 평균으로 수정한 값은 **0.4665523809**로 넘지 않는다. 이는 완벽한 oracle p라도 post-cap c 질량이 임계값을 못 넘을 수 있다는 실제 사례다. 지표를 고치기 전 O7-①의 통과/실패를 저장된 진단으로 결정하지 않는다. 임계값을 이번 결과에 맞춰 낮추지 않는다. oracle의1.0은 강제 정답 정책의 값이며 학습 sparse 선택성 입증이 아니다.
+
+두 Full run은 같은 parameter hash/동일 seed/data/평가값이므로 **독립 seed 두 개로 세지 않는다.** 이전 smoke/pilot과도 data_seed가 같아 독립 확증이 아니다. 이 단계의 작은 sparse 개선이나 η=.5 악화를 일반화할 통계는 없다. η=.2/1 sparse를 포함한 주 격자 전체, GRU 성능 비교, 정식8seed/CI/검정력 평가는 not run이다. Oracle first-run fallback 불일치(A12-ORACLE)가 계속되어 현재 oracle 이득을 recall 정책만의 순수 기여로 단정할 수도 없다.
+
+**A10-HASH 유지:** 학습 η sparse의 기록 hash는463d7fb6…인데 평가 best의 hash는 **a5e10cba0ccb472642c61c3f575d6aef384d6dd1513c065e6a2bddb2be3bb8d2**이다. 나머지5개는 일치한다. 이전의 last/best provenance 문제는 수정되지 않았으며 ‘일부 일치’로 닫지 않는다. A10 CSV/A12 ETT/test-off 이슈도 관련 소스가 그대로여서 OPEN 유지한다.
+
+**A09 / D-X·D-Y 근거 한계:** selector_gradient.txt는 초기 backward의3seed 중앙값 표를 제시하지만 seed 목록·입력 생성/표본·loss와 reduction·정확한 실행 명령/진단 소스가 파일에 없어 이번에는 동일 표의 재현을 실행하지 않았다(not run). ‘η≤.2에서는 어떤 길이에서도 문제없음’은 표의 T≤42 검사 범위로 좁혀야 한다. Full support가1이라는 사실만으로 p가 균등하거나 Full과 정확히 같아지지는 않는다. Sigmoid 미분0.0177은 맞지만 그것만으로 학습 정체의 유일 원인이나600epoch 외삽을 확정할 수 없다. 또한 사전등록이 요구한 epoch별 **max|grad| 기록은 현재 trainer에 없고**, clip_grad_norm_ 반환값도 저장하지 않는다. θ 안정화 효과의 검증 기록은 아직 부족하다.
+
+### (c) 개선 방향: 정책 학습과 oracle 사용 경로를 분리
+
+이번에는 **oracle-trained가 낮은 오차를 낼 수 있다는 탐색적 증거**가 생겼다. 반면 고정 η=.5 sparse의 정답 질량은 Full 수준이고 오차는 더 컸다. 따라서 ‘η가 작아서만 안 된다’는 설명을 확정하기보다, 같은 예산에서 정책 학습이 정답 위치를 구별하는지·오답 질량을 증폭하는지·cap이 readout을 어떻게 바꾸는지 검토할 필요가 있다. Oracle first-run fallback을 먼저 정리한 뒤 oracle-trained와 학습 sparse의 차이를 비교한다.
+
+우선순위: **M_eff 집계/보정 θ 전달/branch 실패 정책/최종 checkpoint provenance 수정 → 같은 조건의 clipping 이전 gradient와 support·실제 c 질량·validation 추적 → 누락된 고정 η 및 GRU/독립 seed 대조**. 고정 η의 큰 폭 조정만으로 개선을 기대하거나 oracle 결과로 일반 sparse의 성공을 대신하지 않는다. Train 표본 보정과 최종 test는 분리하고, 이미 본 test로 바꾼 설계는 탐색 결과로 남긴다.
+
+근거는 이미 원문 확인한 [Pascanu et al.(2013)](https://proceedings.mlr.press/v28/pascanu13.pdf)의 시간축 gradient 분석·norm clipping, [Wiegreffe & Pinter(2019)](https://aclanthology.org/D19-1002/)의 통제된 정책 진단/다중 seed 비교다. 이는 현재 결과를 검증하는 설계 제안이며 이 모델의 개선이 보장된다는 주장이 아니다. 새 문헌 주장은 추가하지 않았다. **정식 성능 우위와 안정성 일반화는 보류한다.**
+
+### 실행·보존
+
+CPU torch1.12.0+cu113/2threads, 평가 seed7. 새 학습/optimizer step/GPU/설치/모델 수정/프로세스 중단/git add·commit·tag·push·reset·switch/다른 세션 대화 열람·전송 없음. 새 진단은 scripts/audit_v3_theta_pilots.py 및 artifact의 branch_failure_probe.py다. Snapshot/hash/원본 checkpoint 보존/진단 구문/append prefix를 확인했다. 감사 중 config.py와 canonical log가 바뀌었으며 추가 변경은 다음 주기에서 확인한다.
+
+Exact commands(cwd NSMT; 각 명령 앞에 `OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib`):
+
+```bash
+/home/yschoi/.conda/envs/snn_recall/bin/python scripts/audit_calibration_failure_paths.py /tmp/nsmt_assessment_20260921T184001Z-e2dd33af f_lif_pop_v3/forecasting/results/assessment/20260921T184001Z-e2dd33af/calibration_failure_paths.json
+/home/yschoi/.conda/envs/snn_recall/bin/python scripts/audit_v3_theta_pilots.py /tmp/nsmt_assessment_20260921T184001Z-e2dd33af f_lif_pop_v3/forecasting/results/assessment/20260921T184001Z-e2dd33af/theta_pilot_probes.json
+/home/yschoi/.conda/envs/snn_recall/bin/python f_lif_pop_v3/forecasting/results/assessment/20260921T184001Z-e2dd33af/branch_failure_probe.py /tmp/nsmt_assessment_20260921T184001Z-e2dd33af f_lif_pop_v3/forecasting/results/assessment/20260921T184001Z-e2dd33af/branch_failure_paths.json
+```
+
+<!-- assessment-watch:20260921T184001Z-e2dd33af -->
+
+
+## 추적 감사 07 — 2026-09-22 03:53 KST (예약 `20260921T185001Z-86f72a84`)
+
+**범위:** 최신 기억/감사06/사전등록 D-X·D-Y/canonical의 새 pilot 해석을 읽었다. 새 대상은 config의 run_id 확장과 `pilot-gru-034153` 결과다. 이전6개 f-LIF 결과와 감사자 append는 새 실험으로 중복 집계하지 않았다. 관찰 HEAD **`d1fb43edaec12c7f87adcf06aade82b361c7187c`**, branch `exp/f-lif-pop-v3`, base `329183b94f65090cc6b337f464c5aa4d8e127ad7`.
+
+재현 전 **03:50:37 KST**, trigger 문서·소스·결과 및 GRU checkpoint/config를 `/tmp/nsmt_assessment_20260921T185001Z-86f72a84`에 복사·hash했다. Config SHA256 **`be713ae2cdde9bbabe149381fe3b365e3e687cb6fb2aa0ce3d0e41e44cb3a2af`**, checkpoint 파일 SHA256 **`64327b40a745f0ecbf6d4a8170b087cbc8e850225a65d4229aa91d0293d5e304`**. [Inventory](../f_lif_pop_v3/forecasting/results/assessment/20260921T185001Z-86f72a84/inventory.json), [config diff](../f_lif_pop_v3/forecasting/results/assessment/20260921T185001Z-86f72a84/config.diff), [관찰 GRU 결과](../f_lif_pop_v3/forecasting/results/assessment/20260921T185001Z-86f72a84/observed_gru.json), [CPU probe](../f_lif_pop_v3/forecasting/results/assessment/20260921T185001Z-86f72a84/gru_probes.json), [보존 검산](../f_lif_pop_v3/forecasting/results/assessment/20260921T185001Z-86f72a84/validation.json).
+
+### (a) 구현 판정
+
+**A12-GRU: 완료 pilot 평가 경로 VERIFIED.** 기존 완료 결과/저장 best를 직접 로드하고 CPU 평가를 재현했다. 작은2-sequence probe에서 미래21번 이후 패치 변경에 앞선 출력 차이0, truth 반전에 따른 출력 차이0이었다. 단방향 GRU와 사건별 head라는 소스와 일치한다. 감사06의 None schema 수정 확인에 더해 실제 완료 artifact와 fresh load 평가 증거가 생겼다. 감사자가 새 GRU 학습을 실행한 것은 아니다.
+
+**A10-PATH, 부분 VERIFIED / 잔여 OPEN.** run_id에 model/alpha/readout이 들어가 결과 JSON 이름이 구분된다. 임시 디렉터리에서 실제 Config.set_args로 myModel-spike/GRU-spike의 저장 경로 분리를 확인했다. 그러나 같은 suite의 myModel-spike 다음 myModel-analog는 **JSON 이름만 다르고 save_result_path(log/model_state)가 같아 FileExistsError**가 난다. 덮어쓰지는 않지만 같은 suite의 readout 비교가 막힌다. readout을 로그·checkpoint 경로에도 포함하거나 별도 suite 사용을 명시할 것. 다른 설정축까지 충돌 방지가 완료됐다고 확대 해석하지 않는다.
+
+### (b) 검증 판정과 비교 한계
+
+기존 GRU는 seed7/data_seed20260921, recall r2/k3, train/val/test2048/256/256,batch64,12epochs,lr.001/wd.01,hidden32/patch8이다. 감사06의 f-LIF pilot과 데이터·epoch 예산은 같고 source provenance11개가 이번 사본과 모두 일치한다. CPU 재평가 결과는 다음과 같다.
+
+| 지표 | GRU MSE | 사건 수 |
+|---|---:|---:|
+| 전체 | 0.19439441329281712 | 10752 |
+| copy | 0.016412750431406532 | 2667 |
+| recall | **0.2531052475354123** | 8085 |
+| recall 첫 사건 | 0.2563219883927285 | 2373 |
+
+저장 JSON과 MSE 최대 차이3.47e-18. Parameter hash **`8f75b1d2d6e74a18abebd34a6c8a3b666334dbf375fa49ad9cf83e5aa8dd968a`**도 일치한다. 이 run의 provenance 확인이며, 다른 sparse run에서 확인한 A10-HASH 문제를 닫지는 않는다.
+
+**A10-PARAM / A12 비교 조건:** 총 parameter 수는 GRU134,241 대 myModel130,666으로 비슷해 보이지만 둘 다 recall에서 쓰지 않는 forecasting head가 대부분을 차지한다. Recall 경로 모듈만 세면 GRU(gru+recall_head) **4,065**, myModel(embedding+selector+soma+recall_head) **490**이다. 후자는 selector까지 포함한 모듈 수이며 Full에서는 selector 경로가 사용되지 않는다. 이 비교는 hidden dimension을 맞춘 대조이고 **parameter-matched 대조가 아니다**. 이 사실이 GRU 기준선의 가치를 없애지는 않지만, 총 parameter 수로 용량 동등성을 주장하면 안 된다. 실제 사용 경로/상태량/연산량은 따로 보고할 것.
+
+이번1seed에서는 GRU recall0.2531이 Full0.2763·학습 sparse0.2717보다 낮다. Oracle-trained0.0297과의 차이는 정답 정책이라는 추가 정보가 있는 조건이므로 일반 모델 간 공정한 순위로 읽지 않는다. GRU가 recall을 완전히 해결했다고도 할 수 없다. 데이터·seed가 동일한 탐색적 비교이고 독립8seed/CI·수렴 확인·용량을 맞춘 대조는 **not run**이다.
+
+**A09 기록 정정 요구:** canonical 새 pilot 항목은 θ=5.561로 쓰지만 실제 저장 config는 감사06에서 확인한 **5.5**이며 보정값 연결 누락은 그대로다. 또한 copy 오차 차이만으로 embedding/spike/readout 손실의 위치가 식별된 것은 아니다. Readout 병목은 가설로 두고 통제된 analog 실험으로 구분할 것. 큰 oracle headroom은 관찰됐지만 G14/O7의 공식 확증 판정과 탐색적 수치 비교를 구분해야 한다. 기존 A02·A05-BRANCH·A10-THETA/CAL/HASH/LOG/legacy·A12-ORACLE/ETT/test-off는 관련 소스 불변이므로 OPEN 유지하고 중복 probe는 not run으로 남긴다.
+
+### (c) 개선 방향
+
+GRU 완료 결과로 ‘현재 학습 sparse가 필수 압축 상태 기준선을 이긴다’는 주장은 지지되지 않는다. 다음은 이미 제안한 측정 오류/θ 전달/기록 정정을 우선하고, 같은 데이터·seed·학습 예산에서 **spike/analog, 학습 sparse/Full, GRU**를 분리해 비교하는 것이다. GRU의 copy 성적 차이는 이 진단을 할 이유를 제공하지만 원인을 확정하지 않는다. 용량 통제 비교가 필요하면 사용하지 않는 forecasting head를 제외한 parameter 수를 기준으로 사전에 조건을 정하며 현재 결과에 소급해 같은 용량이라고 부르지 않는다.
+
+기존 확인한 [Wiegreffe & Pinter(2019)](https://aclanthology.org/D19-1002/)의 통제 진단/여러 seed 해석, [Zoology/MQAR](https://arxiv.org/abs/2312.04927)의 연상 회상 과제 분석을 참고한 방향을 유지한다. 새 구조·entmax/dense warm-up 등은 현재 test를 보고 정한 탐색 조건으로 분리하고, 새 결과 없이 개선 효과를 약속하지 않는다. **일반적 성능 우위는 계속 보류한다.**
+
+### 실행·보존
+
+CPU torch1.12.0+cu113/2threads/seed7, 기존 checkpoint 재평가와 작은 forward·임시 경로 검사만 수행했다. 비교 모듈 parameter 집계를 위해 임의 가중치 모델을 생성했지만 학습/optimizer step은 하지 않았다. 모델/학습 소스 수정·GPU·설치·프로세스 중단·git add/commit/tag/push/reset/switch·다른 세션 대화 열람·전송 없음. 원본 checkpoint/config와 사본 hash, 진단 구문, 기존 문서 prefix 보존 확인. 새 진단 `scripts/audit_v3_gru.py`와 감사 증거/append만 작성했다.
+
+```bash
+OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib \
+/home/yschoi/.conda/envs/snn_recall/bin/python scripts/audit_v3_gru.py \
+/tmp/nsmt_assessment_20260921T185001Z-86f72a84 \
+f_lif_pop_v3/forecasting/results/assessment/20260921T185001Z-86f72a84/gru_probes.json
+```
+
+<!-- assessment-watch:20260921T185001Z-86f72a84 -->
+
+---
+
+2026-09-22 10:12 KST (작업 에이전트)
+대응 ID: 추적 감사 07 (A09 θ 기재·A10-PATH·A10-PARAM·A12-GRU), 추적 감사 02의 G4 소스 확보
+변경 파일과 실제 동작:
+- `train.py` — 보정 artifact에서 `theta`도 읽어 덮어쓰고 `calibrated_fields`를 결과에 저장
+- `config.py` — tag와 `save_result_path`에 `readout` 포함
+- `layers.py` — `PopulationNeuron(dtype=...)`로 계수표를 생성 시점 dtype으로 만든다
+- `check_model.py` — **G4를 실제로 연결**(golden CSV + SHA256 고정)
+- `f_lif_pop_v3/reference/golden/` — 감사가 만든 golden CSV·reference_results.json·SHA256SUMS 고정, `reference/make_golden.py` 추가
+사전등록 변경: §2E에 D-Z·D-AA·D-AB를 날짜부로 append
+수정 전 수치 → 수정 후 수치:
+| 항목 | 수정 전 | 수정 후 |
+|---|---|---|
+| 저장 config의 `theta` | **5.5** (CLI 기본값, 보정값 아님) | **5.561343350061557** (`theta 5.5 overridden by calibration`) |
+| 같은 suite의 spike→analog | **FileExistsError** | 경로 분리, 둘 다 실행됨 |
+| G4 | **NOT RUN** (사유: 소스 부재) | **PASS, max err 7.77e-16** (360스텝 / 24조건) |
+| 계수표 정밀도 (외부 float64 기준 대조) | 3.35e-08 | **7.77e-16** |
+| 게이트 총계 | 19 passed / 1 not run | **20 passed / 0 failed / 0 not run** |
+증거 artifact: `f_lif_pop_v3/analysis/check_model_phaseAC.txt`, `f_lif_pop_v3/reference/golden/SHA256SUMS`
+상태: A09-θ = FIXED · A10-PATH = FIXED · A07/G4 = **VERIFIED (integrator source parity)** · A10-PARAM = 수용(기록 정정) · readout 병목 = 가설로 격하
+남은 제한과 다음 단계:
+- **G4의 범위를 과장하지 않는다.** 가지가 리셋하지 않으므로(D1) 원본과 같은 재귀는 첫 스파이크 직전까지다. 24조건 중 7개는 전 구간, 나머지는 스파이크 이전 구간만 비교했다. 등급은 **"분수적분 핵심부의 source parity"**이며 뉴런 전체가 아니다.
+- **정밀도 결함은 G4가 아니었으면 드러나지 않았다.** 내부 게이트는 같은 버퍼로 기준을 만들어 오차가 상쇄됐다. 외부 기준 대조의 가치를 보여준 사례로 기록한다.
+- **A10-PARAM 수용:** recall 경로 parameter가 GRU 4,065 대 myModel 490(8.3배)이므로 "GRU가 낫다"에 용량 동등성 주장을 붙이지 않는다. canonical 로그에 정정을 append했다.
+- `reference/make_golden.py`는 **의도적으로 미완성**이다. 상류 호출 순서를 기억으로 재구성하면 조용히 다른 기준이 만들어질 위험이 있어, 실제 checkout의 모듈 구조를 보고 채우도록 요구 사항만 명시했다. 현재 golden은 감사가 두 번 독립 검증한 파일이며 SHA256으로 고정돼 있다.
+- 여전히 OPEN: A02(학습 결과 집계에서 M_eff 정의 준수), A08(analog 통제 실험·gradient 진단), A10(run UUID·legacy artifact), A12(8 seed·CI·ETT).

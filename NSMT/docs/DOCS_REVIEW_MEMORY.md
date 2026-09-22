@@ -209,3 +209,27 @@ Forecasting/AD의 retrieval, auxiliary loss, causal ablation, 에너지 회계, 
 - Trigger의 코드 변경은 감사03과 같은 hash였다. 새 범위는 pilot-eta-001742의15epoch/seed7/2048·256·256 결과다. CPU에서 recall MSE .26989367 및 Full/recent/mass_matched/oracle 개입을 재현했다. 동일-checkpoint Full 대비3.75% 감소, oracle은27.47% 감소이나 재학습 대조·정식8seed 효과 판정은 아니다.
 - A02 집계 오류 지속: 저장 M_eff .231467 대 독립 recall-only sequence 평균 .133093(Full kernel .130329). A10-HASH는 잠재 위험에서 실제 불일치 사례로 갱신: JSON parameter hash14a5650… 대 평가 best50d4af2…. 평가 MSE 자체는 재현된다. 기타 OPEN 상태 유지.
 - ASSESMENT 감사04 및 results/assessment/20260921T153001Z-ed6b3b26/ 증거를 참조. 모델 소스/사전등록 변경 없음; 새 감사 스크립트 audit_v3_pilot.py만 작성. 기존 smoke와 같은 data_seed의 확장 표본이므로 독립 복제로 세지 않는다.
+
+
+## 추적 갱신 — 2026-09-22 03:33 KST (예약 감사05)
+
+- layers.py에 query/key frozen normalization 추가.03:30:45 사본 SHA001c4d82…에서 함수 통계/identity parity/인과성/new-schema roundtrip을 CPU로 확인. 캡처 당시 train/calibrate 연결은 아직 없었으므로 진행 중으로 분류. 새 학습 결과·성능 판단 근거 없음.
+- A10-KEYNORM-CKPT: 새 key_mean/key_std buffer 때문에 기존 pilot strict load가 실패함을 재현. legacy identity migration 또는 과거 소스 보존 필요; 포괄 strict=False는 피할 것. 기존 OPEN은 유지.
+- 새 주석의 gradient 폭주 원인/해결 단정은 미검증. Pascanu et al.(2013) 원문 §2를 확인하고 pre-clipping gradient/시간길이/validation의 통제 비교를 권고. 감사 중 calibrate/config/layers가 다시 바뀌어 다음 snapshot에서 검토. 증거 results/assessment/20260921T183001Z-0804948b/ 및 ASSESMENT 감사05.
+
+
+## 추적 갱신 — 2026-09-22 03:45 KST (예약 감사06)
+
+- 최신 사전등록 §2D D-X는 train Full 초기 궤적 θ 보정, D-Y는 고정 η0/.2/.5/1 주 경로 승격이다. Key_norm 기본은 none, frozen은 탐색 옵션. 결과 이후 개정된 탐색 계약으로 구분한다.
+- A05 sparse finite/bound 실패 거부·row 보존·exit1을 독립 재확인(해당 범위 VERIFIED). Sparse branch health 거부는 아직 누락(죽은 branch/비율1000 accepted). A12-GRU None 제거 schema의 logger/verbose 통과 확인; 전체 학습 검증은 별도.
+- A10-THETA: 보정5.56134335를 loader가 반환하지 않아6개 새 pilot은5.5. A02 oracle η.5 M_eff가 기존.52672에서 독립 recall-only.46655로 바뀌어0.5 판정에 영향. Legacy config key_norm 누락도 로드 실패.
+- 12epoch/seed7 새6결과 재현: Full recall.27634, sparse학습η.27174, sparse고정.5 .41077, oracle-trained.5 .03621/1 .02968. oracle 사용 경로의 탐색 증거는 생겼지만 sparse 검색 성공은 미입증. Full 두 run은 같은 seed/hash로 독립 반복 아님. 학습η의 best/last hash 불일치 지속.
+- D-X gradient 표의 재현 명령/seed/loss 누락, epoch max|grad| 기록 미연결; ‘어떤 길이에서도 안정’ 일반화 보류. ASSESMENT 감사06과 results/assessment/20260921T184001Z-e2dd33af/를 참조. 캡처03:40:36 KST/HEAD5512135; 이후 config/log 변경은 다음 주기.
+
+
+## 추적 갱신 — 2026-09-22 03:53 KST (예약 감사07)
+
+- GRU pilot12epoch/seed7의 실제 완료 best 평가를 CPU 재현: all.19439441/copy.01641275/recall.25310525/first.25632199, hash일치·causality/truth분리 확인. A12-GRU 완료 artifact 평가 범위 VERIFIED; 새 학습은 수행하지 않았다.
+- run_id의 model/alpha/readout JSON 구분은 확인했지만 analog/spike의 log/checkpoint 경로는 여전히 충돌(FileExistsError). A10-PATH 부분 확인/잔여 OPEN.
+- Recall 사용 모듈 parameter GRU4065 대 myModel490(selector 포함), 총 수134241/130666의 유사함은 미사용 forecasting head 때문. Parameter-matched라고 해석하지 않는다. 현재1seed에서는 GRU가 학습 sparse보다 낮은 recall MSE이나 정식 통계 우위/과제 완전 해결은 미입증. Oracle과 공정 순위 비교 금지.
+- 사전등록 D-X/Y 유지. Canonical θ5.561 표기는 실제config5.5로 정정 필요. Copy gap의 readout 병목 해석은 가설. ASSESMENT 감사07/results/assessment/20260921T185001Z-86f72a84/ 참조.

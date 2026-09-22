@@ -1,0 +1,149 @@
+{
+  "torch": "1.12.0+cu113",
+  "runs": [
+    {
+      "readout": "analog",
+      "config": {
+        "seed": 7,
+        "epoch": 1,
+        "n_train": 256,
+        "n_val": 64,
+        "n_test": 64,
+        "batch_size": 64,
+        "max_train_batches": 0,
+        "max_eval_batches": 0,
+        "theta": 5.561343350061557,
+        "input_scale": 8.0,
+        "calibrated_fields": [
+          "input_scale",
+          "theta"
+        ]
+      },
+      "metrics": {
+        "all": {
+          "mse": 1.1693261601520692,
+          "mae": 0.8817400956963649,
+          "elements": 2688
+        },
+        "copy": {
+          "mse": 1.2849188916787122,
+          "mae": 0.9238861382228544,
+          "elements": 666
+        },
+        "recall": {
+          "mse": 1.1312525898272698,
+          "mae": 0.867858164775177,
+          "elements": 2022
+        },
+        "recall_first": {
+          "mse": 1.0137168154944944,
+          "mae": 0.8130020787126866,
+          "elements": 596
+        },
+        "loss": 1.1693261601520692,
+        "mse": 1.1693261601520692,
+        "mae": 0.8817400956963649
+      },
+      "mse_abs_difference": 0.0,
+      "parameter_hash_matches": true,
+      "parameter_hash": "bde7292c4ff3b016cd8ebdc5f501b0ce3fe1acf7491da427e5b5bc6340ab0c26",
+      "source_mismatches": [
+        "layers.py"
+      ],
+      "path": "f_lif_pop_v3/forecasting/log/wirecheck-100840/recall/260922/260922+model+myModel+task+recall+readout+analog+seq_len+336+pred_len+96+patch_size+8+embed_dim+32+num_population+4+alpha+0.7+head_dim+32+lr+0.001/seed7_flatten_analog_heterogeneous_sparse_k3/model_state"
+    },
+    {
+      "readout": "spike",
+      "config": {
+        "seed": 7,
+        "epoch": 1,
+        "n_train": 256,
+        "n_val": 64,
+        "n_test": 64,
+        "batch_size": 64,
+        "max_train_batches": 0,
+        "max_eval_batches": 0,
+        "theta": 5.561343350061557,
+        "input_scale": 8.0,
+        "calibrated_fields": [
+          "input_scale",
+          "theta"
+        ]
+      },
+      "metrics": {
+        "all": {
+          "mse": 0.39791027904138554,
+          "mae": 0.5353087699664424,
+          "elements": 2688
+        },
+        "copy": {
+          "mse": 0.41461312575434756,
+          "mae": 0.5462344573984096,
+          "elements": 666
+        },
+        "recall": {
+          "mse": 0.392408747928214,
+          "mae": 0.5317101014057648,
+          "elements": 2022
+        },
+        "recall_first": {
+          "mse": 0.39343133739001507,
+          "mae": 0.5406957107546095,
+          "elements": 596
+        },
+        "loss": 0.39791027904138554,
+        "mse": 0.39791027904138554,
+        "mae": 0.5353087699664424
+      },
+      "mse_abs_difference": 0.0,
+      "parameter_hash_matches": true,
+      "parameter_hash": "b8136ec05654811b873cf92cd504e0d4da1c24bccd8e9c37bb970c6b83ca4a13",
+      "source_mismatches": [
+        "layers.py"
+      ],
+      "path": "f_lif_pop_v3/forecasting/log/wirecheck-100840/recall/260922/260922+model+myModel+task+recall+readout+spike+seq_len+336+pred_len+96+patch_size+8+embed_dim+32+num_population+4+alpha+0.7+head_dim+32+lr+0.001/seed7_flatten_spike_heterogeneous_sparse_k3/model_state"
+    }
+  ],
+  "main_setup_without_training": [
+    {
+      "readout": "spike",
+      "theta": 5.561343350061557,
+      "input_scale": 8.0,
+      "calibrated_fields": [
+        "input_scale",
+        "theta"
+      ],
+      "result_path": "results/audit_fixture/myModel_recall_recall_p96_flatten_a0.7_spike_heterogeneous_sparse_k3_seed7.json",
+      "state_path": "log/audit_fixture/recall/260922/260922+model+myModel+task+recall+readout+spike+seq_len+336+pred_len+96+patch_size+8+embed_dim+32+num_population+4+alpha+0.7+head_dim+32+lr+0.001/seed7_flatten_spike_heterogeneous_sparse_k3/model_state"
+    },
+    {
+      "readout": "analog",
+      "theta": 5.561343350061557,
+      "input_scale": 8.0,
+      "calibrated_fields": [
+        "input_scale",
+        "theta"
+      ],
+      "result_path": "results/audit_fixture/myModel_recall_recall_p96_flatten_a0.7_analog_heterogeneous_sparse_k3_seed7.json",
+      "state_path": "log/audit_fixture/recall/260922/260922+model+myModel+task+recall+readout+analog+seq_len+336+pred_len+96+patch_size+8+embed_dim+32+num_population+4+alpha+0.7+head_dim+32+lr+0.001/seed7_flatten_analog_heterogeneous_sparse_k3/model_state"
+    }
+  ],
+  "same_suite_paths_distinct": true,
+  "g4": [
+    "G4",
+    "integrator parity against the pinned spikeDE commit fcd743b",
+    true,
+    "max |err| = 7.77e-16 over 360 steps in 24 conditions (7 of them spike-free, the rest compared before their first spike); golden sha256 2fda1abbb03743e1. Grade: source parity for the fractional integrator. The full v3-A neuron differs by design (D1: branches never reset)."
+  ],
+  "golden_sha256": "2fda1abbb03743e1b9074d2fb7b7b84feeec8e322201b42b0b66bc0fc657a7b7",
+  "golden_matches_prior_auditor_csv": true,
+  "reference_json_matches_prior_audit": true,
+  "complete_runner": {
+    "command": "check_model.py --phase all",
+    "exit_code": 0,
+    "passed": 20,
+    "failed": 0,
+    "not_run": 0,
+    "note": "Executed separately against this frozen snapshot; result recorded from completed process."
+  }
+}

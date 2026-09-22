@@ -1,0 +1,13 @@
+--- audit06/config.py
++++ audit07/config.py
+@@ -129,7 +129,9 @@
+             self.variant += f'_eta{self.eta_fixed:g}'
+         if self.task == 'recall':
+             self.variant += f'_k{self.n_keys}'
+-        self.run_id = f'{self.task}_{self.dataset}_p{self.pred_len}_{self.head_mode}_{self.variant}_seed{self.seed}'
++        # 모델·α·readout이 run_id에 없으면 서로 다른 실험이 같은 이름으로 충돌한다 (audit A10).
++        self.run_id = (f'{self.model}_{self.task}_{self.dataset}_p{self.pred_len}_{self.head_mode}'
++                       f'_a{self.alpha}_{self.readout}_{self.variant}_seed{self.seed}')
+         tag = self.date
+         for name in ['model', 'task', 'seq_len', 'pred_len', 'patch_size', 'embed_dim',
+                      'num_population', 'alpha', 'head_dim', 'lr']:
