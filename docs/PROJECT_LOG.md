@@ -4365,3 +4365,47 @@ git push -u origin exp/f-lif-pop-v3
 | 본 항목 | 다음 항목에 기록 |
 
 **Artifacts:** `NSMT/docs/ASSESMENT.md` 추적 감사 24·25
+
+
+## 2026-09-22 17:33 KST — 예약 추적 감사26: 통합 요약의 조건 혼용 정정 요청 (학습 없음)
+
+- Branch exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7/HEAD0314e9319891dbe212b1a153b402db75143d170c,snapshot17:31:14/216파일,manifest불일치0. 연구소스·결과변경없음. 새성능판정근거없음. 감사commit/tag/push없음.
+- **통합요약§5.1·§6 정정:** 동일etagrid JSON 공통full .2763386361581949/oracle1 .03496568833854037에서비QK G는학습η+.015405565340/.2−.178349106686/.5−.651132279581. 현재표+.012/−.123/−.177은QK조건과혼용(A09-SUMMARY-CONDITION-MIX OPEN). §5.3 G음수는고정η에한정,QK학습η는+.0126314. 비QK.5실제11epoch/로그확인1epoch/분리분석새학습없음이므로전부12epoch표기정정.
+- §8 전부수정완료는§11OPEN과모순. §7①②완료는탐색에한정. §5.5고정궤적G11은원궤적peak이며개입시스템안전not run/N/A;§5.2readout인과단정·v2MDE1.2%v3이식제한유지. 기존VERIFIED/OPEN그대로,η.2선택규칙사전등록·독립검증우선순위유지.
+- 표준Python JSON산술만수행;모델forward/학습/backward/optimizer/GPU·독립seedCI·원격게시확인not run. Artifacts NSMT/f_lif_pop_v3/forecasting/results/assessment/20260922T083001Z-36837373/(inventory,project_log.diff,summary_probe.py,summary_arithmetic.json,validation,append_validation),raw log forecasting/log/assessment/동일run/summary_probe.log. 상세근거·명령은ASSESMENT감사26. 예약감사git변이금지준수,3문서append·텍스트artifact만작성.
+
+---
+
+## 2026-09-22 17:43 KST — `/briefing` skill 등록 (학습 없음)
+
+**성격:** 도구·운영. 새 실험 없음.
+
+사용자 지시로 `/briefing` skill을 등록했다. 위치는 `NSMT/.claude/skills/briefing/SKILL.md`이며 저장소에 함께 버전 관리된다.
+
+### 1. 동작
+
+사용자가 `/briefing`을 입력하거나 "브리핑"·"현재 상황"·"진행 상황 정리"를 요청하면, **진행 중이거나 완료된 작업을 이해하기 쉽게 정리해 보고**한다.
+
+### 2. skill에 담은 규칙
+
+| 항목 | 내용 |
+|---|---|
+| **상태 수집** | 추정하지 않는다. 실행 중 프로세스·git 상태·`ASSESMENT.md` 신규 항목·`PROJECT_LOG.md` 최근 기록을 **실제로 읽은 뒤** 쓴다. 끝나지 않은 백그라운드 작업의 결과를 예상해서 쓰지 않는다 |
+| **형식** | `## 한 줄로`로 시작 → 지금 돌고 있는 것 → 핵심 발견(표) → 아직 안 된 것 → 감사 상황 → 다음 |
+| **용어** | 사용자가 명시적으로 지적한 사항이다. 알아들을 수 없는 용어를 쓰지 않고, 불가피하면 그 자리에서 푼다. skill에 대응표를 넣었다 (`sparsemax`, `M_eff`, `G`, `G11` 등) |
+| **정직성** | **탐색과 확증을 반드시 구분**한다. 나쁜 결과를 먼저 쓴다. 감사가 찾은 결함과 내가 철회한 주장을 브리핑에 포함한다 — 이 프로젝트에서는 그것이 진행 상황의 일부다 |
+| **길이** | 한~두 화면. 세부는 `docs/PROJECT_LOG.md`를 가리킨다 |
+
+### 3. 동시에 진행 중인 실험
+
+사전등록 §2I의 η 선택 절차를 위한 **8 seed 학습**이 백그라운드에서 실행 중이다(suite `seeds-173737`, seed {7,13,21,42,123,256,512,1024}, learned η + QK soft ε=0.01, 12 epoch, 2048 시퀀스, `--no-test`). 완료되면 `analysis/eta_selection.py`로 validation 선택 → confirm 분할 1회 평가를 수행한다.
+
+### 4. Commit
+
+| 대상 | commit |
+|---|---|
+| 직전 항목(감사 24·25 기록) | `0ee0e5765` |
+| 사전등록 §2I + confirm 분할 | `f98fab4fe` |
+| 본 항목 | 다음 항목에 기록 |
+
+**Artifacts:** `NSMT/.claude/skills/briefing/SKILL.md`
