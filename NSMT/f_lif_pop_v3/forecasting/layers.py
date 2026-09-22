@@ -270,10 +270,10 @@ class Soma(nn.Module):
 
     def forward(self, u, v):                                         # u: [B, D, K]   v: [B, D]
         a = (self.weight * u).sum(-1)                                # 구성원 혼합 -> 소마 입력 전류
-        v = v + (a - v) / self.tau_s
-        s = arctan_spike(v - self.threshold, self.surrogate_scale)
+        charge = v + (a - v) / self.tau_s
+        s = arctan_spike(charge - self.threshold, self.surrogate_scale)
 
-        return v - self.threshold * s.detach(), s                    # detach_reset
+        return charge - self.threshold * s.detach(), s, a            # detach_reset
 
 
 class PopulationNeuron(nn.Module):
@@ -363,10 +363,12 @@ class PopulationNeuron(nn.Module):
             incs.append(f)
             keys.append(xi)
             u = nxt                                                  # u(t+1)
-            v, s = self.soma(u, v)                                   # D-D: 갱신된 상태를 읽는다
+            v, s, drive = self.soma(u, v)                            # D-D: 갱신된 상태를 읽는다
             spikes.append(s)
             if analog:
-                live.append(v)                                       # detach하지 않는다
+                # 'analog'는 리셋 이후 막전위, 'drive'는 소마 이전 가지 혼합이다.
+                # 전자는 스파이크 경로가 병목인지, 후자는 정보가 가지에 있는지를 묻는다.
+                live.append(drive if analog == 'drive' else v)
 
             if return_aux:
                 logs['state'].append(u.detach())

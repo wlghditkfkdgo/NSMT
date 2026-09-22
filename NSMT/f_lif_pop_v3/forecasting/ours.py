@@ -38,10 +38,12 @@ class myModel(nn.Module):
     keeps the v2 flatten/last head. Mixing the two would let the recall task see the whole
     sequence at once and stop testing recall at all.
 
-    `readout='analog'` reads the soma membrane instead of the spike, WITH its graph, so the
-    neuron still trains end to end. It answers a different question from a probe on the
-    detached state: this one asks whether the spike path is the bottleneck, that one asks
-    whether the information is there at all. Results are labelled with which was run.
+    Three readouts, asking three different questions, all with the graph attached so the
+    neuron still trains end to end. `spike` is the model. `analog` reads the soma membrane
+    after reset, so it asks whether the spike nonlinearity is the bottleneck. `drive` reads
+    the branch mixture before the soma at all, so it asks whether the information is in the
+    branch states in the first place. Results are labelled with which was run; a probe on
+    the detached state would answer a fourth, weaker question and is not what these are.
     """
     def __init__(self, task='recall', seq_len=336, pred_len=96, patch_size=8, embed_dim=32,
                  head_dim=32, head_mode='flatten', readout='spike', input_scale=8.,
@@ -50,7 +52,7 @@ class myModel(nn.Module):
 
         if seq_len < patch_size or seq_len % patch_size:
             raise ValueError('Require complete chronological non-overlapping patches')
-        if head_mode not in ('flatten', 'last') or readout not in ('spike', 'analog'):
+        if head_mode not in ('flatten', 'last') or readout not in ('spike', 'analog', 'drive'):
             raise ValueError('Invalid readout configuration')
         self.task, self.readout = task, readout
         self.seq_len, self.pred_len = seq_len, pred_len
@@ -79,10 +81,11 @@ class myModel(nn.Module):
             embed_dim = self.recall_head.in_features
             oracle_p = [truth_to_oracle_p(truth, n, embed_dim) for n in range(self.num_patches)]
 
-        want = return_aux or self.readout == 'analog'
-        result = self.embedding(patch, mode, oracle_p, want, self.readout == 'analog')
+        want = return_aux or self.readout != 'spike'
+        analog = False if self.readout == 'spike' else self.readout
+        result = self.embedding(patch, mode, oracle_p, want, analog)
         spikes, aux = result if want else (result, {})
-        z = aux['analog'] if self.readout == 'analog' else spikes    # [T, B*C, D]
+        z = spikes if self.readout == 'spike' else aux['analog']      # [T, B*C, D]
 
         if self.task == 'recall':
             output = self.recall_head(z).squeeze(-1).transpose(0, 1)  # [B*C, T] -> 채널 1개
