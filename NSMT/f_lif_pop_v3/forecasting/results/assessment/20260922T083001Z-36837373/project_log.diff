@@ -1,0 +1,311 @@
+diff --git a/docs/PROJECT_LOG.md b/docs/PROJECT_LOG.md
+index 0a0b65011..f6a905241 100644
+--- a/docs/PROJECT_LOG.md
++++ b/docs/PROJECT_LOG.md
+@@ -4016,3 +4016,306 @@ max\|u\| **656.13 > 305.038**로 G11 위반이다(감사가 test에서 측정한
+ ### 6. 한계
+ 
+ seed 1개다. 궤적 고정 조건은 출력이 없으므로 MSE를 낼 수 없고 계수 지표만 비교한다. §3의 개선은 validation 단일 표본이며 독립 seed·paired CI는 여전히 **not run**이다.
++
++
++## 2026-09-22 17:04 KST — 예약 추적 감사24: 집계 수정 부분 검증·logger 정수 count 호환 결함
++
++- Branch exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7/HEADadb43e4ae47848d682a06b7ba5b067ed3d8015ab. Snapshot17:00:50/207파일,train SHA d5a6faa339fc918052c96ccfaec40b7c63e564068775155b0c7f9429abcac160;trigger hash와다름/감사중추가변경은다음주기. 감사commit/tag없음.
++- CPUtorch1.12/2threads,실제AST만합성검사:absmax[1,9]→9/WK[2,10]→10/count2·globalcount JSON투영VERIFIED. Postclip gradient주입[3,4] norm5→.999999821/.3,.4는.5유지. Watch표본최대와전batch최대구분잔여.
++- A10-LOG-COUNT-TYPE OPEN:새int observations가실제EpochLog.write→_verbose에서'int has no mean'으로CSV쓰기전실패. No-op TensorBoard외실제경로,입력만float변환한진단대조성공. 소스수정없음;완료실행저장검증not run. 신규absmax2결과이번snapshot외라판정안함.
++- 우선reducer→logger→JSON타입/의미연결검사후감사23 validationη대조/G11순위유지. 새로운성능근거없음/학습·8seedCI not run. Artifacts NSMT/f_lif_pop_v3/forecasting/results/assessment/20260922T080001Z-b5162cb6/(inventory,source.diff,reducer_probe.py,reducer_probes.json,synthetic_logger.csv,validation,append_validation);rawlogs forecasting/log/assessment/동일run/. Exactcommand·문헌은ASSESMENT감사24. 학습/backward/optimizer/GPU/설치/연구소스수정/git변이/프로세스중단/타세션접근전송없음,감사3문서append.
++
++
++## 2026-09-22 17:15 KST — 예약 추적 감사25: logger/완료 기록 검증 및 validation η 분리 재현
++
++- Branch exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7/HEAD5db6e315fec55de2962b843d9348deb1acfc18ed,snapshot17:10:50/230파일,manifest불일치0. 감사commit/tag없음.
++- A10-LOG-COUNT-TYPE:현재float관찰수의실제reducer→logger→CSV재검사성공VERIFIED. Absmax4실제JSON/CSV max1.4416555166/count8/postnorm.99999966996보존확인;1epoch512/64/64,batch64,g11_every1로전8batch관찰. Absmax2평균.85107249소급재명명금지,두checkpoint SHA34c6965c동일. A02 rankchance.214817733876 실제함수VERIFIED.
++- CPUtorch1.12/2threads,seed7/data20260921,val256/4batch,QKε.01/θ.381469877,동일learnedηcheckpoint의고정궤적/전체forward8행재현. 추가원ηvalrecall .259146662958;η0 .263483596918/.2 .254324974062/.5 .260108542602/1 .293643652987. .2의원η대비1.8606%,η0대비3.4760%탐색개선. η1max656.129578>305.037518로안정성불합격유지.
++- 17:03보완:고정궤적max22.07/G11 OK는원궤적기준,변경η시스템G11은not run/N/A. 고정η1 p.296239→w/pre.270999→post.274052로cap은비율을올림;남은차이cap단독주장기각. 원학습η대조·정밀필드·실행시작provenance와독립seed검증필요. Candidate .2유지,기존③key/④entmax조건부순위유지.
++- Artifacts NSMT/f_lif_pop_v3/forecasting/results/assessment/20260922T081001Z-2214c860/(inventory,source.diff,reducer_probe.py,reducer_probes.json,split_probe.py,split_probes.json,validation,append_validation);rawlogs forecasting/log/assessment/동일run/. Exactcommands·문헌은ASSESMENT감사25. 학습/backward/optimizer/GPU/설치/연구소스수정/git변이/프로세스중단/타세션접근전송없음. 실제gradient재생성·absmax성능재평가·독립8seedCI·새학습not run,감사3문서append.
++
++---
++---
++
++# 통합 요약 — 2026-09-22 17:27 KST 기준
++
++> **이 절의 목적.** 이 문서 하나만 읽고도 다른 세션·다른 에이전트가 지금까지의 작업과 현재 상태를 이해할 수 있도록, 위의 시간순 기록을 통합 정리한 것이다. 세부 근거는 각 날짜 항목에 있다. 이 절 아래로는 다시 시간순 기록이 이어진다.
++
++## 0. 기록 규칙 (2026-09-22 사용자 지시로 확정)
++
++1. **모든 실행**(학습·보정·진단·분석)은 이 문서에 **날짜부 항목**으로 기록한다. 항목은 다음을 반드시 포함한다.
++   - 제목: `## YYYY-MM-DD HH:MM KST — 한 줄 요약 (탐색적/확증 구분, 학습 유무)`
++   - **성격**: 탐색적(exploratory) / 확증(confirmatory) / 학습 없음
++   - **조건**: branch, seed, 데이터 revision, epoch/표본 수, 주요 하이퍼파라미터
++   - **결과**: 표로. 전체 정밀도가 필요한 값은 JSON artifact 경로를 함께 적는다
++   - **해석**: 무엇을 말하고 무엇을 말하지 않는지
++   - **한계**: seed 수, 수렴 여부, 통제되지 않은 축
++   - **Artifacts**: 산출물 경로
++   - **Commit**: 아래 2번
++2. **로그를 갱신한 뒤 반드시 현재 실험 branch에 commit + push**하고, **그 commit 정보를 이 문서에 기록**한다. `main`에는 커밋·푸시하지 않는다. 자기 자신의 hash는 커밋 안에 넣을 수 없으므로 **직전 항목의 hash를 다음 항목에 기록**하거나, 로그 갱신 → commit → hash 추가 → 짧은 후속 commit 순으로 처리한다.
++3. **정정은 덮어쓰지 않는다.** 과거 항목을 수정하지 않고 새 항목에 정정을 append한다(사전등록 §0과 같은 원칙).
++4. **탐색과 확증을 섞지 않는다.** 탐색 수치로 사전등록 기준의 통과/실패를 선언하지 않는다.
++
++## 1. 한 눈에 보는 현재 상태
++
++| 항목 | 값 |
++|---|---|
++| Branch | `exp/f-lif-pop-v3` (base `329183b94`, `exp/f-lif-pop-v2` HEAD) |
++| 모델 | Population f-LIF **v3-A** (리셋 없는 분수적분 가지 K=4 + 단일 소마) |
++| 수치 게이트 | **20 passed / 0 failed / 0 not run** |
++| 학습 파이프라인 | 완성 (회상 과제·ETT 양쪽 동작) |
++| 확증 실험 | **미실시** — 모든 결과가 seed 1개·12 epoch의 탐색적 실행 |
++| 핵심 발견 | **구조는 작동하나(oracle 8배) 학습된 선택자가 그 여지를 못 가져온다(G ≈ 0)** |
++
++## 2. 아이디어
++
++하나의 논리 뉴런을 **서로 다른 시간상수를 가진 K개 가지**로 만든다. 가지는 같은 입력을 받고 **발화하지 않으며**, 직전 값만 물려받는 대신 **과거 모든 시점의 변화량을 멱함수 가중으로 재합산**한다(분수적분). 여기에 현재 population 상태를 질의로 삼아 **어느 과거를 더 크게 읽을지** 결정하는 선택 기능을 더한다. 발화는 가지들을 합산하는 **소마 한 곳**에서만 일어난다.
++
++검증할 주장: **"이 선택이 관련 있는 과거를 실제로 집어내며, 그것이 성능으로 이어진다."**
++
++## 3. 모델 v3-A 확정 사양
++
++```
++f(n,k)   = (I_n − u(n,k)) / tau_k              tau = [4, 8, 16, 32]   (F1)
++xi_n     = [u(n,1..K) ; I_n]                   질의는 갱신 전 상태 (인과성)
++e(n,j)   = −‖W_Q xi_n − W_K xi_j‖² / (d_q·theta)
++p_n      = sparsemax(e_n)
++rho(n,j) = (1−eta) + eta · B_n · p(n,j) / Σ_l b(n−l) p(n,l)      질량 재분배
++c(n,j)   = min( b(n−j) · rho(n,j) , b_0 )                        R3 상한
++u(n+1,k) = b_0 f(n,k) + Σ_{j<n} c(n,j) f(j,k)
++a_n      = Σ_k w_k u(n+1,k)                    D-D: 갱신된 상태를 읽는다
++v_n      = v(n−1) + (a_n − v(n−1))/tau_s ;  s_n = H(v_n − θ) ;  v_n ← v_n − θ s_n
++b_d      = [(d+1)^alpha − d^alpha] / Γ(alpha+1),   alpha = 0.7
++```
++
++주요 결정(사전등록 `NSMT/docs/Population_fLIF_v3_prereg_KO.md` §2A–§2H):
++
++| 코드 | 내용 | 이유 |
++|---|---|---|
++| **R3** | 계수 상한 `c = min(b·rho, b_0)` | 질량 보존만으로는 상태가 발산한다(최악 정책에서 `max\|u\|` 397,853) |
++| **F1** | `tau = [4,8,16,32]` | 상한을 걸어도 τ=2는 길이에 따라 증폭(T=84에서 83배) |
++| **D-A** | tempered 인자 제거 (`g=0`) | 질량 보존·α=1 환원·멱함수 꼬리를 모두 깬다 |
++| **D-D** | 소마가 `u(n+1)`을 읽는다 | 아니면 마지막 patch가 출력에 도달하지 않는다 |
++| **D-P** | `mass_matched`는 **상한 적용 후** 질량을 맞춘다 | 이전에는 항상 `full`과 동일했다 |
++| **D-Q** | `M_eff` = **상한 후** 계수 비율 | `(1−η)m₀+η`는 상한 이전 oracle에서만 성립 |
++| **D-X** | `theta`를 Phase B에서 보정 | 점수 폭이 수백이면 sparsemax가 hard argmax가 되고 역전파가 폭주 |
++| **D-Y** | 고정 η 조건을 주 검증 경로로 | 학습 η가 15 epoch에 0.018→0.030으로만 움직인다 |
++
++## 4. 검증 설계
++
++- **과제:** 합성 회상 과제 revision **r2**. 신호 3종, patch 하나 = 사건 하나, T=42(ETT와 텐서 모양 동일). 값은 첫 등장에만 실리고 재등장 시 0. `kind` 코드로 copy/recall/recall-first를 분리 집계.
++- **판정 기준 O7** (사용자 승인, 변경 없음):
++  - ① `M_eff ≥ 0.5` — 단, §2G/§2H대로 `M_eff(oracle, 같은 η)`와 비율을 **함께** 보고
++  - ② 격차 회수율 `G = (E_full − E_learned)/(E_full − E_oracle-trained) ≥ 0.5`, G14 통과 시에만
++  - ③ 평균 개선 ≥20% **이고** paired CI 상한 < 0
++  - ④ `|δ_O| ≤ 5%`는 자동 실패가 아니라 진단 구간
++- **대조군:** full(η=0) / dense / sparse / recent / mass_matched / oracle 3종 / **GRU** / scalar / capacity-matched / α=1 이질 / ridge·window-mean
++- **확증 프로토콜:** 독립 8 seed {7,13,21,42,123,256,512,1024}, paired CI, MDE ≈ 0.005(상대 1.2%)
++
++## 5. 지금까지의 실험 결과 (전부 탐색적, seed 7, 12 epoch, 2048 시퀀스)
++
++### 5.1 고정 η 격자 — 핵심 결과
++
++| 조건 | η | recall MSE | **G** | **M_eff** |
++|---|---:|---:|---:|---:|
++| 선택 없음 (η=0) | 0.000 | 0.2763 | 0.000 | 0.1303 |
++| 학습 η | 0.026 | 0.2726 | +0.012 | 0.1328 |
++| 고정 η=0.2 | 0.200 | 0.3194 | −0.123 | 0.1272 |
++| 고정 η=0.5 | 0.500 | 0.4335 | −0.177 | 0.1329 |
++| 고정 η=1.0 | 1.000 | 0.4167 | −0.581 | 0.1369 |
++| **oracle η=0.5** | 0.500 | **0.0396** | 0.981 | 0.4666 |
++| **oracle η=1.0** | 1.000 | **0.0350** | 1.000 | 1.0000 |
++| GRU 대조군 | — | 0.2531 | — | — |
++
++**구조는 검색을 쓸 수 있다**(oracle이 full보다 8배 낫다). **학습된 선택자는 그 여지를 거의 못 가져온다**(G ≈ 0, 큰 η에서는 음수).
++
++### 5.2 readout 통제 (spike / analog / drive)
++
++| 조건 | spike | analog | drive |
++|---|---:|---:|---:|
++| full | 0.2763 | 0.2830 | 0.2747 |
++| 학습 sparse | 0.2726 | 0.2616 | **0.2122** |
++| oracle η=1 | **0.0297** | 0.0426 | 0.0316 |
++
++readout은 full·oracle에서 무관하고 **학습 sparse에서만** 차이가 난다. 강한 신호는 스파이크를 통과하고 약한 신호는 통과하지 못한다.
++
++### 5.3 QK 정규화 (순위 ②)
++
++점수는 실제로 개선되지만(score top1 0.2622 → **0.3407**) **성능으로는 이어지지 않는다**. G는 여전히 음수다(η=0.5에서 −0.651 → −0.177로 완화될 뿐).
++
++### 5.4 단계별 분해 — 신호가 어디서 사라지는가
++
++| 조건 | score top1 | score rank | rank 기준 | p mass | post-cap | kernel |
++|---|---:|---:|---:|---:|---:|---:|
++| learned | 0.2622 | 0.2589 | 0.2148 | 0.2443 | 0.1328 | 0.1303 |
++| **learned+QK** | **0.3407** | **0.1959** | 0.2148 | **0.2873** | 0.1338 | 0.1303 |
++| 고정 η=1 | 0.1224 | 0.2419 | 0.2148 | 0.1376 | 0.1369 | 0.1303 |
++
++**`learned+QK`만 무작위 기준(0.2148)보다 낫다.** 그런데 `p → 계수`에서 질량의 절반 이상이 사라진다(0.2873 → 0.1338).
++
++### 5.5 희석 vs 상태 되먹임 (validation, 감사 23 지시)
++
++| 개입 | η | val recall | score top1 | post-cap | max\|u\| | G11 |
++|---|---:|---:|---:|---:|---:|---|
++| 궤적 고정 | 0 → 1 | — | 0.3463 (불변) | 0.1332 → **0.2741** | 22.07 | OK |
++| 전체 forward | 0.00 | 0.2635 | 0.3486 | 0.1332 | 22.01 | OK |
++| **전체 forward** | **0.20** | **0.2543** | 0.2865 | 0.1559 | 22.48 | OK |
++| 전체 forward | 1.00 | 0.2936 | **0.1960** | 0.2100 | **656.13** | **FAIL** |
++
++- **희석은 실재한다**: 궤적을 고정하면 η를 올릴수록 정답 질량이 회복된다(0.1332 → 0.2741).
++- **상태 되먹임이 상쇄한다**: 실제로 η를 올리면 점수가 망가져(0.3486 → 0.1960) 0.2100에 그친다.
++- **validation에서도 η=0.2가 최선**(0.2543 < 0.2635). test에서 본 방향이 재현된다.
++- **η=1은 G11 불합격**(656.13 > 305.038).
++
++## 6. 현재 판정
++
++| 기준 | 값 | 판정 |
++|---|---|---|
++| O7-① `M_eff ≥ 0.5` | 최대 0.2100 (validation η=1) | **미달** |
++| O7-② `G ≥ 0.5` | 학습 η +0.012, 고정 η 음수 | **미달** |
++| G14 headroom | full 0.2763 → oracle 0.0350 | 이 seed에서 충분 (확증 아님) |
++
++사전등록 O7 판정표의 **"고르지 못함 → 점수 함수·key 표현력 재검토"** 가지다. **확증 판정이 아니다** — seed 1개·12 epoch이며 8 seed·paired CI는 미실시다.
++
++## 7. 개선 후보와 우선순위 (감사 AUDIT-PRIORITY-01)
++
++| 순위 | 후보 | 상태 |
++|---|---|---|
++| ① | 고정 η 대조 | ✅ 완료 (§5.1) |
++| ② | Q/K L2 정규화 | ✅ 완료 (§5.3) — 점수는 개선, 성능은 미개선 |
++| ③ | causal key 표현 ablation (`Δu` 추가 등) | 대기 |
++| ④ | α-entmax (학습 가능 지수) | 대기 |
++| ⑤ | Ridge/Gram 보정 읽기 | 별도 구조 대조 |
++| ⑥ | delta rule | 별도 구조 대조 |
++
++문헌 근거: [Test-time regression](https://arxiv.org/abs/2501.12352)(커널 읽기는 `KᵀK=I`일 때만 정확, QK 정규화의 정당화), [Modern Hopfield](https://arxiv.org/abs/2008.02217)(분리된 패턴에서 한 번에 회상), [DeltaNet](https://arxiv.org/abs/2406.06484), [Adaptively Sparse Transformers](https://aclanthology.org/D19-1223/)(entmax 지수의 닫힌 형태 Jacobian).
++
++## 8. 발견된 결함 (전부 수정 완료, 상세는 각 날짜 항목)
++
++외부 감사 `NSMT/docs/ASSESMENT.md`가 23회에 걸쳐 검토했고, **검증 가능한 지적은 전부 사실이었다.**
++
++| 종류 | 예 |
++|---|---|
++| **대조군이 수학적으로 퇴화** | `mass_matched`가 항상 `full`과 동일 (A01) |
++| **판정식 무효** | `M_eff` 공식이 상한 도입 후 성립하지 않음 (A02) |
++| **난이도 축이 의도와 다름** | n_keys를 올려도 재질의 key 수가 그대로 (A03) |
++| **기준선 계산 오류** | chance의 분모가 실제 history 길이가 아님 (A04) |
++| **측정 대상 오류** | G11이 raw patch를 쟀다 (8.0 vs 실제 30.5) (A05) |
++| **옵션이 이름만 바꿈** | `--eta_fixed`·`--no-cap` 미전달 (A06), `theta` 미전달 (A10-THETA) |
++| **안전장치를 판정에 미사용** | 상한 1001배 초과 후보를 통과 (A05-후속) |
++| **집계 오류** | `M_eff`에 copy 혼입·집계 단위 오류 (A02-DIAG), absmax를 평균으로 (A09) |
++| **복원 결함** | frozen 통계 누락을 승인 (A10-RESTORE-STATS) |
++| **정밀도 결함** | 계수표를 float32로 만든 뒤 `.double()` (G4가 적발) |
++| **기록과 코드 불일치** | 수정했다고 기록했으나 파일에 미반영 (A11, A09-ABSMAX ×2) |
++
++**자체 정정 주요 항목**: uniform oracle을 상한이라 부른 것, "lag 영향 <0.01", "0.5=무작위" 순위 기준, "soft norm이 유계성을 만들었다", "모든 η에서 G 음수", "가중치 고정 = 점수 고정".
++
++## 9. 코드 지도
++
++```
++NSMT/f_lif_pop_v3/
++├── analysis/                     학습 없는 수치 분석과 그 출력(.txt)
++│   ├── prereg_numerics.py        α=1 환원·유한구간 이득
++│   ├── stability_sweep.py        adversarial 상태 안정성 (R3·F1 근거)
++│   ├── selector_gradient.py*     선택자 역전파 (T·η 의존)
++│   ├── meff_reachable.py         O7-① 도달 가능 영역 (정확식 + 표본 탐색)
++│   ├── stage_decomposition.py    score→p→pre-cap→post-cap 분해
++│   ├── eta_intervention_split.py 희석 vs 상태 되먹임 분리
++│   └── key_geometry.py*          key Gram·유효 rank
++├── reference/golden/             spikeDE 고정 커밋 궤적 + SHA256 (G4)
++└── forecasting/
++    ├── layers.py                 Sparsemax·ArcTanSpike·Selector·Soma·PopulationNeuron·Embedding
++    ├── ours.py                   myModel(두 head, 3 readout) · GRUBaseline · truth_to_oracle_p
++    ├── model.py                  LOAD_MODEL factory, checkpoint 복원 계약
++    ├── config.py                 인자·경로·보정 연결
++    ├── calibrate.py              Phase B 발화율 보정 + theta 보정
++    ├── check_model.py            수치 게이트 G1–G17
++    ├── train.py / test.py        학습·평가·개입·진단
++    ├── utils.py                  EpochLog·EarlyStopping (v2 이식)
++    └── data_provider/            synthetic(r2) · ETT loader(v2 무수정 이식) · factory
++```
++(`*` = 일부는 인라인 스크립트로 실행되어 `.txt`만 남은 것이 있다)
++
++## 10. 재현
++
++```bash
++export LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib
++PY=/home/yschoi/.conda/envs/snn_recall/bin/python
++cd NSMT/f_lif_pop_v3/forecasting
++
++$PY check_model.py --phase all                      # 게이트 20개
++$PY calibrate.py --task recall --n_train 1024 --cpu  # Phase B 보정
++$PY train.py --task recall --data recall --suite <새 이름> --mode sparse \
++   --n_train 2048 --n_val 256 --n_test 256 -e 12 -bs 64 --cpu
++```
++
++- 환경: `snn_recall` (Python 3.10, torch 1.12). `snn_jelly`는 torch 2.11 CPU 전용(G4 golden 생성용).
++- `LD_LIBRARY_PATH`를 conda `lib`으로 두지 않으면 pandas import가 실패한다.
++- `--suite`는 매번 새로 준다. 기존 산출물은 덮어쓰지 않는다(`FileExistsError`).
++
++## 11. 미결 항목
++
++- **확증 실험 전체**: 독립 8 seed·paired CI·ETT H96/H720 — **미실시**
++- 감사 OPEN: A07-REGEN(golden 재생성 entrypoint), A10-PROVENANCE(실행 시작 코드 고정), A10-LOG(`final+result.csv`), A02(실제 표본 분포와 상한 연결)
++- G11 검사가 여전히 `watch` 표본에서만 실행된다
++- 순위 ③·④ 미착수
++
++## 12. Commit 기록
++
++| 시점 | commit | 내용 |
++|---|---|---|
++| 2026-09-21 | `c19c52010` | v3-A 설계 rev.1 + Phase A/C 게이트 |
++| 2026-09-21 | `df3a3407b` | 회상 과제 생성기 + Phase B 보정 |
++| 2026-09-22 | `c34fa1c68` | 모델·학습·평가 파이프라인 |
++| 2026-09-22 | `d1fb43eda` | oracle 성공 / 학습 선택자 실패 파일럿 |
++| 2026-09-22 | `7520087c6` | 고정 η 격자 |
++| 2026-09-22 | `b6d4baf6a` | QK 정규화 |
++| 2026-09-22 | `5db6e315f` | 희석 vs 상태 되먹임 분리 |
++| 2026-09-22 | *(이 항목의 commit은 다음 항목에 기록)* | 통합 요약 |
++
++(전체 이력은 `git log --oneline exp/f-lif-pop-v3`)
++
++---
++
++## 2026-09-22 17:28 KST — 기록 규칙 확정과 원격 branch 게시
++
++**성격:** 문서·운영. 학습 없음.
++
++### 1. 사용자 지시로 확정한 기록 규칙
++
++위 「통합 요약 §0」에 규칙을 명문화했다. 요지는 넷이다.
++
++1. 모든 실행을 이 문서에 **날짜부 항목**으로, 성격·조건·결과·해석·한계·artifact·commit을 갖춰 기록한다.
++2. **로그 갱신 후 반드시 현재 실험 branch에 commit + push**하고 그 commit 정보를 이 문서에 기록한다. `main`에는 커밋·푸시하지 않는다.
++3. 과거 항목을 **덮어쓰지 않고** 새 항목에 정정을 append한다.
++4. **탐색과 확증을 섞지 않는다.**
++
++### 2. 통합 요약 추가
++
++다른 세션·에이전트가 **이 문서 하나로** 전체를 이해할 수 있도록 「통합 요약」 절을 추가했다(§0 기록 규칙, §1 현재 상태, §2 아이디어, §3 v3-A 사양, §4 검증 설계, §5 실험 결과, §6 현재 판정, §7 개선 후보, §8 발견된 결함, §9 코드 지도, §10 재현, §11 미결, §12 commit 기록). 문서 길이 4,035 → 4,276행.
++
++### 3. 원격 branch 게시
++
++이 저장소의 실험 branch를 처음으로 원격에 올렸다. AGENTS.md대로 **의도한 branch 하나만** 푸시했고 `--all`·`--mirror`·force를 쓰지 않았다.
++
++```
++git push -u origin exp/f-lif-pop-v3
++  * [new branch]  exp/f-lif-pop-v3 -> exp/f-lif-pop-v3
++  Branch 'exp/f-lif-pop-v3' set up to track remote branch 'exp/f-lif-pop-v3' from 'origin'.
++```
++
++- 원격: `git@github.com:wlghditkfkdgo/NSMT.git`
++- `main`은 건드리지 않았다. base commit `329183b94`에서 **54 commit** 앞서 있다.
++
++### 4. Commit
++
++| 대상 | commit | 비고 |
++|---|---|---|
++| 통합 요약 | **`4f797efaa`** | 위 §12 표의 "다음 항목에 기록"이 이것이다 |
++| 본 항목 | 다음 항목에 기록 | 자기 hash는 커밋 안에 넣을 수 없다 |
++
++### 5. 한계
++
++이 항목은 **문서·운영 작업**이며 새 실험 결과가 없다. 통합 요약의 모든 수치는 기존 항목에서 옮긴 것으로, **전부 seed 1개·12 epoch의 탐색적 실행**이라는 제한이 그대로 적용된다.
++
++**Artifacts:** `docs/PROJECT_LOG.md` (본 문서)

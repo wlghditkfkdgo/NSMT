@@ -64,6 +64,8 @@ def parse_arguments():
     recall_arg.add_argument('--n_train', type=int, default=8000)
     recall_arg.add_argument('--n_val', type=int, default=1000)
     recall_arg.add_argument('--n_test', type=int, default=1000)
+    recall_arg.add_argument('--n_confirm', type=int, default=1000,
+                            help='held-out split used once, after selection (D-AI)')
     recall_arg.add_argument('--data_seed', type=int, default=20260921)
 
     # 텐서 모양. 회상 과제도 ETT와 같은 T=42가 되도록 맞춘다.
