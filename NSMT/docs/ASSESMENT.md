@@ -1424,3 +1424,298 @@ f_lif_pop_v3/forecasting/results/assessment/20260922T025001Z-31dd6781/completion
 ```
 
 <!-- assessment-watch:20260922T025001Z-31dd6781 -->
+
+
+## 추적 감사 17 — 2026-09-22 13:34 KST (예약 20260922T043001Z-65597c1e)
+
+### 관찰·증거
+
+**§2H의 문서 정정과 정책 표 재현은 확인했다. 다만 새 `free_bound()`는 실제 상한이 아니므로 A02-REACHABILITY를 전체 종료하지 않는다.** HEAD **8b94404b25b4c2285dec59680b282a3a154de0d1**, branch exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7. 13:30:52 KST에 manifest 대상과 최신 감사/기억/canonical 문서147파일을 `/tmp/nsmt_assessment_20260922T043001Z-65597c1e`로 snapshot·SHA256 기록했다. Trigger hash 불일치0. 감사16 이후 실제 연구 변경은 prereg §2H, `analysis/meff_reachable.py/.txt`이며 모델/학습 소스·성능 결과 변경은 없다. 감사자의 이전 append를 연구 진전으로 세지 않았다.
+
+새 분석 코드 SHA256 **1ae6191e99f03ea3636e46c0913fe5479f40f13a0d3f26ac4c7f50bcfa4a5c3d**. Model `050bb4c5ad641da7790e575f84e33026cc531acfe3f633001ad47f491865a480`, layers `45322e8940acf477057c9ce420f9763ce77b04132879dbd782292413732876ac`는 이전과 동일. [Inventory](../f_lif_pop_v3/forecasting/results/assessment/20260922T043001Z-65597c1e/inventory.json), [직접 검사](../f_lif_pop_v3/forecasting/results/assessment/20260922T043001Z-65597c1e/reachability_probe.py), [수치 결과](../f_lif_pop_v3/forecasting/results/assessment/20260922T043001Z-65597c1e/reachability_probes.json), [구성한 반례 정책](../f_lif_pop_v3/forecasting/results/assessment/20260922T043001Z-65597c1e/constructive_bound.json), [보존 검사](../f_lif_pop_v3/forecasting/results/assessment/20260922T043001Z-65597c1e/validation.json).
+
+### (a) 구현 정확성 — 모델 판정 유지, 분석 함수의 의미 정정 필요
+
+모델 변경이 없으므로 기존 구현 확인과 잔여 OPEN을 유지한다. 새 분석 파일은 T42/α.7/history41, 정답 index를 `N−lag`부터 연속 배치한다. `uniform_policy()`를 직접 호출해 **저장 표16행·96개 수치 전부**가 4자리 출력까지 일치함을 확인했다. 분석 함수의 API와 파일 쓰기 부작용이 없음을 먼저 확인했고, 긴 전체 탐색 대신 표 재계산과 경계 주변의 제한된 CPU 검사를 수행했다.
+
+`free_bound()`는 uniform 후보와 Dirichlet 4,000개 후보 중 가장 큰 값을 반환한다. 함수 docstring도 **“Dirichlet search, not a proof”**라고 명시한다. 유한 탐색으로 얻는 값은 가능한 최댓값의 **하한/달성값**이며 상한이 아니다. .5를 넘으면 해당 정책의 도달 가능성은 보일 수 있지만, 못 넘었다고 불가능성을 증명할 수 없다.
+
+**기본 4,000회 탐색에 대한 직접 반례:** 과거41칸의 zero-based 정답 index `[3,5,15,17,21,25,29,30]`, η=.4681929352566433에서 함수는 **.5588662774934673**을 반환했다. 같은 b·η·cap 아래 남은 cap 용량에 adaptive 질량을 배분한 유효 simplex 정책을 직접 구성해 같은 `m_eff()`에 넣으면 **.5625772591831768**, 차이 **.0037109816897095**다. 구성 정책 전체와 합1을 artifact에 저장했다. 이는 범용 `free_bound` 상한 명제의 반례이며, 합성 회상 과제의 실제 정답 배치나 성능 결과로 주장하지 않는다.
+
+### (b) 검증·문서 상태 — 정정 일부 VERIFIED, 상한/적용 범위 OPEN
+
+**A02-REACHABILITY 부분 VERIFIED:** §2H와 canonical13:21에서 다음 정정을 실제 확인했다: uniform oracle은 정책 기준선, lag 영향<.01 일반화 철회, 최소η .70–.75 필요조건 철회, η0에서 learned/oracle비율1인 퇴화 인정, full-kernel mass와 uniform-slot chance 분리. 이전 ‘G14 통과’를 이 seed의 탐색 관찰로 제한하고, 작은η 효과 없음/우연 수준 단정도 철회했다. 이는 문서상 정정의 검증이며 새 모델 효능 확인은 아니다.
+
+**잔여 OPEN — ‘자유 정책 상한’ 계산 근거:** §2H의 운영상 결론을 뒷받침하려면 유한 탐색 대신 감사15의 정확한 계수 상한을 사용해야 한다. 양의 b_i≤C, A≠∅에서 `B=Σb_i`, `B_A=Σ_A b_i`, `m=|A|`라 두면
+
+`S=min((1−η)B_A+ηB, mC)`, `U=S/[S+(1−η)(B−B_A)]`.
+
+새 코드의 고정 lag21/연속 배치에 이 식을 독립 적용했다. 정답 수1/2/3/4/6/10에 대한 **.005 격자의 최초 .5 도달 η**는 .920/.840/.750/.655/.455/.345로 저장 표와 일치한다. 각 경계와 직전 격자에서 원본 4,000회 탐색도 재실행해 이 12점은 일치했다. 따라서 **제시된 격자 수치는 맞지만 ‘탐색 최댓값=상한’이라는 방법론은 틀리다.**
+
+표의 ‘최소η’는 연속값의 정확한 최소가 아니라 **탐색 격자 해상도 .005에서의 최초 도달값**으로 명시할 것. 예를 들어 정답3/4칸의 정확한 상한이 .5에 닿는 연속 경계는 각각 **.7465586758 / .6535398318**이다.
+
+또한 고정 history41·정답3/4칸 표만으로 과제 전체 O7 평균을 판정할 수 없다. 실제 test256sequence의 query→sequence 집계에서 η.5 상한 **.466613112585**였다는 감사15 증거를 명시적으로 연결할 것. 등록 격자 중 η1만 가능한 결론은 **그 표본·집계·계수 계약 범위에서 유지**되며 미래 seed/dataset 전체의 증명으로 확대하지 않는다. 구현을 정확식으로 바꾸고 표본별 집계를 연결하거나, 함수/열 이름을 ‘sampled best’로 바꾸고 불가능성 주장에는 별도 정확식을 인용해야 이 잔여 이슈를 닫을 수 있다.
+
+### (c) 개선 방향 — 새 성능 판단 근거 없음
+
+이번 변경은 분석·문서 보완이며 새 학습 성능 결과는 없다. **성능 판정 보류**, checkpoint 재평가·QK 정규화 구현/효능 검사·새 학습·독립8seed/paired CI는 **not run**이다. 기존 순위 고정η→QK L2정규화→causal key 표현→entmax→별도 Gram→별도 delta를 유지한다. 당장 필요한 보완은 상한 분석에 정확식·격자 해상도·실제 표본 집계와 seed/hash를 남기는 일이다.
+
+QK 정규화는 다음 탐색 후보이며 [앞서 확인한 Test-time regression §3](https://arxiv.org/html/2501.12352v1)의 정규화–거리 연결과 scale 선택 범위를 유지한다. Gradient/clipping 진단은 [Pascanu et al.](https://proceedings.mlr.press/v28/pascanu13.pdf)의 원문 근거를 재사용한다. 이번에는 새 문헌 주장을 추가하지 않았고 위 직접 수치 검사로 판단했다. Canonical13:21의 진짜 최대·clipping 전후 norm 기록 계획은 아직 구현이 없어 **계획으로만** 인정한다. A09 absmax/KEY-GEOMETRY, A10-CAL·PROVENANCE·LOG, A07-REGEN 등은 재검사 근거 없이 닫지 않는다.
+
+### 수행·재현
+
+CPU NumPy 대수와 제한된 후보 탐색만 실행했다. 모델/학습 소스·기존 로그 수정, 학습/GPU/설치/프로세스 중단/git 변이/다른 세션 대화 열람·전송은 하지 않았다. 사본 hash와3문서 기존 prefix를 보존했다. 분석 원본 `main()`의 전체 무작위 sweep는 **not run**이고, 저장 정책 표 전 항목·상한 격자·경계12점·반례를 독립 검사했다.
+
+아래 두 명령은 cwd NSMT, `OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib` 환경에서 `/home/yschoi/.conda/envs/snn_recall/bin/python`으로 실행했다.
+
+```text
+f_lif_pop_v3/forecasting/results/assessment/20260922T043001Z-65597c1e/reachability_probe.py /tmp/nsmt_assessment_20260922T043001Z-65597c1e f_lif_pop_v3/forecasting/results/assessment/20260922T043001Z-65597c1e/reachability_probes.json
+f_lif_pop_v3/forecasting/results/assessment/20260922T043001Z-65597c1e/constructive_probe.py /tmp/nsmt_assessment_20260922T043001Z-65597c1e f_lif_pop_v3/forecasting/results/assessment/20260922T043001Z-65597c1e
+```
+
+Raw stdout는 `f_lif_pop_v3/forecasting/log/assessment/20260922T043001Z-65597c1e/{reachability_probe,constructive_probe}.log`에 보존했다.
+
+<!-- assessment-watch:20260922T043001Z-65597c1e -->
+
+
+## 추적 감사 18 — 2026-09-22 14:15 KST (예약 20260922T051001Z-b66150e0)
+
+### 관찰 범위·핵심 판정
+
+**Soft QK 정규화의 새 완료 결과2개를 재현했다. 보정 ε 호환성 누락과 clipping 표본을 전체로 일반화한 해석은 정정이 필요하다.** 관찰 HEAD **1832bdc16cd075473c582bd386686da18775ece8**, branch exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7. **14:10:34 KST**에 소스·문서·결과·해당 checkpoint211파일을 `/tmp/nsmt_assessment_20260922T051001Z-b66150e0`에 snapshot·hash했다. Trigger 이후 qk2η.2 CSV가 바뀌었으며, 실제 사본에는 **η0/.2 결과 JSON이 모두 완료**돼 있었다. η.5는 config/checkpoint만 있고 완료 JSON이 없어 성능 평가에서 제외했다.
+
+[Inventory](../f_lif_pop_v3/forecasting/results/assessment/20260922T051001Z-b66150e0/inventory.json), [source diff](../f_lif_pop_v3/forecasting/results/assessment/20260922T051001Z-b66150e0/source.diff), [직접 검사](../f_lif_pop_v3/forecasting/results/assessment/20260922T051001Z-b66150e0/current_probe.py), [수치 증거](../f_lif_pop_v3/forecasting/results/assessment/20260922T051001Z-b66150e0/current_probes.json), [run config](../f_lif_pop_v3/forecasting/results/assessment/20260922T051001Z-b66150e0/run_configs.json), [보존 검사](../f_lif_pop_v3/forecasting/results/assessment/20260922T051001Z-b66150e0/validation.json).
+
+관찰 source SHA256: layers `0ad31dc6250a780703a5195b32606657424298925fd948c8f3411fd948c32a04`, train `07012eaa57f61c4dbbdf930da270cc5191016a87859da6417bd9fdfbb36bb62e`, config `cde4a30e6fe813927586feddfebb312ebb689f6269d4107654f79321a94908ef`, calibrate `1b95aef5ea841b1ed9cda1b137b98b8b752119bf9009a1495dde1ced80b2258a`.
+
+### (a) 구현 정확성
+
+**A18-QKNORM — 현재 변환·배선의 제한된 검증 VERIFIED.** 설정이 Selector까지 전달되고, 투영 q/k에 `x/sqrt(||x||²+ε²)`를 적용한 뒤 기존 거리/scale→p→rho→cap 경로를 사용한다. 이는 norm=1을 정확히 강제하는 연산이 아니라 **soft 정규화**다. ε=.01, 작은 float64 입력에서 독립 계산한 거리와 실제 score 최대차0, zero 입력 finite를 확인했다. `score_scale()`도 동일한 변환을 반영하도록 수정됐다(정적 확인; 보정 전 과정 재실행은 not run). 실제 η.2 checkpoint에서2sequence의 미래 절반 입력을 바꿔도 앞21event 출력 최대차0이었다. 이 작은 인과성 검사만으로 모든 설정의 전체 gate를 통과했다고 확대하지 않는다.
+
+**A02-REACHABILITY — 정확식 구현 수정 VERIFIED(범위 제한).** `free_bound`가 제거되고 `sampled_best`와 `exact_bound`가 분리됐다. 이전 구성 반례에서 exact_bound=.5625772591831768, 정책의 실제 질량과 차 **1.11e-16**이었다. 격자/연속 경계 표시도 코드에 구분됐다. 따라서 ‘무작위 탐색을 상한으로 사용’한 **계산 구현 결함은 해소**됐다. 다만 이 코드는 고정 history41/배치 예시이며 실제 query→sequence 분포 적용이 추가된 것은 아니다. §2H 운영 결론에 실제 표본 상한을 연결하는 잔여 조건은 유지한다. 작업자의 “계산 근거 잔여를 닫는다”는 선언을 O7 일반성·효능 검증으로 확장하지 않는다.
+
+**A10-CAL — key_norm/qk_norm 적합성 확인, 신규 qk_eps 누락 OPEN.** Captured `...qknorm_seed7_260922-140541.json`을 명시해 검사했다. key_norm none→frozen 및 qk_norm True→False는 실제 거부돼 기존 key_norm 검사의 누락은 이 조건에서 수정 확인했다. 그러나 **보정 qk_eps=.01에 대해 요청 qk_eps=1.0을 그대로 승인**하며 θ=.38146987702788376을 반환한다. ε는 변환·score scale을 바꾸므로 보정 호환성 검사와 설정 식별에 포함해야 한다. 이번 정상 qk2 실행은 실제 ε=.01끼리 맞아 이 결함이 그 결과를 오염시켰다는 뜻은 아니다. 보정 artifact hash/시작 코드 고정 등 기존 잔여는 유지한다.
+
+### (b) 실행·검증 적절성
+
+**새 완료 결과 재현:** qk2-140541, seed7/data_seed20260921, train/val/test2048/256/256,batch64,12epoch,spike,α=.7/K4/key3,scale8,soft ε=.01/θ=.38146987702788376. 전체 test256sequence/8085recall query를 평가했다.
+
+| 조건 | recall MSE | M_eff | 최종 c hit | 저장값과 차이 |
+|---|---:|---:|---:|---|
+| soft QK η0 | .276338636158 | .130328894393 | 0 | 전체MSE/M_eff 모두0 |
+| soft QK η.2 | **.306119084689** | **.131735961409** | .041690452399 | 전체MSE/M_eff 모두0 |
+
+두 run의 evaluated parameter/checkpoint SHA256도 일치했다. η0 결과는 이전 full과 같으며 정상 비활성 대조다. η.2는 이전 비정규화 η.2의 recall .319387285780/M_eff .127181601094보다 이 seed에서 개선됐지만, **full .276338636158보다 오차가 크고** kernel mass .130328893616 대비 추가 정답 질량은 약.001407에 그친다. 정규화·ε·θ 재보정이 함께 바뀐 비교이므로 정규화 형태 하나의 독립 효과로 부르지 않는다. η.5/1·학습η의 현재 soft 격자는 **진행/미완료**, 해당 성능 재검사는 **not run**이다.
+
+**A09-GRADIENT/CLIP OPEN — 표본과 전체를 구분해야 한다.** `pre_clip`으로 변수명을 바꿔 손실 누적 `total` 덮어쓰기를 피한 코드와 qk2 완료 결과를 확인했다. 작업자가 기록한 초기 IndexError는 실행 구현 결함이며 모델 이론 실패로 세지 않는다. 그러나 새 로그도 `watch = (batch_index % g11_every == 0)`일 때만 gradient norm/clip flag를 수집한다.
+
+- Gcmp6조건은 **512sequence/batch64=8batch**, g11_every10이므로 관찰은 **batch0 한 번**이다. 보고된 clip_rate1.0은 ‘그 표본이 clipping됨’이며 canonical14:09의 **“매 배치가 잘린다”는 결론을 지지하지 않는다.** 표의 pre-norm도 epoch 전체 평균이 아닌 첫 관찰 batch 값이다.
+- Qk2는32batch 중 index0/10/20/30의 **4회 표본**이다. η.2 마지막 epoch pre-norm86.0009/clip_rate1.0은 그4회 평균/비율이다. η0의 pre-norm.45993/clip_rate0도 모든32batch가 clipping되지 않았음을 증명하지 않는다.
+- 실제 reducer 부분만 AST로 추출해 optimizer 없이 실행했다. `grad_absmax_all=[1,9]`는 **5**, pre-norm `[.5,10]`은5.25, clip flag `[0,1]`는.5로 집계된다. **진짜 epoch absmax와 전체 clipping 빈도는 아직 구현되지 않았고 post-clip norm도 없다.** 매 batch의 전역 norm 반환값은 이미 있으므로 추가 모델 forward 없이 전체 횟수/분모를 집계할 수 있다. sampled 지표는 관찰 횟수를 명시하고 최대값은 max로 분리할 것.
+
+**A09 원인 단정 제한:** `grad_localise.txt`는 파라미터군별 큰 gradient의 위치를 보여주지만 실행 script/정확한 입력·seed·source hash와 Jacobian 경로 분리가 없다. “원인을 정확히 특정”, “남은 폭주는 T-step 누적이며 정규화는 원리적으로 고칠 수 없다”는 단정은 현재 증거를 넘는다. Hard norm도 `x/max(||x||,ε)`이면 미분 가능한 영역에서 norm bound1/ε를 갖는다. 직접4차원 local Jacobian을 계산해 **hard/soft 모두 x=0에서 ε1e-6→1e6, ε.01→100**을 확인했다. Soft 전환이 유계성을 새로 만든 것이 아니며 smoothness와 ε 크기의 효과를 분리해야 한다. 한 스텝의1/ε 상한과 전체 BPTT gradient1e13의 ‘규모 일치’ 역시 같은 양의 직접 비교가 아니다. 이 작은 Jacobian 검사는 모델 학습/backward 재현이 아니다.
+
+**A10-PROVENANCE:** Gcmp/qkchk2는 기록된 config/layers hash가 현재 soft 소스와 다르고, 옛 config에는 qk_eps가 없다. 현재 기본값을 채워 읽으면 당시 hard 변환과 달라질 수 있다. 이들의 수치는 **당시 기록 관찰**로 남기고 현재 soft 소스로 동일 의미의 재현을 했다고 부르지 않는다(이번 checkpoint 재평가 not run). Hard/soft 방식·ε·θ·source snapshot을 함께 보존할 것. 새 qk2 완료2건은 사본 소스에서 재현됐다.
+
+### (c) 개선 방향·채택 판단
+
+**② QK 정규화는 탐색 진행 단계이며 최종 채택/기각을 보류한다.** 같은η에서 hard/soft, ε, θ 보정 정책을 구분하고 validation 표본에서 score/p/pre-cap/post-cap 질량·순위와 실제 오차를 연결한다. 우선 gradient 통계를 전체/표본으로 바로잡고, 작은 norm 발생 빈도와 key/query 경로별 local Jacobian·시간 길이별 gradient 변화를 통제해 원인 가설을 확인할 것. 원인을 단정한 상태로 여러 구조를 동시에 바꾸지 않는다. 이후 key 표현→entmax의 순서는 기존 조건부 규칙을 유지하며 Gram/delta는 별도 구조 대조로 둔다.
+
+앞서 확인한 [Test-time regression §3](https://arxiv.org/html/2501.12352v1)는 정규화와 거리/scale 연결의 근거이며, soft ε 선택이나 폭주 제거를 보장하지 않는다. [Pascanu et al.](https://proceedings.mlr.press/v28/pascanu13.pdf)의 시간에 따른 gradient 곱·clipping 분석을 통제 진단 근거로 재사용한다. 이번 새 수치 판단은 위 직접 검사와 고정 결과에 기반하며 신규 문헌 주장은 없다. 독립8seed/paired CI·등록 예산 확증·성능 우위는 **not run**이다. Test 반복 관찰은 탐색으로 기록하고 후보 선택은 validation으로 제한한다.
+
+### 보존·수행 기록
+
+CPU torch1.12.0+cu113/2threads/seed7. 완료 checkpoint2개 forward, 작은4차원 local Jacobian, 실제 reducer만 실행한 진단, 보정호환성·정확상한 계산을 수행했다. 모델 학습/optimizer·GPU·소스 수정·환경 설치·프로세스 중단·git 변이·타세션 대화 접근/전송은 하지 않았다. A07-REGEN 및 미검사 잔여는 유지한다. 진행 파일 변경은 다음 주기에 다루고 기존 감사 본문을 고치지 않고 append한다.
+
+```bash
+OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib \
+/home/yschoi/.conda/envs/snn_recall/bin/python \
+f_lif_pop_v3/forecasting/results/assessment/20260922T051001Z-b66150e0/current_probe.py \
+/tmp/nsmt_assessment_20260922T051001Z-b66150e0 \
+f_lif_pop_v3/forecasting/results/assessment/20260922T051001Z-b66150e0/current_probes.json \
+> f_lif_pop_v3/forecasting/log/assessment/20260922T051001Z-b66150e0/current_probe.log 2>&1
+```
+
+<!-- assessment-watch:20260922T051001Z-b66150e0 -->
+
+
+## 추적 감사 19 — 2026-09-22 14:24 KST (예약 20260922T052001Z-759f71ff)
+
+### 관찰 범위와 증거
+
+**Soft QK 정규화의 η=.5/학습η 완료 결과를 재현했다. 성능 개선의 원인과 η1 중단의 원시 증거는 별도 확인이 필요하다.** HEAD **b6d4baf6a54ee950403df1f60d05f290073bee07**, branch exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7. **14:20:35 KST**에 manifest·최신 감사/기억/§2H/canonical 문서·대상 checkpoint208파일을 `/tmp/nsmt_assessment_20260922T052001Z-759f71ff`에 snapshot·hash했다. Manifest hash 불일치0, 감사18 대비 연구 소스 변경0. Trigger에 포함된 η.2 JSON은 감사18 사본과 같아 반복 평가하지 않았다.
+
+[Inventory](../f_lif_pop_v3/forecasting/results/assessment/20260922T052001Z-759f71ff/inventory.json), [검사 코드](../f_lif_pop_v3/forecasting/results/assessment/20260922T052001Z-759f71ff/completion_probe.py), [수치·hash](../f_lif_pop_v3/forecasting/results/assessment/20260922T052001Z-759f71ff/completion_probes.json), [보존 검사](../f_lif_pop_v3/forecasting/results/assessment/20260922T052001Z-759f71ff/validation.json). Source SHA256: layers `0ad31dc6250a780703a5195b32606657424298925fd948c8f3411fd948c32a04`, train `07012eaa57f61c4dbbdf930da270cc5191016a87859da6417bd9fdfbb36bb62e`. 전체 소스/결과 hash는 inventory에 기록했다.
+
+### (a) 구현 정확성 — 새 checkpoint 복원·수치 재현 VERIFIED, 기존 OPEN 유지
+
+현재 API/진단 정의는 감사18과 동일함을 hash로 확인했다. `qk2-140541`의 새 완료η.5와 학습η checkpoint만 CPU 복원·평가했다. 두 실행 모두 전체 test MSE 및 M_eff의 저장값과 차이0, evaluated parameter/checkpoint SHA256 일치, 기록된 source hash 불일치0였다. Test 상태도 finite/G11 범위 안이었다. 이 결과는 **현재 soft 변환에서의 재현성 확인**이고 정규화의 최종 효능 검증은 아니다.
+
+A18-QKNORM의 작은 score/zero-input/인과성 검사는 감사18의 확인 범위를 유지하며 전체 gate를 재실행하지 않았다. A09 gradient 표본/absmax reducer, A10-CAL qk_eps, A10-PROVENANCE·LOG, A02 실제 분포 연결, A07-REGEN 등의 잔여에는 수정 소스가 없으므로 OPEN 유지한다. Canonical14:18의 “clipping 전 진짜 최대·빈도 항목 충족” 선언은 **감사18의 실제 reducer·관찰 빈도 검사와 맞지 않는다.** 필드가 존재하는 것과 요구한 통계가 구현된 것은 다르다.
+
+### (b) 실행 결과와 검증 적절성
+
+공통 seed7/data_seed20260921,2048/256/256 sequence,batch64,12epoch,spike,α=.7/K4/key3,soft ε=.01/θ=.38146987702788376. Test256sequence/8085recall query 전체, M_eff/hit은 query→sequence 평균이다.
+
+| 새 완료 조건 | recall MSE | M_eff | 최종 c hit | support_p | test 최대 상태 크기 |
+|---|---:|---:|---:|---:|---:|
+| QK η=.5 | **.319099823128** | .130831132549 | .059328653690 | .525685444474 | 47.66791534 |
+| QK 학습η≈.026293 | **.273289752622** | .133798540174 | 0 | .351997204125 | 22.05676270 |
+
+η.5는 이전 비정규화 η.5의 .433504353901보다 오차가 낮고, full .276338636158보다 높다. 학습η는 비정규화 .272620149439보다 약.000670 높은 오차다. 이전 oracleη1을 공통 분모로 한 탐색 G는 각각 **−.1771581586 / +.0126314219**다. 따라서 “사용 가능한 모든η에서 G음수”는 학습η까지 포함하면 틀리며, **양의 고정η .2/.5**의 관찰로 제한할 것. Oracle 분모는 이전 확인된 기준이며 이번에 다시 학습한 값이 아니다.
+
+**A09-INTERPRETATION — 동반 변화와 인과를 분리:** η.5에서 support 증가(.39065→.52569), c hit 감소(.09671→.05933), M_eff 감소(.13287→.13083)가 관찰됐다. 이는 **오차 개선과 검색 지표 개선이 함께 나타나지 않았다**는 근거다. 그러나 support는 양수 원소 비율이며 entropy·uniform까지의 거리나 full과의 실제 계수 차를 직접 재지 않는다. 각 조건의 가중치·학습 경로·θ/ε도 달라 **“더 균등해져 full에 가까워진 것이 성능 개선 원인”은 아직 가설**이다. 고정 checkpoint에서 정책/계수만 통제한 비교와 동일 표본의 score→p→c 측정이 필요하다.
+
+Canonical14:18의 η.5 상태 비교 기준 **22.7은 비정규화 η0(full)**에 해당한다. 대응되는 비정규화η.5의 감사15 test peak는 **20.91826248**이므로 조건을 맞춰 **20.9183→47.6679**로 기록할 것. 상태 증가 관찰 자체는 유지되지만 이를 support 확대의 인과 효과로 단정하지 않는다. 현재 max값은 전체256 test에서의 peak이고 학습 전체 peak와도 구분한다.
+
+**A05/G11 — η1 미완료와 보고된 중단을 구분:** `qk2` η1은 CSV epoch0–7의8행과 checkpoint가 있으나 **완료 JSON 없음**. `e1chk-141652`도 CSV1행/완료 JSON 없음이다. Canonical은 η1의 **332.547>305.038로 중단**을 보고한다. 현재 소스에는 G11 예외 guard가 있지만, 보존된 CSV에 그 실패 batch 값은 없고 task log의 .log/.txt/.out 검색에서도 해당 예외 원문을 찾지 못했다. 따라서 판정은 **작업 기록상 G11 중단 보고, 실행 이벤트의 원시 근거 미확인**이다. 훈련을 재실행하거나 미완료 checkpoint를 최종 결과로 평가하지 않았다. 해당 사건을 VERIFIED로 닫으려면 run ID/epoch/batch와 예외 stdout 또는 구조화된 실패 기록을 기존 산출물에 연결할 것. 실패 batch가 epoch CSV에 남지 않는 것은 코드상 가능하며 수치 조작이나 모델 전체 실패로 오인하지 않는다.
+
+`qknorm_grid.txt` 말미의 `TypeError: unsupported format string passed to NoneType.__format__`는 **누락 결과의 표 출력 오류**다. η1의 실제 G11 예외와 별개의 사건이다. 누락 결과는 `not completed/reported G11 stop`으로 명시하고 요약을 끝까지 생성하도록 보완할 필요가 있다.
+
+η.5 마지막 epoch의 pre-clip norm14277.378/clip_rate1.0과 학습η의 .501578/clip_rate0도 **32batch 중4회 관찰**의 평균/비율이다. 전체 epoch 최대·모든 batch clipping 빈도·post-clip norm은 여전히 미확인이다. 새 표를 근거로 A09 수정 완료로 닫지 않는다.
+
+### (c) 다음 방향 — ③ 채택 전 같은 표본의 경로 진단
+
+현재까지 **QK 정규화 설정 묶음은 일부 고정η에서 오차를 낮췄지만 검색 성공을 입증하지 못했다.** 한 seed·짧은 예산으로 최종 기각 또는 일반적 효능을 확정하지 않는다. 작업자가 계획한 **동일 validation checkpoint/표본의 score 순위와 p 질량 분리 측정**을 다음 판단 근거로 삼는 것은 타당하다. Score 단계부터 정답 분리가 약하면③ causal key 표현, score 신호가 p에서 사라진다면④ entmax를 앞당기는 기존 조건부 우선순위를 유지한다. c hit/support만으로 그 분기를 정하지 않는다.
+
+정규화의 거리/scale 연결은 앞서 원문 확인한 [Test-time regression §3](https://arxiv.org/html/2501.12352v1), p 변환 후보의 근거는 [Adaptively Sparse Transformers](https://aclanthology.org/D19-1223.pdf), 시간별 gradient 분석은 [Pascanu et al.](https://proceedings.mlr.press/v28/pascanu13.pdf)를 재사용한다. 이번 신규 사실은 직접 결과 재현에 근거하며 새 문헌 주장은 없다. Validation으로 후보와 hyperparameter를 결정하고 반복 본 test는 탐색으로 명시한다. 새학습·η1 성능 평가·원시 G11 실패 재현·독립8seed/paired CI·효능 확증은 **not run**이다.
+
+### 수행·보존
+
+CPU torch1.12.0+cu113/2threads/seed7, 새 완료 checkpoint2개 forward 평가만 수행했다. 학습/backward/optimizer·GPU·환경 설치·모델/학습 소스 수정·git 변이·프로세스 중단·타세션 대화 열람/메시지 전송은 하지 않았다. 기존 기록과 checkpoint를 보존하고3문서 append·진단 artifact만 작성했다. 감사 중 추가 변경은 다음 주기로 넘긴다.
+
+```bash
+OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib \
+/home/yschoi/.conda/envs/snn_recall/bin/python \
+f_lif_pop_v3/forecasting/results/assessment/20260922T052001Z-759f71ff/completion_probe.py \
+/tmp/nsmt_assessment_20260922T052001Z-759f71ff \
+f_lif_pop_v3/forecasting/results/assessment/20260922T052001Z-759f71ff/completion_probes.json \
+> f_lif_pop_v3/forecasting/log/assessment/20260922T052001Z-759f71ff/completion_probe.log 2>&1
+```
+
+<!-- assessment-watch:20260922T052001Z-759f71ff -->
+
+
+## 추적 감사 20 — 2026-09-22 15:14 KST (예약 20260922T061002Z-5c0b3779)
+
+### 관찰 범위·증거
+
+**ε 보정 호환성과 전체 batch norm/clip 집계의 수정을 직접 확인했다. 개별 gradient absmax와 과거 G11 중단 사건은 아직 별도 OPEN이다.** 관찰 HEAD **b6d4baf6a54ee950403df1f60d05f290073bee07**, branch exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7. 15:10:37 KST에 manifest 대상·최신 감사/기억/사전등록§2H/canonical 기록198파일을 `/tmp/nsmt_assessment_20260922T061002Z-5c0b3779`로 snapshot·SHA256 기록했다. Trigger hash 불일치0. 실제 변경은 train/calibrate와 새 보정 JSON·qk_norm_form.txt이며 모델 변환은 감사19와 같다.
+
+Train SHA256 `bf2f5737fb1df24c395dc1227cb14e5fbf25be4f7c336cd312ff3cecbd90eea3`, calibrate `7d6e3549a85aa7a3c5fdfb6520e7622b80cfc96b3ade14a09298cf0a9fb6f2a2`. [Inventory](../f_lif_pop_v3/forecasting/results/assessment/20260922T061002Z-5c0b3779/inventory.json), [source diff](../f_lif_pop_v3/forecasting/results/assessment/20260922T061002Z-5c0b3779/source.diff), [직접 진단 코드](../f_lif_pop_v3/forecasting/results/assessment/20260922T061002Z-5c0b3779/fixes_probe.py), [수치 결과](../f_lif_pop_v3/forecasting/results/assessment/20260922T061002Z-5c0b3779/fixes_probes.json), [보존 검사](../f_lif_pop_v3/forecasting/results/assessment/20260922T061002Z-5c0b3779/validation.json).
+
+### (a) 구현 정확성 — 확인된 수정의 범위
+
+**A10-CAL-QK-EPS VERIFIED:** 보정 출력명과 조회 패턴에 `qknorm-eps{qk_eps:g}`가 들어가며 payload의 qk_eps도 대조한다. 새 `...qknorm-eps0.01_seed7_260922-151001.json`을 실제 조회해 ε=.01은 승인, ε=1은 대응 파일 없음(None)을 확인했다. 파일명 필터와 별도로 **ε1 요청에 ε.01 artifact를 강제로 연결해도 ValueError로 거부**했다. 감사18의 잘못된 ε 보정 승인은 이 경로에서 해소됐다.
+
+새 보정의 scale8/θ=.38146987702788376/G11 bound305.0375175476074는 이전 softε.01 보정과 같으며 기록된 layers/calibrate/config/synthetic source hash16자리 모두 사본과 일치했다. 보정 계산 전체를 다시 실행한 것은 아니며, 이번 검증은 조회·내용 호환성이다. Artifact 전체 SHA 고정/실행 시작 source 보존 등 A10의 다른 잔여 조건은 별도 유지한다.
+
+**A09-CLIP-ALL-BATCHES 부분 VERIFIED:** `pre_clip` 반환값과 clip flag의 추가가 watch 조건 밖으로 이동했다. 함수 AST에서 실제 무조건 append문2개와 실제 reducer만 추출해 검사했다. 학습 loop/loss/optimizer는 실행하지 않았다.
+
+| 주입한8batch pre-norm | 실제 새 집계 |
+|---|---|
+| [.5,2,.9,1.2,1,.2,3,.6] | mean **1.175**, max **3**, clip_rate_all_batches **.375**, batches_seen **8** |
+
+새 필드 `grad_total_norm_pre_mean/max`, `clip_rate_all_batches`, `batches_seen`은 현재 myModel 진단 경로에서 정확히 집계됐고 최종 JSON 메타데이터 전달 목록에도 들어 있다(전달 배선 정적 확인). **새 학습 run에서 JSON/CSV가 이 필드를 끝까지 보존하는 검사는 not run**이다. 이전 gcmp/qk2 기록은 예전 표본 통계 그대로이며 새 의미로 재해석하지 않는다.
+
+**A09-ABSMAX OPEN 유지:** 기존 `grad_absmax_all=[1,9]`는 여전히 **5**로 나온다. 새로 생긴 것은 **전체 gradient L2 norm의 batch 최대**이고, 요구한 모든 원소의 epoch `max|grad|`와 다른 양이다. 개별 WQ/WK absmax도 watch 표본 평균 구조가 남는다. True absmax·관찰 횟수·post-clip norm을 구분해 보완할 것. Norm 최대 추가만으로 A09 전체를 닫지 않는다.
+
+**A05/G11-RECORD scoped VERIFIED:** G11 guard 안에서 run ID/UUID, epoch, batch, peak, bound, 보정 파일, mode, η, QK/ε, UTC를 JSON에 쓰고 예외를 발생시키는 경로가 추가됐다. Epoch loop의 `args.current_epoch` 대입도 확인했다. 해당 guard 블록만 **합성 값 peak11/bound10/epoch3/batch7**로 실행해 JSON 저장 및 FloatingPointError를 확인했다. Artifact는 `synthetic_g11/G11_violation.json`, run ID는 **AUDIT_SYNTHETIC_G11_NOT_A_TRAINING_RUN**이다. 실제 학습의 위반 기록과 혼동하지 않는다.
+
+### (b) 검증 적절성·남은 근거
+
+G11의 새 writer는 **향후 위반의 기록 경로를 검증한 것**이다. 감사19에서 남긴 qk2η1의 332.547 사건은 여전히 원시 증거 미확인이다. 이번 합성 기록으로 그 과거 사건을 VERIFIED로 전환하지 않는다. G11 검사 자체는 여전히 watch 표본에서 실행되므로 기록 보완이 전체 학습 step의 상태 감시를 추가한 것도 아니다.
+
+`qk_norm_form.txt`는 hard/soft 모두1/ε로 유계이며 soft 전환이 유계성을 새로 만들지 않았다고 정정하고, 동일ε hard 실험은 **not run**으로 명시했다. 이는 감사18의 작은 Jacobian 검사와 맞으며 문서상 정정을 수용한다. Soft total/key gradient 표는 새 재현 코드·정확한 표본 식별자가 없으므로 **작업자 관찰값**으로 남긴다. 그 표만으로 hard 대비 형태 효과나 시간 누적의 유일한 원인을 확정할 수 없다. 기존 canonical14:09/14:18의 과도한 인과·전체 clipping 해석에 대한 감사18/19 제한은 유지한다.
+
+이번 snapshot에 새 완료 학습 성능 결과는 없다. 사전등록 임계값/격자·data split·다중seed 정책에도 새 개정이 없다. **새 성능 판단 근거 없음**, 모델/checkpoint 재평가·새 학습·보정 전체 재실행·과거 G11 사건 재현·독립8seed/paired CI는 **not run**이다. 검사 명령 실패를 모델 실패로 판정한 항목은 없다.
+
+### (c) 다음 개선 방향
+
+통계·보정 수정이 확보됐으므로 다음 실제 run에서 **전체 batch 수·clip 횟수/norm 최대와 JSON/CSV 보존을 확인**할 수 있다. 동시에 같은 validation checkpoint/표본의 score→p→pre-cap→post-cap 지표를 먼저 연결한다. Score 단계부터 분리가 약하면③ causal key 표현, p 변환에서 손실되면④ entmax를 앞당기는 기존 조건부 우선순위를 유지한다. 새 성능 근거 없이 QK 정규화를 최종 채택/기각하거나 임계값을 바꾸지 않는다.
+
+문헌 방향은 앞서 원문 확인한 [Pascanu et al.](https://proceedings.mlr.press/v28/pascanu13.pdf)의 gradient/clipping 분석, [Test-time regression §3](https://arxiv.org/html/2501.12352v1)의 정규화–거리/scale 연결, [Adaptively Sparse Transformers](https://aclanthology.org/D19-1223.pdf)의 p 변환 근거를 재사용한다. 이번 판정은 직접 코드 경로·수치 검사에 기반하며 새 문헌 사실이나 효능 보장은 추가하지 않는다.
+
+### 수행·보존
+
+CPU Python/NumPy·기존 환경에서 보정 조회와 추출한 진단/예외 블록만 실행했다. 모델 forward/backward/학습/optimizer·GPU·설치·연구소스 수정·git 변이·프로세스 중단·다른 세션 대화 열람/전송은 하지 않았다. 실제 task 경로 대신 감사 artifact 디렉터리에만 합성 위반 기록을 썼고, 기존 문서 prefix와 snapshot hash를 보존했다. A02 실제 표본 집계 연결, A07-REGEN, A10-PROVENANCE·LOG 등 이번 범위 밖 OPEN은 유지한다.
+
+```bash
+OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib \
+/home/yschoi/.conda/envs/snn_recall/bin/python \
+f_lif_pop_v3/forecasting/results/assessment/20260922T061002Z-5c0b3779/fixes_probe.py \
+/tmp/nsmt_assessment_20260922T061002Z-5c0b3779 \
+f_lif_pop_v3/forecasting/results/assessment/20260922T061002Z-5c0b3779/fixes_probes.json \
+> f_lif_pop_v3/forecasting/log/assessment/20260922T061002Z-5c0b3779/fixes_probe.log 2>&1
+```
+
+<!-- assessment-watch:20260922T061002Z-5c0b3779 -->
+
+
+## 추적 감사 21 — 2026-09-22 15:24 KST (예약 20260922T062001Z-d4a951fd)
+
+### 관찰·증거
+
+**실제 g11chk 실행의 G11 기록을 확인했고, 저장 checkpoint의 forward만으로 기록된 상태 초과를 독립 재현했다. 전체 batch clipping 지표의 CSV 보존도 확인했다.** HEAD **8ecf96ea7e1fb1badd112586b22134d8bf0d4536**, branch exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7. **15:20:49 KST**에 manifest·최신 감사/기억/§2H/canonical 기록·해당 checkpoint203파일을 `/tmp/nsmt_assessment_20260922T062001Z-d4a951fd`에 snapshot·hash했다. Trigger 불일치0, 연구 소스는 감사20과 동일하다.
+
+[Inventory](../f_lif_pop_v3/forecasting/results/assessment/20260922T062001Z-d4a951fd/inventory.json), [검사 코드](../f_lif_pop_v3/forecasting/results/assessment/20260922T062001Z-d4a951fd/event_probe.py), [수치·기록 대조](../f_lif_pop_v3/forecasting/results/assessment/20260922T062001Z-d4a951fd/event_probes.json), [문서 수치 검사](../f_lif_pop_v3/forecasting/results/assessment/20260922T062001Z-d4a951fd/claim_checks.json), [보존 검사](../f_lif_pop_v3/forecasting/results/assessment/20260922T062001Z-d4a951fd/validation.json). Train SHA256 `bf2f5737fb1df24c395dc1227cb14e5fbf25be4f7c336cd312ff3cecbd90eea3`, layers `0ad31dc6250a780703a5195b32606657424298925fd948c8f3411fd948c32a04`. 검사한 checkpoint SHA256 **c798ba5d8636d7fbc1a35045e490c7eecaa7b0706d4edcf64ee277a6f2001dab**.
+
+### (a) 구현 정확성 — 새 실제 기록의 검증 범위
+
+**A05/G11-g11chk VERIFIED:** `g11chk-151001`의 `G11_violation.json`에서 run UUID **44e2b2349fc29e28**, zero-based epoch1/batch0, peak **332.54718017578125**, bound **305.0375175476074**, UTC06:10:06.157092를 확인했다. Run ID/UUID/mode/η1/QK True/ε.01/보정 파일은 저장 config와 모두 일치했고 bound도 지정 보정 JSON의 고정값과 정확히 일치했다. CSV는 완료된 epoch0 한 행이며 최종 성능 JSON은 없다. 따라서 이 run은 완료 성능으로 세지 않는다.
+
+Epoch0의 best checkpoint를 CPU로 복원하고 원래 **train512sequence에 forward만** 수행했다. 표본 순서를 고정하고64개씩 처리했으며 모델/optimizer 갱신은 하지 않았다.
+
+| 확인 항목 | 실제 값 |
+|---|---:|
+| Train sequence index381의 최대 상태 | **332.54718017578125** |
+| 위반 JSON의 peak와 차이 | **0** |
+| 전체512sequence 중 bound 초과 수 | **3** |
+| 해당 checkpoint에서 전체 train 최대 상태 | **350.3652648925781** |
+
+이는 기록된 상태 초과가 저장 모델·데이터에서 재현된다는 직접 근거다. 전체 학습/optimizer 경로 및 당시 shuffle된 batch0의 정확한 구성은 재현하지 않았다. 350.365는 고정 checkpoint로 모든 train 표본을 훑은 진단값이므로 기록 batch의332.547과 모순되지 않는다. 학습 중 모델이 계속 변하는 상황의 epoch 최대와도 구별한다.
+
+**과거 사건과 구분:** 이번 run은 seed7/data_seed20260921, train/val/test **512/64/64**, 최대3epoch,batch64,g11_every10,softε.01/θ=.38146987702788376이다. 과거 qk2는 train2048/최대12epoch였으므로 같은 수치가 나왔다는 이유로 그 **별도 run의 원시 증거까지 복구됐다고 하지 않는다.** 이번 g11chk의 사건과 독립 forward 확인은 VERIFIED, 과거 qk2 사건의 정확한 원시 provenance는 별도 미확인 상태다. Suite/UUID를 포함해 구분한다.
+
+### (b) 검증 적절성 — 전체 batch 통계의 실제 저장 확인, 인과·성능 판단 제한
+
+**A09-CLIP-ALL-BATCHES의 CSV 보존 VERIFIED:** 실제 epoch0 CSV에 다음 네 필드가 존재한다.
+
+| 필드 | CSV 값 |
+|---|---:|
+| grad_total_norm_pre_mean | 878689650.125 |
+| grad_total_norm_pre_max | 3913563392 |
+| clip_rate_all_batches | **1.0** |
+| batches_seen | **8** |
+
+512/64=8이며 batch 제한0과 일치한다. 감사20에서 수집·reducer를 검증했고 이번에는 실제 run의 CSV 저장을 확인했다. **이 새 run의 완료 epoch0에 한해서 8/8 batch가 clipping됐다는 기록 해석은 타당**하다. 과거 watch 표본 지표로 전체 batch를 일반화한 주장을 소급해 승인하지 않는다. Gradient 자체를 다시 backward로 계산한 것은 아니며 그 수치 재현은 not run이다. 중단으로 최종 결과 JSON이 없으므로 새 필드의 완료 JSON 보존도 아직 not run이다.
+
+개별 원소의 epoch `max|grad|`와 post-clip norm은 여전히 별도 미구현/미확인이다. L2 norm의 batch 최대를 absmax 대용으로 부르지 않는다. G11 감시도 여전히 watch 시점에 한정돼 ‘모든 step에서 상태 상한이 보장된다’고 표현할 수 없다.
+
+**Canonical15:10의 정정은 대체로 수용하되 두 문장을 보완할 것.**
+
+- Hard/soft의 x≈0 Jacobian bound가 같다고 **전체 변환이 같거나 개선 원인이 ε뿐임이 증명되지는 않는다.** 같은 ε=.01, x=(.02,0,0,0)에서 hard 출력 첫 성분은1, soft는 **.8944271909999159**다. 동일ε에서 형태만 바꾼 통제 실험은 아직 not run이며, 형태 효과와 ε 효과의 분리는 계속 필요하다. 인과 단정을 철회한 취지는 유지한다.
+- 고정η.2의 QK G는 **−.1233793961**, η.5는 **−.1771581586**이다. Canonical의 “0.2(−.1772)”는 η.5 수치와 바뀌어 인용됐다. 학습η G가 양수라는 정정은 맞다.
+
+**성능:** 새 완료 recall/test 결과는 없다. 실제 상태 초과는 이 η1/seed/설정에서 안정성 기준에 걸렸다는 증거이며 아이디어 전체 실패나 QK 정규화의 보편적 실패가 아니다. 중단 checkpoint를 최종 성능으로 평가하지 않았다. 사전등록 임계값/분할/대조군 정책의 새 변경은 없고, 독립8seed/paired CI·효능 확증은 **not run**이다.
+
+### (c) 다음 방향
+
+고정 checkpoint의 동일 validation 표본에서 **score→p→pre-cap→post-cap 질량·순위를 연결**하는 기존 우선순위를 유지한다. 이 경로 진단에 상태 최대/G11 초과 여부와 전체 batch norm·clipping 기록을 함께 붙여, 검색 개선과 안정성 변화를 분리할 것. 이번 초과에 맞춰 보정 상한을 사후 확대하지 않는다. Score 표현이 병목이면③ causal key, p 변환에서 손실되면④ entmax를 앞당기는 조건부 규칙을 유지한다.
+
+근거는 앞서 원문 확인한 [Pascanu et al.](https://proceedings.mlr.press/v28/pascanu13.pdf)의 시간에 따른 gradient/clipping 분석, [Test-time regression §3](https://arxiv.org/html/2501.12352v1)의 정규화·거리/scale 연결을 재사용한다. 이번 새 판단은 직접 기록 대조와 forward 수치 검사에 기반하며 새 문헌 사실·효능 보장은 추가하지 않았다. A10-PROVENANCE·LOG/개별 absmax·A02 실제분포 연결/A07-REGEN 등 미검사 잔여는 유지한다.
+
+### 수행·보존
+
+CPU torch1.12.0+cu113/2threads/seed7. Epoch0 checkpoint 고정 forward와 문서 산술만 수행했다. 학습/backward/optimizer·GPU·환경 설치·모델/학습 소스 수정·git 변이·진행 프로세스 중단·다른 세션 대화 접근/메시지 전송은 하지 않았다. 기존 파일·checkpoint·문서 prefix를 보존하고 감사3문서에 append했다.
+
+```bash
+OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib \
+/home/yschoi/.conda/envs/snn_recall/bin/python \
+f_lif_pop_v3/forecasting/results/assessment/20260922T062001Z-d4a951fd/event_probe.py \
+/tmp/nsmt_assessment_20260922T062001Z-d4a951fd \
+f_lif_pop_v3/forecasting/results/assessment/20260922T062001Z-d4a951fd/event_probes.json \
+> f_lif_pop_v3/forecasting/log/assessment/20260922T062001Z-d4a951fd/event_probe.log 2>&1
+```
+
+<!-- assessment-watch:20260922T062001Z-d4a951fd -->

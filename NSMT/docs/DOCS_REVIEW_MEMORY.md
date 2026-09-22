@@ -298,3 +298,28 @@ Snapshot11:40:55/HEAD2769c5c8100e367b965a47b20bd1924f0b0d18a1/148파일. Etagrid
 ## 추적 갱신 — 2026-09-22 11:54 KST (예약 감사16)
 
 HEAD7520087c6d5578c1ec640350fa233717ce78d980/snapshot11:50:51/160파일,manifest불일치0/소스변경0. 새oracleη.5/1 및학습η3checkpoint test256/8085query CPU재현,전체MSE/M_eff 차0/hash일치. Recall .039580641913/.034965688339/.272620149439, M_eff .466552377101/1/.132756536374. 새kind정책재현확인;실행시작provenance보장은아님. Headroom .241372947820,공통oracle1분모G학습η .0154055653;독립8seedCI not run. 같은test uniform-slotchance .156583749693(기존.161과표본다름);fullmass .130329와구별. Split tensorhash세run동일,split간상이. 학습η는이전diag3수치재현이지새독립seed아님. ①탐색격자재현완료→②QK정규화후보유지,구현/효능not run. §2G상한정정미반영/A02-REACHABILITY및기존OPEN유지. ASSESMENT감사16/results/assessment/20260922T025001Z-31dd6781/.
+
+
+## 추적 갱신 — 2026-09-22 13:34 KST (예약 감사17)
+
+HEAD8b94404b25b4c2285dec59680b282a3a154de0d1/snapshot13:30:52/147파일,manifest불일치0. 모델/성능결과변경없음. §2H·canonical13:21 uniform상한/lag/η필요조건/비율·chance/과잉표현정정확인(부분VERIFIED). 새meff_reachable.py uniform표16행96값재현,정확식 .005격자 경계 .920/.840/.750/.655/.455/.345 일치. 그러나free_bound는Dirichlet4000후보최대일뿐상한아님:유효정책반례 .558866277493→.562577259183. A02-REACHABILITY잔여OPEN,정확식 U+실제표본집계필요. 3/4칸연속η경계 .746558676/.653539832,표는격자근사. 새학습/성능재평가/8seedCI not run,②QK정규화다음탐색유지. ASSESMENT감사17/results/assessment/20260922T043001Z-65597c1e/.
+
+
+## 추적 갱신 — 2026-09-22 14:15 KST (예약 감사18)
+
+HEAD1832bdc16cd075473c582bd386686da18775ece8/snapshot14:10:34/211파일. SoftQK ε.01 구현배선/score차0/zero finite/실제prefix미래교란차0 확인. qk2η0/.2완료test256/8085query 재현 MSE·M_eff차0/hash일치:recall .276338636158/.306119084689,M_eff .130328894393/.131735961409. η.2비정규화 .319387보다개선이나full보다나쁨,ε·θ함께변경. η.5진행,미완료성능not run. A02 exact_bound 반례차1.11e-16로계산수정VERIFIED,실제분포연결잔여. A10-CAL key_norm/qk_norm거부VERIFIED,ε.01보정→요청1승인 신규OPEN. A09 clip_rate는watch표본: gcmp8batch중1회,qk2 32중4회;‘매batch잘림’근거없음. absmax[1,9]→5유지/postnorm없음. Hard/soft zeroJacobian둘다1/ε,폭주원인특정단정제한. Gcmp당시hard소스/epsilon미기록을currentsoft로재현하지않음. QK탐색유지/8seedCI not run. ASSESMENT감사18/results/assessment/20260922T051001Z-b66150e0/.
+
+
+## 추적 갱신 — 2026-09-22 14:24 KST (예약 감사19)
+
+HEADb6d4baf6a54ee950403df1f60d05f290073bee07/snapshot14:20:35/208파일,manifest불일치0/소스변경0. Qk2새η.5·학습η checkpoint CPUtest256/8085query 저장MSE/M_eff차0/hash일치. Recall .319099823128/.273289752622,M_eff .130831132549/.133798540174,G −.177158/+ .012631. η.5support확대·c hit감소는관찰이나uniform접근이개선원인이라는단정불가. 대응비정규화η.5 testpeak20.9183(22.7은full)→47.6679. η1 qk2 CSV8epoch/e1chk1epoch·완료JSON없음. G11 332.547중단은canonical보고,원시예외미확인;검증not run. 요약txt TypeError는None표출력오류로G11과별개. A09표본clip/absmax평균및ε보정누락잔여유지. 같은validation score→p→c진단후③key/④entmax분기;8seedCI/새학습not run. ASSESMENT감사19/results/assessment/20260922T052001Z-759f71ff/.
+
+
+## 추적 갱신 — 2026-09-22 15:14 KST (예약 감사20)
+
+HEADb6d4baf6a54ee950403df1f60d05f290073bee07/snapshot15:10:37/198파일. A10-CAL-QK-EPS VERIFIED:새eps파일조회.01승인/1미발견,강제.01→요청1 ValueError. 새보정θ.381469877/bound305.0375동일/sourcehash일치. A09 전체batch norm/clip집계추출검사 VERIFIED범위:8입력 mean1.175/max3/clip.375/count8. 새학습JSONCSV보존not run. absmax[1,9]→5남아A09전체OPEN/postclip없음. G11구조화기록guard합성peak11/bound10/epoch3/batch7에서write+raise검증,과거332.547사건확인아님. qk_norm_form의hard/soft유계정정수용,실제hard동조건not run. 새성능판단근거없음/8seedCI not run. ASSESMENT감사20/results/assessment/20260922T061002Z-5c0b3779/.
+
+
+## 추적 갱신 — 2026-09-22 15:24 KST (예약 감사21)
+
+HEAD8ecf96ea7e1fb1badd112586b22134d8bf0d4536/snapshot15:20:49/203파일,manifest불일치0/소스변경0. G11실제g11chk UUID44e2b2349fc29e28 epoch1batch0 peak332.54718017578125>305.0375175476074/config·보정일치. Epoch0best고정 CPUtrain512forward에서sequence381 peak동일차0,3개초과/전체max350.3652649. 새g11chk사건VERIFIED,train2048옛qk2원시provenance대체아님. 실제CSV전체8batch premean878689650.125/max3913563392/clip1/count8확인,CSV보존VERIFIED;gradient재계산/완료JSON not run. 개별absmax/postclip잔여. Hard/softzero bound동일≠형태효과없음(xnorm.02 eps.01출력1vs.894427);canonical Gη.2는−.123379(−.177158은.5). 새성능결과없음/8seedCI not run. ASSESMENT감사21/results/assessment/20260922T062001Z-d4a951fd/.

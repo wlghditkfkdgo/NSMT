@@ -1,0 +1,75 @@
+{
+  "calibration": [
+    {
+      "requested_eps": 0.01,
+      "natural_lookup": {
+        "file": "recall_k3_r2_a0.7_norm-frozen_qknorm-eps0.01_seed7_260922-151001.json",
+        "input_scale": 8.0,
+        "theta": 0.38146987702788376,
+        "g11_bound": 305.0375175476074,
+        "firing_rate": 0.1847657673060894
+      }
+    },
+    {
+      "requested_eps": 1.0,
+      "natural_lookup": null
+    }
+  ],
+  "forced_mismatched_eps": {
+    "rejected": true,
+    "message": "calibration artifact does not match this configuration, so its input_scale/theta/bound describe a different operating point:\n  qk_eps: calibration 0.01 vs requested 1.0\n  (file recall_k3_r2_a0.7_norm-frozen_qknorm-eps0.01_seed7_260922-151001.json) Re-run calibrate.py for this configuration."
+  },
+  "calibration_source_hash_matches": {
+    "layers.py": true,
+    "calibrate.py": true,
+    "config.py": true,
+    "data_provider/synthetic.py": true
+  },
+  "aggregation": {
+    "input_pre_norms": [
+      0.5,
+      2.0,
+      0.9,
+      1.2,
+      1.0,
+      0.2,
+      3.0,
+      0.6
+    ],
+    "result": {
+      "max_abs_state": 1.0,
+      "firing_rate": 0.15000000000000002,
+      "grad_absmax_all": 5.0,
+      "grad_total_norm_pre_mean": 1.1749999999999998,
+      "grad_total_norm_pre_max": 3.0,
+      "clip_rate_all_batches": 0.375,
+      "batches_seen": 8.0
+    },
+    "unconditional_append_nodes": 2
+  },
+  "synthetic_g11": {
+    "exception": "G11 violated: max|u| = 11.000 reached the bound 10.000 frozen at calibration (epoch 3, batch 7); record written to f_lif_pop_v3/forecasting/results/assessment/20260922T061002Z-5c0b3779/synthetic_g11/G11_violation.json",
+    "record": {
+      "event": "G11_violation",
+      "run_id": "AUDIT_SYNTHETIC_G11_NOT_A_TRAINING_RUN",
+      "run_uuid": "audit-only",
+      "epoch": 3,
+      "batch": 7,
+      "max_abs_state": 11.0,
+      "bound": 10.0,
+      "calibration_file": "AUDIT_SYNTHETIC",
+      "mode": "sparse",
+      "eta_fixed": 1.0,
+      "qk_norm": true,
+      "qk_eps": 0.01,
+      "utc": "2026-09-22T06:11:55.953044+00:00"
+    }
+  },
+  "current_epoch_assignment": true,
+  "json_fields_present": {
+    "grad_total_norm_pre_mean": true,
+    "grad_total_norm_pre_max": true,
+    "clip_rate_all_batches": true,
+    "batches_seen": true
+  }
+}

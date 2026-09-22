@@ -77,6 +77,8 @@ with torch.no_grad():
 actual = aux['state'].abs().amax(dim=(0, 1, 2))
 bad = dict(measured, firing_rate=.2, finite=True, max_abs_state=1001., max_abs_current=1.,
            branch_abs_mean=[1., 1., 1., 1.])
+if 'within_bound' in bad:
+    bad.update(within_bound=False, declared_bound=10.)
 picked, reason = calibrate.choose([bad])
 out['calibration'] = {'reported': measured, 'actual_branch_abs_max': actual.tolist(),
                       'bound_violating_candidate_accepted': picked is not None,

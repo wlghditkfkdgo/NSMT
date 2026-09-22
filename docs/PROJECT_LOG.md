@@ -3836,3 +3836,51 @@ seed 1개·12 epoch의 탐색적 실행이다. ε는 **기울기 진단**으로 
 ### 8. 다음
 
 감사가 요구한 통제 비교를 한다 — **고정 checkpoint에서 정책·계수만 바꿔** score → p → pre-cap → post-cap 각 단계의 정답 질량과 순위를 같은 표본에서 분리 측정한다. 이것이 감사의 조건부 규칙(④를 ③보다 앞당길지)의 판정 근거다.
+
+
+## 2026-09-22 15:14 KST — 예약 추적 감사20: 보정 ε 수정·전체 batch clip 집계·G11 구조화 기록 검사
+
+- Branch exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7/HEADb6d4baf6a54ee950403df1f60d05f290073bee07,snapshot15:10:37/198파일,manifest불일치0. 감사commit/tag없음. 연구변경train/calibrate·새보정·qk_norm_form,모델변환동일.
+- A10-CAL-QK-EPS VERIFIED:ε.01자연조회승인/ε1조회None/강제잘못된artifact ValueError. 보정scale8/θ.38146987702788376/G11bound305.0375175 및sourcehash일치. 보정전체재실행not run.
+- 실제AST append/reducer검사(학습loop미실행):8norm [.5,2,.9,1.2,1,.2,3,.6]→mean1.175/max3/clip .375/batches8. 전체batch수집·집계부분VERIFIED,새학습JSONCSV end-to-end not run. 기존absmax[1,9]→5라A09잔여OPEN/postclip없음. 과거gcmp/qk2표본통계를새의미로재해석금지.
+- G11writer만합성peak11/bound10/epoch3/batch7로실행해JSON후raise확인. Run ID AUDIT_SYNTHETIC_G11_NOT_A_TRAINING_RUN;과거qk2 332.547사건검증아님. qk_norm_form의hard/soft둘다1/ε정정수용,실제hard동조건실험not run.
+- 신규성능근거없음,모델/checkpoint/학습/GPU/독립8seedCI not run. Samevalidation score→p→c진단후③key/④entmax분기유지. Artifact NSMT/f_lif_pop_v3/forecasting/results/assessment/20260922T061002Z-5c0b3779/(inventory,source.diff,fixes_probe.py,fixes_probes.json,synthetic_g11/G11_violation.json,validation,append_validation),rawlog forecasting/log/assessment/동일run/fixes_probe.log. Exactcommand·문헌은ASSESMENT감사20. 연구소스수정/설치/git변이/프로세스중단/타세션대화접근·전송없음,감사3문서append·진단artifact만작성.
+
+
+## 2026-09-22 15:24 KST — 예약 추적 감사21: 실제 G11 기록·checkpoint 상태 초과 독립 확인
+
+- Branch exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7/HEAD8ecf96ea7e1fb1badd112586b22134d8bf0d4536,snapshot15:20:49/203파일,manifest불일치0/소스변경0. 감사commit/tag없음.
+- 실제g11chk-151001 UUID44e2b2349fc29e28,seed7/data_seed20260921,512/64/64,batch64,최대3epoch,η1/softε.01/θ.381469877/G11bound305.0375175. Eventepoch1batch0 peak332.54718017578125/config·보정일치. CPUtorch1.12/2threads에서epoch0best checkpoint고정train512 forward로sequence381동일값차0,3sequence초과/전체max350.3652649. 학습/optimizer 재현아님;새사건VERIFIED,옛2048seq qk2 원시근거대체아님.
+- 실제epoch0 CSV pre-norm mean878689650.125/max3913563392/clip_rate_all_batches1/batches8로전체8/8기록확인. A09 CSV보존부분VERIFIED,실제gradient재계산/최종JSON보존not run. 개별absmax/postclip잔여유지.
+- Canonical15:10보완:hard/softlocal bound같음≠동일ε형태효과없음,eps.01/xnorm.02 출력1vs.894427. Gη.2 −.1233793961,−.177158은η.5. 그외인과단정철회취지수용. 새성능평가/8seedCI not run,동일validation경로진단+안정성기록우선유지.
+- Artifact NSMT/f_lif_pop_v3/forecasting/results/assessment/20260922T062001Z-d4a951fd/(inventory,event_probe.py,event_probes.json,claim_checks.json,validation,append_validation),rawlog forecasting/log/assessment/동일run/event_probe.log. Exactcommand·문헌은ASSESMENT감사21. 학습/backward/optimizer/GPU/설치/연구소스수정/git변이/프로세스중단/타세션대화접근·전송없음,감사3문서append·진단artifact만작성.
+
+---
+
+## 2026-09-22 16:07 KST — 감사 20·21 수용: absmax 집계 결함과 인용 오류 (학습 없음)
+
+### 1. A09-ABSMAX — `grad_absmax_all`이 최댓값이 아니었다
+
+배치별 최댓값을 모은 뒤 epoch 집계에서 **평균**으로 줄이고 있었다. 감사 반례대로 gradient가 `[1, 9]`면 **5**를 보고한다. 사전등록이 요구한 `max|grad|`가 아니다.
+
+`absmax` 또는 `_max`로 끝나는 필드는 `np.max`로, 나머지는 `np.mean`으로 줄이도록 고쳤다. 확인: `[1,9] → grad_absmax_all 9.0`, `grad_total_norm_pre_max 9.0`, `eta 5.0`. 관찰 횟수(`grad_observations`)도 따로 남긴다.
+
+### 2. 인용 오류 정정
+
+직전 항목에 "고정 η 0.2(−0.1772)"라고 썼는데 **−0.1772는 η=0.5의 값**이다. 올바른 값은 **η=0.2 → −0.1234, η=0.5 → −0.1772**다.
+
+### 3. 감사가 VERIFIED로 올린 항목
+
+- **A10-CAL-QK-EPS**: ε=0.01 보정에 ε=1 요청을 강제 연결해도 ValueError로 거부됨을 감사가 직접 확인.
+- **A09-CLIP-ALL-BATCHES**: watch 조건 밖 무조건 수집과 CSV 보존 확인.
+- **A05/G11-RECORD / G11-g11chk**: 합성 값(peak 11/bound 10/epoch 3/batch 7)으로 writer 경로 검증, 그리고 실제 `g11chk-151001`의 기록을 **저장 checkpoint의 forward만으로 독립 재현**(peak 332.54718017578125, bound 305.0375175476074, UUID 44e2b2349fc29e28, epoch 1 batch 0).
+
+### 4. 감사가 구분을 요구한 것
+
+이번 `g11chk`는 train/val/test **512/64/64**·최대 3 epoch이고, 과거 `qk2`는 **2048**·최대 12 epoch이다. 같은 숫자가 나왔다고 해서 **과거 qk2 사건의 원시 증거까지 복구된 것은 아니다.** 두 사건을 suite·UUID로 구분해 기록한다.
+
+또한 G11 검사 자체는 여전히 `watch` 표본에서만 실행되므로, 기록 보완이 **전 학습 step의 상태 감시를 추가한 것은 아니다.**
+
+### 5. 남은 OPEN
+
+A09의 개별 WQ/WK absmax가 여전히 watch 표본 구조인 점과 post-clip norm 미기록, A02의 실제 표본 분포 연결, A07-REGEN, A10-PROVENANCE·LOG.
