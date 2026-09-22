@@ -7,22 +7,27 @@ from layers import Embedding, to_patches
 __all__ = ['myModel', 'GRUBaseline', 'truth_to_oracle_p']
 
 
-def truth_to_oracle_p(truth, step, embed_dim):
+def truth_to_oracle_p(truth, kind, step, embed_dim):
     """Turn the generator's answer set into the oracle policy p for one step.
 
     truth : [B, T, T] bool, truth[b, n, j] = "j is where y[b, n] was shown"
+    kind  : [B, T] int8, 0 = copy, 1 = recall, 2 = recall and first of its run
     step  : n, the event being answered
-    returns p : [B, D, n], uniform over the answer slots
+    returns p : [B, D, n], uniform over the answer slots on recall events
 
-    Fallback, declared here rather than left implicit (audit A12): an event with no answer
-    slot -- n = 0, and every event inside a key's first run, where the value is in the input
-    and nothing has to be recalled -- gets a UNIFORM p over the whole past. Uniform p is
-    exactly the eta=0 kernel (gate G7b), so the fallback injects no information; it neither
-    helps nor handicaps the oracle on events that need no recall.
+    The policy is uniform -- that is, exactly the eta=0 kernel (gate G7b), injecting nothing
+    -- on n = 0 and on every COPY event. The first draft applied the answer set wherever
+    truth was non-empty, which also caught copy events inside a key's first run that already
+    had an earlier presentation behind them: 610 of them in one test split (audit A12-ORACLE).
+    That made the oracle stronger than its own description and inflated the headroom that
+    O7's G divides by. Confining it to recall events keeps the oracle's advantage where the
+    claim is, and `kind` must be passed for oracle mode for that reason.
     """
     if step == 0:
         return None
     mask = truth[:, step, :step].to(torch.float32)                  # [B, n]
+    if kind is not None:
+        mask = mask * (kind[:, step] > 0).to(mask.dtype).unsqueeze(-1)
     total = mask.sum(-1, keepdim=True)
     mask = torch.where(total > 0, mask / total.clamp_min(1.), torch.full_like(mask, 1. / step))
 
@@ -65,7 +70,7 @@ class myModel(nn.Module):
         self.head_compress = nn.Linear(embed_dim, head_dim)
         self.head = nn.Linear(head_dim * (self.num_patches if head_mode == 'flatten' else 1), pred_len)
 
-    def forward(self, x, mode='sparse', truth=None, return_aux=False):
+    def forward(self, x, mode='sparse', truth=None, kind=None, return_aux=False):
         #  x: [B, L, C]  ->  recall: [B, T]   ett: [B, pred_len, C]
         if x.ndim != 3 or x.shape[1] != self.seq_len:
             raise ValueError('Expected [B, seq_len, C] input')
@@ -74,12 +79,13 @@ class myModel(nn.Module):
 
         oracle_p = None
         if mode == 'oracle':
-            if truth is None:
-                raise ValueError('oracle mode needs the generator truth')
+            if truth is None or kind is None:
+                raise ValueError('oracle mode needs the generator truth and the event kinds')
             if C != 1:
                 raise ValueError('oracle policy is defined for the single-channel recall task')
             embed_dim = self.recall_head.in_features
-            oracle_p = [truth_to_oracle_p(truth, n, embed_dim) for n in range(self.num_patches)]
+            oracle_p = [truth_to_oracle_p(truth, kind, n, embed_dim)
+                        for n in range(self.num_patches)]
 
         want = return_aux or self.readout != 'spike'
         analog = False if self.readout == 'spike' else self.readout
@@ -117,7 +123,7 @@ class GRUBaseline(nn.Module):
         self.head_compress = nn.Linear(embed_dim, head_dim)
         self.head = nn.Linear(head_dim * (self.num_patches if head_mode == 'flatten' else 1), pred_len)
 
-    def forward(self, x, mode='sparse', truth=None, return_aux=False):
+    def forward(self, x, mode='sparse', truth=None, kind=None, return_aux=False):
         #  x: [B, L, C]  ->  recall: [B, T]   ett: [B, pred_len, C]
         B, L, C = x.shape
         patch = to_patches(x, self.patch_size)

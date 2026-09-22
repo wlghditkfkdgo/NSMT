@@ -3118,3 +3118,74 @@ Artifacts: `NSMT/f_lif_pop_v3/reference/golden/{scalar_trajectories.csv,SHA256SU
 §1의 정정값은 기존 checkpoint를 다시 읽어 계산한 것이며 새 학습이 아니다. §3의 진단은 1 epoch·256 시퀀스 실행의 관측이다.
 
 Artifacts: `NSMT/docs/Population_fLIF_v3_prereg_KO.md` §2F, `NSMT/f_lif_pop_v3/analysis/check_model_phaseAC.txt`.
+
+
+## 2026-09-22 10:38 KST — v3 예약 추적 감사10: 진단 집계·실행 계약 재검사
+
+- 목적: A02/A05/A09/A10/A12 수정과 새diag3 결과 감사. Branch exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7, 관찰HEAD73599f02a6cec05e485ea078669a9cb1723a83e7+미커밋수정. 감사자commit/tag 없음. Snapshot /tmp/nsmt_assessment_20260922T013001Z-6c439d7a(10:30:36 KST,111파일) 및 sourcehash inventory 고정.
+- 모델/학습변경 없음. CPU Python3.10/torch1.12/2threads,기존seed7/data_seed20260921/r2k3/frozen-scale8 checkpoint 재평가. Pilot15epoch(theta1) recall.269893671218/M_eff.133093031595;diag3 12epoch(theta5.56134335) recall.272620149439/M_eff.132756536374. 각각2048/256/256 split, MSE차<=2.8e-17. epoch/θ달라통제비교아님. batch16/128 primary차0.
+- A02 집계/A05 branch 실패배선 VERIFIED. Legacy정상복원,빈truth진단/no-test 학습후AST/hash분리 scoped VERIFIED. Train함수·optimizer미실행. Calibration tau/cue거부·기본guard확인,전체계약OPEN.
+- **A10-RESTORE-STATS OPEN(P1)**: norm_mean/std누락임시checkpoint승인,예측최대차.8706527948. 원본손상주장아님. 일반weight누락거부. Schema/version 기반 migration 필요.
+- **10:31 canonical항목 정정 권고:** singleton.038 및 gradient표본 norm만으로 singleton원인기각/폭주소멸없음/eta원인단정불가. 이번diag3 singleton.06798,gradQ.004664/K.013687/eta.003896은마지막epoch표본평균. 사전등록max|grad|·nonfinite기록과통제조건이필요. 성능·8seed/CI not run.
+- Exact commands/세부수치/문헌링크는 NSMT/docs/ASSESMENT.md 감사10, artifacts NSMT/f_lif_pop_v3/forecasting/results/assessment/20260922T013001Z-6c439d7a/. 실행script는동폴더diagnostic_probe.py, 기존scripts/audit_calibration_failure_paths.py 및감사06 branch_failure_probe.py, 모두frozenroot 인자와CPU환경으로실행. source/model변경·학습·GPU·설치·프로세스중단·git변이없음. 사본hash/평가checkpoint/기존문서prefix보존. 다른세션진행중변경은다음주기.
+
+---
+
+## 2026-09-22 10:40 KST — readout 통제 실험: 스파이크가 학습된 선택의 이득을 삼킨다 (탐색적)
+
+**Branch:** `exp/f-lif-pop-v3` · **성격: 탐색적.** 12 epoch, 2048 시퀀스, seed 7 하나. 확정 결과가 아니다.
+
+### 1. 설계
+
+감사 A08이 요구한 대로 readout을 셋으로 분리해 **같은 데이터·seed·예산**에서 비교했다. 셋 다 gradient를 유지하므로 뉴런까지 end-to-end로 학습된다.
+
+| readout | 읽는 값 | 묻는 것 |
+|---|---|---|
+| `spike` | `s_n` | 모델 그 자체 |
+| `analog` | 리셋 **이후** 막전위 `v_n` | 스파이크 비선형성이 병목인가 |
+| `drive` | 소마 **이전** 가지 혼합 `a_n = Σ w_k u_{n+1,k}` | 정보가 가지 상태에 있는가 |
+
+초판 `analog`는 리셋 이후 막전위만 읽어 **두 질문을 구분하지 못했다.** `drive`를 추가해 분리했다.
+
+### 2. 결과 — recall MSE
+
+| 조건 | spike | analog | **drive** |
+|---|---:|---:|---:|
+| full (η=0) | 0.2763 | 0.2830 | 0.2747 |
+| **sparse (학습된 η≈0.026)** | 0.2726 | 0.2616 | **0.2122** |
+| oracle η=1 | **0.0297** | 0.0426 | 0.0316 |
+
+copy MSE: full 0.1487/0.2084/0.1274, sparse 0.1462/0.2072/0.1198, oracle 0.0921/0.1101/0.0833.
+
+### 3. 읽어야 할 것
+
+**readout은 full과 oracle에서는 사실상 무관하다.** full에서 drive 0.2747 vs spike 0.2763, oracle에서 0.0316 vs 0.0297로 스파이크가 오히려 약간 낫다. 즉 **스파이크 경로 자체가 정보를 못 나르는 것이 아니다.**
+
+**그런데 학습된 sparse에서만 큰 차이가 난다.** drive 0.2122 vs spike 0.2726(22% 차이). 같은 readout 안에서 보면 더 분명하다.
+
+| readout | full → learned sparse 개선 | **격차 회수율 G** |
+|---|---:|---:|
+| spike | 0.2763 → 0.2726 (1.3%) | **0.015** |
+| analog | 0.2830 → 0.2616 (7.6%) | 0.089 |
+| **drive** | 0.2747 → 0.2122 (**22.7%**) | **0.257** |
+
+**해석: 학습된 선택이 만들어내는 이득은 가지 상태에는 존재하지만 소마·스파이크를 통과하며 대부분 사라진다.** oracle처럼 강하고 정확한 신호는 스파이크를 통과해도 살아남지만(0.0297), 학습된 선택의 약하고 부분적인 신호는 살아남지 못한다.
+
+직전 항목에서 나는 readout 병목을 가설로 제기했다가 감사 지적으로 격하했고, analog만 봤을 때는 **지지되지 않았다**(analog가 spike보다 낫지 않음). `drive`를 추가하고 나서야 **조건부로 성립**함이 드러났다 — 병목은 무조건적이지 않고 **신호가 약할 때만** 작동한다.
+
+### 4. 한계
+
+seed 1개·12 epoch의 탐색적 실행이다. `drive`는 **스파이크가 전혀 없으므로 SNN이 아니다.** D8대로 주 결과는 스파이크이며 analog/drive는 진단이다. 또한 이 batch의 oracle 조건은 §5의 정책 수정 **이전** 코드로 실행됐다.
+
+### 5. 함께 고친 감사 항목
+
+| ID | 내용 |
+|---|---|
+| **A12-ORACLE** | oracle이 copy 사건에도 정답 칸을 가리켜 **headroom을 부풀렸다**. `kind>0`인 recall 사건에만 적용하고 나머지는 uniform(=η=0 커널)으로 바꿨다. 확인: t=10에서 64개 중 38개 시퀀스의 정책이 바뀌고(그 시점 copy 41건), copy가 없는 t=20/30에서는 0개 |
+| **A10-LOG** | `EpochLog.write()`를 trainer가 호출하지 않아 프로젝트 표준 `log/best_log_0.csv`가 없었다. `write()`로 교체해 생성 확인 |
+
+### 6. 다음
+
+`drive`와 `spike`의 격차는 **점수 함수만 고쳐서는 안 될 수도 있다**는 뜻이다. 다만 seed 1개 결과이므로 먼저 **재현**해야 한다. 정책 수정 후 oracle을 다시 돌리고, seed를 늘려 이 격차가 유지되는지 확인한 뒤에야 구조 변경을 논한다.
+
+Artifacts: `NSMT/f_lif_pop_v3/forecasting/results/{diag3-*,drive-*}/`.

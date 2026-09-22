@@ -37,7 +37,7 @@ def evaluate(model, data_loader, args, mode=None, baselines=False):
         x, y, truth, kind = batch
         x, y = x.float().to(args.device), y.float().to(args.device)
         truth = truth.to(args.device) if truth.numel() else None
-        output = model(x, mode=mode, truth=truth)
+        output = model(x, mode=mode, truth=truth, kind=kind.to(args.device) if mode == 'oracle' else None)
         error = (output - y).double()
         if args.task == 'recall':
             kind = kind.to(args.device)
@@ -114,7 +114,8 @@ def selection_diagnostics(model, data_loader, args, mode=None, batches=4):
         truth = truth.to(args.device)
         kind = kind.to(args.device)
         has_truth = truth.dim() == 3 and truth.shape[-1] > 0        # ETT는 truth가 비어 있다
-        _, aux = model(x, mode=mode, truth=truth if has_truth else None, return_aux=True)
+        _, aux = model(x, mode=mode, truth=truth if has_truth else None,
+                       kind=kind if has_truth else None, return_aux=True)
         live = aux['has_history']
         for key in pooled:
             pooled[key].append(aux[key][live].mean().item())

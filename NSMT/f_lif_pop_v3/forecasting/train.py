@@ -103,11 +103,12 @@ def train_one_epoch(model, data_loader, optimizer, args):
     for i, batch in enumerate(data_loader):
         if args.max_train_batches and i >= args.max_train_batches:
             break
-        x, y, truth, _ = batch
+        x, y, truth, kind = batch
         x, y = x.float().to(args.device), y.float().to(args.device)
+        kinds = kind.to(args.device) if args.mode == 'oracle' else None
         truth = truth.to(args.device) if args.mode == 'oracle' else None
         watch = args.model == 'myModel' and i % max(args.g11_every, 1) == 0
-        result = model(x, mode=args.mode, truth=truth, return_aux=watch)
+        result = model(x, mode=args.mode, truth=truth, kind=kinds, return_aux=watch)
         output, aux = result if watch else (result, None)
         loss = criterion(output, y)
         if not torch.isfinite(loss):
@@ -195,9 +196,10 @@ def train(args: Config):
     for epoch in range(args.epoch):
         train_result = train_one_epoch(model, train_loader, optimizer, args)
         val_result = val_one_epoch(model, val_loader, args)
-        logger.logging(epoch=epoch, train_result=train_result, val_result=val_result)
-        logger.verbose(epoch=epoch, lr=optimizer.param_groups[0]['lr'],
-                       train_result=train_result, val_result=val_result)
+        # write()가 TensorBoard·콘솔·CSV를 모두 처리한다. logging/verbose만 부르면
+        # 프로젝트 표준인 log/best_log_0.csv가 생기지 않는다 (audit A10-LOG).
+        logger.write(epoch=epoch, lr=optimizer.param_groups[0]['lr'],
+                     train_result=train_result, val_result=val_result)
         scheduler.step(val_result['loss'])
         stopper(val_result['loss'], model, args.save_model_state_path)
         if stopper.early_stop:
