@@ -23,8 +23,8 @@ from config import Config, parse_defaults                      # noqa: E402
 from model import LOAD_MODEL                                   # noqa: E402
 from data_provider.data_factory import data_provider           # noqa: E402
 
-STAGES = ('score_top1', 'score_rank', 'p_top1', 'p_mass', 'precap_mass', 'postcap_mass',
-          'kernel_mass', 'uniform_slot')
+STAGES = ('score_top1', 'score_rank', 'score_rank_chance', 'p_top1', 'p_mass', 'precap_mass',
+          'postcap_mass', 'kernel_mass', 'uniform_slot')
 
 
 @torch.no_grad()
@@ -75,6 +75,10 @@ def decompose(model, loader, args, batches=4):
                 'p_mass': ((p * mask).sum(-1) / p.sum(-1).clamp_min(1e-12)).mean(-1).double(),
                 'precap_mass': ((raw * mask).sum(-1) / raw.sum(-1).clamp_min(1e-12)).mean(-1).double(),
                 'postcap_mass': ((c * mask).sum(-1) / c.sum(-1).clamp_min(1e-12)).mean(-1).double(),
+                # 무작위 permutation에서 m개 정답 중 최상위의 0-based 기대 순위는 (n-m)/(m+1)이고,
+                # 이를 n-1로 정규화한다. 0.5는 m=1에서만 맞다 (audit 23 A02-STAGE-RANK).
+                'score_rank_chance': ((n - answer.sum(-1).double())
+                                      / (answer.sum(-1).double() + 1.) / max(n - 1, 1)),
                 'kernel_mass': ((b_hist * answer.double()).sum(-1) / b_hist.sum()
                                 ).expand(B).clone(),
                 'uniform_slot': (answer.sum(-1).double() / n),
@@ -112,14 +116,16 @@ def main():
             rows.append((label, decompose(model, loader, config)))
 
     print("단계별 정답 신호 (recall query 내부 평균 -> sequence 평균, kind>0만)")
-    print(f"{'조건':<22} {'score top1':>11} {'score rank':>11} {'p top1':>8} {'p mass':>8}"
-          f" {'pre-cap':>8} {'post-cap':>9} {'kernel':>8} {'chance':>8}")
+    print(f"{'조건':<22} {'score top1':>11} {'score rank':>11} {'rank 기준':>10} {'p mass':>8}"
+          f" {'pre-cap':>8} {'post-cap':>9} {'kernel':>8} {'top1 기준':>10}")
     for label, r in rows:
-        print(f"{label:<22} {r['score_top1']:>11.4f} {r['score_rank']:>11.4f} {r['p_top1']:>8.4f}"
+        print(f"{label:<22} {r['score_top1']:>11.4f} {r['score_rank']:>11.4f}"
+              f" {r['score_rank_chance']:>10.4f}"
               f" {r['p_mass']:>8.4f} {r['precap_mass']:>8.4f} {r['postcap_mass']:>9.4f}"
-              f" {r['kernel_mass']:>8.4f} {r['uniform_slot']:>8.4f}")
-    print("\nscore rank: 최상위 정답 칸의 정규화 순위 (0=1등, 0.5=무작위)")
-    print("kernel: 선택 없이 b_d만 쓸 때의 정답 질량.  chance: 무작위 한 칸이 정답일 확률")
+              f" {r['kernel_mass']:>8.4f} {r['uniform_slot']:>10.4f}")
+    print("\nscore rank: 최상위 정답 칸의 0-based 순위를 n-1로 정규화. 작을수록 좋다.")
+    print("rank 기준: 같은 표본의 무작위 permutation 기대값 (n-m)/((m+1)(n-1)). 0.5가 아니다.")
+    print("kernel: 선택 없이 b_d만 쓸 때의 정답 질량.  top1 기준: 무작위 한 칸이 정답일 확률")
 
 
 if __name__ == '__main__':

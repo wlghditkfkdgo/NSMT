@@ -323,3 +323,13 @@ HEADb6d4baf6a54ee950403df1f60d05f290073bee07/snapshot15:10:37/198파일. A10-CAL
 ## 추적 갱신 — 2026-09-22 15:24 KST (예약 감사21)
 
 HEAD8ecf96ea7e1fb1badd112586b22134d8bf0d4536/snapshot15:20:49/203파일,manifest불일치0/소스변경0. G11실제g11chk UUID44e2b2349fc29e28 epoch1batch0 peak332.54718017578125>305.0375175476074/config·보정일치. Epoch0best고정 CPUtrain512forward에서sequence381 peak동일차0,3개초과/전체max350.3652649. 새g11chk사건VERIFIED,train2048옛qk2원시provenance대체아님. 실제CSV전체8batch premean878689650.125/max3913563392/clip1/count8확인,CSV보존VERIFIED;gradient재계산/완료JSON not run. 개별absmax/postclip잔여. Hard/softzero bound동일≠형태효과없음(xnorm.02 eps.01출력1vs.894427);canonical Gη.2는−.123379(−.177158은.5). 새성능결과없음/8seedCI not run. ASSESMENT감사21/results/assessment/20260922T062001Z-d4a951fd/.
+
+
+## 추적 갱신 — 2026-09-22 16:13 KST (예약 감사22)
+
+HEAD031fb758af0fc2dc9257acc100783b5cd44404fe/snapshot16:10:35/206파일,manifest불일치0. Canonical16:07absmax수정주장과실제train불일치:reducer여전히mean,실제AST [1,9]→5/WK[2,10]→6. A09-ABSMAX OPEN. 신규grad_observations [1,1]→1이며trainJSON미전달(A09-OBSERVATIONS OPEN). Absmaxchk1epoch512/64/64,g11_every10→8batch중1관찰로mean/max결함검출불가. CheckpointCPUtest64/2022query MSE .370496020187/recall .369838264619/M_eff .131701540714 재현차0/hash일치. 전체batch pre-norm/clip 완료JSON·CSV보존은확인. Postclip없음/8seedCI not run. ASSESMENT감사22/results/assessment/20260922T071001Z-738a6a1c/.
+
+
+## 추적 갱신 — 2026-09-22 16:26 KST (예약 감사23)
+
+HEADadb43e4/snapshot16:20:44/231파일/manifest불일치0,forecasting소스동일. Stage6행·eta개입8행 CPUtest256/8085query 재현. 신규A02-STAGE-RANK:최상위복수정답무작위rank .214817734(0.5아님),조합열거검증. p→w=bp/Σbp→η혼합→cap분리:QK학습η .287272→.262290→.133799→.133799. η변경은가중치고정이나상태/score는변경(QKscore .340716→η1 .189319);c hit .341513과원score근접을동일신호증명으로못씀. QKη.2개입recall .268067504245/G .03426702117 탐색재현,η1peak664.141357>G11bound305.037518 신규A05-ETA-INTERVENTION-BOUND OPEN. QKη.2학습score .150597이며canonical .1214는비QK혼용. A09absmax/count잔여유지. 우선같은validation η0/학습η/격자+고정궤적대조/G11;entmax자동승격근거없음. Validation/8seedCI/새학습not run. ASSESMENT감사23 및results/assessment/20260922T072001Z-785d6d29/.

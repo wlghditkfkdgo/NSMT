@@ -1,0 +1,74 @@
+--- audit23/train.py
++++ audit24/train.py
+@@ -101,7 +101,8 @@
+     criterion = nn.MSELoss()
+     total = torch.zeros(3, dtype=torch.float64, device=args.device)
+     peak, rate = 0., []
+-    every_batch = {'grad_total_norm_pre': [], 'clip_rate': []}   # 표본이 아니라 전 배치
++    # 표본이 아니라 전 배치. post는 clipping 이후 실제 norm이다.
++    every_batch = {'grad_total_norm_pre': [], 'grad_total_norm_post': [], 'clip_rate': []}
+     watched = {k: [] for k in ('eta', 'kappa', 'would_cap_rate', 'support_p', 'score_std')}
+     selector_grad = {k: [] for k in ('grad_WQ_norm', 'grad_WK_norm', 'grad_eta_hat_norm',
+                                      'grad_WQ_absmax', 'grad_WK_absmax', 'grad_absmax_all',
+@@ -136,7 +137,9 @@
+                     default=0.))
+         # 이름을 total로 두면 위의 누적 변수를 덮어쓴다. clip_grad_norm_은 clipping 전 norm을 준다.
+         pre_clip = torch.nn.utils.clip_grad_norm_(model.parameters(), 1., error_if_nonfinite=True)
++        post = sum(float(q.grad.norm()) ** 2 for q in model.parameters() if q.grad is not None) ** .5
+         every_batch['grad_total_norm_pre'].append(pre_clip.item())
++        every_batch['grad_total_norm_post'].append(post)
+         every_batch['clip_rate'].append(1. if pre_clip.item() > 1. else 0.)
+         optimizer.step()
+         if watch:
+@@ -148,8 +151,7 @@
+                 watched[key].append(aux[key][live].mean().item())
+             # sparsemax가 한 칸만 고르면 score gradient가 0이다 (audit 5.2). 비율을 본다.
+             selector_grad['singleton_frac'].append((aux['support_size'][live] == 1).double().mean().item())
+-            selector_grad['grad_observations'] = selector_grad.get('grad_observations', [])
+-            selector_grad['grad_observations'].append(1.)     # 관찰 횟수를 별도로 남긴다
++
+             if args.g11_bound and peak >= args.g11_bound:
+                 # 예외만 던지면 stdout 밖에 증거가 남지 않는다 (audit 19 A05/G11).
+                 record = {'event': 'G11_violation', 'run_id': args.run_id,
+@@ -175,15 +177,25 @@
+         result['max_abs_state'] = peak
+         result['firing_rate'] = float(np.mean(rate))
+         # 진단에 NaN이 섞이면 조용히 퍼지지 않도록 여기서 걸러 기록한다.
+-        every = {'grad_total_norm_pre_mean': [np.mean(every_batch['grad_total_norm_pre'])],
++        every = {'grad_total_norm_pre_mean': [float(np.mean(every_batch['grad_total_norm_pre']))],
+                  'grad_total_norm_pre_max': [float(np.max(every_batch['grad_total_norm_pre']))],
+-                 'clip_rate_all_batches': [np.mean(every_batch['clip_rate'])],
+-                 'batches_seen': [len(every_batch['clip_rate'])]}
++                 'grad_total_norm_post_max': [float(np.max(every_batch['grad_total_norm_post']))],
++                 'clip_rate_all_batches': [float(np.mean(every_batch['clip_rate']))],
++                 'batches_seen': [float(len(every_batch['clip_rate']))]}
+         for source in (watched, selector_grad, every):
+             for key, values in source.items():
+                 finite = [v for v in values if np.isfinite(v)]
+                 if finite:
+-                    result[key] = float(np.mean(finite))
++                    # 필드 의미에 맞춰 줄인다. absmax를 평균으로 줄이면 배치 gradient가
++                    # [1, 9]일 때 5를 보고한다 (audit 20/22 A09-ABSMAX).
++                    if 'absmax' in key or key.endswith('_max'):
++                        result[key] = float(np.max(finite))
++                    elif key == 'batches_seen':
++                        result[key] = float(finite[0])
++                    else:
++                        result[key] = float(np.mean(finite))
++                    if source is selector_grad:
++                        result[key + '_observations'] = len(finite)
+                 if len(finite) < len(values):
+                     result[key + '_nonfinite'] = len(values) - len(finite)
+ 
+@@ -252,8 +264,9 @@
+                            ('firing_rate', 'max_abs_state', 'eta', 'kappa', 'would_cap_rate',
+                             'support_p', 'score_std', 'grad_WQ_norm', 'grad_WK_norm',
+                             'grad_eta_hat_norm', 'grad_WQ_absmax', 'grad_WK_absmax',
+-                            'grad_absmax_all', 'grad_total_norm_pre_mean',
+-                            'grad_total_norm_pre_max', 'clip_rate_all_batches', 'batches_seen',
++                            'grad_absmax_all', 'grad_absmax_all_observations',
++                            'grad_total_norm_pre_mean', 'grad_total_norm_pre_max',
++                            'grad_total_norm_post_max', 'clip_rate_all_batches', 'batches_seen',
+                             'singleton_frac')
+                            if k in train_result}
+                         | {k: v for k, v in train_result.items() if k.endswith('_nonfinite')}}
