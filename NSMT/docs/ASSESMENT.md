@@ -871,3 +871,73 @@ f_lif_pop_v3/forecasting/results/assessment/20260921T185001Z-86f72a84/gru_probes
 - **A10-PARAM 수용:** recall 경로 parameter가 GRU 4,065 대 myModel 490(8.3배)이므로 "GRU가 낫다"에 용량 동등성 주장을 붙이지 않는다. canonical 로그에 정정을 append했다.
 - `reference/make_golden.py`는 **의도적으로 미완성**이다. 상류 호출 순서를 기억으로 재구성하면 조용히 다른 기준이 만들어질 위험이 있어, 실제 checkout의 모듈 구조를 보고 채우도록 요구 사항만 명시했다. 현재 golden은 감사가 두 번 독립 검증한 파일이며 SHA256으로 고정돼 있다.
 - 여전히 OPEN: A02(학습 결과 집계에서 M_eff 정의 준수), A08(analog 통제 실험·gradient 진단), A10(run UUID·legacy artifact), A12(8 seed·CI·ETT).
+
+
+## 추적 감사 08 — 2026-09-22 10:15 KST (예약 `20260922T011001Z-6c90ce78`)
+
+### 관찰·사본·최신 계약
+
+기억/감사07/사전등록/canonical 기록을 읽고 trigger와 실제 파일을 대조했다. **10:10:40 KST**에 문서·소스·wirecheck 결과/checkpoint·golden90개 파일을 `/tmp/nsmt_assessment_20260922T011001Z-6c90ce78`에 별도 복사·hash한 뒤 검사했다. Trigger 뒤 `check_model.py`, `layers.py`, `check_model_phaseAC.txt`가 이미 바뀌어 감지 hash와 달랐으며 **실제 캡처 hash 기준으로 판정**한다. HEAD `d1fb43edaec12c7f87adcf06aade82b361c7187c` 위 미커밋 변경, branch `exp/f-lif-pop-v3`, base `329183b94f65090cc6b337f464c5aa4d8e127ad7`.
+
+캡처 source SHA256: train `db3379ad552988b66830db448fa023299e14b06e79ade6c4de8ba6271b0fd4a0`, config `c8d7dc8cfc6ad5aa667be3c571e48dd1b49311ad5c05dd33089ade34a1db7fd3`, layers `2cc20dafefa10303b031012cc6d6e4bad851249a30415dd102cf56e628ca1dbc`, check_model `254991b88723059b2a6c3b71ac10405b2234aaae5fe616baca53250b8fa9df57`.
+
+감사 중10:12 담당 append 및 사전등록 §2E **D-Z(θ 전달), D-AA(readout 경로), D-AB(G4 범위)**가 추가되어 읽고 `postscript` 문서 사본/hash도 남겼다. A10-PARAM 용량 비교와 readout 병목 가설·탐색적 G14 표현 정정도 확인했다. 이는 문서 개정 확인이며 실험 사본을 후속 내용으로 바꾼 것은 아니다. [Inventory](../f_lif_pop_v3/forecasting/results/assessment/20260922T011001Z-6c90ce78/inventory.json), [코드 diff](../f_lif_pop_v3/forecasting/results/assessment/20260922T011001Z-6c90ce78/changes.diff), [후속 문서 hash](../f_lif_pop_v3/forecasting/results/assessment/20260922T011001Z-6c90ce78/document_postscript_inventory.json), [독립 probe](../f_lif_pop_v3/forecasting/results/assessment/20260922T011001Z-6c90ce78/wirecheck_probes.json), [보존 검사](../f_lif_pop_v3/forecasting/results/assessment/20260922T011001Z-6c90ce78/validation.json).
+
+### (a) 구현: θ·readout 경로 수정 VERIFIED, reference 범위를 명시해 확인
+
+**A10-THETA 전달 / D-Z, VERIFIED(해당 배선):** `load_calibration()`이 theta를 반환하고 main이 input_scale/theta를 적용한다. 학습 함수만 config 반환으로 대체한 실제 main 설정 fixture에서 입력 scale1/theta123이 **8 / 5.561343350061557**로 바뀌고 calibrated_fields가 두 필드를 포함했다. 학습 함수는 실행하지 않았다. 기존 두 wirecheck 저장 config에서도 같은 값과 필드 목록을 확인했다. A10-CAL의 파일 계약/실패 정책과 θ 집계·적용 후 sparse 재검증 요구까지 해소된 것은 아니다.
+
+**A10-PATH spike/analog / D-AA, VERIFIED:** 같은 임시 suite에서 실제 main 설정을 연속 실행해 spike와 analog의 JSON·log/model_state 경로가 모두 달라지고 충돌 없이 생성됨을 확인했다. 실제 wirecheck도 두 경로와 checkpoint가 따로 존재한다. 다른 모든 hyperparameter 조합의 충돌 방지가 완료됐다는 뜻은 아니다.
+
+**A07/G4 / D-AB, VERIFIED — 분수 적분기 핵심부의 제한된 원본 대조:** golden CSV는 이전 감사자가 검증한 파일과 byte 단위로 같고 SHA256 **`2fda1abbb03743e1b9074d2fb7b7b84feeec8e322201b42b0b66bc0fc657a7b7`**이다. reference_results.json도 이전 감사 결과와 같다. 따라서 새 golden을 생성한 결과로 중복 집계하지 않는다. 새 공식 runner가 이를 실제 모델에 연결했다.
+
+고정 사본 `check_model.py --phase all`은 **20 passed / 0 failed / 0 not run, exit0**. G4는24조건 중 스파이크 없는7조건 전 구간과 나머지의 **첫 스파이크 이전 prefix**, 총360step에서 최대오차 **7.77e-16**이었다. 원본 spikeDE commit `fcd743befe504b1a471fa81887e6af7d6789da2e`의 궤적과 맞는 범위다. v3 가지는 reset하지 않으므로 **원본 뉴런 전체·reset 이후 동역학·full-wrapper/compiled/adjoint/GPU의 동등성을 뜻하지 않는다**. 기존 G4 소스 부재/NOT RUN 설명은 이제 역사적 상태다.
+
+`PopulationNeuron(dtype=...)`가 tau와 계수표를 생성 시점 dtype으로 만들고 runner가 float64 생성 후 모듈 전체를 변환한다. 외부 float64 기준을 검사한다는 점에서 내부적으로 같은 저정밀 buffer를 공유한 대조보다 강한 근거다. 기본 float32 모델의 두 checkpoint 평가도 아래에서 재현했다. 담당 기록의 수정 전3.35e-8 수치를 이번에 별도로 재실행한 것은 아니다.
+
+### (b) 검증: wirecheck는 기능 확인, golden 재생성 도구는 미완
+
+기존 wirecheck 두 run은 seed7/data_seed20260921, recall r2/k3, train/val/test256/64/64,batch64,**1epoch**,scale8/theta5.56134335다. 저장 checkpoint를 새로 로드해 평가한 값은 다음과 같고 **기록 MSE와 차이0**, 두 parameter hash도 일치했다.
+
+| readout | 전체 MSE | recall MSE | recall 첫 사건 MSE |
+|---|---:|---:|---:|
+| spike | 0.39791027904138554 | 0.392408747928214 | 0.39343133739001507 |
+| analog | 1.1693261601520692 | 1.1312525898272698 | 1.0137168154944944 |
+
+두 run의 source provenance는 layers.py만 이후 dtype 추가 때문에 캡처와 다르다. 이를 처음부터 같은 소스로 학습한 재현이라고 부르지 않는다. 이번은1epoch 기능 실행이므로 analog가 본질적으로 열등하다거나 readout 병목 가설이 기각됐다고 판단하지 않는다. 정식 통제 예산/독립8seed/CI·수렴 확인은 **not run**이다.
+
+**A07-REGEN 진행 중:** 후속 `reference/make_golden.py`는 명시적으로 Not implemented SystemExit를 내는 scaffold임을 소스로 확인했다. 실행 가능한 독립 재생성 entrypoint 완료로 세지 않는다. 현재 golden의 출처/hash와 이전 실제 상류 실행 증거는 유효하다. 기존 `scripts/audit_spikede_reference.py`와 고정 상류 모듈 호출을 재사용하는 재생성 절차를 연결한 뒤 CSV hash 일치를 검증할 것. 이번에는 상류 solver 재실행/환경 설치를 하지 않았다.
+
+**A10 기록 범위:** calibrated_fields는 현재 **config.pt/logargs.txt**에 저장된다. 결과 JSON의 provenance.calibration은 여전히 file/input_scale/g11_bound만 담고 theta/calibrated_fields를 직접 포함하지 않는다. 따라서 ‘결과에 필드가 저장됨’은 config까지 포함한 artifact 의미로 제한하며 JSON 단독 추적을 위해서도 추가하도록 권고한다. Best≠last parameter hash 문제는 trainer의 해당 코드가 그대로여서 OPEN이다. 이번1epoch에서 hash가 맞은 것으로 닫지 않는다. A02 집계/A05-BRANCH/A10-CAL·LOG·legacy/A12-ORACLE·ETT·test-off/epoch gradient 기록 요구도 변경 근거가 없어 유지한다.
+
+### (c) 개선 방향과 결론
+
+새 결과의 의미는 **θ 전달·readout 비교 실행 경로·공식 G4 연결이 작동한다는 것**이다. 새로 판정할 성능 우위 근거는 없다. 다음 우선순위는 남은 M_eff/branch/legacy·checkpoint provenance·gradient 기록을 정리하고, 이미 읽어본 test와 구분한 validation 계획으로 spike/analog 및 정책 대조군을 같은 예산에서 평가하는 것이다.1epoch 오차에 맞춰 readout이나 기준을 선택하지 않는다.
+
+기존에 원문 확인한 [Wiegreffe & Pinter(2019)](https://aclanthology.org/D19-1002/)의 통제 진단/다중 seed 비교, [Pascanu et al.(2013)](https://proceedings.mlr.press/v28/pascanu13.pdf)의 시간축 gradient·norm clipping 분석에 근거한 방향을 유지한다. 새 문헌 사실은 추가하지 않았다. **성능 및 학습 안정성 일반화는 보류한다.**
+
+### 실행·보존
+
+CPU torch1.12.0+cu113/2threads, 새 진단 `scripts/audit_v3_wirecheck.py`와 감사 문서/텍스트 증거만 작성했다. 새 학습·optimizer step·GPU·설치·모델 수정·프로세스 중단·git add/commit/tag/push/reset/switch·다른 세션 대화 열람·전송 없음. Main fixture는 train 함수를 대체한 설정 검사다. 원본 checkpoint/사본 hash·구문·append prefix를 확인했다. 학습/대조군 문제를 검증하지 않는 gate의20pass를 전체 연구 성공으로 해석하지 않는다.
+
+Exact commands(cwd NSMT; 각각 앞에 `OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib`):
+
+```bash
+/home/yschoi/.conda/envs/snn_recall/bin/python /tmp/nsmt_assessment_20260922T011001Z-6c90ce78/f_lif_pop_v3/forecasting/check_model.py --phase all
+/home/yschoi/.conda/envs/snn_recall/bin/python scripts/audit_v3_wirecheck.py /tmp/nsmt_assessment_20260922T011001Z-6c90ce78 f_lif_pop_v3/forecasting/results/assessment/20260922T011001Z-6c90ce78/wirecheck_probes.json
+```
+
+<!-- assessment-watch:20260922T011001Z-6c90ce78 -->
+
+
+## 추적 감사 09 — 2026-09-22 10:21 KST (예약 `20260922T012001Z-8b3e144d`)
+
+**새 판단 근거 없음.** 최신 기억·감사08·사전등록 §2E(D-Z/AA/AB)·canonical log를 읽고,10:20:33 KST에 실제 대상 파일을 `/tmp/nsmt_assessment_20260922T012001Z-8b3e144d`로 복사·hash했다. 관찰 HEAD **`ecec8d397862e6367e556668d82e6dd11e2e36e4`**, branch `exp/f-lif-pop-v3`. 이번 변경 목록의 prereg/check_model/analysis/layers/make_golden은 **감사08의 실험 사본 및 후속 문서 사본과 전부 같은 hash**이며 새 commit으로 기록된 것이다. Trigger와 현재 hash도 일치한다. 감사자3문서의 append를 연구 변경으로 세지 않았다. [대조 inventory](../f_lif_pop_v3/forecasting/results/assessment/20260922T012001Z-8b3e144d/inventory.json).
+
+- **(a) 구현:** A10-THETA 배선·A10-PATH spike/analog 분리·A07/G4 제한된 적분기 parity는 감사08의 VERIFIED 범위를 유지. 새 수정 판정 없음. `make_golden.py`는 동일한 미완 scaffold라 재생성 완료로 닫지 않는다.
+- **(b) 검증:** 새 실행 결과 없음. 동일 게이트/체크포인트 재검사는 **not run**. 기존20개 gate 통과를 다시 실행한 것으로 기록하지 않으며 A02/A05-BRANCH/A10-CAL·HASH·LOG·legacy/A12-ORACLE·ETT·test-off 등 미수정 이슈는 유지한다.
+- **(c) 개선:** 새 성능 판단 근거 없음. 감사08의 지표·실패 정책·provenance 정리와 통제된 readout/독립 seed 비교 방향을 유지하며 성능·안정성 일반화는 보류한다. 새 문헌 주장/검색 없음.
+
+수행 범위는 읽기·snapshot/hash·append뿐이다. 모델/학습 수정·학습·GPU·설치·프로세스 중단·git 변이·다른 세션 대화 열람/전송·예약 재생성 없음. 기존 결과/checkpoint/raw log를 보존했다.
+
+<!-- assessment-watch:20260922T012001Z-8b3e144d -->

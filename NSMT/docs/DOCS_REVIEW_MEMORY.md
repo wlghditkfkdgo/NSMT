@@ -233,3 +233,16 @@ Forecasting/AD의 retrieval, auxiliary loss, causal ablation, 에너지 회계, 
 - run_id의 model/alpha/readout JSON 구분은 확인했지만 analog/spike의 log/checkpoint 경로는 여전히 충돌(FileExistsError). A10-PATH 부분 확인/잔여 OPEN.
 - Recall 사용 모듈 parameter GRU4065 대 myModel490(selector 포함), 총 수134241/130666의 유사함은 미사용 forecasting head 때문. Parameter-matched라고 해석하지 않는다. 현재1seed에서는 GRU가 학습 sparse보다 낮은 recall MSE이나 정식 통계 우위/과제 완전 해결은 미입증. Oracle과 공정 순위 비교 금지.
 - 사전등록 D-X/Y 유지. Canonical θ5.561 표기는 실제config5.5로 정정 필요. Copy gap의 readout 병목 해석은 가설. ASSESMENT 감사07/results/assessment/20260921T185001Z-86f72a84/ 참조.
+
+
+## 추적 갱신 — 2026-09-22 10:15 KST (예약 감사08)
+
+- 최신 사전등록 §2E D-Z/AA/AB 추가를 후속 문서 사본으로 확인: theta 전달/readout 경로/G4 범위, parameter 비교·readout 가설 표현 정정. 원 실험 사본10:10:40 KST/HEADd1fb43e는 따로 고정했다.
+- A10-THETA 실제 main 설정에서123→5.56134335/scale1→8 확인, A10-PATH 같은 suite spike/analog 저장 경로 분리 VERIFIED. 기존1epoch wirecheck checkpoint2개 MSE/hash 재현. 성능 판정 아님. calibrated_fields는 config에 있고 JSON provenance에는 아직 theta와 함께 빠져 있음.
+- A07/G4 공식 runner20pass/0fail/0notrun, pinned golden은 이전 감사 파일과 동일.24조건/360step/최대7.77e-16은 첫 spike 전 또는 spike-free 적분기 비교이며 전체뉴런 parity 아님. 원본 부재 NOT RUN 상태 해소. make_golden.py는 미완 scaffold; 상류 재생성은 이번에 not run.
+- Best/last provenance와 A02/A05branch/legacy/ETT/test-off 등 기존 미수정 이슈 유지. 증거 ASSESMENT 감사08 및 results/assessment/20260922T011001Z-6c90ce78/.
+
+
+## 추적 갱신 — 2026-09-22 10:21 KST (예약 감사09)
+
+HEAD ecec8d397862e6367e556668d82e6dd11e2e36e4의 감지 내용은 감사08 사본+후속 문서와 hash가 같았다. 새 판단 근거 없음; 재검사 not run, 기존 상태 유지. Make_golden scaffold를 완료로 해석하지 않는다. 증거 results/assessment/20260922T012001Z-8b3e144d/inventory.json.

@@ -199,6 +199,8 @@ def main():
         if not check['within_bound']:
             failures.append(f"max|u| {check['max_abs_state']:.3f} at or above the declared "
                             f"bound {check['declared_bound']:.3f}")
+        if not constituents_healthy(check):                  # Full과 같은 정책을 적용한다
+            failures.append(f"unhealthy constituents {check['branch_abs_mean']}")
         if failures:
             picked, reason = None, 'sparse-at-init rejected: ' + '; '.join(failures)
             print(f"[calib] FAILED: {reason}")

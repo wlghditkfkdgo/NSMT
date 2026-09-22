@@ -743,3 +743,44 @@ golden을 `f_lif_pop_v3/reference/golden/scalar_trajectories.csv`에 고정하�
 ### 수용하되 주장하지 않는 것
 
 readout 병목은 **가설**로 둔다. copy 오차 차이만으로 손실 위치(임베딩/스파이크/readout)가 식별되지 않는다. `--readout analog`를 같은 데이터·seed·예산에서 통제 조건으로 돌려 구분한다. 또한 큰 oracle headroom은 **탐색적 관찰**이며 G14·O7의 확증 판정과 구분해 기재한다.
+
+---
+
+## 2F. 2026-09-22 추적 감사 03–06 수용 — 진단 집계와 실행 계약
+
+### D-AC. `M_eff` 집계 구현 정정 (D-Q 보강) — **보고된 수치가 틀렸다**
+
+`selection_diagnostics()`가 D-Q의 정의를 따르지 않았다. 세 가지가 어긋났다.
+
+1. `truth.any()`로 사건을 골라 **copy 사건이 섞였다.** 첫 등장 구간 안의 사건도 그 앞에 값이 제시된 칸을 가지므로 truth가 비어 있지 않다. 감사 재계산에서 1,899건이 섞였다.
+2. `(batch × 시점)`별 값을 한 리스트에 넣고 마지막에 평균했다. **D-Q가 고정한 "query 내부 평균 → sequence 평균"이 아니다.**
+3. `hit`이 첫 임베딩 유닛 하나만 봤다.
+
+정정 후 같은 checkpoint의 값이 바뀐다(감사 독립 재계산과 소수점 9자리까지 일치).
+
+| 조건 | 기존 보고 | **정정값** |
+|---|---:|---:|
+| 학습된 sparse | 0.2315 | **0.1331** |
+| full (η=0) 커널 질량 | 0.2290 | **0.1303** |
+| oracle η=0.5 | 0.5267 (**기준 통과처럼 보임**) | **0.4666 (기준 미달)** |
+| oracle η=1 | — | 1.0000 |
+
+**판정에 직접 영향이 있다.** 수정 전 값으로는 oracle η=0.5가 O7-① 0.5를 넘는 것처럼 보였으나 실제로는 넘지 못한다. 즉 **완벽한 정답 정책이라도 상한 적용 후 계수 질량이 임계값을 못 넘는 설정이 존재한다.** 임계값 0.5는 이번 결과에 맞춰 내리지 않으며, 저장된 옛 진단으로 O7-①을 판정하지 않는다.
+
+또한 학습된 선택자가 정답에 더 얹는 양은 **0.1331 − 0.1303 = 0.0028**에 불과하고, 가장 크게 읽은 칸이 정답인 비율(`hit`)은 **0.0000**이다(η=0.5 고정에서 0.0852, oracle에서 1.0000).
+
+### D-AD. 실행 계약 — 보정 artifact 호환성과 판정 누락
+
+| 항목 | 문제 | 조치 |
+|---|---|---|
+| **A10-CAL** | `load_calibration()`이 파일명만 맞춰 골라, `tau`·`cue_mode`·`eta_fixed`가 달라도 다른 동작점의 보정을 그대로 썼다 | `tau`·`K`·`α`·`heterogeneous`·`τ_s`·`θ_thr`·`patch_size`·`embed_dim`·`input_norm`·`cue_mode`·`n_keys`·`seq_len`을 대조해 불일치 시 **거부**한다. `seed`는 D11대로 의도적으로 공유한다. 파일 선택도 이름 정렬이 아니라 **실제 수정 시각** |
+| **A10-CAL** | 보정이 없으면 경고만 하고 상한 없이 학습을 계속했다 | `--require_calibration`(기본 참). 정식 실행은 실패, 탐색 실행만 `--no-require_calibration`으로 명시 |
+| **A05-BRANCH** | `constituents_healthy()`가 sparse 승인에 연결되지 않아 죽은 가지·1000배 불균형도 통과했다 | sparse 확인에 같은 정책 적용 |
+| **A10-HASH** | `parameter_hash`를 마지막 epoch 모델에서 계산하는데 평가는 best checkpoint를 다시 읽는다. **결과에 붙은 identity가 평가 모델과 달랐다** | `parameter_hash_last_epoch`와 `parameter_hash_evaluated`를 분리하고 `checkpoint_sha256`을 함께 저장 |
+| **A12-ETT** | 빈 truth `(B,0)`에서 `truth[:, n, :n]`이 IndexError. **ETT는 오차 계산 뒤 저장 전에 죽었다** | truth가 없는 task는 정답 질량·hit을 건너뛰고 상태·support 진단만 계산. ETTh1 1 epoch 실행으로 확인 |
+| **A12-TEST-SPLIT** | `--no-test`가 배선되지 않아 탐색 실행에서도 test를 봤다 | 실제로 배선. `test_skipped` 기록 |
+| **A10-KEYNORM-CKPT** | 새 buffer 때문에 옛 checkpoint가 strict 로드에서 실패하고, 옛 config에는 `key_norm` 속성이 없어 더 앞에서 죽었다 | 옛 config는 parser 기본값으로 채우고, **항등 기본값을 갖는 선택적 buffer 목록만** 누락을 허용한 뒤 그 외 불일치는 여전히 실패 처리 |
+
+### 남은 OPEN
+
+`EpochLog.write()`의 CSV 미호출(A10-LOG), `truth_to_oracle_p`의 fallback 설명과 실제 동작 불일치(A12-ORACLE), `selector_gradient.txt`의 실행 명령·seed 목록 미기재(A09), 학습 중 `max|grad|`의 사전등록 요구 기록.

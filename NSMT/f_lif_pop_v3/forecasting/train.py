@@ -35,11 +35,33 @@ def load_calibration(args):
     files = sorted(glob.glob(pattern))
     if not files:
         return None
+    files.sort(key=os.path.getmtime)                      # 파일명 정렬이 아니라 실제 최신
     with open(files[-1]) as handle:
         payload = json.load(handle)
     picked = payload.get('picked')
     if picked is None:
         return None
+
+    # 동작점을 바꾸는 축이 다르면 그 보정을 써서는 안 된다. seed는 의도적으로 공유한다 (D11).
+    saved = payload.get('args', {})
+    neuron = payload.get('neuron', {})
+    mismatch = []
+    for field, want in (('tau', list(args.tau)), ('num_population', args.num_population),
+                        ('alpha', args.alpha), ('heterogeneous', args.heterogeneous),
+                        ('tau_s', args.tau_s), ('threshold', args.threshold)):
+        have = neuron.get(field)
+        if have is not None and list(have) != want if isinstance(want, list) else have != want:
+            mismatch.append(f'{field}: calibration {have} vs requested {want}')
+    for field in ('patch_size', 'embed_dim', 'input_norm', 'cue_mode', 'n_keys', 'seq_len'):
+        have = saved.get(field)
+        if have is not None and have != getattr(args, field, have):
+            mismatch.append(f'{field}: calibration {have} vs requested {getattr(args, field)}')
+    if mismatch:
+        raise ValueError('calibration artifact does not match this configuration, so its '
+                         'input_scale/theta/bound describe a different operating point:\n  '
+                         + '\n  '.join(mismatch)
+                         + f'\n  (file {os.path.basename(files[-1])}) '
+                           'Re-run calibrate.py for this configuration.')
 
     return {'file': os.path.basename(files[-1]), 'input_scale': picked['input_scale'],
             'theta': picked.get('theta'),                     # D-X: 보정에서 정해 그대로 쓴다
@@ -157,8 +179,12 @@ def train(args: Config):
           f"{sum(p.numel() for n, p in model.named_parameters() if n in active)} trainable")
     if args.g11_bound:
         print(f"[train] G11 frozen bound {args.g11_bound:.1f} from {args.calibration_file}")
+    elif args.require_calibration:
+        raise ValueError('no calibration artifact matched this configuration. Run calibrate.py '
+                         'first, or pass --no-require_calibration for an exploratory run '
+                         '(which will be recorded as having no frozen G11 bound).')
     else:
-        print("[train] G11 bound NOT set: no calibration artifact matched. Run calibrate.py first.")
+        print("[train] G11 bound NOT set: exploratory run, no frozen bound is enforced.")
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5,
@@ -179,7 +205,12 @@ def train(args: Config):
             break
     logger.close()
 
-    payload = test(args)
+    if not args.test:
+        print('[train] --no-test: skipping the test split entirely')
+        payload = {'run_id': args.run_id, 'mode': args.mode, 'task': args.task,
+                   'seed': args.seed, 'test': None, 'test_skipped': True}
+    else:
+        payload = test(args)
     payload['train'] = {'epochs_run': epoch + 1, 'seconds': time.time() - started,
                         'best_val_loss': float(stopper.val_loss_min),
                         **{k: train_result[k] for k in
@@ -191,7 +222,7 @@ def train(args: Config):
         'calibration': {'file': args.calibration_file, 'input_scale': args.input_scale,
                         'g11_bound': args.g11_bound},
         'source_sha256': {name: sha256(str(TASK / name)) for name in SOURCE_FILES},
-        'parameter_hash': parameter_hash(model), 'trainable_parameters': active,
+        'parameter_hash_last_epoch': parameter_hash(model), 'trainable_parameters': active,
         'data': {'train': len(train_set), 'val': len(val_set),
                  'revision': 'r2' if args.task == 'recall' else None,
                  'data_seed': args.data_seed},
@@ -200,13 +231,18 @@ def train(args: Config):
     write_json(args.result_path, payload)
 
     # fresh reload: 저장한 것이 그대로 돌아오는지 확인한다. frozen 통계 포함.
+    checkpoint = os.path.join(args.save_model_state_path, 'best+model.pt')
     reloaded = LOAD_MODEL[args.model](args, train=False)
-    _, test_loader = data_provider(args, flag="test")
-    check = evaluate(reloaded, test_loader, args)[0]
-    same = abs(check['mse'] - payload['test']['mse']) < 1e-9
-    print(f"[train] fresh reload mse {check['mse']:.9f} vs saved {payload['test']['mse']:.9f} "
-          f"-> {'identical' if same else 'MISMATCH'}")
-    payload['provenance']['fresh_reload_matches'] = bool(same)
+    # 결과에 붙는 identity는 평가한 모델의 것이어야 한다. 마지막 epoch 모델이 아니다.
+    payload['provenance']['parameter_hash_evaluated'] = parameter_hash(reloaded)
+    payload['provenance']['checkpoint_sha256'] = sha256(checkpoint)
+    if args.test:
+        _, test_loader = data_provider(args, flag="test")
+        check = evaluate(reloaded, test_loader, args)[0]
+        same = abs(check['mse'] - payload['test']['mse']) < 1e-9
+        print(f"[train] fresh reload mse {check['mse']:.9f} vs saved {payload['test']['mse']:.9f} "
+              f"-> {'identical' if same else 'MISMATCH'}")
+        payload['provenance']['fresh_reload_matches'] = bool(same)
     write_json(args.result_path, payload)
 
     return payload

@@ -82,23 +82,39 @@ def evaluate(model, data_loader, args, mode=None, baselines=False):
 def selection_diagnostics(model, data_loader, args, mode=None, batches=4):
     """What the selector actually did, on real data.
 
-    m_eff is the POST-cap coefficient ratio that prereg D-Q defines, not the pre-cap formula
-    (1-eta)*m0 + eta, which only holds for a pre-cap perfect oracle. It is averaged over the
-    queries inside a sequence first and then over sequences, in that order, because queries
-    are not uniformly placed in time.
+    Three things the first draft got wrong and the audit caught (A02-DIAG):
+
+    * It selected events with ``truth.any()``, which also admits copy events -- an event
+      inside a key's first run still has earlier slots where the value was shown. 1899 copy
+      events were mixed into a supposedly recall-only figure. Now the mask is ``kind > 0``.
+    * It appended one number per (batch, timestep) and averaged those, which is neither the
+      query-then-sequence order D-Q fixes nor anything else well defined. Now each query's
+      share is accumulated per sequence, averaged within the sequence, and only then across
+      sequences.
+    * ``hit`` looked at the first embedding unit alone. Now it is averaged over all of them.
+
+    Recomputing the same checkpoint this way moved M_eff from 0.2315 to 0.1331, and the
+    oracle at eta=0.5 from 0.5267 -- above the O7 threshold -- to 0.4666, below it.
+
+    m_eff is the POST-cap coefficient ratio of D-Q, not the pre-cap formula
+    (1-eta)*m0 + eta, which holds only for a pre-cap perfect oracle.
     """
     model.eval()
     mode = mode or args.mode
-    per_sequence = {k: [] for k in ('m_eff', 'hit', 'kernel_mass')}
+    sequence = {k: [] for k in ('m_eff', 'hit', 'kernel_mass')}
     pooled = {k: [] for k in ('kappa', 'cap_rate', 'would_cap_rate', 'eta', 'support_p',
-                              'support_rho', 'support_braw', 'support_c')}
-    peak, peak_branch, finite = 0., None, True
+                              'support_rho', 'support_braw', 'support_c', 'support_size',
+                              'score_std')}
+    peak, peak_branch, finite, queries = 0., None, True, 0
     for i, batch in enumerate(data_loader):
         if i >= batches:
             break
         x, y, truth, kind = batch
-        x, truth = x.float().to(args.device), truth.to(args.device)
-        _, aux = model(x, mode=mode, truth=truth, return_aux=True)
+        x = x.float().to(args.device)
+        truth = truth.to(args.device)
+        kind = kind.to(args.device)
+        has_truth = truth.dim() == 3 and truth.shape[-1] > 0        # ETT는 truth가 비어 있다
+        _, aux = model(x, mode=mode, truth=truth if has_truth else None, return_aux=True)
         live = aux['has_history']
         for key in pooled:
             pooled[key].append(aux[key][live].mean().item())
@@ -107,29 +123,43 @@ def selection_diagnostics(model, data_loader, args, mode=None, batches=4):
         branch = magnitude.amax(dim=(0, 1, 2)).cpu().numpy()
         peak_branch = branch if peak_branch is None else np.maximum(peak_branch, branch)
         finite = finite and bool(torch.isfinite(aux['state']).all())
+        if not has_truth:
+            continue
 
         b = model.embedding.neuron.b
+        B = x.shape[0]
+        totals = {k: torch.zeros(B, dtype=torch.float64, device=args.device) for k in sequence}
+        counts = torch.zeros(B, dtype=torch.float64, device=args.device)
         for n in range(1, len(aux['coeff'])):
-            c = aux['coeff'][n]                                   # [B, D, n]
+            c = aux['coeff'][n]                                     # [B, D, n]
             if c is None:
                 continue
-            answer = truth[:, n, :n]                              # [B, n]
-            has = answer.any(-1)
-            if not has.any():
+            answer = truth[:, n, :n]                                # [B, n]
+            # recall 사건만 센다. kind>0이 아니면 정답이 현재 입력에 있다.
+            valid = (kind[:, n] > 0) & answer.any(-1)
+            if not valid.any():
                 continue
             mask = answer.unsqueeze(1).to(c.dtype)
-            share = (c * mask).sum(-1) / c.sum(-1).clamp_min(1e-12)
-            per_sequence['m_eff'].append(share[has].mean().item())
-            top = c.argmax(-1)                                    # 가장 크게 읽은 칸
-            per_sequence['hit'].append(answer.gather(1, top[:, :1].clamp_max(n - 1))[has[:, None]
-                                                                                    ].float().mean().item())
+            share = ((c * mask).sum(-1) / c.sum(-1).clamp_min(1e-12)).mean(-1)   # D 평균 -> [B]
+            top = c.argmax(-1)                                      # [B, D]
+            hit = answer.gather(1, top.clamp_max(n - 1)).to(torch.float64).mean(-1)
             bh = b[1:n + 1].flip(0).double()
-            per_sequence['kernel_mass'].append(
-                ((bh * answer.double()).sum(-1) / bh.sum())[has].mean().item())
+            kernel = (bh * answer.double()).sum(-1) / bh.sum()
+            keep = valid.to(torch.float64)
+            totals['m_eff'] += share.double() * keep
+            totals['hit'] += hit * keep
+            totals['kernel_mass'] += kernel * keep
+            counts += keep
+        answered = counts > 0
+        queries += int(counts.sum().item())
+        for key in sequence:                                        # 시퀀스 내부 평균 -> 시퀀스별 값
+            sequence[key].extend((totals[key][answered] / counts[answered]).cpu().tolist())
 
     bound = getattr(args, 'g11_bound', None)
-    return {**{k: float(np.mean(v)) if v else None for k, v in per_sequence.items()},
+    return {**{k: (float(np.mean(v)) if v else None) for k, v in sequence.items()},
             **{k: float(np.mean(v)) for k, v in pooled.items()},
+            'sequences': len(sequence['m_eff']), 'queries': queries,
+            'aggregation': 'mean over recall queries within a sequence, then over sequences',
             'max_abs_state': peak, 'branch_abs_max': [float(v) for v in peak_branch],
             'finite': finite, 'g11_bound': bound,
             'within_bound': None if bound is None else bool(peak < bound)}

@@ -1,0 +1,373 @@
+--- audit09/f_lif_pop_v3/forecasting/calibrate.py
++++ audit10/f_lif_pop_v3/forecasting/calibrate.py
+@@ -199,6 +199,8 @@
+         if not check['within_bound']:
+             failures.append(f"max|u| {check['max_abs_state']:.3f} at or above the declared "
+                             f"bound {check['declared_bound']:.3f}")
++        if not constituents_healthy(check):                  # Full과 같은 정책을 적용한다
++            failures.append(f"unhealthy constituents {check['branch_abs_mean']}")
+         if failures:
+             picked, reason = None, 'sparse-at-init rejected: ' + '; '.join(failures)
+             print(f"[calib] FAILED: {reason}")
+--- audit09/f_lif_pop_v3/forecasting/config.py
++++ audit10/f_lif_pop_v3/forecasting/config.py
+@@ -107,9 +107,21 @@
+     parser.add_argument('--max_train_batches', type=int, default=0, help='Smoke only; zero uses all windows')
+     parser.add_argument('--max_eval_batches', type=int, default=0, help='Smoke only; zero uses all windows')
+     parser.add_argument('--test', action=argparse.BooleanOptionalAction, default=True)
++    parser.add_argument('--require_calibration', action=argparse.BooleanOptionalAction, default=True,
++                        help='fail instead of training without a frozen G11 bound')
+     parser.add_argument('--config', default=None, help='Existing run directory for standalone test')
+ 
+     return parser.parse_args()
++
++
++def parse_defaults():
++    """Parser defaults only, for filling attributes absent from an older saved config."""
++    import sys
++    argv, sys.argv = sys.argv, [sys.argv[0]]
++    try:
++        return parse_arguments()
++    finally:
++        sys.argv = argv
+ 
+ 
+ class Config():
+@@ -153,6 +165,10 @@
+         for key, value in torch.load(os.path.join(config_path, 'model_state/config.pt'),
+                                      map_location='cpu').items():
+             setattr(self, key, value)
++        # 나중에 추가된 인자는 옛 config에 없다. parser 기본값으로 채운다.
++        for key, value in vars(parse_defaults()).items():
++            if not hasattr(self, key):
++                setattr(self, key, value)
+         self.device = torch.device('cpu' if config.cpu else f'cuda:{config.num_device}')
+ 
+     def save_arg(self):
+--- audit09/f_lif_pop_v3/forecasting/layers.py
++++ audit10/f_lif_pop_v3/forecasting/layers.py
+@@ -185,7 +185,8 @@
+             # p는 None이다. b/sum(b)를 p라고 부르면 latent uniform p와 혼동된다 (audit A08).
+             return c, {'p': None, 'rho': torch.ones_like(c), 'score': None,
+                        'eta': zeros, 'kappa': ones, 'cap_rate': zeros,
+-                       'would_cap_rate': zeros,
++                       'would_cap_rate': zeros, 'support_size': ones * J,
++                       'score_std': zeros,
+                        'support_p': ones, 'support_rho': ones, 'support_braw': ones,
+                        'support_c': ones}
+ 
+@@ -234,7 +235,11 @@
+                'support_p': (p > 0).to(c.dtype).mean(-1).detach(),
+                'support_rho': (rho > 0).to(c.dtype).mean(-1).detach(),
+                'support_braw': (raw > 0).to(c.dtype).mean(-1).detach(),
+-               'support_c': (c > 0).to(c.dtype).mean(-1).detach()}
++               'support_c': (c > 0).to(c.dtype).mean(-1).detach(),
++               # singleton support에서는 sparsemax의 score gradient가 0이다. 비율을 본다.
++               'support_size': (p > 0).sum(-1).to(c.dtype).detach(),
++               # 과거가 1칸인 시점(n=1)에서 표본표준편차는 NaN이다. 모표준편차를 쓴다.
++               'score_std': score.std(-1, unbiased=False).detach()}
+ 
+         return c, aux
+ 
+@@ -335,8 +340,8 @@
+         u = x.new_zeros(B, D, self.num_population)                   # u_0 = 0, 리셋 없음
+         v = x.new_zeros(B, D)
+         incs, keys, spikes, live = [], [], [], []                    # f(j), xi_j, s_n, v_n(graph)
+-        keep = ('kappa', 'cap_rate', 'would_cap_rate', 'eta',
+-                'support_p', 'support_rho', 'support_braw', 'support_c')
++        keep = ('kappa', 'cap_rate', 'would_cap_rate', 'eta', 'support_p', 'support_rho',
++                'support_braw', 'support_c', 'support_size', 'score_std')
+         logs = {k: [] for k in ('state', 'voltage', 'coeff') + keep}
+ 
+         for t in range(T):
+--- audit09/f_lif_pop_v3/forecasting/model.py
++++ audit10/f_lif_pop_v3/forecasting/model.py
+@@ -10,12 +10,26 @@
+               'head_mode', 'readout', 'input_scale', 'input_norm']
+ 
+ 
++# 뒤에 추가된 buffer들. 기본값이 항등이라 없으면 옛 동작과 같다.
++OPTIONAL_BUFFERS = ('embedding.neuron.selector.key_mean', 'embedding.neuron.selector.key_std',
++                    'embedding.norm_mean', 'embedding.norm_std',
++                    'embedding.neuron.selector.eta_value')
++
++
+ def _restore(model, args, train):
+     if not train:
+         path = os.path.join(args.save_model_state_path, 'best+model.pt')
+-        # strict=True: frozen normalisation buffers must come back with the weights,
+-        # otherwise a reloaded model silently runs at a different operating point.
+-        model.load_state_dict(torch.load(path, map_location='cpu'), strict=True)
++        state = torch.load(path, map_location='cpu')
++        missing, unexpected = model.load_state_dict(state, strict=False)
++        # strict=False로 열되 무엇이 빠졌는지 직접 검사한다. frozen 통계가 조용히
++        # 항등으로 되돌아가면 재로드 모델이 다른 동작점에서 돌게 된다.
++        surprising = [k for k in missing if k not in OPTIONAL_BUFFERS]
++        if surprising or unexpected:
++            raise RuntimeError(f'checkpoint schema mismatch: missing {surprising}, '
++                               f'unexpected {list(unexpected)}')
++        if missing:
++            print(f"[model] checkpoint predates {len(missing)} optional buffer(s) "
++                  f"({', '.join(missing)}); they keep their identity defaults")
+ 
+     return model.to(args.device)
+ 
+--- audit09/f_lif_pop_v3/forecasting/test.py
++++ audit10/f_lif_pop_v3/forecasting/test.py
+@@ -82,23 +82,39 @@
+ def selection_diagnostics(model, data_loader, args, mode=None, batches=4):
+     """What the selector actually did, on real data.
+ 
+-    m_eff is the POST-cap coefficient ratio that prereg D-Q defines, not the pre-cap formula
+-    (1-eta)*m0 + eta, which only holds for a pre-cap perfect oracle. It is averaged over the
+-    queries inside a sequence first and then over sequences, in that order, because queries
+-    are not uniformly placed in time.
++    Three things the first draft got wrong and the audit caught (A02-DIAG):
++
++    * It selected events with ``truth.any()``, which also admits copy events -- an event
++      inside a key's first run still has earlier slots where the value was shown. 1899 copy
++      events were mixed into a supposedly recall-only figure. Now the mask is ``kind > 0``.
++    * It appended one number per (batch, timestep) and averaged those, which is neither the
++      query-then-sequence order D-Q fixes nor anything else well defined. Now each query's
++      share is accumulated per sequence, averaged within the sequence, and only then across
++      sequences.
++    * ``hit`` looked at the first embedding unit alone. Now it is averaged over all of them.
++
++    Recomputing the same checkpoint this way moved M_eff from 0.2315 to 0.1331, and the
++    oracle at eta=0.5 from 0.5267 -- above the O7 threshold -- to 0.4666, below it.
++
++    m_eff is the POST-cap coefficient ratio of D-Q, not the pre-cap formula
++    (1-eta)*m0 + eta, which holds only for a pre-cap perfect oracle.
+     """
+     model.eval()
+     mode = mode or args.mode
+-    per_sequence = {k: [] for k in ('m_eff', 'hit', 'kernel_mass')}
++    sequence = {k: [] for k in ('m_eff', 'hit', 'kernel_mass')}
+     pooled = {k: [] for k in ('kappa', 'cap_rate', 'would_cap_rate', 'eta', 'support_p',
+-                              'support_rho', 'support_braw', 'support_c')}
+-    peak, peak_branch, finite = 0., None, True
++                              'support_rho', 'support_braw', 'support_c', 'support_size',
++                              'score_std')}
++    peak, peak_branch, finite, queries = 0., None, True, 0
+     for i, batch in enumerate(data_loader):
+         if i >= batches:
+             break
+         x, y, truth, kind = batch
+-        x, truth = x.float().to(args.device), truth.to(args.device)
+-        _, aux = model(x, mode=mode, truth=truth, return_aux=True)
++        x = x.float().to(args.device)
++        truth = truth.to(args.device)
++        kind = kind.to(args.device)
++        has_truth = truth.dim() == 3 and truth.shape[-1] > 0        # ETT는 truth가 비어 있다
++        _, aux = model(x, mode=mode, truth=truth if has_truth else None, return_aux=True)
+         live = aux['has_history']
+         for key in pooled:
+             pooled[key].append(aux[key][live].mean().item())
+@@ -107,29 +123,43 @@
+         branch = magnitude.amax(dim=(0, 1, 2)).cpu().numpy()
+         peak_branch = branch if peak_branch is None else np.maximum(peak_branch, branch)
+         finite = finite and bool(torch.isfinite(aux['state']).all())
++        if not has_truth:
++            continue
+ 
+         b = model.embedding.neuron.b
++        B = x.shape[0]
++        totals = {k: torch.zeros(B, dtype=torch.float64, device=args.device) for k in sequence}
++        counts = torch.zeros(B, dtype=torch.float64, device=args.device)
+         for n in range(1, len(aux['coeff'])):
+-            c = aux['coeff'][n]                                   # [B, D, n]
++            c = aux['coeff'][n]                                     # [B, D, n]
+             if c is None:
+                 continue
+-            answer = truth[:, n, :n]                              # [B, n]
+-            has = answer.any(-1)
+-            if not has.any():
++            answer = truth[:, n, :n]                                # [B, n]
++            # recall 사건만 센다. kind>0이 아니면 정답이 현재 입력에 있다.
++            valid = (kind[:, n] > 0) & answer.any(-1)
++            if not valid.any():
+                 continue
+             mask = answer.unsqueeze(1).to(c.dtype)
+-            share = (c * mask).sum(-1) / c.sum(-1).clamp_min(1e-12)
+-            per_sequence['m_eff'].append(share[has].mean().item())
+-            top = c.argmax(-1)                                    # 가장 크게 읽은 칸
+-            per_sequence['hit'].append(answer.gather(1, top[:, :1].clamp_max(n - 1))[has[:, None]
+-                                                                                    ].float().mean().item())
++            share = ((c * mask).sum(-1) / c.sum(-1).clamp_min(1e-12)).mean(-1)   # D 평균 -> [B]
++            top = c.argmax(-1)                                      # [B, D]
++            hit = answer.gather(1, top.clamp_max(n - 1)).to(torch.float64).mean(-1)
+             bh = b[1:n + 1].flip(0).double()
+-            per_sequence['kernel_mass'].append(
+-                ((bh * answer.double()).sum(-1) / bh.sum())[has].mean().item())
++            kernel = (bh * answer.double()).sum(-1) / bh.sum()
++            keep = valid.to(torch.float64)
++            totals['m_eff'] += share.double() * keep
++            totals['hit'] += hit * keep
++            totals['kernel_mass'] += kernel * keep
++            counts += keep
++        answered = counts > 0
++        queries += int(counts.sum().item())
++        for key in sequence:                                        # 시퀀스 내부 평균 -> 시퀀스별 값
++            sequence[key].extend((totals[key][answered] / counts[answered]).cpu().tolist())
+ 
+     bound = getattr(args, 'g11_bound', None)
+-    return {**{k: float(np.mean(v)) if v else None for k, v in per_sequence.items()},
++    return {**{k: (float(np.mean(v)) if v else None) for k, v in sequence.items()},
+             **{k: float(np.mean(v)) for k, v in pooled.items()},
++            'sequences': len(sequence['m_eff']), 'queries': queries,
++            'aggregation': 'mean over recall queries within a sequence, then over sequences',
+             'max_abs_state': peak, 'branch_abs_max': [float(v) for v in peak_branch],
+             'finite': finite, 'g11_bound': bound,
+             'within_bound': None if bound is None else bool(peak < bound)}
+--- audit09/f_lif_pop_v3/forecasting/train.py
++++ audit10/f_lif_pop_v3/forecasting/train.py
+@@ -35,11 +35,33 @@
+     files = sorted(glob.glob(pattern))
+     if not files:
+         return None
++    files.sort(key=os.path.getmtime)                      # 파일명 정렬이 아니라 실제 최신
+     with open(files[-1]) as handle:
+         payload = json.load(handle)
+     picked = payload.get('picked')
+     if picked is None:
+         return None
++
++    # 동작점을 바꾸는 축이 다르면 그 보정을 써서는 안 된다. seed는 의도적으로 공유한다 (D11).
++    saved = payload.get('args', {})
++    neuron = payload.get('neuron', {})
++    mismatch = []
++    for field, want in (('tau', list(args.tau)), ('num_population', args.num_population),
++                        ('alpha', args.alpha), ('heterogeneous', args.heterogeneous),
++                        ('tau_s', args.tau_s), ('threshold', args.threshold)):
++        have = neuron.get(field)
++        if have is not None and list(have) != want if isinstance(want, list) else have != want:
++            mismatch.append(f'{field}: calibration {have} vs requested {want}')
++    for field in ('patch_size', 'embed_dim', 'input_norm', 'cue_mode', 'n_keys', 'seq_len'):
++        have = saved.get(field)
++        if have is not None and have != getattr(args, field, have):
++            mismatch.append(f'{field}: calibration {have} vs requested {getattr(args, field)}')
++    if mismatch:
++        raise ValueError('calibration artifact does not match this configuration, so its '
++                         'input_scale/theta/bound describe a different operating point:\n  '
++                         + '\n  '.join(mismatch)
++                         + f'\n  (file {os.path.basename(files[-1])}) '
++                           'Re-run calibrate.py for this configuration.')
+ 
+     return {'file': os.path.basename(files[-1]), 'input_scale': picked['input_scale'],
+             'theta': picked.get('theta'),                     # D-X: 보정에서 정해 그대로 쓴다
+@@ -75,7 +97,9 @@
+     model.train()
+     criterion = nn.MSELoss()
+     total = torch.zeros(3, dtype=torch.float64, device=args.device)
+-    peak, rate, watched = 0., [], {'eta': [], 'kappa': [], 'would_cap_rate': [], 'support_p': []}
++    peak, rate = 0., []
++    watched = {k: [] for k in ('eta', 'kappa', 'would_cap_rate', 'support_p', 'score_std')}
++    selector_grad = {'grad_WQ': [], 'grad_WK': [], 'grad_eta_hat': [], 'singleton_frac': []}
+     for i, batch in enumerate(data_loader):
+         if args.max_train_batches and i >= args.max_train_batches:
+             break
+@@ -90,6 +114,12 @@
+             raise FloatingPointError('Nonfinite training loss')
+         optimizer.zero_grad(set_to_none=True)
+         loss.backward()
++        if watch and args.model == 'myModel':                     # clipping 전 원본 크기를 본다
++            sel = model.embedding.neuron.selector
++            for name, tensor in (('grad_WQ', sel.query.weight), ('grad_WK', sel.key.weight),
++                                 ('grad_eta_hat', sel.eta_hat)):
++                selector_grad[name].append(0. if tensor.grad is None
++                                           else tensor.grad.norm().item())
+         torch.nn.utils.clip_grad_norm_(model.parameters(), 1., error_if_nonfinite=True)
+         optimizer.step()
+         if watch:
+@@ -99,6 +129,8 @@
+             live = aux['has_history']
+             for key in watched:                                  # eta가 움직이는지 epoch마다 본다
+                 watched[key].append(aux[key][live].mean().item())
++            # sparsemax가 한 칸만 고르면 score gradient가 0이다 (audit 5.2). 비율을 본다.
++            selector_grad['singleton_frac'].append((aux['support_size'][live] == 1).double().mean().item())
+             if args.g11_bound and peak >= args.g11_bound:
+                 raise FloatingPointError(
+                     f'G11 violated: max|u| = {peak:.3f} reached the bound {args.g11_bound:.3f} '
+@@ -113,7 +145,14 @@
+     if rate:                                                  # GRU 등 비스파이킹 모델은 비운다
+         result['max_abs_state'] = peak
+         result['firing_rate'] = float(np.mean(rate))
+-        result.update({k: float(np.mean(v)) for k, v in watched.items() if v})
++        # 진단에 NaN이 섞이면 조용히 퍼지지 않도록 여기서 걸러 기록한다.
++        for source in (watched, selector_grad):
++            for key, values in source.items():
++                finite = [v for v in values if np.isfinite(v)]
++                if finite:
++                    result[key] = float(np.mean(finite))
++                if len(finite) < len(values):
++                    result[key + '_nonfinite'] = len(values) - len(finite)
+ 
+     return result
+ 
+@@ -140,8 +179,12 @@
+           f"{sum(p.numel() for n, p in model.named_parameters() if n in active)} trainable")
+     if args.g11_bound:
+         print(f"[train] G11 frozen bound {args.g11_bound:.1f} from {args.calibration_file}")
++    elif args.require_calibration:
++        raise ValueError('no calibration artifact matched this configuration. Run calibrate.py '
++                         'first, or pass --no-require_calibration for an exploratory run '
++                         '(which will be recorded as having no frozen G11 bound).')
+     else:
+-        print("[train] G11 bound NOT set: no calibration artifact matched. Run calibrate.py first.")
++        print("[train] G11 bound NOT set: exploratory run, no frozen bound is enforced.")
+ 
+     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5,
+@@ -162,18 +205,24 @@
+             break
+     logger.close()
+ 
+-    payload = test(args)
++    if not args.test:
++        print('[train] --no-test: skipping the test split entirely')
++        payload = {'run_id': args.run_id, 'mode': args.mode, 'task': args.task,
++                   'seed': args.seed, 'test': None, 'test_skipped': True}
++    else:
++        payload = test(args)
+     payload['train'] = {'epochs_run': epoch + 1, 'seconds': time.time() - started,
+                         'best_val_loss': float(stopper.val_loss_min),
+                         **{k: train_result[k] for k in
+                            ('firing_rate', 'max_abs_state', 'eta', 'kappa', 'would_cap_rate',
+-                            'support_p') if k in train_result}}
++                            'support_p', 'score_std', 'grad_WQ', 'grad_WK', 'grad_eta_hat',
++                            'singleton_frac') if k in train_result}}
+     payload['provenance'] = {
+         'run_uuid': args.run_uuid, 'config_hash': args.config_hash,
+         'calibration': {'file': args.calibration_file, 'input_scale': args.input_scale,
+                         'g11_bound': args.g11_bound},
+         'source_sha256': {name: sha256(str(TASK / name)) for name in SOURCE_FILES},
+-        'parameter_hash': parameter_hash(model), 'trainable_parameters': active,
++        'parameter_hash_last_epoch': parameter_hash(model), 'trainable_parameters': active,
+         'data': {'train': len(train_set), 'val': len(val_set),
+                  'revision': 'r2' if args.task == 'recall' else None,
+                  'data_seed': args.data_seed},
+@@ -182,13 +231,18 @@
+     write_json(args.result_path, payload)
+ 
+     # fresh reload: 저장한 것이 그대로 돌아오는지 확인한다. frozen 통계 포함.
++    checkpoint = os.path.join(args.save_model_state_path, 'best+model.pt')
+     reloaded = LOAD_MODEL[args.model](args, train=False)
+-    _, test_loader = data_provider(args, flag="test")
+-    check = evaluate(reloaded, test_loader, args)[0]
+-    same = abs(check['mse'] - payload['test']['mse']) < 1e-9
+-    print(f"[train] fresh reload mse {check['mse']:.9f} vs saved {payload['test']['mse']:.9f} "
+-          f"-> {'identical' if same else 'MISMATCH'}")
+-    payload['provenance']['fresh_reload_matches'] = bool(same)
++    # 결과에 붙는 identity는 평가한 모델의 것이어야 한다. 마지막 epoch 모델이 아니다.
++    payload['provenance']['parameter_hash_evaluated'] = parameter_hash(reloaded)
++    payload['provenance']['checkpoint_sha256'] = sha256(checkpoint)
++    if args.test:
++        _, test_loader = data_provider(args, flag="test")
++        check = evaluate(reloaded, test_loader, args)[0]
++        same = abs(check['mse'] - payload['test']['mse']) < 1e-9
++        print(f"[train] fresh reload mse {check['mse']:.9f} vs saved {payload['test']['mse']:.9f} "
++              f"-> {'identical' if same else 'MISMATCH'}")
++        payload['provenance']['fresh_reload_matches'] = bool(same)
+     write_json(args.result_path, payload)
+ 
+     return payload

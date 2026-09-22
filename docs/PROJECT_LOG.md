@@ -3056,3 +3056,65 @@ A06(`--eta_fixed`·`--no-cap` 미전달)과 **같은 종류의 결함**이 다�
 직전 항목에서 copy 오차 차이를 근거로 "readout 병목이 따로 있을 수 있다"고 적었다. 감사 지적대로 **copy 오차만으로는 손실 위치(임베딩/스파이크/readout)가 식별되지 않는다.** 가설로 두고 `--readout analog`를 같은 데이터·seed·예산의 통제 조건으로 돌려 구분한다. 이제 경로가 분리되었으므로 같은 suite에서 실행 가능하다.
 
 Artifacts: `NSMT/f_lif_pop_v3/reference/golden/{scalar_trajectories.csv,SHA256SUMS,reference_results.json}`, `NSMT/f_lif_pop_v3/analysis/check_model_phaseAC.txt`, `NSMT/docs/Population_fLIF_v3_prereg_KO.md` §2E.
+
+
+## 2026-09-22 10:15 KST — v3 예약 추적 감사08: θ/readout 배선 및 공식 G4 재검사
+
+- 예약 20260922T011001Z-6c90ce78; exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7/HEADd1fb43edaec12c7f87adcf06aade82b361c7187c 위 미커밋 수정.10:10:40 KST90개 사본 /tmp/nsmt_assessment_20260922T011001Z-6c90ce78; trigger 후 layers/check_model/analysis 변경을 실제 캡처 hash로 검사.10:12 문서 §2E D-Z/AA/AB도 postscript로 별도 보존.
+- CPU snn_recall torch1.12/2threads, 기존 wirecheck seed7/r2 k3/256·64·64/batch64/1epoch 평가. Spike recall.392408747928214,analog1.1312525898272698; MSE차0/parameter hash일치. Layers dtype 추가 후 기본float32 평가 재현. 새 학습 아님.
+- 실제 main을 train 함수 대체 fixture로 실행해theta123→5.561343350061557,scale1→8 및 두 calibrated_fields 확인; same-suite readout 결과/log/checkpoint 경로 분리 확인. A10-THETA 배선/A10-PATH 해당범위 VERIFIED. JSON provenance에는 theta/calibrated_fields 직접 저장이 아직 없으며 config에 존재.
+- G4: golden CSV SHA2fda1abbb03743e1b9074d2fb7b7b84feeec8e322201b42b0b66bc0fc657a7b7, 이전 감사 CSV/JSON과 byte일치. Official check_model --phase all20pass/0fail/0notrun exit0.24조건/360step/7.77e-16은 첫 spike 이전 적분기 핵심부 parity. Full neuron/compiled/adjoint/GPU/상류 재생성 not run. make_golden.py는 명시적 scaffold임을 확인.
+- Exact commands(cwd NSMT,OMP/MKL2,LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib): snn_recall python `/tmp/nsmt_assessment_20260922T011001Z-6c90ce78/f_lif_pop_v3/forecasting/check_model.py --phase all`; python `scripts/audit_v3_wirecheck.py /tmp/nsmt_assessment_20260922T011001Z-6c90ce78 f_lif_pop_v3/forecasting/results/assessment/20260922T011001Z-6c90ce78/wirecheck_probes.json`. Artifacts 같은 assessment 폴더 inventory/changes.diff/document_postscript_inventory/wirecheck_probes/validation.
+- 원본checkpoint/사본hash·구문·append prefix 보존. 감사자 모델수정/학습/optimizer/GPU/설치/git변이/commit/tag/push 없음. 기존 미수정 이슈 유지;1epoch analog 비교로 병목/성능 우위 판단 보류.
+
+
+## 2026-09-22 10:21 KST — v3 예약 추적 감사09: 기존 검토 내용의 commit 확인
+
+예약 20260922T012001Z-8b3e144d, branch exp/f-lif-pop-v3, base329183b94f65090cc6b337f464c5aa4d8e127ad7, HEADecec8d397862e6367e556668d82e6dd11e2e36e4.10:20:33 KST snapshot /tmp/nsmt_assessment_20260922T012001Z-8b3e144d; trigger 코드/사전등록/reference는 감사08 및 후속 문서 사본과 hash 동일. **새 판단 근거 없음**, 모델/결과 재검사·학습·GPU·통계 실험 not run. 기존 VERIFIED 범위와 OPEN 유지. 변경은 감사 inventory 및3문서 append뿐; 원본/로컬변경 보존, 감사자 git add/commit/tag/push/reset/switch 없음. Artifacts NSMT/f_lif_pop_v3/forecasting/results/assessment/20260922T012001Z-8b3e144d/inventory.json,validation.json.
+
+---
+
+## 2026-09-22 10:31 KST — 추적 감사 03–06 수용: 보고한 M_eff가 틀렸다 (학습 없음)
+
+**Branch:** `exp/f-lif-pop-v3`
+
+### 1. 가장 중요한 것 — `M_eff` 수치 정정
+
+`selection_diagnostics()`가 사전등록 D-Q의 정의를 세 곳에서 어겼다. ① `truth.any()`로 사건을 골라 **copy 사건 1,899건이 섞였고**, ② (batch × 시점)별 값을 평균해 **"query 내부 평균 → sequence 평균" 순서가 아니었으며**, ③ `hit`이 첫 임베딩 유닛만 봤다.
+
+정정 후 값이 감사의 독립 재계산과 **소수점 9자리까지 일치**한다.
+
+| 조건 | 내가 보고했던 값 | **정정값** | 감사 독립값 |
+|---|---:|---:|---:|
+| 학습된 sparse | 0.2315 | **0.1330930316** | 0.1330930309 |
+| full 커널 질량 | 0.2290 | **0.1303288944** | 0.1303288936 |
+| oracle η=0.5 | 0.5267 | **0.4665523771** | 0.4665523809 |
+| oracle η=1 | — | 1.0000000000 | — |
+
+**판정에 직접 영향이 있다.** 옛 값으로는 oracle η=0.5가 O7-① 기준 0.5를 넘는 것처럼 보였으나 **실제로는 넘지 못한다.** 즉 완벽한 정답 정책이라도 상한 적용 후 계수 질량이 임계값에 못 미치는 설정이 존재한다. 임계값을 이번 결과에 맞춰 내리지 않는다.
+
+정정된 값으로 다시 읽으면 결론은 더 선명해진다. 학습된 선택자가 정답에 추가로 얹는 질량은 **0.1331 − 0.1303 = 0.0028**이고, **가장 크게 읽은 칸이 정답인 비율은 0.0000**이다(η=0.5 고정에서 0.0852, oracle에서 1.0000). 직전 항목의 "M_eff ≈ kernel_mass" 관찰은 방향이 맞았으나 **수치는 전부 틀렸다.**
+
+### 2. 실행 계약 결함 여섯 건
+
+| ID | 문제 | 확인 |
+|---|---|---|
+| A10-CAL | 보정 artifact를 **파일명만 맞춰** 골라, τ·cue_mode가 달라도 다른 동작점의 값을 썼다 | τ=[40,80,160,320] 요청이 τ=[4,8,16,32] 보정을 받았다 → 이제 거부 |
+| A10-CAL | 보정이 없으면 **상한 없이 학습을 계속**했다 | `--require_calibration` 기본 참 |
+| A05-BRANCH | 구성원 건강 조건이 sparse 승인에 미적용 | 죽은 가지·1000배 불균형도 통과했다 → 적용 |
+| A10-HASH | `parameter_hash`가 마지막 epoch 모델인데 평가는 best checkpoint다 | **결과의 identity가 평가 모델과 달랐다** → 분리 저장 + checkpoint sha256 |
+| **A12-ETT** | 빈 truth에서 `truth[:, n, :n]`이 IndexError | **ETT가 오차 계산 뒤 저장 전에 죽었다.** 고친 뒤 ETTh1 1 epoch 정상 완료(mse 0.9118, fresh reload 일치) |
+| A12-TEST-SPLIT | `--no-test`가 배선되지 않음 | 탐색 실행에서도 test를 봤다 → 배선 |
+| A10-KEYNORM-CKPT | 새 buffer·새 인자 때문에 옛 checkpoint/config 로드 실패 | 항등 기본값 buffer만 누락 허용, 그 외는 여전히 실패 |
+
+### 3. 감사 가설 하나는 기각됐다
+
+감사 §5.2는 sparsemax의 singleton support에서 score gradient가 0이 되는 것을 실패 경로 후보로 들었다. 학습 중 측정한 `singleton_frac`은 **0.038**로 주 원인이 아니다. 같은 실행에서 `score_std` 1.014(θ 보정이 의도대로 작동), `grad_WQ` 5.3e-3, `grad_WK` 1.4e-2로 **폭주도 소멸도 없다.**
+
+남는 유력 원인은 `grad_eta_hat` 3.5e-4와 sigmoid 포화의 조합이며, D-Y대로 고정 η 조건이 주 경로다.
+
+### 4. 한계
+
+§1의 정정값은 기존 checkpoint를 다시 읽어 계산한 것이며 새 학습이 아니다. §3의 진단은 1 epoch·256 시퀀스 실행의 관측이다.
+
+Artifacts: `NSMT/docs/Population_fLIF_v3_prereg_KO.md` §2F, `NSMT/f_lif_pop_v3/analysis/check_model_phaseAC.txt`.

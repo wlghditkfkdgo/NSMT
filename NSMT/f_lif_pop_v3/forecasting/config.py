@@ -107,9 +107,21 @@ def parse_arguments():
     parser.add_argument('--max_train_batches', type=int, default=0, help='Smoke only; zero uses all windows')
     parser.add_argument('--max_eval_batches', type=int, default=0, help='Smoke only; zero uses all windows')
     parser.add_argument('--test', action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument('--require_calibration', action=argparse.BooleanOptionalAction, default=True,
+                        help='fail instead of training without a frozen G11 bound')
     parser.add_argument('--config', default=None, help='Existing run directory for standalone test')
 
     return parser.parse_args()
+
+
+def parse_defaults():
+    """Parser defaults only, for filling attributes absent from an older saved config."""
+    import sys
+    argv, sys.argv = sys.argv, [sys.argv[0]]
+    try:
+        return parse_arguments()
+    finally:
+        sys.argv = argv
 
 
 class Config():
@@ -153,6 +165,10 @@ class Config():
         for key, value in torch.load(os.path.join(config_path, 'model_state/config.pt'),
                                      map_location='cpu').items():
             setattr(self, key, value)
+        # 나중에 추가된 인자는 옛 config에 없다. parser 기본값으로 채운다.
+        for key, value in vars(parse_defaults()).items():
+            if not hasattr(self, key):
+                setattr(self, key, value)
         self.device = torch.device('cpu' if config.cpu else f'cuda:{config.num_device}')
 
     def save_arg(self):
