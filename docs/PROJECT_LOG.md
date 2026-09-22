@@ -3294,3 +3294,168 @@ Artifact: `NSMT/f_lif_pop_v3/analysis/key_geometry.txt` (diag3 sparse checkpoint
 §2·§3은 **학습된 checkpoint 하나·test 64 시퀀스**의 관측이다. 문헌의 정리들은 각자의 설정에서 증명된 것이며 **우리 구조(리셋 없는 분수적분 가지 + 단일 소마 + 계수 상한)에 그대로 승계되지 않는다.** 특히 3·4는 "과거 증분 `f_j`의 재가중"이 아니라 "key-value 기억의 읽기"를 다루므로, 우리 수식에 옮기려면 `f_j`가 value 역할을 할 수 있는지부터 따져야 한다.
 
 Artifacts: `NSMT/f_lif_pop_v3/analysis/key_geometry.txt`.
+
+
+## 2026-09-22 10:55 KST — v3 예약 감사12: 복원 결함 해소·gradient 집계 잔여·문헌 적용 범위
+
+- Branch exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7/HEAD520bb56872c6e7c68c48f65cd70601979c22a1c5.10:50:38 snapshot139파일 /tmp/nsmt_assessment_20260922T015001Z-bff8435c. 감사자모델변경/학습/commit/tag없음.
+- CPU Python3.10/torch1.12/2threads. 복원fault8조건에서frozenstats/fixedeta누락거부+legacy pilot recall.269893671218재현:A10-RESTORE-STATS VERIFIED. 새gradchk seed7,data_seed20260921,r2k3,512/64/64,batch64,2epoch,theta5.56134335,scale8기존checkpoint전체MSE.337799426411/recall.347767202408,hash/MSE차0.
+- A09 absmax는여전히batch최대의평균:고정AST주입[1,9]→5,[2,10]→6. g11_every10,epoch8batch중1관측이므로이run으로전체max주장불가. nonfiniteJSON전달및theta/calibrated_fields저장확인.8seedCI/새학습not run.
+- 10:50 문헌후보검토: key_geometry재현코드/명령/hash/mask/shape부족. 유닛별key4차원rank상한4이므로3.97/42를붕괴로단정불가. 0.2924와기존pilot hit3.73e-5를서로다른checkpoint/집계로비교하지말것. TTR원문bandwidthB잔존,QKNormθ불필요/폭주제거보장없음. Gram/delta는다른memory계약,현재분수history가자동O(T)되지않음. Entmax학습가능성만확인,온도독립보장아님. Hopfield원문PDF접근실패,정리가정검증not run. 직접링크/세부수정권고는ASSESMENT 감사12.
+- Artifacts NSMT/f_lif_pop_v3/forecasting/results/assessment/20260922T015001Z-bff8435c/(inventory,changes.diff,restore_grad_probe.py,restore_grad_probes,postscript,validation),rawlog forecasting/log/assessment/20260922T015001Z-bff8435c/. Exact command는ASSESMENT 감사12; OMP/MKL2·snn_recall python·frozenroot로실행. Train/optimizer/GPU/설치/git변이/프로세스중단없음,원본/문서prefix보존. A09/CAL/PROVENANCE/LOG/keynormfit/REGEN잔여유지.
+
+
+## 2026-09-22 11:01 KST — v3 예약 감사13: 검토 완료 내용의 commit 확인
+
+예약 20260922T020001Z-8f8cd215,branch exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7/HEAD41554c68cd97cbad522008297b98eda230b1e651.11:00:58 KST snapshot123파일 /tmp/nsmt_assessment_20260922T020001Z-8f8cd215;감시대상120파일 trigger/감사12 hash 동일. key_geometry와문헌내용은이미감사12범위. 새 판단 근거 없음;모델/probe재검사·학습·GPU·통계 not run. 기존VERIFY범위/OPEN유지,감사자commit/tag/git변이없음. Artifacts NSMT/f_lif_pop_v3/forecasting/results/assessment/20260922T020001Z-8f8cd215/inventory.json,validation.json. 모델소스/원본결과/checkpoint보존;3문서append만갱신.
+
+
+## 2026-09-22 11:15 KST — 사용자 요청: 검색 개선 후보 채택 우선순위 감사
+
+- AUDIT-PRIORITY-01. Branch exp/f-lif-pop-v3,HEAD41554c68cd97cbad522008297b98eda230b1e651,base329183b94f65090cc6b337f464c5aa4d8e127ad7. 소스/문서/checkpoint19파일사본 /tmp/nsmt_assessment_20260922-adoption-priority 및hash고정. 감사자모델수정/학습/optimizer/GPU/git변이/commit/tag없음.
+- CPU torch1.12/2threads,diag3 spike sparse checkpoint(seed7,data_seed20260921,기존12epoch2048train),validation첫64sequence/2004recall만forward. Score/p hit.2715946141,c hit0,p mass.256499139,c mass.137036866,kernel.134411009,chance.161031434,eta.0257748514. 같은unit/query/sequence집계. Key[64,32,41,4],비중심featureGram PR평균1.174733/상한4.
+- 실제b와cap로η.026 onehot정책검산:lag2/5/10은정답c최대가능,20/41은불가. ‘점수개선효과전무’단정은성립안함. η.2에서도단일정답mass약.09로argmax와O7질량구분. 후보검증순서 고정η→QK정규화→key표현→entmax→Gram별도기억→Delta별도기억. 최종효능채택아님. Validation선택/8seedpairedCI·G14/O7유지.
+- TTR원문Eq3/32/35/36,DeltaNetEq4,entmax명제1확인. Hopfield원문PDF직접확보SHA48cecc1d10cea553538fe8d1e2f1bf7378bed6b1233b2857384f5081ac2f7579,Eq5/Thm4–5확인. 평균cosine/rank로정리실패단정불가. 문헌링크·조건/제한은NSMT/docs/ASSESMENT.md AUDIT-PRIORITY-01에명시.
+- Evidence NSMT/f_lif_pop_v3/forecasting/results/assessment/20260922-adoption-priority/(inventory,priority_probe.py,priority_probes.json,literature_checks,validation). Raw log forecasting/log/assessment/20260922-adoption-priority/. Exact CPU command는동감사항목. 새학습/후보구현/다중seed효능검증not run. 예약ack없음.
+
+---
+
+## 2026-09-22 11:30 KST — 감사 AUDIT-PRIORITY-01 수용과 내 분석 정정 (학습 없음)
+
+사용자가 감사자에게 직접 요청한 채택 우선순위 결정을 확인하고, 내 직전 분석의 두 주장을 독립 검증했다.
+
+### 1. 정정 ① — "η가 작으면 점수 개선이 드러나지 않는다"는 **반례가 있다**
+
+감사가 유도한 경계식을 재현했다. 정답 한 칸에 p를 전부 주는 정책에서, 정답 lag d의 계수가 가장 최근 칸을 앞서는 조건은
+
+```
+η > (b₁ − b_d) / (B + b₁ − b_d)        (d > 1)
+```
+
+`B=13.96147390, b₀=1.10054741, b₁=0.68729713`에서 실제 계수와 cap으로 검산한 결과가 감사 표와 **정확히 일치**한다.
+
+| 정답 lag | 경계 η | η=0.0258에서 정답이 최대 c인가 | c_target vs c_recent |
+|---:|---:|---|---|
+| 2 | 0.007149 | **예** | 0.9315 vs 0.6696 |
+| 5 | 0.015867 | **예** | 0.8101 vs 0.6696 |
+| 10 | 0.021498 | **예** | 0.7306 vs 0.6696 |
+| 20 | 0.026224 | 아니오 | 0.6631 vs 0.6696 |
+| 41 | 0.030240 | 아니오 | 0.6053 vs 0.6696 |
+
+**따라서 내 일반 명제는 틀렸다.** lag가 짧으면 현재 η로도 충분하다. 우리 과제의 평균 정답 lag가 21이라 **경계 근처**에 있을 뿐이며, "η가 작아서 무조건 안 드러난다"가 아니라 **"이 과제의 lag 분포에서 현재 η가 경계에 걸쳐 있다"**가 정확한 서술이다.
+
+### 2. 정정 ② — rank 주장의 **틀은 잘못이나 결론은 기준을 대면 살아난다**
+
+내가 "유효 rank 3.97 / 42, 42에 가까울수록 좋다"고 쓴 것은 **기준을 제시하지 않은 서술**이다. 감사는 "유닛별 투영 key가 4차원이므로 상한이 4"라고 지적했는데, 이는 감사가 잰 **feature Gram(4×4)**에는 맞지만 **내가 잰 것은 표본 평균한 token Gram(42×42)**이라 상한이 4가 아니다.
+
+동일 계산으로 기준선을 만들어 확인했다.
+
+| key | token Gram 유효 rank |
+|---|---:|
+| **우리 실제 key** | **3.97** |
+| 완전 무작위 key, d_q=4 | **35.67** |
+| 완전 무작위 key, d_q=8 | 38.88 |
+
+즉 d_q=4여도 무작위면 35.67이 나오므로 **3.97은 구조적 상한이 아니라 실제 집중**이다. 감사의 feature Gram 측정(1.1747 / 상한 4)도 같은 방향을 가리킨다. **정정 내용: 결론(“key가 심하게 집중되어 있다”)은 유지하되, 기준선 없이 “/42”로 적은 표기를 철회하고 무작위 기준선 35.67과 함께 보고한다.**
+
+### 3. 새로 확인된 것 — argmax 개선은 O7-① 통과를 뜻하지 않는다
+
+감사 지적대로, 정답 한 칸에 모든 p를 주는 **완벽한 단일 정답 정책**의 post-cap 정답 질량을 직접 계산했다.
+
+| η | 단일 정답 정책의 post-cap M_eff |
+|---:|---:|
+| 0.2 | **0.0912 – 0.0933** |
+| 0.5 | **0.1383 – 0.1413** |
+
+O7-① 기준은 0.5다. 즉 **정답 칸이 하나뿐이면 η<1의 어떤 값으로도 기준에 도달할 수 없다.** 앞서 측정한 oracle η=0.5의 M_eff 0.4666은 정답 칸이 평균 3.5개이기 때문이며, 상한과 dense residual이 함께 만드는 **구조적 천장**이 존재한다.
+
+**사전등록 관련 함의:** O7-①의 0.5는  평면의 좁은 영역에서만 도달 가능하다. 기준을 낮추지 않되, **도달 가능 영역을 먼저 지도로 만들어** 판정 전에 기록해야 한다.
+
+### 4. 감사의 채택 순위를 수용한다
+
+**① 고정 η 대조 → ② QK 정규화 → ③ key 표현 ablation → ④ α-entmax → ⑤ Gram/ridge 보정 → ⑥ delta rule.**
+
+내 직전 제안과 다른 곳은 ⑤(Gram 보정)의 위치다. 나는 "4×4 역행렬이라 싸다"는 이유로 3순위에 뒀으나, 감사 지적대로 **계산 비용이 아니라 계약 변경 폭**이 기준이어야 한다. 보정 가중치는 **음수가 될 수 있어** 현재의 양의 계수·cap·G4 계약을 그대로 승계하지 못한다. 또 우리 모델은 선형 K–V 회귀가 아니라 **분수 증분 `f_j`의 재가중**이므로 TTR의 최소제곱 해를 옮기려면 K·V·f_j 대응을 먼저 수식으로 고정해야 한다. **감사 순위를 채택한다.**
+
+또한 "dense residual 즉시 삭제"도 채택하지 않는다. **η=1이 이미 그에 해당**하므로 별도 삭제부터 시작할 이유가 없다.
+
+### 5. 기타 정정
+
+- 내가 인용한 0.2924(가장 가까운 key가 정답일 확률)와 3.7e-5(계수 argmax 적중)는 **서로 다른 checkpoint**(pilot-eta vs diag3)에서 나온 값이라 같은 조건의 수치로 나란히 쓰면 안 된다. 감사의 동일 표본 계산은 score argmax 0.2716 / c argmax 0.0000 / M_eff 0.1370 / kernel 0.1344 / 균등 기준 0.1610이다.
+- Hopfield 정리의 조건은 패턴별 분리도 `Δ_i`, β, 패턴 수·크기, query 거리에 의존한다. **평균 인접 cosine 0.758만으로 조건 위반을 판정할 수 없다.** 내 서술을 "충분조건이 확인되지 않았다"로 약화한다.
+
+### 6. 한계
+
+§1·§3은 **단일 정답 칸을 가정한 계수 대수 계산**이며 실제 정답 집합(평균 3.5칸)의 모델 성능이 아니다. §2의 기준선은 무작위 key이며 "좋은 key"의 기준이 아니다.
+
+Artifacts: `NSMT/f_lif_pop_v3/analysis/key_geometry.txt`(기준선 없는 표기는 본 항목으로 정정), 감사의 `results/assessment/20260922-adoption-priority/`.
+
+---
+
+## 2026-09-22 11:31 KST — 감사 AUDIT-PRIORITY-01 수용과 내 분석 정정 (학습 없음)
+
+사용자가 감사자에게 직접 요청한 채택 우선순위 결정을 확인하고, 내 직전 분석의 두 주장을 독립 검증했다.
+
+### 1. 정정 ① — "η가 작으면 점수 개선이 드러나지 않는다"는 **반례가 있다**
+
+감사가 유도한 경계식을 재현했다. 정답 한 칸에 p를 전부 주는 정책에서, 정답 lag d의 계수가 가장 최근 칸을 앞서는 조건은
+
+```
+η > (b₁ − b_d) / (B + b₁ − b_d)        (d > 1)
+```
+
+`B=13.96147390, b₀=1.10054741, b₁=0.68729713`에서 실제 계수와 cap으로 검산한 결과가 감사 표와 **정확히 일치**한다.
+
+| 정답 lag | 경계 η | η=0.0258에서 정답이 최대 c인가 | c_target vs c_recent |
+|---:|---:|---|---|
+| 2 | 0.007149 | **예** | 0.9315 vs 0.6696 |
+| 5 | 0.015867 | **예** | 0.8101 vs 0.6696 |
+| 10 | 0.021498 | **예** | 0.7306 vs 0.6696 |
+| 20 | 0.026224 | 아니오 | 0.6631 vs 0.6696 |
+| 41 | 0.030240 | 아니오 | 0.6053 vs 0.6696 |
+
+**따라서 내 일반 명제는 틀렸다.** lag가 짧으면 현재 η로도 충분하다. 우리 과제의 평균 정답 lag가 21이라 **경계 근처**에 있을 뿐이며, 정확한 서술은 "η가 작아서 무조건 안 드러난다"가 아니라 **"이 과제의 lag 분포에서 현재 η가 경계에 걸쳐 있다"**이다.
+
+### 2. 정정 ② — rank 주장의 **틀은 잘못이나 결론은 기준선을 대면 살아난다**
+
+내가 "유효 rank 3.97 / 42, 42에 가까울수록 좋다"고 쓴 것은 **기준선 없는 서술**이다. 감사는 "유닛별 투영 key가 4차원이므로 상한이 4"라고 지적했는데, 이는 감사가 잰 **feature Gram(4×4)**에는 맞지만 **내가 잰 것은 표본 평균한 token Gram(42×42)**이라 상한이 4가 아니다.
+
+동일 계산으로 기준선을 만들어 확인했다.
+
+| key | token Gram 유효 rank |
+|---|---:|
+| **우리 실제 key** | **3.97** |
+| 완전 무작위 key, d_q=4 | **35.67** |
+| 완전 무작위 key, d_q=8 | 38.88 |
+
+d_q=4여도 무작위면 35.67이 나오므로 **3.97은 구조적 상한이 아니라 실제 집중**이다. 감사의 feature Gram 측정(1.1747 / 상한 4)도 같은 방향을 가리킨다. **정정: 결론("key가 심하게 집중되어 있다")은 유지하되 "/42" 표기를 철회하고 무작위 기준선 35.67과 함께 보고한다.**
+
+### 3. 새로 확인된 것 — argmax 개선은 O7-① 통과를 뜻하지 않는다
+
+정답 한 칸에 모든 p를 주는 **완벽한 단일 정답 정책**의 post-cap 정답 질량을 직접 계산했다.
+
+| η | 단일 정답 정책의 post-cap M_eff |
+|---:|---:|
+| 0.2 | **0.0912 – 0.0933** |
+| 0.5 | **0.1383 – 0.1413** |
+
+O7-① 기준은 0.5다. 즉 **정답 칸이 하나뿐이면 η<1의 어떤 값으로도 기준에 도달할 수 없다.** 앞서 측정한 oracle η=0.5의 M_eff 0.4666은 정답 칸이 평균 3.5개이기 때문이며, 상한과 dense residual이 함께 만드는 **구조적 천장**이 존재한다.
+
+**사전등록 함의:** O7-①의 0.5는 η와 정답 칸 수가 이루는 평면의 좁은 영역에서만 도달 가능하다. 기준을 낮추지 않되 **도달 가능 영역을 먼저 지도로 만들어 판정 전에 기록**해야 한다.
+
+### 4. 감사의 채택 순위를 수용한다
+
+**① 고정 η 대조 → ② QK 정규화 → ③ key 표현 ablation → ④ α-entmax → ⑤ Gram/ridge 보정 → ⑥ delta rule.**
+
+내 직전 제안과 다른 곳은 ⑤의 위치다. 나는 "4×4 역행렬이라 싸다"는 이유로 3순위에 뒀으나, 기준은 **계산 비용이 아니라 계약 변경 폭**이어야 한다. 보정 가중치는 **음수가 될 수 있어** 현재의 양의 계수·cap·G4 계약을 승계하지 못한다. 또 우리 모델은 선형 K–V 회귀가 아니라 **분수 증분의 재가중**이므로 TTR의 최소제곱 해를 옮기려면 K·V·f 대응을 먼저 수식으로 고정해야 한다. **감사 순위를 채택한다.**
+
+"dense residual 즉시 삭제"도 채택하지 않는다. **η=1이 이미 그에 해당**하므로 별도 삭제부터 시작할 이유가 없다.
+
+### 5. 기타 정정
+
+- 내가 인용한 0.2924(가장 가까운 key가 정답일 확률)와 3.7e-5(계수 argmax 적중)는 **서로 다른 checkpoint**(pilot-eta vs diag3)에서 나온 값이라 같은 조건의 수치로 나란히 쓰면 안 된다. 감사의 동일 표본 계산은 score argmax 0.2716 / c argmax 0.0000 / M_eff 0.1370 / kernel 0.1344 / 균등 기준 0.1610이다.
+- Hopfield 정리의 조건은 패턴별 분리도, β, 패턴 수·크기, query 거리에 의존한다. **평균 인접 cosine 0.758만으로 조건 위반을 판정할 수 없다.** 내 서술을 "충분조건이 확인되지 않았다"로 약화한다.
+
+### 6. 한계
+
+§1·§3은 **단일 정답 칸을 가정한 계수 대수 계산**이며 실제 정답 집합(평균 3.5칸)의 모델 성능이 아니다. §2의 기준선은 무작위 key이며 "좋은 key"의 기준이 아니다.

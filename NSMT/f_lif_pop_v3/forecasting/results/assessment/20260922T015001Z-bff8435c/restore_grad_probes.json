@@ -1,0 +1,209 @@
+{
+  "restore": [
+    {
+      "case": "intact",
+      "removed": [],
+      "accepted": true
+    },
+    {
+      "case": "input_frozen_missing",
+      "removed": [
+        "embedding.norm_mean",
+        "embedding.norm_std"
+      ],
+      "accepted": false,
+      "error": "checkpoint schema mismatch: missing ['embedding.norm_mean', 'embedding.norm_std'], unexpected []. A buffer is only allowed to be missing when it is the identity under THIS config (input_norm='frozen', key_norm='none', eta_fixed=None)."
+    },
+    {
+      "case": "input_none_missing",
+      "removed": [
+        "embedding.norm_mean",
+        "embedding.norm_std"
+      ],
+      "accepted": true
+    },
+    {
+      "case": "key_frozen_missing",
+      "removed": [
+        "embedding.neuron.selector.key_mean",
+        "embedding.neuron.selector.key_std"
+      ],
+      "accepted": false,
+      "error": "checkpoint schema mismatch: missing ['embedding.neuron.selector.key_mean', 'embedding.neuron.selector.key_std'], unexpected []. A buffer is only allowed to be missing when it is the identity under THIS config (input_norm='frozen', key_norm='frozen', eta_fixed=None)."
+    },
+    {
+      "case": "key_none_missing",
+      "removed": [
+        "embedding.neuron.selector.key_mean",
+        "embedding.neuron.selector.key_std"
+      ],
+      "accepted": true
+    },
+    {
+      "case": "eta_fixed_missing",
+      "removed": [
+        "embedding.neuron.selector.eta_value"
+      ],
+      "accepted": false,
+      "error": "checkpoint schema mismatch: missing ['embedding.neuron.selector.eta_value'], unexpected []. A buffer is only allowed to be missing when it is the identity under THIS config (input_norm='frozen', key_norm='none', eta_fixed=0.5)."
+    },
+    {
+      "case": "eta_learned_missing",
+      "removed": [
+        "embedding.neuron.selector.eta_value"
+      ],
+      "accepted": true
+    },
+    {
+      "case": "weight_missing",
+      "removed": [
+        "embedding.emb_linear.weight"
+      ],
+      "accepted": false,
+      "error": "checkpoint schema mismatch: missing ['embedding.emb_linear.weight'], unexpected []. A buffer is only allowed to be missing when it is the identity under THIS config (input_norm='frozen', key_norm='none', eta_fixed=None)."
+    }
+  ],
+  "gradchk": {
+    "metrics": {
+      "all": {
+        "mse": 0.3377994264108825,
+        "mae": 0.49729164819603155,
+        "elements": 2688
+      },
+      "copy": {
+        "mse": 0.30753689928373973,
+        "mae": 0.4712101082756623,
+        "elements": 666
+      },
+      "recall": {
+        "mse": 0.34776720240825,
+        "mae": 0.5058823037781116,
+        "elements": 2022
+      },
+      "recall_first": {
+        "mse": 0.3413951156433305,
+        "mae": 0.5034065350277612,
+        "elements": 596
+      },
+      "loss": 0.3377994264108825,
+      "mse": 0.3377994264108825,
+      "mae": 0.49729164819603155
+    },
+    "mse_difference": 0.0,
+    "parameter_hash_matches": true,
+    "checkpoint_hash_matches": true,
+    "calibration": {
+      "file": "recall_k3_r2_a0.7_norm-frozen_seed7_260922-033146.json",
+      "input_scale": 8.0,
+      "theta": 5.561343350061557,
+      "g11_bound": 305.0375175476074,
+      "calibrated_fields": [
+        "input_scale",
+        "theta"
+      ]
+    },
+    "config": {
+      "seed": 7,
+      "data_seed": 20260921,
+      "batch_size": 64,
+      "epoch": 2,
+      "n_train": 512,
+      "n_val": 64,
+      "n_test": 64,
+      "g11_every": 10,
+      "max_train_batches": 0,
+      "max_eval_batches": 0
+    },
+    "train_record": {
+      "epochs_run": 2,
+      "seconds": 5.861081838607788,
+      "best_val_loss": 0.33073588488334976,
+      "firing_rate": 0.1689453125,
+      "max_abs_state": 16.511064529418945,
+      "eta": 0.017867445945739746,
+      "kappa": 1.0,
+      "would_cap_rate": 0.0,
+      "support_p": 0.42296767234802246,
+      "score_std": 0.9685912728309631,
+      "grad_WQ_norm": 0.0038140069227665663,
+      "grad_WK_norm": 0.012767495587468147,
+      "grad_eta_hat_norm": 0.0008008304866962135,
+      "grad_WQ_absmax": 0.002318522660061717,
+      "grad_WK_absmax": 0.0085143418982625,
+      "grad_absmax_all": 0.38565781712532043,
+      "singleton_frac": 0.037085556402439025
+    },
+    "csv_rows": [
+      {
+        "epoch": "0",
+        "train_loss": "0.395379",
+        "train_mse": "0.395379",
+        "train_mae": "0.529989",
+        "train_max_abs_state": "19.395418",
+        "train_firing_rate": "0.192267",
+        "train_eta": "0.017986",
+        "train_kappa": "1.000000",
+        "train_would_cap_rate": "0.000000",
+        "train_support_p": "0.422738",
+        "train_score_std": "1.018435",
+        "train_grad_WQ_norm": "0.005795",
+        "train_grad_WK_norm": "0.015816",
+        "train_grad_eta_hat_norm": "0.000110",
+        "train_grad_WQ_absmax": "0.003322",
+        "train_grad_WK_absmax": "0.009995",
+        "train_grad_absmax_all": "1.441656",
+        "train_singleton_frac": "0.036776",
+        "val_loss": "0.379500",
+        "val_mse": "0.379500",
+        "val_mae": "0.528744"
+      },
+      {
+        "epoch": "1",
+        "train_loss": "0.336405",
+        "train_mse": "0.336405",
+        "train_mae": "0.491881",
+        "train_max_abs_state": "16.511065",
+        "train_firing_rate": "0.168945",
+        "train_eta": "0.017867",
+        "train_kappa": "1.000000",
+        "train_would_cap_rate": "0.000000",
+        "train_support_p": "0.422968",
+        "train_score_std": "0.968591",
+        "train_grad_WQ_norm": "0.003814",
+        "train_grad_WK_norm": "0.012767",
+        "train_grad_eta_hat_norm": "0.000801",
+        "train_grad_WQ_absmax": "0.002319",
+        "train_grad_WK_absmax": "0.008514",
+        "train_grad_absmax_all": "0.385658",
+        "train_singleton_frac": "0.037086",
+        "val_loss": "0.330736",
+        "val_mse": "0.330736",
+        "val_mae": "0.496768"
+      }
+    ]
+  },
+  "legacy_pilot_recall_mse": 0.26989367121801305,
+  "isolated_aggregation": {
+    "inputs": {
+      "grad_WQ_absmax": [
+        1.0,
+        9.0
+      ],
+      "grad_absmax_all": [
+        2.0,
+        10.0
+      ]
+    },
+    "output": {
+      "max_abs_state": 0.0,
+      "firing_rate": 0.1,
+      "grad_WQ_absmax": 5.0,
+      "grad_absmax_all": 6.0,
+      "grad_WQ_norm": 3.0,
+      "score_std": 1.0,
+      "score_std_nonfinite": 1
+    },
+    "training_invoked": false
+  },
+  "payload_nonfinite_preserved": true
+}

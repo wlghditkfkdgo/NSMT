@@ -246,3 +246,40 @@ Forecasting/AD의 retrieval, auxiliary loss, causal ablation, 에너지 회계, 
 ## 추적 갱신 — 2026-09-22 10:21 KST (예약 감사09)
 
 HEAD ecec8d397862e6367e556668d82e6dd11e2e36e4의 감지 내용은 감사08 사본+후속 문서와 hash가 같았다. 새 판단 근거 없음; 재검사 not run, 기존 상태 유지. Make_golden scaffold를 완료로 해석하지 않는다. 증거 results/assessment/20260922T012001Z-8b3e144d/inventory.json.
+
+
+## 추적 갱신 — 2026-09-22 10:38 KST (예약 감사10)
+
+- Snapshot10:30:36/HEAD73599f0,111개 파일. 후속 사전등록 §2F D-AC/AD·canonical10:31도 별도 보존/검토. A02 recall-only query→sequence 및 모든unit hit 배선 VERIFIED: pilot M_eff.133093031595, batch128/16 차0. 기본 첫4batch 표본 범위 주의.
+- A05 sparse dead/imbalance 거부 VERIFIED. A10-CAL tau/cue 거부·require guard 부분확인, key_norm 변경은 여전히승인. A12 빈truth 및 no-test tail, A10 best/last/checkpoint hash 배선 scoped VERIFIED; 새학습not run.
+- Legacy pilot 정상복원/MSE재현. 신규 **A10-RESTORE-STATS OPEN(P1)**: frozen norm_mean/std 제거 임시checkpoint가 승인되고 예측최대차.870653. 버전없는무조건optional허용 금지. 일반weight누락은거부.
+- 새 diag3 sparse12epoch/seed7 recall.272620149439,M_eff.132756536374,kernel.130328893616,hit0. 8seed/CI·성능우위미확인. 중간 JSON을 완료로 세지 않음; sourcehash는종료시live라실행시점증거부족.
+- A09: 표본 L2 norm 평균은 max|grad|가 아니며 canonical10:31의singleton기각/폭주소멸없음/eta원인단정은과도. 문헌기반통제진단권고유지. 추가 analog/ETT/Full/oracle 및 config/layers/ours의 감사중변경은다음주기. ASSESMENT 감사10과 results/assessment/20260922T013001Z-6c439d7a/ 참조.
+
+
+## 추적 갱신 — 2026-09-22 10:45 KST (예약 감사11)
+
+- Snapshot10:40:39/HEAD639d2293/143파일 + ETT CSV 고정. Prereg §2F 동일. A12-ORACLE 현재 kind 배선 VERIFIED(copy비균등1243→0/전체256sequence,recall질량오차0). 새csvchk2epoch 현재정책MSE재현.
+- 과거12epoch oracle(spike/analog/drive)은 옛정책에서만 저장MSE차0. 새정책으로 같은checkpoint 평가시 recall .035348/.071974/.045209. 새정책재학습결과로세지않음. Driveoracle은새sourcehash기록에도옛정책만재현하므로 시작source/정책version고정필수(A10-PROVENANCE).
+- Drive=소마전가지혼합,실제aux차0/gradient유한/causalprefix차0. Sparse recall spike.272620/analog.261620/drive.212159; drive Meff.134013 대kernel.130329로검색성공미입증. 1seed탐색;O7/8seedCI not run.
+- A10-LOG 실제2행CSV확인,final+result.csv없음/동적nonfinite열누락위험잔여. Actualevaluated/checkpointhash일치,driveoracle last≠best확인. ETT첫3batch192창 MSE.911764재현(전체2785창아님),window_mean.856615. No-test결과test_skipped확인,감사자는해당test평가안함.
+- A10-RESTORE-STATS/model동일로OPEN유지,A09과잉인과해석/A07재생성등도유지. ASSESMENT 감사11 및 results/assessment/20260922T014001Z-17a8da3d/ 참조.
+
+
+## 추적 갱신 — 2026-09-22 10:55 KST (예약 감사12)
+
+- Snapshot10:50:38/HEAD520bb568/139파일. A10-RESTORE-STATS 누락거부8조건+legacy정상복원 VERIFIED. Input/key frozen 및 fixedeta buffer누락거부,none/학습eta허용,weight누락거부.
+- A09 absmax추가했지만np.mean집계유지:주입[1,9]→5,[2,10]→6. epoch최대아님;OPEN. *_nonfinite JSON전달과theta/calibrated_fields 실제JSON확인 VERIFIED.
+- gradchk2epoch512/64/64,batch64,g11_every10:전체MSE.337799426411/recall.347767202408,hash/MSE재현. epoch8batch중1watch라최대집계문제안드러남. 성능통계not run.
+- key_geometry 재생성코드/hash/정의미비(A09-KEY-GEOMETRY OPEN). 유닛별raw5/투영key4차원으로rank상한4;3.97/42를그자체붕괴증거로삼지말것. hit3.73e-5는pilot-eta이지diag3아님,동일표본비교필요.
+- canonical10:47 과도gradient인과주장철회확인.10:40 readout원인단정/10:50 QKNormθ불필요·폭주제거/Gram해석과장잔여. TTR원문§3(bandwidth잔존),DeltaNet원문,entmaxPDF명제1실제확인;Hopfield초록만확인/PDF실패정리검증not run. ASSESMENT 감사12에직접링크와제한기록.
+
+
+## 추적 갱신 — 2026-09-22 11:01 KST (예약 감사13)
+
+HEAD41554c68cd97cbad522008297b98eda230b1e651은 감사12에서 검토한 key_geometry/문헌 내용을 commit한 상태. 감시 대상120개 파일 hash 동일, 감사자3문서 append 외 새 판단 근거 없음. 재검사/학습 not run, 감사12 VERIFIED 범위와 OPEN 유지. Inventory results/assessment/20260922T020001Z-8f8cd215/inventory.json.
+
+
+## 우선순위 갱신 — 2026-09-22 11:15 KST (AUDIT-PRIORITY-01; 사용자 직접 요청)
+
+채택 검증 순서: 고정η→QK L2정규화→causal key표현→entmax→별도Gram→별도Delta. Residual즉시삭제아님,η1이이미제거대조. 같은diag3checkpoint validation64/2004query:score/p hit.2715946,c hit0,p mass.256499,c mass.137037,kernel.134411,chance.161031. 작은η에서도lag2/5/10이상적정책은최근계수역전가능,전혀효과없다는명제기각. Cap/질량분리필요. 투영key4차원PR상한4,이번비중심PR1.17473. Hopfield원문PDF확보/Eq5·Thm4/5확인으로평균cosine만으로실패단정불가 재확인. 조건별채택기준/순위조정은ASSESMENT AUDIT-PRIORITY-01. Artifacts results/assessment/20260922-adoption-priority/. 학습/후보효능검증not run.
