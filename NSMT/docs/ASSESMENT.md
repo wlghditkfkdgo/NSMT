@@ -1224,3 +1224,203 @@ f_lif_pop_v3/forecasting/results/assessment/20260922-adoption-priority/priority_
 ```
 
 Raw console: `f_lif_pop_v3/forecasting/log/assessment/20260922-adoption-priority/priority_probe.log`. 수치 환경은 CPU torch1.12.0+cu113/2threads이며 문헌 PDF 추출의 xref 복구 경고는 원문 읽기 도구의 경고이지 모델 실패가 아니다.
+
+
+## 추적 감사 14 — 2026-09-22 11:35 KST (사용자 직접 요청: 작업 세션 추적)
+
+### 관찰 결과
+
+관찰 HEAD **4d67c5072b63bfeaf570be44c02c945d0f9aa8a8**, branch exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7. **11:33:02 KST**에123개 문서·소스·결과 파일을 `/tmp/nsmt_assessment_20260922-manual-followup`에 복사·hash했다. 감사13과 비교해 변경된 것은 감사자 기록을 포함한3문서이며, **모델/학습 소스·실행 결과의 새 변경은 확인되지 않았다.** 다른 세션 대화나 프로세스에는 접근하지 않았다. 작업의 진행 여부는 남겨진 문서/산출물 범위에서만 판단한다.
+
+Canonical11:31 기록에서 **우선순위①고정η→②QK정규화→③key표현→④entmax→⑤Gram→⑥delta 수용**, residual 즉시 삭제 보류, 작은η의 효과 전무 주장 철회, 서로 다른 checkpoint 지표 비교 및 Hopfield 조건 표현 정정을 확인했다. 이는 문서상 결정 수용이며 고정η 실험이나 후보 구현이 완료됐다는 뜻은 아니다.
+
+[Inventory](../f_lif_pop_v3/forecasting/results/assessment/20260922-manual-followup/inventory.json), [직접 검사 코드](../f_lif_pop_v3/forecasting/results/assessment/20260922-manual-followup/claims_probe.py), [수치 증거](../f_lif_pop_v3/forecasting/results/assessment/20260922-manual-followup/claims_probes.json), [보존 검사](../f_lif_pop_v3/forecasting/results/assessment/20260922-manual-followup/validation.json). Source hash는 감사13과 동일: model `050bb4c5ad641da7790e575f84e33026cc531acfe3f633001ad47f491865a480`, train `887cfb9ee5cf4fc6ac68c3cbbe56227518d616988a0af75a540548898fe5a29c`, layers `45322e8940acf477057c9ce420f9763ce77b04132879dbd782292413732876ac`.
+
+### (a) 구현 정확성: 기존 판정 유지
+
+새 구현 없음. A10-RESTORE-STATS 등 확인된 수정의 범위와 A09 epoch absmax 평균 집계/A10-CAL·PROVENANCE·LOG/key_norm 적합/A07-REGEN의 OPEN을 유지한다. 동일 모델·checkpoint 재평가는 **not run**이다. 아래는 새 문서 주장에 필요한 작은 대수/행렬 검사만 수행했다.
+
+### (b) 검증: 타당한 rank 보완은 수용, 새 M_eff 일반화는 반례로 정정 요구
+
+**A09-KEY-GEOMETRY — 표본 평균 Gram 설명 수용, 원 수치 재현은 OPEN.** 작업자가3.97은 개별 feature Gram이 아니라 **표본별 token Gram을 먼저 평균한 행렬**의 participation ratio라고 밝혔다. 이 경우 상한4가 적용되지 않는다는 지적은 맞다. 감사의 기존 상한4는 **각 개별 유닛/시퀀스의 key 행렬** 및 그 feature/token Gram에 한정한다. 평균을 먼저 하는 경우와 개별 PR를 먼저 계산해 평균하는 경우를 구분하도록 이 append에서 명확히 정정한다.
+
+직접 CPU 예: seed7,단위 L2 무작위 key [64,42,4]에서 개별 token Gram rank≤4/평균 개별 PR **3.75866735**, **표본 평균 token Gram rank42/PR36.39041248**이었다. 이는 작업자가 말한 평균 방식의 가능성을 검증한 예이지, 원본3.97·35.67·38.88을 재현한 결과는 아니다. 그 수치들의 script/seed/표본/정규화/평균 축은 여전히 부족하다. 표본 평균 token Gram은 시점별 유사성이 여러 표본에서 공통되는 정도도 반영하므로, 개별 memory 용량·분리도와 동일시하지 않는다. 무작위 baseline은 좋은 key의 기준이나 Hopfield 위반 증명이 아니다.
+
+**A02-REACHABILITY 신규 OPEN — ‘단일 정답이면 η<1에서 M_eff≥.5 불가능’은 틀림.** Canonical11:31은 η=.2/.5 표에서 모든η<1로 일반화했다. 현재 Selector의 oracle 경로와 cap을 그대로 사용해 α=.7,과거41칸,정답 한 칸의 p=1인 경우를 직접 계산했다.
+
+| η | lag2의 post-cap M_eff | lag41의 post-cap M_eff |
+|---|---:|---:|
+| .92 | **.50704244** | **.50086126** |
+| .93 | .54033787 | .53419064 |
+| .95 | .62203030 | .61619958 |
+
+모두 η<1이고 .5를 넘는다. 이는 성능 결과가 아니라 새 일반 명제에 대한 **확정된 수치 반례**다. 표본으로 확인한 .2/.5의 낮은 값과 ‘η<1 전체에서 불가능’은 다른 주장이다.
+
+대수적으로 target이 cap에 도달한 구간은
+
+`M_eff = b₀ / [b₀ + (1−η)(B−b_d)]`.
+
+따라서 이 구간에서 **η ≥ 1−b₀/(B−b_d)**이면 M_eff≥.5다. 현재 b₀=1.1005474055,B=13.9614739001에서 lag2/41 경계는 각각 **.91771424/.91972394**이며, 그 경계에서 target cap 조건도 충족한다. 실제 Selector의 eta buffer float32 표현 때문에 식과 약1e-7 미만 차이는 생기지만 판정은 같다. η→1이면 residual이 사라져 이 단일 정답 정책의 M_eff→1이다.
+
+따라서 도달 가능 영역을 그리자는 제안은 타당하지만 **영역이 비어 있다는 전제는 제거**해야 한다. 실과제의 여러 정답 칸·history 길이·lag 분포·정답 정책·cap에 따라 영역이 달라지며, 평균 lag나 평균 정답 칸 수만 대입해서 전체 sequence 평균 O7 판정을 대체하지 않는다. 임계값이나 등록된 η 격자를 이번 반례에 맞춰 자동 변경하지 않는다.
+
+### (c) 개선 방향과 다음 확인 조건
+
+채택 순위는 AUDIT-PRIORITY-01을 유지한다. 다음 의미 있는 근거는 **같은 정책 버전의 고정η 대조 완료 결과**와 **재현 가능한 key 기하/도달 가능성 진단**이다. 작업자는 rank 집계 코드를 artifact로 남기고, score→p→c 지표를 동일 checkpoint/표본/정답 mask에서 연결할 것. 도달 가능성 계산은 분석용이며, 높은η의 실제 학습 안정성·오차 개선을 증명하지 않는다.
+
+문헌 방향은 이전에 원문 확인한 [Test-time regression §3](https://arxiv.org/html/2501.12352v1) 및 [Hopfield Eq.(5)/Theorem4–5](https://deeplearning.cs.cmu.edu/S24/document/readings/hopfieldnets_is_all_you_need.pdf)의 적용 범위를 유지한다. 이번은 신규 문헌 주장 없이 직접 수치 검사를 추가했다. 새 학습 결과가 없으므로 **성능·효능 판정 보류**, 신규 학습/다중seed·CI는 **not run**이다.
+
+### 수행·보존
+
+CPU torch1.12.0+cu113/2threads/seed7,임의 작은 행렬 및 실제 Selector 계수 평가만 수행했다. 모델/학습 소스 수정·학습/optimizer·GPU·환경 설치·프로세스 중단·git add/commit/tag/push/reset/switch·다른 세션 대화 열람·전송 없음. 기존 파일/결과를 보존하고 감사 artifact와3문서 append만 작성했다. 사용자 직접 추적 요청이므로 예약 marker/ack는 추가하지 않았다.
+
+```bash
+OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib \
+/home/yschoi/.conda/envs/snn_recall/bin/python \
+f_lif_pop_v3/forecasting/results/assessment/20260922-manual-followup/claims_probe.py \
+/tmp/nsmt_assessment_20260922-manual-followup \
+f_lif_pop_v3/forecasting/results/assessment/20260922-manual-followup/claims_probes.json \
+> f_lif_pop_v3/forecasting/log/assessment/20260922-manual-followup/claims_probe.log 2>&1
+```
+
+
+## 추적 감사 15 — 2026-09-22 11:49 KST (예약 20260922T024001Z-acec6eac)
+
+### 관찰 범위와 실제 증거
+
+**고정η 네 조건의 저장 결과를 재현했으나 효능은 미확증이다. §2G의 uniform oracle ‘절대 상한’ 주장은 수치 반례로 정정이 필요하다.** 관찰 HEAD **2769c5c8100e367b965a47b20bd1924f0b0d18a1**, branch exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7. 11:40:55 KST에 실제148파일을 `/tmp/nsmt_assessment_20260922T024001Z-acec6eac`로 복사·SHA256 기록했다. Trigger manifest와 실제 파일을 대조했으며, 감지 때 완료 JSON이 없던 η=1도 **snapshot 때에는 완료**되어 포함했다. Snapshot 내 학습η 후속 run은 완료 JSON이 없어 재평가하지 않았다. 감사14 대비 연구 소스 변경은 없다.
+
+[Inventory](../f_lif_pop_v3/forecasting/results/assessment/20260922T024001Z-acec6eac/inventory.json), [직접 CPU 검사](../f_lif_pop_v3/forecasting/results/assessment/20260922T024001Z-acec6eac/etagrid_probe.py), [결과](../f_lif_pop_v3/forecasting/results/assessment/20260922T024001Z-acec6eac/etagrid_probes.json), [보존 검사](../f_lif_pop_v3/forecasting/results/assessment/20260922T024001Z-acec6eac/validation.json). Model SHA256 `050bb4c5ad641da7790e575f84e33026cc531acfe3f633001ad47f491865a480`, train `887cfb9ee5cf4fc6ac68c3cbbe56227518d616988a0af75a540548898fe5a29c`, layers `45322e8940acf477057c9ce420f9763ce77b04132879dbd782292413732876ac`, prereg `1721c443859c85f48ddbc6ba3ad908016108cc2bd54f9fddfaa0807faddba823`.
+
+### (a) 구현 정확성 — 고정η 배선·복원·결과 재현 확인, 기존 OPEN 유지
+
+`etagrid-113240`의 완료된 네 checkpoint를 현재 API로 CPU 복원했다. 각각 실제 eta buffer가 설정값과 일치하고, **전체 test MSE·M_eff 저장값과 재평가 차이0**, evaluated parameter hash/checkpoint hash 일치, 기록된 source hash와 고정한 소스의 불일치0이었다. A06 고정η 및 A10-HASH의 기존 확인을 이 네 실행까지 확대한다. 이 사실만으로 A10-PROVENANCE의 실행 시작 source 고정 문제를 닫지는 않는다.
+
+공통 조건은 seed7/data_seed20260921, train/val/test=2048/256/256, batch64, spike readout, α=.7,K=4, recall key3, scale8, θ=5.561343350061557, 최대12epoch/patience10, 배치 제한0이다. Test 전256sequence/8085 recall query를 평가했다. M_eff·hit은 query→sequence 평균이다.
+
+| 고정η | 완료 epoch | recall MSE | M_eff | 최종 c hit | cap rate |
+|---|---:|---:|---:|---:|---:|
+| 0 | 12 | .276338636158 | .130328894393 | .000000 | .000000 |
+| .2 | 12 | .319387285780 | .127181601094 | .020639 | .009919 |
+| .5 | **11** | .433504353901 | .132870673176 | .096712 | .064035 |
+| 1 | 12 | .416682604337 | .136898894082 | .216071 | .134492 |
+
+η=.5는 CSV epoch0에서 validation loss 최저, 이후10epoch 개선 없음과 patience10/종료 코드가 일치한다. **11epoch를 미완성 또는 실행 실패로 판정하지 않는다.** η=0의 Q/K gradient0은 선택 경로를 끈 설정에 맞는다. Test 상태는 네 조건 모두 finite/G11 상한 안이었으나 이는 전체 학습 step의 보장을 추가로 증명한 것이 아니다.
+
+### (b) 검증 적절성 — 결과 재현은 통과, 해석·상한 정의는 정정 필요
+
+**A09-GRADIENT OPEN:** η=.5/1의 마지막 epoch `grad_absmax_all` 보고값은 각각 **1.0608e11 / 4.3705e12**다. 현 reducer가 표본 batch 최대값들을 **평균**하므로 epoch 최대라고 부를 수 없다. 그래도 clipping 전 매우 큰 gradient가 실제 보고됐다는 근거다. 매 step norm1 clipping 및 finite 검사를 쓰고 있어 곧바로 비유한 학습 실패를 뜻하지 않으며, 원인을 점수 함수 하나로 단정하지 않는다. 진짜 최대·표본 수·clipping 빈도와 전후 norm을 추가로 기록할 필요가 있다. 재검사 없이 A09를 VERIFIED로 닫지 않는다.
+
+**A02-REACHABILITY OPEN(P1), §2G 정정 요청:**
+
+1. Uniform-on-answer oracle은 **정의된 정책 기준선**이지 모든 p의 post-cap M_eff 상한이 아니다. 현재 실제 Selector에 α=.7/history41/정답 lag{41,1}/η=.2를 넣으면, uniform p=(.5,.5)는 **.1644974421**, cap을 고려한 p=(.9173828776,.0826171224)는 **.1744286360**이다. 같은 계수·η·cap에서 더 높은 유효 질량이 존재한다. 이 반례는 허용된 p 공간의 계수 주장 검증이며 실제 score 학습으로 그 p가 도달된다는 뜻은 아니다.
+2. 양의 b_i, cap C=b₀, η∈[0,1], 비어 있지 않은 정답 집합 A에서, `B=Σ_i b_i`, `B_A=Σ_(i∈A)b_i`, `m=|A|`라 두면 **임의의 simplex p에 대한 계수 질량의 최대**는 아래와 같다. 현재 b_i≤C 조건에서 적용한다.
+
+   `S_max = min((1−η)B_A + ηB, mC)`
+
+   `U = S_max / [S_max + (1−η)(B−B_A)]`.
+
+   이유: `q_i=b_i p_i/Σ_j b_j p_j`도 임의 simplex이며, adaptive 총량ηB를 정답 칸들의 남은 cap 용량에 배분하면 최대 정답 질량을 얻는다. 정답 밖 residual은 그대로 남는다. 정답 칸이 포화되면 잉여량은 정답 칸에 버릴 수 있다. 이것은 **자유로운 정책에 대한 계수 상한**이고, WQ/WK 표현 제약·인과적으로 얻을 수 있는 정보·학습 최적화의 성공을 보장하지 않는다.
+3. 같은 test256sequence/8085query의 실제 history 길이·정답 mask에 식과 uniform oracle을 적용하고 등록된 query→sequence 순서로 집계했다. 학습/forward 성능 실험이 아닌 대수 검사다.
+
+| η | uniform oracle M_eff | 자유 정책 상한 U의 평균 |
+|---|---:|---:|
+| 0 | .130328893571 | .130328893571 |
+| .2 | .298202511703 | .298208777887 |
+| .5 | .466552376117 | **.466613112585** |
+| .655 | **.557888951227** | .557946562113 |
+| .7 | .590493784894 | .590537123649 |
+| .75 | .631612043147 | .631647159784 |
+| 1 | 1 | 1 |
+
+이 표본에서는 두 값의 차가 작고, **등록 격자{0,.2,.5,1} 중 .5 평균 질량에 도달 가능한 것은 η1뿐이라는 결론은 올바른 상한으로도 유지**된다. 다만 고정 history41/평균 lag21/정답 칸3–4 예시가 그 증거는 아니다. η.655의 uniform 값이 이미 .5를 넘으므로 ‘과제 평균 정답 수3.5이니 최소η≈.70–.75’도 이 실측 분포의 필요조건이 아니다. 미래 dataset/seed 분포 전체에 일반화하지 않는다. 등록 임계값·확증 격자는 변경하지 않는다.
+4. §2G의 ‘lag5/21/35 차이<.01’은 인용한 원 artifact 자체와 불일치한다. 정답4칸·η.2의 .3088−.2613=**.0475**다. `meff_reachable.txt`를 재생성할 명령/코드와 정확한 배치 정의도 남겨야 한다. .4666을 .34–.41의 ‘상한과 정합’이라 부르지 않는다. 표본과 집계가 다르다.
+5. `learned/oracle` 비율만으로 ‘선택자는 잘했다’고 판정하지 않는다. **η=0이면 선택자가 무엇을 하든 비율1**이며 uniform oracle이 진짜 상한도 아니다. Full kernel 기준 질량, p 자체의 질량/순위, pre/post-cap 질량, 실제 오차를 함께 보고한다. 이는 진단 보완이고 승인된 O7 기준을 바꾸는 제안이 아니다.
+
+**통계·분리·진행 상태:** 이번 동일 seed의 η 증가 조건들은 η0보다 recall MSE가 컸고, η1에서도 M_eff가 .1369에 그쳤다. 이를 ‘η만 올리면 해결된다’는 주장의 지지로 쓸 수 없다. 반대로 한 seed·짧은 예산·서로 다른 최적화 상태만으로 아이디어의 최종 실패나 원인까지 결정하지 않는다. 독립8seed/paired CI, 등록 최대50epoch 조건의 확증, 새로운 후보 성능 검사는 **not run**이다. 이미 반복 관찰한 test는 탐색용으로 표시하고 후보/scale 선택은 validation에서 진행한다.
+
+11:45 canonical 기록에 새 oracle **η.5/1** 결과와 G14/O7 관련 해석이 추가된 것을 후속 관찰했다(`project_log_late.txt` 별도 보존). **그 새 학습 결과와 학습η 후속 run은 이번 snapshot 범위 밖**이며 새 정책 checkpoint 재평가는 **not run/다음 주기 확인 대상**이다. 해당 기록의 탐색적이라는 제한은 수용하되, ‘통과/실패’는 탐색 수치의 기준 충족 여부와 확증 판정을 구분해야 한다. 이번 감사에서는 그 표만으로 G14 VERIFIED를 부여하지 않는다. 또한 작은 학습η에서 ‘선택이 사실상 작동하지 않는다’는 표현은 감사 PRIORITY-01의 비영 효과 반례를 반영해 제한해야 한다.
+
+### (c) 개선 방향 — 우선순위 유지, 정규화의 검증 조건을 구체화
+
+**① 고정η 결과·동일 정책 oracle 비교 정리 → ② QK L2정규화 → ③ causal key 표현 → ④ entmax → ⑤ 별도 Gram → ⑥ 별도 delta** 순서를 유지한다. ①의 네 조건은 확보됐고 같은 예산/정책 oracle 및 후속 학습η의 provenance 재평가가 남았다. η1은 dense residual이 없는 조건인데도 정답 질량 개선이 작으므로, dense residual 지배만으로 현재 전체 현상을 설명할 수 없다. 다만 score→p→c 변환·cap·gradient·학습 동역학이 여전히 얽혀 있어 score 품질 단독의 확정 인과판정은 아니다.
+
+QK 정규화는 같은η·예산에서 크기 편향을 분리하는 **다음 탐색 후보**로 타당하다. Score scale은 validation에서 고정하고 zero norm ε 처리·인과성·finite·실제 gradient 최대/clip 통계를 확인할 것. 같은 checkpoint/validation 표본에서 score/p/c의 정답 질량과 순위를 각각 기록해 p 단계의 손실이면 entmax를 key 표현보다 앞당기는 기존 조건부 규칙을 적용한다. 최종 c hit만으로 score와 p의 손실 위치를 구분하지 않는다.
+
+문헌은 앞서 원문 확인한 [Test-time regression §3 Eq.(35)–(36)](https://arxiv.org/html/2501.12352v1)의 QK 정규화–거리 연결과 bandwidth 잔존, [Pascanu et al.의 gradient/clipping 분석](https://proceedings.mlr.press/v28/pascanu13.pdf), [Adaptively Sparse Transformers §3](https://aclanthology.org/D19-1223.pdf)를 재사용했다. 이 문헌들이 우리 모델의 정규화 효능·폭주 제거·최적 순위를 보장하지는 않는다. 새 논문 주장은 없고 이번 결론은 위 직접 수치 검토에 기반한다.
+
+### 남은 조건·수행 기록
+
+A10-CAL(key_norm 적합/보정 ID), A10-PROVENANCE, A10-LOG(final CSV/동적 열), A07-REGEN, A09-KEY-GEOMETRY의 열린 조건은 이번 재현만으로 닫지 않는다. 11:46:49 보존 검사에서 snapshot148파일 hash 불일치0. 작업 세션은 canonical/학습η checkpoint·CSV 및 HEAD를 추가 변경했고, 이를 감사자 변경으로 취급하지 않았으며 다음 주기에서 확인한다.
+
+CPU torch1.12.0+cu113/2threads/seed7로 완료 checkpoint4개 forward 평가와 계수 대수·Selector 소규모 검사만 수행했다. 신규 학습/backward/optimizer/GPU/환경 설치/소스 변경/진행 프로세스 중단/git 변이/다른 세션 대화 접근·메시지 전송은 하지 않았다. 기존 문서 본문과 raw artifacts를 보존하며3문서에 append한다.
+
+```bash
+OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib \
+/home/yschoi/.conda/envs/snn_recall/bin/python \
+f_lif_pop_v3/forecasting/results/assessment/20260922T024001Z-acec6eac/etagrid_probe.py \
+/tmp/nsmt_assessment_20260922T024001Z-acec6eac \
+f_lif_pop_v3/forecasting/results/assessment/20260922T024001Z-acec6eac/etagrid_probes.json \
+> f_lif_pop_v3/forecasting/log/assessment/20260922T024001Z-acec6eac/etagrid_probe.log 2>&1
+```
+
+<!-- assessment-watch:20260922T024001Z-acec6eac -->
+
+
+## 추적 감사 16 — 2026-09-22 11:54 KST (예약 20260922T025001Z-31dd6781)
+
+### 관찰 범위
+
+**새 정책 oracle 두 조건과 학습η 결과의 재현을 확인했다. 탐색적 headroom은 확보됐으며, 학습된 선택자의 효능 확증은 아직 없다.** HEAD **7520087c6d5578c1ec640350fa233717ce78d980**, branch exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7. **11:50:51 KST**, manifest 대상·최신 감사/기억/사전등록/canonical log와 etagrid checkpoint 등160파일을 `/tmp/nsmt_assessment_20260922T025001Z-31dd6781`에 복사·hash했다. 감지 manifest 대비 hash 불일치0. 감사15 대비 연구 소스 변경0이며, 이미 재평가한 고정η 네 조건을 반복 실행하지 않았다. 사전등록 최신은 §2G이고 감사15의 상한 정정은 아직 반영되지 않았다.
+
+Model SHA256 `050bb4c5ad641da7790e575f84e33026cc531acfe3f633001ad47f491865a480`, train `887cfb9ee5cf4fc6ac68c3cbbe56227518d616988a0af75a540548898fe5a29c`, layers `45322e8940acf477057c9ce420f9763ce77b04132879dbd782292413732876ac`. [전체 inventory](../f_lif_pop_v3/forecasting/results/assessment/20260922T025001Z-31dd6781/inventory.json), [검사 코드](../f_lif_pop_v3/forecasting/results/assessment/20260922T025001Z-31dd6781/completion_probe.py), [수치·hash 증거](../f_lif_pop_v3/forecasting/results/assessment/20260922T025001Z-31dd6781/completion_probes.json), [보존 검사](../f_lif_pop_v3/forecasting/results/assessment/20260922T025001Z-31dd6781/validation.json).
+
+### (a) 구현 정확성 — A12-ORACLE·A10-HASH의 새 실행 재현 확인
+
+`etagrid-113240`의 새 완료 run3개를 현재 API로 복원하고 전체 test를 CPU 평가했다. Train/evaluate→model의 kind 전달과 copy에서는 uniform/recall에서는 answer-set 정책을 적용하는 현 코드가 유지됨을 확인했다. 새 oracle checkpoint는 **이 수정 정책에서 저장 MSE·M_eff가 정확히 재현**된다. 과거 정책 checkpoint를 새 정책으로 재평가한 결과와 구별한다.
+
+| 새 완료 조건 | epochs | recall MSE | copy MSE | M_eff | 최종 c hit |
+|---|---:|---:|---:|---:|---:|
+| oracle η=.5 | 12 | .039580641913 | .143349488259 | .466552377101 | 1 |
+| oracle η=1 | 12 | .034965688339 | .127822646497 | 1 | 1 |
+| sparse 학습η | 12 | .272620149439 | .146173325183 | .132756536374 | 0 |
+
+세 실행 모두 저장 전체 MSE/진단 M_eff와 재평가 차이0, evaluated parameter hash/checkpoint SHA256 일치, source hash 불일치0. Test 상태 finite 및 G11 범위 안이었다. 학습η 평가 checkpoint의 실제 eta는 약.02577485이며 마지막 epoch 통계 약.02629857과 구별한다. Oracle의 Q/K gradient0은 고정 정답 정책이 score를 대체한 결과이므로 gradient 연결 오류로 판정하지 않는다.
+
+**VERIFIED 범위는 현 정책 checkpoint의 복원·수치 재현이다.** 종료 시 source hash만 기록하는 A10-PROVENANCE를 실행 시작 코드 고정까지 확인한 것으로 닫지 않는다. QK L2정규화 구현은 이 snapshot에 없으며 해당 후보 검증은 **not run**이다.
+
+### (b) 검증 적절성 — 같은 데이터/예산 비교 확인, 한 seed의 탐색 수치
+
+공통 seed7/data_seed20260921, train/val/test2048/256/256, batch64, spike, α=.7/K4/key3/scale8/θ5.561343350061557, 최대12epoch/patience10, 배치 제한0. 재평가는256sequence/8085recall query 전체이고 M_eff/hit은 query→sequence 평균이다. 재생성한 x/y/truth/kind tensor 전체를 hash해 **세 run의 각 split이 동일**함을 확인했다. Train/val/test는 생성 seed offset0/10000/20000을 쓰며 split별 hash는 서로 다르다. 이는 데이터 생성·동일 조건 확인이며 과거 test 반복 관찰의 영향을 없애 주지는 않는다.
+
+감사15에서 재현한 full(η0) recall .276338636158에 대해 새 oracleη1과의 **탐색적 headroom=.241372947820**이다. `eta_grid.txt`의 공통 oracleη1 분모를 그대로 사용하면 G는 학습η **.0154055653**, 고정η.2 **−.1783491067**, .5 **−.6511322796**, 1 **−.5814403372**로 표와 일치한다. 이는 동일 seed에서 정답 정책의 큰 개선 여지가 있으나 학습 정책은 거의 회수하지 못한다는 근거다. **Oracle 성능은 실제 사용 시 정답에 접근할 수 있는 모델의 성능이 아니며 검색 성공을 대신하지 않는다.** G의 분모 정책을 명시하고 같은η oracle 대비 질량 진단과 구별한다.
+
+- **A02/O7:** 새 oracleη.5의 M_eff .4665523771은 감사15의 동일 분포 계수 계산을 지지한다. Uniform oracle을 절대 상한으로 부르는 §2G/A02-REACHABILITY는 여전히 OPEN이다. 반례와 수정식은 감사15에 있으며 새 학습으로 그 오류가 해소되지 않는다.
+- **A09/통계 해석:** 작업 기록의 chance≈.161은 이번 test 자체의 값이 아니다. 동일 test mask에 같은 query→sequence 집계를 적용한 uniform-slot 기대 hit는 **.156583749693**이다. 고정η1 c hit .21607055는 이 기대값보다 높지만, 독립 seed CI나 random-policy 학습 대조 없이 ‘질량 분포가 우연 수준’/원인 확정을 하지 않는다. Full-kernel mass .13032889와 uniform-slot chance .15658375는 다른 기준선이다.
+- 학습η recall .272620149439는 이전 diag3와 동일한 seed·설정에서 같은 값이다. 이번 run의 재현성을 뒷받침하지만 **독립 seed 하나를 추가한 것으로 세지 않는다.** 학습η에서 효과가 ‘전혀 없다’는 해석도 기존 비영 효과 검사와 맞지 않는다.
+- Canonical11:45가 탐색/미수렴/예산 공정성 미확인이라고 제한한 점은 적절하다. G14의 **이 seed에서 headroom 수치가 기준을 넘는 관찰**과 8seed/paired CI 기반 O7 확증을 분리한다. 이번 감사는 G14/O7 최종 성공·실패를 확정하지 않는다. 등록50epoch 조건의 성능 검증·다중seed·CI는 **not run**이다.
+
+### (c) 개선 방향과 남은 조건
+
+우선순위 **① 고정η 비교 → ② QK L2정규화 → ③ causal key 표현 → ④ entmax → ⑤ 별도 Gram → ⑥ 별도 delta**를 유지한다. ①의 이번 seed7/12epoch 격자와 새 정책 oracle 재현은 완료됐으므로 **②를 다음 탐색 대상으로 삼을 근거**가 확보됐다. 이는 정규화 최종 채택이나 효능 확인을 뜻하지 않는다.
+
+η1에서 dense residual 없이도 낮은 M_eff가 남고 oracle은 크게 개선되므로, 단순 residual 삭제보다 **동일η에서 QK 크기 편향·score→p→c 변환·최적화 안정성을 분리**하는 방향이 타당하다. Norm ε/인과성/score scale을 명시하고 validation으로만 설정을 선택할 것. 큰 clipping 전 gradient와 absmax 평균 집계 문제(A09)가 남아 있으므로 진짜 최대·clipping 빈도·전후 norm도 함께 확인할 것. Score 순위는 괜찮고 p에서 질량이 손실되는 직접 근거가 생길 때만 entmax를 key 표현보다 앞당긴다.
+
+이 방향은 앞서 원문 확인한 [Test-time regression §3 Eq.(35)–(36)](https://arxiv.org/html/2501.12352v1)의 정규화와 거리/scale 연결, [Pascanu et al.](https://proceedings.mlr.press/v28/pascanu13.pdf)의 gradient/clipping 분석, [Adaptively Sparse Transformers](https://aclanthology.org/D19-1223.pdf)의 학습 가능한 entmax 근거를 재사용한다. 새로운 문헌 사실이나 효능 보장은 추가하지 않았으며 이번 우선순위 판단은 직접 재현 결과에 기반한다.
+
+A09 absmax/KEY-GEOMETRY, A10-CAL·PROVENANCE·LOG, A07-REGEN 및 A02-REACHABILITY의 잔여 조건은 유지한다. 검토 소스가 동일하므로 이전 수정에 대한 전체 gate 재실행은 **not run**이다.
+
+### 수행·보존·완료
+
+CPU torch1.12.0+cu113/2threads/seed7, 새 checkpoint3개 forward 평가·split fingerprint·기존 결과의 G/동일 test chance 산술만 수행했다. 첫 파일 탐색에서 `rg --files -g AGENTS.md`가 일치 없음(exit1)을 반환한 것은 파일 탐색 결과이며 모델 검사 실패가 아니다. 모델/학습 소스 수정·학습/backward/optimizer·GPU·설치·프로세스 중단·git 변이·다른 세션 대화 열람/전송은 하지 않았다. 사본 hash와 기존 문서 prefix 보존 검사를 남기고3문서에 append했다. 감사 중 추가 변경은 다음 주기에 확인한다.
+
+```bash
+OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib \
+/home/yschoi/.conda/envs/snn_recall/bin/python \
+f_lif_pop_v3/forecasting/results/assessment/20260922T025001Z-31dd6781/completion_probe.py \
+/tmp/nsmt_assessment_20260922T025001Z-31dd6781 \
+f_lif_pop_v3/forecasting/results/assessment/20260922T025001Z-31dd6781/completion_probes.json \
+> f_lif_pop_v3/forecasting/log/assessment/20260922T025001Z-31dd6781/completion_probe.log 2>&1
+```
+
+<!-- assessment-watch:20260922T025001Z-31dd6781 -->

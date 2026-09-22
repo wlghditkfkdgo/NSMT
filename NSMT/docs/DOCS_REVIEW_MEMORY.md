@@ -283,3 +283,18 @@ HEAD41554c68cd97cbad522008297b98eda230b1e651은 감사12에서 검토한 key_geo
 ## 우선순위 갱신 — 2026-09-22 11:15 KST (AUDIT-PRIORITY-01; 사용자 직접 요청)
 
 채택 검증 순서: 고정η→QK L2정규화→causal key표현→entmax→별도Gram→별도Delta. Residual즉시삭제아님,η1이이미제거대조. 같은diag3checkpoint validation64/2004query:score/p hit.2715946,c hit0,p mass.256499,c mass.137037,kernel.134411,chance.161031. 작은η에서도lag2/5/10이상적정책은최근계수역전가능,전혀효과없다는명제기각. Cap/질량분리필요. 투영key4차원PR상한4,이번비중심PR1.17473. Hopfield원문PDF확보/Eq5·Thm4/5확인으로평균cosine만으로실패단정불가 재확인. 조건별채택기준/순위조정은ASSESMENT AUDIT-PRIORITY-01. Artifacts results/assessment/20260922-adoption-priority/. 학습/후보효능검증not run.
+
+
+## 추적 갱신 — 2026-09-22 11:35 KST (감사14; 사용자 직접 요청)
+
+HEAD4d67c5072b63bfeaf570be44c02c945d0f9aa8a8,11:33:02 snapshot123파일. 연구소스/결과변경없음;canonical11:31 우선순위수용·작은η/Hopfield/혼합checkpoint정정확인. 표본평균tokenGram은rank4초과가능하므로작업자보완수용,상한4는개별matrix에한정정정. 무작위64×42×4 예에서개별rank4,평균Gram rank42/PR36.3904;원3.97/35.67재현not run. 신규A02-REACHABILITY:‘단일정답η<1이면M_eff.5불가’반례,η.92 lag41 .50086126/lag2 .50704244. Cap구간경계η=1−b0/(B−bd),약.918–.920. 실제학습성능아님. 기존우선순위/OPEN유지,새학습not run. ASSESMENT감사14/results/assessment/20260922-manual-followup/.
+
+
+## 추적 갱신 — 2026-09-22 11:49 KST (예약 감사15)
+
+Snapshot11:40:55/HEAD2769c5c8100e367b965a47b20bd1924f0b0d18a1/148파일. Etagrid 고정η0/.2/.5/1 checkpoint CPU재평가 test256/8085query, MSE·M_eff 차0/hash일치. Recall .276339/.319387/.433504/.416683, M_eff .130329/.127182/.132871/.136899. η.5는patience10에맞는11epoch종료;η1도완료. A09 clipping전큰gradient(마지막표본absmax평균 .5:1.06e11/1:4.37e12),최대집계OPEN. A02-REACHABILITY §2G uniformoracle상한명제반례 .164497→.174429. 자유정책상한 S=min((1−η)BA+ηB,mC),U=S/[S+(1−η)(B−BA)]. 실제test분포η.5U .466613/.655uniform .557889;평균lag/정답수로최소η.70–.75단정불가. η0 learned/oracle비율1은선택성공증거아님. 우선순위유지,새oracle/학습η후속은snapshot후기록으로다음주기;8seedCI/새학습not run. ASSESMENT감사15,results/assessment/20260922T024001Z-acec6eac/.
+
+
+## 추적 갱신 — 2026-09-22 11:54 KST (예약 감사16)
+
+HEAD7520087c6d5578c1ec640350fa233717ce78d980/snapshot11:50:51/160파일,manifest불일치0/소스변경0. 새oracleη.5/1 및학습η3checkpoint test256/8085query CPU재현,전체MSE/M_eff 차0/hash일치. Recall .039580641913/.034965688339/.272620149439, M_eff .466552377101/1/.132756536374. 새kind정책재현확인;실행시작provenance보장은아님. Headroom .241372947820,공통oracle1분모G학습η .0154055653;독립8seedCI not run. 같은test uniform-slotchance .156583749693(기존.161과표본다름);fullmass .130329와구별. Split tensorhash세run동일,split간상이. 학습η는이전diag3수치재현이지새독립seed아님. ①탐색격자재현완료→②QK정규화후보유지,구현/효능not run. §2G상한정정미반영/A02-REACHABILITY및기존OPEN유지. ASSESMENT감사16/results/assessment/20260922T025001Z-31dd6781/.

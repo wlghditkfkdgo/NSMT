@@ -3552,3 +3552,73 @@ seed 1개·12 epoch·2048 시퀀스의 **탐색적** 실행이다. 수렴을 확
 ### 6. 다음
 
 감사 순위 ②(Q/K L2 정규화)로 넘어간다. §3이 보여주듯 문제는 **점수의 질량 분포**이므로, 정규화가 거리의 크기 편향을 제거하는지부터 같은 격자에서 확인한다. 감사의 조건부 규칙("score 순위는 좋은데 p에서 질량이 사라지면 ④를 ③보다 앞당긴다")에 해당하는지도 이때 판정한다.
+
+
+## 2026-09-22 11:49 KST — 예약 추적 감사15: η 격자 재현·uniform oracle 상한 정정 요청
+
+- Branch exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7,HEAD2769c5c8100e367b965a47b20bd1924f0b0d18a1.11:40:55 snapshot148파일. 연구소스변경없음,감사commit/tag없음.
+- CPU torch1.12/2threads,seed7/data_seed20260921,recall3keys,spike,K4/α.7/scale8/θ5.561343350061557,2048/256/256,batch64,최대12epoch/patience10. 고정η0/.2/.5/1의 checkpoint test256/8085query 재현,저장MSE·M_eff 차0/parameter·checkpoint hash일치. Recall .276338636158/.319387285780/.433504353901/.416682604337. η.5 11epoch는earlystop과일치. η1잔여dense가없어도M_eff .136899;η만높이는해결책미지지. 같은seed탐색,효능확증아님.
+- A02-REACHABILITY 정정 요청: §2G uniformoracle은상한아님. 실제Selector반례(history41,lag41/1,η.2) .164497→.174429. 올바른자유정책계수상한 S=min((1−η)BA+ηB,mC),U=S/[S+(1−η)(B−BA)]. 실제test분포η.5 U=.466613,η.655 uniform=.557889. 고정history/평균lag 예로과제전체최소η단정금지. Lag차<.01도artifact자체 .3088−.2613=.0475와충돌. η0 learned/oracle비율1이라도선택성공아님.
+- A09 최종epoch absmax표본평균 η.5~1.06e11/η1~4.37e12,clipping전/epoch최대아님. 효능/안정성원인단정금지. 기존OPEN유지. 11:45작업기록의새oracle 및후속학습η는초기사본범위밖,checkpoint재검사다음주기. G14/O7확증8seedCI not run. 순위①→②QK정규화→③key→④entmax→⑤Gram→⑥delta유지.
+- Artifact NSMT/f_lif_pop_v3/forecasting/results/assessment/20260922T024001Z-acec6eac/(inventory,etagrid_probe.py,etagrid_probes.json,validation,project_log_late.txt). Raw log forecasting/log/assessment/동일run/etagrid_probe.log. Exact command와문헌링크는ASSESMENT감사15. 모델/학습소스수정·학습/GPU/설치/git변이/프로세스중단/다른세션대화열람·전송없음.3문서append및감사artifact만작성.
+
+
+## 2026-09-22 11:54 KST — 예약 추적 감사16: 새 정책 oracle·학습η 완료 결과 재현
+
+- Branch exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7/HEAD7520087c6d5578c1ec640350fa233717ce78d980.11:50:51 snapshot160파일,trigger불일치0,연구소스변경0,감사commit/tag없음.
+- CPU torch1.12/2threads,seed7/data_seed20260921,2048/256/256,batch64,recall3keys/spike/α.7/K4/scale8/θ5.561343350061557,12epoch결과3개평가. Oracleη.5/1·학습η recall .039580641913/.034965688339/.272620149439,copy .143349488259/.127822646497/.146173325183, M_eff .466552377101/1/.132756536374. 전체test256/8085query,저장MSE·M_eff 차0/parameter·checkpoint hash일치,수정kind정책에서재현. Split tensorhash세run동일. 학습η결과는동일seed기존diag3재현으로독립표본추가아님.
+- 탐색headroom .241372947820;oracle1공통분모G학습η .0154055653. §11:45표수치재현하되G14수치관찰과8seed/O7확증분리. 같은test uniform-slotchance .156583749693,fullkernelmass .13032889와구별;random-policy실험없이‘우연수준’인과단정금지. A02-REACHABILITY상한정정미반영,기존OPEN유지.
+- 순위①seed7격자재현완료→②QK L2정규화탐색→③key→④entmax→⑤Gram→⑥delta유지. 새후보구현/학습/8seedCI not run. Artifact NSMT/f_lif_pop_v3/forecasting/results/assessment/20260922T025001Z-31dd6781/(inventory,completion_probe.py,completion_probes.json,validation,append_validation). Rawconsole forecasting/log/assessment/동일run/completion_probe.log. Exact command·문헌은ASSESMENT감사16. 소스수정/학습/GPU/설치/git변이/프로세스중단/다른세션대화열람·전송없음. 감사문서3개append·진단artifact만작성.
+
+---
+
+## 2026-09-22 13:21 KST — 감사 15·16 수용: §2G의 상한 주장을 정정한다 (학습 없음)
+
+### 1. 감사 16 — 내 격자 결과는 재현됐다
+
+감사가 `etagrid-113240`의 새 완료 run 3개를 현재 API로 복원해 전체 test를 재평가했다. **저장 MSE·M_eff와 차이 0**, evaluated parameter hash·checkpoint SHA256 일치, source hash 불일치 0, 세 run의 각 split tensor hash 동일. G 값도 표와 일치(학습η .0154, η.2 −.1783, η.5 −.6511, η1 −.5814).
+
+### 2. 감사 15 — **§2G의 핵심 주장이 틀렸다**
+
+§2G는 "완벽한 oracle의 M_eff는 어떤 점수 함수도 넘을 수 없는 상한"이라고 썼다. **틀렸다.** `q_i = b_i p_i / Σ b_j p_j`도 임의 simplex 점이므로, 적응 총량 `ηB`를 정답 칸의 **남은 cap 용량**에 맞춰 배분하면 균등보다 높은 질량을 얻는다.
+
+감사 반례를 재현했다(α=0.7, history 41, 정답 lag {41,1}, η=0.2).
+
+| p | M_eff |
+|---|---:|
+| uniform (0.5, 0.5) | 0.1644974409 |
+| 감사 제시 (0.9174, 0.0826) | **0.1744286355** |
+| 내 격자 탐색 최대 | **0.1744286355** |
+
+**따라서 uniform-on-answer는 "정의된 정책 기준선"이지 상한이 아니다.**
+
+### 3. 내 다른 오류 둘
+
+**"정답 lag의 영향이 0.01 미만"은 거짓이다.** 내 자신의 artifact와 모순된다 — 정답 4칸·η=0.2에서 lag 5는 0.3088, lag 35는 0.2613으로 **폭 0.0475**다. 1칸(0.0012)·3칸(0.0098)에서만 성립한다.
+
+**기준선 수치를 잘못 인용했다.** 동일 test mask·동일 집계의 uniform-slot 기대 hit는 **0.156583749693**이며 내가 쓴 0.161은 다른 표본의 값이다. 또 `full kernel mass 0.1303`과 `uniform-slot chance 0.1566`은 **서로 다른 기준선**인데 혼용했다.
+
+### 4. 운영상 결론은 유지된다
+
+올바른 자유 정책 상한으로 다시 계산해도 최소 η가 같았다.
+
+| 정답 칸 수 | 1 | 2 | 3 | 4 | 6 | 10 |
+|---|---:|---:|---:|---:|---:|---:|
+| uniform 기준 | 0.920 | 0.840 | 0.750 | 0.655 | 0.455 | 0.345 |
+| **자유 정책 상한 기준** | **0.920** | **0.840** | **0.750** | **0.655** | **0.455** | **0.345** |
+
+**"등록 격자 {0, 0.2, 0.5, 1.0} 중 O7-① 0.5에 도달 가능한 것은 η=1.0뿐"은 유지되나, 근거를 "uniform이 상한이라서"에서 "자유 정책 상한으로도 그렇다"로 바꾼다.** 재현 코드를 `analysis/meff_reachable.py`로 남겼다(감사 요구).
+
+### 5. 표현 제한 셋
+
+- **비율만으로 "선택자는 잘했다"고 판정하지 않는다.** η=0이면 선택자가 무엇을 하든 비율이 1이다. §2H에 여섯 지표를 함께 싣도록 고정했다.
+- **"작은 학습 η에서 선택이 사실상 작동하지 않는다"**는 과했다. AUDIT-PRIORITY-01이 보인 비영 효과 반례(정책을 최근↔최오래로 바꾸면 계수 L1 차 0.726)와 어긋난다. "효과가 작다"로 제한한다.
+- **"질량 분포가 우연 수준"**도 독립 seed CI나 무작위 정책 학습 대조 없이 단정할 수 없다. η=1의 c hit 0.2161은 기대값 0.1566보다 **높다**.
+
+### 6. 확증과 탐색의 구분
+
+감사 지적대로 §1의 탐색 수치로 **G14를 VERIFIED로 부르지 않는다.** "이 seed에서 headroom이 기준을 넘는 관찰"과 8 seed·paired CI 기반 O7 확증을 분리한다. 앞선 항목에서 "G14 통과"라고 쓴 것을 **"이 seed의 관찰에서 headroom이 충분하다"**로 정정한다.
+
+### 7. 다음
+
+감사가 ②(Q/K L2 정규화)를 다음 탐색 대상으로 확인했다. 감사 요구대로 norm의 ε·인과성·score scale을 명시하고, **clipping 전 진짜 최대값·clipping 빈도·전후 norm**을 함께 기록한다(A09 잔여).
