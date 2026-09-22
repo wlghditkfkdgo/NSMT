@@ -185,7 +185,8 @@ class Selector(nn.Module):
             # p는 None이다. b/sum(b)를 p라고 부르면 latent uniform p와 혼동된다 (audit A08).
             return c, {'p': None, 'rho': torch.ones_like(c), 'score': None,
                        'eta': zeros, 'kappa': ones, 'cap_rate': zeros,
-                       'would_cap_rate': zeros,
+                       'would_cap_rate': zeros, 'support_size': ones * J,
+                       'score_std': zeros,
                        'support_p': ones, 'support_rho': ones, 'support_braw': ones,
                        'support_c': ones}
 
@@ -234,7 +235,10 @@ class Selector(nn.Module):
                'support_p': (p > 0).to(c.dtype).mean(-1).detach(),
                'support_rho': (rho > 0).to(c.dtype).mean(-1).detach(),
                'support_braw': (raw > 0).to(c.dtype).mean(-1).detach(),
-               'support_c': (c > 0).to(c.dtype).mean(-1).detach()}
+               'support_c': (c > 0).to(c.dtype).mean(-1).detach(),
+               # singleton support에서는 sparsemax의 score gradient가 0이다. 비율을 본다.
+               'support_size': (p > 0).sum(-1).to(c.dtype).detach(),
+               'score_std': score.std(-1).detach()}
 
         return c, aux
 
@@ -335,8 +339,8 @@ class PopulationNeuron(nn.Module):
         u = x.new_zeros(B, D, self.num_population)                   # u_0 = 0, 리셋 없음
         v = x.new_zeros(B, D)
         incs, keys, spikes, live = [], [], [], []                    # f(j), xi_j, s_n, v_n(graph)
-        keep = ('kappa', 'cap_rate', 'would_cap_rate', 'eta',
-                'support_p', 'support_rho', 'support_braw', 'support_c')
+        keep = ('kappa', 'cap_rate', 'would_cap_rate', 'eta', 'support_p', 'support_rho',
+                'support_braw', 'support_c', 'support_size', 'score_std')
         logs = {k: [] for k in ('state', 'voltage', 'coeff') + keep}
 
         for t in range(T):

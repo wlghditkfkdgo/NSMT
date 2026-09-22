@@ -75,7 +75,9 @@ def train_one_epoch(model, data_loader, optimizer, args):
     model.train()
     criterion = nn.MSELoss()
     total = torch.zeros(3, dtype=torch.float64, device=args.device)
-    peak, rate, watched = 0., [], {'eta': [], 'kappa': [], 'would_cap_rate': [], 'support_p': []}
+    peak, rate = 0., []
+    watched = {k: [] for k in ('eta', 'kappa', 'would_cap_rate', 'support_p', 'score_std')}
+    selector_grad = {'grad_WQ': [], 'grad_WK': [], 'grad_eta_hat': [], 'singleton_frac': []}
     for i, batch in enumerate(data_loader):
         if args.max_train_batches and i >= args.max_train_batches:
             break
@@ -90,6 +92,12 @@ def train_one_epoch(model, data_loader, optimizer, args):
             raise FloatingPointError('Nonfinite training loss')
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
+        if watch and args.model == 'myModel':                     # clipping 전 원본 크기를 본다
+            sel = model.embedding.neuron.selector
+            for name, tensor in (('grad_WQ', sel.query.weight), ('grad_WK', sel.key.weight),
+                                 ('grad_eta_hat', sel.eta_hat)):
+                selector_grad[name].append(0. if tensor.grad is None
+                                           else tensor.grad.norm().item())
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1., error_if_nonfinite=True)
         optimizer.step()
         if watch:
@@ -99,6 +107,8 @@ def train_one_epoch(model, data_loader, optimizer, args):
             live = aux['has_history']
             for key in watched:                                  # eta가 움직이는지 epoch마다 본다
                 watched[key].append(aux[key][live].mean().item())
+            # sparsemax가 한 칸만 고르면 score gradient가 0이다 (audit 5.2). 비율을 본다.
+            selector_grad['singleton_frac'].append((aux['support_size'][live] == 1).double().mean().item())
             if args.g11_bound and peak >= args.g11_bound:
                 raise FloatingPointError(
                     f'G11 violated: max|u| = {peak:.3f} reached the bound {args.g11_bound:.3f} '
@@ -114,6 +124,7 @@ def train_one_epoch(model, data_loader, optimizer, args):
         result['max_abs_state'] = peak
         result['firing_rate'] = float(np.mean(rate))
         result.update({k: float(np.mean(v)) for k, v in watched.items() if v})
+        result.update({k: float(np.mean(v)) for k, v in selector_grad.items() if v})
 
     return result
 
@@ -167,7 +178,8 @@ def train(args: Config):
                         'best_val_loss': float(stopper.val_loss_min),
                         **{k: train_result[k] for k in
                            ('firing_rate', 'max_abs_state', 'eta', 'kappa', 'would_cap_rate',
-                            'support_p') if k in train_result}}
+                            'support_p', 'score_std', 'grad_WQ', 'grad_WK', 'grad_eta_hat',
+                            'singleton_frac') if k in train_result}}
     payload['provenance'] = {
         'run_uuid': args.run_uuid, 'config_hash': args.config_hash,
         'calibration': {'file': args.calibration_file, 'input_scale': args.input_scale,
