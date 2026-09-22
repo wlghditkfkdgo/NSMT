@@ -217,7 +217,8 @@ def main():
     os.makedirs(out, exist_ok=True)
     stamp = datetime.now(ZoneInfo('Asia/Seoul')).strftime('%y%m%d-%H%M%S')
     stem = f"{config.dataset}_k{config.n_keys}_r2" if config.task == 'recall' else config.dataset
-    name = f"{stem}_a{config.alpha}_norm-{config.input_norm}_seed{config.seed}_{stamp}.json"
+    qk = '_qknorm' if config.qk_norm else ''
+    name = f"{stem}_a{config.alpha}_norm-{config.input_norm}{qk}_seed{config.seed}_{stamp}.json"
     payload = {'band': BAND, 'target': TARGET, 'mode': 'full', 'input_norm': config.input_norm,
                'grid': rows,
                'picked': picked, 'reason': reason,

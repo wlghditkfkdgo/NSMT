@@ -100,6 +100,8 @@ def parse_arguments():
                             help='frozen standardises xi before Q/K; not the main stability fix')
     select_arg.add_argument('--eta_init', type=float, default=-4., help='sigmoid pre-activation; -4 -> 0.018')
     select_arg.add_argument('--eta_fixed', type=float, default=None, help='pin eta instead of learning it')
+    select_arg.add_argument('--qk_norm', action=argparse.BooleanOptionalAction, default=False,
+                            help='L2-normalise the projected q and k before the distance (priority 2)')
     select_arg.add_argument('--cap', action=argparse.BooleanOptionalAction, default=True,
                             help='R3 coefficient cap; --no-cap is the ablation only')
 
@@ -135,6 +137,8 @@ class Config():
         self.data_path = self.data + '.csv'
         self.num_patches = self.seq_len // self.patch_size
         self.variant = ('heterogeneous' if self.heterogeneous else 'homogeneous') + '_' + self.mode
+        if self.qk_norm:
+            self.variant += '_qknorm'
         if not self.cap:
             self.variant += '_nocap'
         if self.eta_fixed is not None:
@@ -188,6 +192,6 @@ def neuron_kwargs(config):
                 heterogeneous=config.heterogeneous, max_length=config.num_patches,
                 theta=config.theta, eta_init=config.eta_init,
                 eta_fixed=config.eta_fixed, cap=config.cap,      # audit A06: 이름만 바뀌면 안 된다
-                key_norm=config.key_norm,
+                key_norm=config.key_norm, qk_norm=config.qk_norm,
                 tau_s=config.tau_s, threshold=config.threshold,
                 surrogate_scale=config.surrogate_scale)

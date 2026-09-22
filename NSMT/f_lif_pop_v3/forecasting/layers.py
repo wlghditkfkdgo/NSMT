@@ -123,11 +123,16 @@ class Selector(nn.Module):
     also be trained from scratch rather than only injected at test time.
     """
     def __init__(self, num_population=4, query_dim=None, theta=1., eta_init=-4.,
-                 eta_fixed=None, cap=True, key_norm='none'):
+                 eta_fixed=None, cap=True, key_norm='none', qk_norm=False, qk_eps=1e-6):
         super().__init__()
 
         if key_norm not in ('none', 'frozen'):
             raise ValueError("key_norm must be 'none' or 'frozen'")
+        # QK 정규화: 투영된 q, k를 단위 L2로 만든 뒤 거리를 잰다. 그러면
+        # -||q-k||^2 = 2(q.k - 1)이 되어 점수가 [-4/(d_q*theta), 0]으로 유계가 되고,
+        # 상태 크기에서 분리된다. eps는 norm이 0인 경우를 막는 고정 상수이며
+        # 시점 n의 q는 갱신 전 상태로만 만들어지므로 인과성은 변하지 않는다.
+        self.qk_norm, self.qk_eps = bool(qk_norm), float(qk_eps)
         self.key_norm = key_norm
         self.register_buffer('key_mean', torch.zeros(num_population + 1))
         self.register_buffer('key_std', torch.ones(num_population + 1))
@@ -195,7 +200,11 @@ class Selector(nn.Module):
             # 비례하고, 그 값이 T 스텝 되먹임으로 누적되어 역전파가 폭주한다.
             xi = (xi - self.key_mean) / self.key_std
             xi_hist = (xi_hist - self.key_mean) / self.key_std
-        score = -(self.query(xi).unsqueeze(-2) - self.key(xi_hist)).square().sum(-1)
+        q, kk = self.query(xi), self.key(xi_hist)
+        if self.qk_norm:
+            q = q / q.norm(dim=-1, keepdim=True).clamp_min(self.qk_eps)
+            kk = kk / kk.norm(dim=-1, keepdim=True).clamp_min(self.qk_eps)
+        score = -(q.unsqueeze(-2) - kk).square().sum(-1)
         score = score / (self.query_dim * self.theta)                # theta는 d_q 스케일로 고정 (O3)
         if mode == 'sparse' or mode == 'mass_matched':
             p = sparsemax(score)                                     # 정확한 0을 만든다 (gate G8b)
@@ -297,8 +306,8 @@ class PopulationNeuron(nn.Module):
     """
     def __init__(self, embed_dim, num_population=4, alpha=.7, tau=(4., 8., 16., 32.),
                  heterogeneous=True, max_length=64, theta=1., eta_init=-4.,
-                 eta_fixed=None, cap=True, key_norm='none', tau_s=2., threshold=1.,
-                 surrogate_scale=5., query_dim=None, dtype=torch.float32):
+                 eta_fixed=None, cap=True, key_norm='none', qk_norm=False, tau_s=2.,
+                 threshold=1., surrogate_scale=5., query_dim=None, dtype=torch.float32):
         super().__init__()
 
         # 계수표는 생성 시점의 dtype으로 만든다. float32로 만든 뒤 .double()로 올리면
@@ -315,7 +324,8 @@ class PopulationNeuron(nn.Module):
         self.num_population = num_population
         self.alpha = float(alpha)
         self.max_length = int(max_length)
-        self.selector = Selector(num_population, query_dim, theta, eta_init, eta_fixed, cap, key_norm)
+        self.selector = Selector(num_population, query_dim, theta, eta_init, eta_fixed, cap,
+                                 key_norm, qk_norm)
         self.soma = Soma(embed_dim, num_population, tau_s, threshold, surrogate_scale)
 
     def forward(self, x, mode='sparse', oracle_p=None, return_aux=False, analog=False):
@@ -408,7 +418,13 @@ class PopulationNeuron(nn.Module):
             if sel.key_norm == 'frozen':
                 xi = (xi - sel.key_mean) / sel.key_std
                 hist = (hist - sel.key_mean) / sel.key_std
-            total.append((sel.query(xi).unsqueeze(-2) - sel.key(hist)).square().sum(-1).mean().item())
+            # 선택자가 실제로 쓰는 변환과 같아야 한다. qk_norm을 빠뜨리면
+            # 정규화된 점수에 정규화 안 된 theta를 물리게 된다.
+            q, kk = sel.query(xi), sel.key(hist)
+            if sel.qk_norm:
+                q = q / q.norm(dim=-1, keepdim=True).clamp_min(sel.qk_eps)
+                kk = kk / kk.norm(dim=-1, keepdim=True).clamp_min(sel.qk_eps)
+            total.append((q.unsqueeze(-2) - kk).square().sum(-1).mean().item())
 
         return float(sum(total) / len(total) / sel.query_dim)
 

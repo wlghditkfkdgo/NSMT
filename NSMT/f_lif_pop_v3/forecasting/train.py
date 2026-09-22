@@ -30,8 +30,9 @@ def load_calibration(args):
     the bound would follow it (audit follow-up 9.3).
     """
     stem = f"{args.dataset}_k{args.n_keys}_r2" if args.task == 'recall' else args.dataset
+    qk = '_qknorm' if args.qk_norm else ''
     pattern = str(TASK / 'results' / 'calibration'
-                  / f'{stem}_a{args.alpha}_norm-{args.input_norm}_seed*.json')
+                  / f'{stem}_a{args.alpha}_norm-{args.input_norm}{qk}_seed*.json')
     files = sorted(glob.glob(pattern))
     if not files:
         return None
@@ -52,7 +53,8 @@ def load_calibration(args):
         have = neuron.get(field)
         if have is not None and list(have) != want if isinstance(want, list) else have != want:
             mismatch.append(f'{field}: calibration {have} vs requested {want}')
-    for field in ('patch_size', 'embed_dim', 'input_norm', 'cue_mode', 'n_keys', 'seq_len'):
+    for field in ('patch_size', 'embed_dim', 'input_norm', 'qk_norm', 'key_norm',
+                  'cue_mode', 'n_keys', 'seq_len'):
         have = saved.get(field)
         if have is not None and have != getattr(args, field, have):
             mismatch.append(f'{field}: calibration {have} vs requested {getattr(args, field)}')
@@ -101,7 +103,7 @@ def train_one_epoch(model, data_loader, optimizer, args):
     watched = {k: [] for k in ('eta', 'kappa', 'would_cap_rate', 'support_p', 'score_std')}
     selector_grad = {k: [] for k in ('grad_WQ_norm', 'grad_WK_norm', 'grad_eta_hat_norm',
                                      'grad_WQ_absmax', 'grad_WK_absmax', 'grad_absmax_all',
-                                     'singleton_frac')}
+                                     'grad_total_norm_pre', 'clip_rate', 'singleton_frac')}
     for i, batch in enumerate(data_loader):
         if args.max_train_batches and i >= args.max_train_batches:
             break
@@ -130,7 +132,10 @@ def train_one_epoch(model, data_loader, optimizer, args):
             selector_grad['grad_absmax_all'].append(
                 max((p.grad.abs().max().item() for p in model.parameters() if p.grad is not None),
                     default=0.))
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1., error_if_nonfinite=True)
+        total = torch.nn.utils.clip_grad_norm_(model.parameters(), 1., error_if_nonfinite=True)
+        if watch and args.model == 'myModel':
+            selector_grad['grad_total_norm_pre'].append(total.item())
+            selector_grad['clip_rate'].append(1. if total.item() > 1. else 0.)
         optimizer.step()
         if watch:
             # G11: 학습 중에도 보정에서 고정한 상한을 본다. 넘으면 즉시 중단한다.
@@ -228,7 +233,8 @@ def train(args: Config):
                            ('firing_rate', 'max_abs_state', 'eta', 'kappa', 'would_cap_rate',
                             'support_p', 'score_std', 'grad_WQ_norm', 'grad_WK_norm',
                             'grad_eta_hat_norm', 'grad_WQ_absmax', 'grad_WK_absmax',
-                            'grad_absmax_all', 'singleton_frac')
+                            'grad_absmax_all', 'grad_total_norm_pre', 'clip_rate',
+                            'singleton_frac')
                            if k in train_result}
                         | {k: v for k, v in train_result.items() if k.endswith('_nonfinite')}}
     payload['provenance'] = {
