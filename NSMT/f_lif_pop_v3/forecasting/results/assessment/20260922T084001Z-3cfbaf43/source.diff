@@ -1,0 +1,109 @@
+--- audit26/docs/Population_fLIF_v3_prereg_KO.md
++++ audit27/docs/Population_fLIF_v3_prereg_KO.md
+@@ -895,3 +895,77 @@
+ ### 재현
+ 
+ `meff_reachable.txt`는 `NSMT/f_lif_pop_v3/analysis/meff_reachable.py`로 재생성한다(정답 칸을 `start = n − lag`부터 연속 배치, α=0.7, T=42).
++
++---
++
++## 2I. 2026-09-22 η 선택 규칙 고정 (감사 25 지시)
++
++감사 25: *"η=.2 후보를 유지하되, 채택은 **사전등록한 선택 규칙과 독립 검증 뒤로** 둔다. 원 학습η·η0를 항상 포함하고, **후보 수/η 선택 기준/G11 탈락 규칙을 고정한 뒤** 별도 미사용 평가 자료·독립seed로 비교할 것."*
++
++**결과를 본 뒤 기준을 맞추지 않기 위해, 아래를 실행 전에 고정한다.**
++
++### D-AE. 후보 집합
++
++| 항목 | 고정값 |
++|---|---|
++| 후보 η | **{0, 0.1, 0.2, 0.3, 0.5}** — 5개 |
++| 항상 포함하는 기준선 | **η = 0**(선택 없음)과 **원 학습 η**(학습으로 정해진 값). 둘은 후보가 아니라 **비교 기준**이다 |
++| 제외 | **η = 1.0**. §2H의 정확식으로도 도달 가능하지만 이미 **G11 불합격**(validation `max\|u\|` 656.13 > 305.038)이므로 후보에서 뺀다. 상한을 사후에 넓히지 않는다 |
++| 개입 방식 | **학습은 원 학습 η로 하고 평가 시 η만 바꾼다.** 고정 η로 **학습**하면 점수가 나빠진다는 관측(§2G 이후 기록)에 따른 것이며, **학습·추론 불일치 조건임을 결과에 명시**한다 |
++
++### D-AF. 선택 기준 — validation만 사용
++
++```
++선택 지표 = validation 의 recall-only MSE   (kind > 0)
++동률 규칙 = 더 작은 η
++```
++
++- **validation으로만 고른다.** test는 이미 반복 관찰되었으므로 선택에 쓰지 않는다.
++- 선택 지표는 **하나**다. `M_eff`·`hit`·support는 **진단으로 보고**하되 선택에 쓰지 않는다(여러 지표로 고르면 사실상 사후 선택이 된다).
++- seed별로 따로 고르지 않는다. **선택은 seed 7 validation에서 한 번** 하고, 그 η를 모든 seed에 적용한다.
++
++### D-AG. G11 탈락 규칙
++
++**후보가 G11을 위반하면 그 후보는 탈락이며, 성능이 아무리 좋아도 채택하지 않는다.**
++
++- 판정은 **전체 forward**의 `max|u|`로 한다(궤적 고정 계수 재계산이 아니다).
++- 상한은 **보정에서 고정한 값**을 쓴다. 후보마다 다시 보정하지 않고, 사후에 넓히지 않는다.
++- 위반은 `G11_violation.json`으로 기록하고 결과표에 **FAIL**로 남긴다. 탈락 사실을 성능과 함께 보고한다.
++- 비유한(NaN/Inf) 상태도 같은 탈락 사유다.
++
++### D-AH. 보고 항목 (모든 후보·모든 기준선에 대해)
++
++```
++score_top1, score_rank, score_rank_chance      점수 단계
++p_mass                                          확률 단계
++precap_mass  (= b·rho)                          상한 이전
++postcap_mass (= M_eff)                          상한 이후
++kernel_mass, uniform_slot                       두 기준선 (서로 다른 양이다)
++max|u| , within_bound                           전체 forward의 실제 상태
++recall / copy / recall-first MSE                사건 종류별 오차
++```
++
++감사 요구대로 **`score→p→w→pre→post`와 전체 forward의 실제 상태 상한을 함께** 남긴다. `w`는 `rho`의 중간 형태로, 여기서는 `precap_mass`가 그 역할을 한다.
++
++### D-AI. 독립 검증 — 미사용 평가 분할
++
++**선택에 쓰지 않은 새 분할에서 최종 수치를 낸다.**
++
++| 분할 | 생성 seed offset | 용도 |
++|---|---:|---|
++| train | 0 | 학습 |
++| val | 10000 | **후보 선택** |
++| test | 20000 | 기존 탐색에서 반복 관찰됨. **최종 판정에 쓰지 않는다** |
++| **confirm** | **30000** | **신설. 선택이 끝난 뒤 한 번만 평가한다** |
++
++- seed는 사전등록 8개 **{7, 13, 21, 42, 123, 256, 512, 1024}**를 모두 쓴다.
++- 보고는 **paired 차이**(같은 seed의 η=0 대비)와 그 **신뢰구간**으로 한다.
++- `confirm` 분할은 **선택이 끝난 뒤 한 번만** 본다. 여기서 본 결과로 다시 후보를 바꾸면 그 시점부터 탐색적이다.
++
++### D-AJ. 주장 범위
++
++이 절차의 결과로 말할 수 있는 것은 **"원 학습 η 대비 고정 η 개입이 회상 오차를 줄이는가"**뿐이다. 다음은 **주장하지 않는다.**
++
++- 사전등록 O7 통과 여부 — O7은 `M_eff`와 `G`에 대한 별도 기준이며, 이 절차는 η 개입의 효과만 본다
++- 아이디어 전체의 성능 우위 — GRU·α=1 이질·capacity-matched 대조가 포함되지 않았다
++- 다른 과제·다른 α·다른 τ로의 일반화
+--- audit26/f_lif_pop_v3/forecasting/config.py
++++ audit27/f_lif_pop_v3/forecasting/config.py
+@@ -64,6 +64,8 @@
+     recall_arg.add_argument('--n_train', type=int, default=8000)
+     recall_arg.add_argument('--n_val', type=int, default=1000)
+     recall_arg.add_argument('--n_test', type=int, default=1000)
++    recall_arg.add_argument('--n_confirm', type=int, default=1000,
++                            help='held-out split used once, after selection (D-AI)')
+     recall_arg.add_argument('--data_seed', type=int, default=20260921)
+ 
+     # 텐서 모양. 회상 과제도 ETT와 같은 T=42가 되도록 맞춘다.
+--- audit26/f_lif_pop_v3/forecasting/data_provider/synthetic.py
++++ audit27/f_lif_pop_v3/forecasting/data_provider/synthetic.py
+@@ -142,9 +142,12 @@
+     training loop does not need a task-specific branch to fetch them.
+     """
+     def __init__(self, args, flag='train'):
+-        assert flag in ['train', 'val', 'test']
+-        count = {'train': args.n_train, 'val': args.n_val, 'test': args.n_test}[flag]
+-        offset = {'train': 0, 'val': 1, 'test': 2}[flag]
++        assert flag in ['train', 'val', 'test', 'confirm']
++        count = {'train': args.n_train, 'val': args.n_val, 'test': args.n_test,
++                 'confirm': args.n_confirm}[flag]
++        # confirm은 후보 선택에 쓰지 않는 분할이다 (사전등록 D-AI). test는 탐색에서
++        # 반복 관찰되었으므로 최종 판정에 쓰지 않는다.
++        offset = {'train': 0, 'val': 1, 'test': 2, 'confirm': 3}[flag]
+         rng = np.random.default_rng(args.data_seed + 10000 * offset)   # 분할 간 생성 난수 분리
+ 
+         self.x, self.y, self.truth, self.recall = [], [], [], []

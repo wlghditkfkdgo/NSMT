@@ -1,0 +1,214 @@
+{
+  "finite_false_row": {
+    "label": "candidate",
+    "eta": 0.2,
+    "recall_mse": 1.0,
+    "copy_mse": 2.0,
+    "m_eff": 0.2,
+    "hit": 0.3,
+    "kernel_mass": 0.1,
+    "support_p": 0.4,
+    "max_abs_state": 5.0,
+    "bound": 10.0,
+    "within_bound": true
+  },
+  "missing_bound_row": {
+    "label": "candidate",
+    "eta": 0.2,
+    "recall_mse": 1.0,
+    "copy_mse": 2.0,
+    "m_eff": 0.2,
+    "hit": 0.3,
+    "kernel_mass": 0.1,
+    "support_p": 0.4,
+    "max_abs_state": 5.0,
+    "bound": null,
+    "within_bound": true
+  },
+  "at_eta_scope": {
+    "evaluate_loader_batches": 16,
+    "diagnostic_batch_cap": 4,
+    "buffer_restored": true
+  },
+  "one_seed_accepted": {
+    "mock_phases": [
+      [
+        7,
+        "val"
+      ],
+      [
+        7,
+        "confirm"
+      ]
+    ],
+    "stdout": "[select] suite AUDIT_MOCK_ONLY, selection seed 7, validation split\n[select] trained eta 0.017986, G11 bound 10.0\n[select] \uc870\uac74                        eta  val recall    M_eff      hit  support    max|u|    G11\n[select] baseline: trained eta   0.018    0.900000   0.2000   0.3000   0.4000      5.00     OK\n[select] baseline: eta=0         0.000    1.000000   0.2000   0.3000   0.4000      5.00     OK\n[select] candidate eta=0.1       0.100    0.300070   0.2000   0.3000   0.4000      5.00     OK\n[select] candidate eta=0.2       0.200    0.400070   0.2000   0.3000   0.4000      5.00     OK\n[select] candidate eta=0.3       0.300    0.500070   0.2000   0.3000   0.4000      5.00     OK\n[select] candidate eta=0.5       0.500    0.700070   0.2000   0.3000   0.4000      5.00     OK\n[select] selected eta = 0.1 (validation recall MSE 0.300070)\n\n[confirm] held-out split, 1 seeds, selected eta 0.1 vs baseline eta=0 and the trained eta\n[confirm]   seed       eta=0     trained    selected  sel - eta0    max|u|    G11\n[confirm]      7    1.000000    0.900000    0.300070   -0.699930      5.00     OK\n\n[confirm] paired delta (selected - eta0): mean -0.699930  95% CI [+nan, +nan]  relative -69.99%  n=1\n[confirm] \uc720\uc758\ud558\uc9c0 \uc54a\uc74c (CI\uac00 0\uc744 \ud3ec\ud568)\n[confirm] \uc774 \uc808\ucc28\uac00 \ub9d0\ud558\ub294 \uac83\uc740 eta \uac1c\uc785\uc758 \ud6a8\uacfc\ubfd0\uc774\ub2e4 (D-AJ). O7 \ud310\uc815\uc774 \uc544\ub2c8\ub2e4.\n"
+  },
+  "all_confirm_fail_still_significant": {
+    "mock_phases": [
+      [
+        7,
+        "val"
+      ],
+      [
+        7,
+        "confirm"
+      ],
+      [
+        13,
+        "confirm"
+      ],
+      [
+        21,
+        "confirm"
+      ],
+      [
+        42,
+        "confirm"
+      ],
+      [
+        123,
+        "confirm"
+      ],
+      [
+        256,
+        "confirm"
+      ],
+      [
+        512,
+        "confirm"
+      ],
+      [
+        1024,
+        "confirm"
+      ]
+    ],
+    "stdout": "[select] suite AUDIT_MOCK_ONLY, selection seed 7, validation split\n[select] trained eta 0.017986, G11 bound 10.0\n[select] \uc870\uac74                        eta  val recall    M_eff      hit  support    max|u|    G11\n[select] baseline: trained eta   0.018    0.900000   0.2000   0.3000   0.4000      5.00     OK\n[select] baseline: eta=0         0.000    1.000000   0.2000   0.3000   0.4000      5.00     OK\n[select] candidate eta=0.1       0.100    0.300070   0.2000   0.3000   0.4000      5.00     OK\n[select] candidate eta=0.2       0.200    0.400070   0.2000   0.3000   0.4000      5.00     OK\n[select] candidate eta=0.3       0.300    0.500070   0.2000   0.3000   0.4000      5.00     OK\n[select] candidate eta=0.5       0.500    0.700070   0.2000   0.3000   0.4000      5.00     OK\n[select] selected eta = 0.1 (validation recall MSE 0.300070)\n\n[confirm] held-out split, 8 seeds, selected eta 0.1 vs baseline eta=0 and the trained eta\n[confirm]   seed       eta=0     trained    selected  sel - eta0    max|u|    G11\n[confirm]      7    1.000000    0.900000    0.300070   -0.699930     20.00   FAIL\n[confirm]     13    1.000000    0.900000    0.300130   -0.699870     20.00   FAIL\n[confirm]     21    1.000000    0.900000    0.300210   -0.699790     20.00   FAIL\n[confirm]     42    1.000000    0.900000    0.300420   -0.699580     20.00   FAIL\n[confirm]    123    1.000000    0.900000    0.301230   -0.698770     20.00   FAIL\n[confirm]    256    1.000000    0.900000    0.302560   -0.697440     20.00   FAIL\n[confirm]    512    1.000000    0.900000    0.305120   -0.694880     20.00   FAIL\n[confirm]   1024    1.000000    0.900000    0.310240   -0.689760     20.00   FAIL\n\n[confirm] paired delta (selected - eta0): mean -0.697502  95% CI [-0.700492, -0.694513]  relative -69.75%  n=8\n[confirm] \uac1c\uc120\uc774 \uc720\uc758\ud568 (CI \uc0c1\ud55c < 0)\n[confirm] \uc774 \uc808\ucc28\uac00 \ub9d0\ud558\ub294 \uac83\uc740 eta \uac1c\uc785\uc758 \ud6a8\uacfc\ubfd0\uc774\ub2e4 (D-AJ). O7 \ud310\uc815\uc774 \uc544\ub2c8\ub2e4.\n"
+  },
+  "split_seed_and_count": {
+    "train": {
+      "rng_seed": 20260921,
+      "count": 2048
+    },
+    "val": {
+      "rng_seed": 20270921,
+      "count": 256
+    },
+    "test": {
+      "rng_seed": 20280921,
+      "count": 256
+    },
+    "confirm": {
+      "rng_seed": 20290921,
+      "count": 1000
+    }
+  },
+  "new_run_metadata": [
+    {
+      "seed": 7,
+      "data_seed": 20260921,
+      "n_train": 2048,
+      "n_val": 256,
+      "n_test": 256,
+      "n_confirm": 256,
+      "epoch": 12,
+      "batch_size": 64,
+      "test": false,
+      "g11_every": 10
+    },
+    {
+      "seed": 13,
+      "data_seed": 20260921,
+      "n_train": 2048,
+      "n_val": 256,
+      "n_test": 256,
+      "n_confirm": 256,
+      "epoch": 12,
+      "batch_size": 64,
+      "test": false,
+      "g11_every": 10
+    }
+  ],
+  "seed7_json": {
+    "test": null,
+    "test_skipped": true,
+    "train": {
+      "epochs_run": 12,
+      "seconds": 133.74366569519043,
+      "best_val_loss": 0.22758172031123372,
+      "firing_rate": 0.1414794959127903,
+      "max_abs_state": 22.684005737304688,
+      "eta": 0.025629556737840176,
+      "kappa": 1.0,
+      "would_cap_rate": 0.0,
+      "support_p": 0.3518153801560402,
+      "score_std": 0.6824045032262802,
+      "grad_WQ_norm": 0.004053967772051692,
+      "grad_WK_norm": 0.013083364116027951,
+      "grad_eta_hat_norm": 0.0032336459262296557,
+      "grad_WQ_absmax": 0.0027820372488349676,
+      "grad_WK_absmax": 0.016211410984396935,
+      "grad_absmax_all": 0.3869238793849945,
+      "grad_absmax_all_observations": 4.0,
+      "grad_total_norm_pre_mean": 0.5955587103962898,
+      "grad_total_norm_pre_max": 1.2339459657669067,
+      "grad_total_norm_post_max": 0.9999993057022265,
+      "clip_rate_all_batches": 0.03125,
+      "batches_seen": 32.0,
+      "singleton_frac": 0.05129334984756098
+    },
+    "provenance": {
+      "run_uuid": "c8d2928e31435a7d",
+      "config_hash": "63a975f387482cf1",
+      "calibration": {
+        "file": "recall_k3_r2_a0.7_norm-frozen_qknorm-eps0.01_seed7_260922-151001.json",
+        "input_scale": 8.0,
+        "theta": 0.38146987702788376,
+        "g11_bound": 305.0375175476074,
+        "calibrated_fields": [
+          "input_scale",
+          "theta"
+        ]
+      },
+      "source_sha256": {
+        "config.py": "b033d265b97e9b5db01a849495e2c22fd0b9c088e15ad000d3fcdf0bf4496ae8",
+        "model.py": "050bb4c5ad641da7790e575f84e33026cc531acfe3f633001ad47f491865a480",
+        "ours.py": "a9be634c58b635febc6f3cd4acea1169ffc882847778ca86f9412e012ae0a85f",
+        "layers.py": "0ad31dc6250a780703a5195b32606657424298925fd948c8f3411fd948c32a04",
+        "train.py": "b2ab437e5cc9bf3ccdff11bf3153a27e84e003edcd534f39bbba90384e7c0a8f",
+        "test.py": "d70f50fdef2df4de3e52b67a227b7b43ada75160a5a8d5865b461910e5a3aead",
+        "utils.py": "01a5f85fc6f339a71e3555a7cdd2aa928f0640d723e2202e9cf874abd725c25a",
+        "calibrate.py": "7d6e3549a85aa7a3c5fdfb6520e7622b80cfc96b3ade14a09298cf0a9fb6f2a2",
+        "data_provider/data_loader.py": "8231657c1691e7f55c9867d24d4230d7a69b820f61b24ef399eaf82b6403689d",
+        "data_provider/data_factory.py": "2e9366c29f6c0c0a35ff1498da271e4ebeb2a103704215bf21ad923e84e91cb7",
+        "data_provider/synthetic.py": "3ca3199101ffdcf58f4da4279048834a32f8c131fb67a04eec50af6939495965"
+      },
+      "parameter_hash_last_epoch": "3fcad0b20a96f37d7e949d981ab141ec39e6842e71f3058fffcef2216fcba96e",
+      "trainable_parameters": [
+        "embedding.emb_linear.weight",
+        "embedding.emb_linear.bias",
+        "embedding.neuron.selector.eta_hat",
+        "embedding.neuron.selector.query.weight",
+        "embedding.neuron.selector.key.weight",
+        "embedding.neuron.soma.weight",
+        "recall_head.weight",
+        "recall_head.bias",
+        "head_compress.weight",
+        "head_compress.bias",
+        "head.weight",
+        "head.bias"
+      ],
+      "data": {
+        "train": 2048,
+        "val": 256,
+        "revision": "r2",
+        "data_seed": 20260921
+      },
+      "python": "3.10.18",
+      "torch": "1.12.0+cu113",
+      "device": "cpu",
+      "finished_utc": "2026-09-22T08:39:51.771745+00:00",
+      "parameter_hash_evaluated": "3fcad0b20a96f37d7e949d981ab141ec39e6842e71f3058fffcef2216fcba96e",
+      "checkpoint_sha256": "aef5602d885ceaf00cda3fb1c577a5492d6bfb5a47c37dc822d4c7f7fe6f23c8"
+    }
+  }
+}
