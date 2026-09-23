@@ -5141,3 +5141,72 @@ txt §3/§3′와 본문에서 "학습 집합 전체 pooling"이라고 썼다. �
 |---|---|---|
 | 해상도·채널 설정 검토 + 감사 29·30 정정 | `23f8621b3` | `exp/f-lif-pop-v3` |
 | 감사 31 수용: 대조군 정정 | `e49debbf8` | `exp/f-lif-pop-v3` |
+
+
+## 2026-09-23 21:35 KST — 예약 추적 감사32: 해상도·채널 proxy 검토 (학습 없음)
+
+- Branch exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7/HEAD23f8621b3f4f6604bd5022564082c948e3a5c8ac. Snapshot265파일/불일치0,기존소스·설정·결과동일. 감사commit/tag없음.
+- NumPy CPU 기술통계:ETTh1train[0,8640)만/7채널train표준화,합성validation seed20270921/300시퀀스/T42/key3/run2–5. ACF원정의맞춰raw168.840381/patch21.850421,차분raw24.164546/patch3.345647,채널Gram participation rank3.551865 재현. Patch평균proxy는실제Linear/spike아님. 원데이터hash f18de3ad269cef59bb07b5438d79bb3042d3be49bdeecf01c1cd6d29695ee066.
+- 새A15 OPEN:lag×8 엔트로피동일은재라벨링이지raw해상도효능검증아님;phase다르면rawlag8배수아님. ΔR².0026은동일SST일때잔차10.7438%감소,fit/eval/horizon/검정부재로무의미·Granger판정불가. 검색rank코드·best/평균정의없어재현미확인;다중정답best-rank chance는.5아님(N168m7=.120509예시).
+- Canonical21:26의cosine/pair수/confirmG철회는문서정정범위VERIFIED. A13/A14잔여OPEN. ①~⑦유지,⑧다변량key는미채택탐색후보. PatchTST/iTransformer원문확인링크·대조승격조건은NSMT/docs/ASSESMENT.md 감사32. 모델/회귀fit·학습·GPU·confirm not run.
+- 검사명령·결과 NSMT/f_lif_pop_v3/forecasting/results/assessment/20260923T123001Z-f7ba8d71/,stdout NSMT/f_lif_pop_v3/forecasting/log/assessment/20260923T123001Z-f7ba8d71/. 기존문서prefix보존. append중 A14수용 관련canonical/stat_mask동시변경은concurrent_changes.json으로분리해다음주기검토,이번해상도대상파일동일.
+
+
+## 2026-09-23 21:45 KST — 예약 추적 감사33: A14 정정 코드 재현 (학습 없음)
+
+- Branch exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7/HEAD8b5a43406ce52ed2ada656d0d6687d3ce816c183. Snapshot267파일/trigger불일치0,모델·학습소스·기존결과·§2I동일. 감사commit/tag없음.
+- CPU Python3.10.18/NumPy1.26.4/SciPy1.15.3/2threads: snapshot stat_mask_control.py main의400 validation시퀀스(seed20270921)/12613query/43746정답칸과저장stdout byte일치. 감사31 독립산술5개k×6열일치,대조함수작은전수조합5사례통과. A14-UNIT/CONTROL/SPLIT·INFERENCE철회문서 scoped VERIFIED;원ACF27.8%재현은미완/A14전체OPEN.
+- k8 pooled+.60%p/anyhit−21.20%p는맞으나 k20 pooled+8.49%p로모든k포함률이득소멸단정불가. 같은표본기술통계/모델효능아님. A13/A15유지,①~⑥유지/⑦⑧미채택/η.2보류. 모델forward/학습/GPU/회귀fit/confirm평가not run.
+- 최초감사wrapper NumPy bool JSON오류를감사코드만수정해통과;원분석·모델실패아님. 양쪽raw log보존. 명령·근거 NSMT/docs/ASSESMENT.md 감사33, NSMT/f_lif_pop_v3/forecasting/results/assessment/20260923T124001Z-4b7568a4/, stdout NSMT/f_lif_pop_v3/forecasting/log/assessment/20260923T124001Z-4b7568a4/. 기존prefix/연구파일보존.
+
+---
+
+## 2026-09-23 23:30 KST — η/혼합 구조: 기존 방법, 원인 분석, 문헌 기반 수정 계획 (학습 없음)
+
+**성격:** 설계 검토. 새 측정 없음 — 기존 측정(`eta_split`, `eta_grid`, `meff_reachable`, `selector_gradient`, `grad_localise`, `stability_sweep`, `stage_decomposition`)을 인과 사슬로 재구성하고, 수정 후보를 문헌으로 뒷받침한다. **아무것도 채택하지 않는다.** 사용자 결정 대기.
+
+**선행 정정:** 사용자의 "통계적 검색" 아이디어는 "attention 위에 고정 lag mask 추가"가 아니라 **점수식 자체의 통계량 교체**였다. 제 이전 분류(⑦ 탐색 후보)는 오독이다. `qk_norm`(점수 = 코사인)이 검색 단계에서 최고 성적(1순위 0.2622→0.3407, 순위 0.2589→0.1959, 우연 0.2148)을 낸 조건이며, 피어슨 상관은 **중심화한 코사인**이므로 사용자 아이디어는 그 변경의 연장선이다. 별도 항목으로 검증 계획(같은 상태·같은 질문에 점수식만 교체하는 짝지은 비교) 예정.
+
+### 1. 기존 방법
+```
+u(n+1,k) = b_0 f(n,k) + Σ_{j<n} c(n,j) f(j,k)
+p(n,j)   = sparsemax(-||W_Q ξ_n - W_K ξ_j||² / (d θ))
+ρ(n,j)   = (1-η) + η B p(n,j) / Σ_l b(n-l) p(n,l)
+c(n,j)   = min(b(n-j) ρ(n,j), b_0)
+```
+η: 학습 스칼라 1개, 초기 0.018. b_0=1.1005, B=Σb=13.9615 (α=0.7, T=42).
+
+### 2. 원인 분석 (측정값 기준)
+
+**A. 볼록 혼합의 희석.** 학습된 η=0.026 → 계수의 97.4%가 선택과 무관. `p` 정답 질량 0.2873(qk) → `c` 0.1338, 무선택 0.1303. 차이 0.0035.
+
+**B. 질량 보존 vs 상한.** B/b_0 = 12.7 → 총 질량을 지키며 13칸 미만에 집중 불가(정답 평균 3.47칸). η=1 one-hot이면 잘린 뒤 κ = b_0/B = 0.0788로 총 질량 붕괴(코드 산술). uniform-on-answer 정책으로 O7 0.5 도달에 필요한 η: 1칸 0.919, 3칸 0.747, 6칸 0.452 (`meff_reachable.txt`, exact). 상한은 필수(cap OFF: 7160 → 발산, `stability_sweep.txt`).
+
+**C. 읽기→상태→읽기 되먹임.** `eta_split.txt` (같은 checkpoint):
+| 개입 | η | score top1 | post-cap | max\|u\| |
+|---|---:|---:|---:|---:|
+| 궤적 고정 | 1.0 | 0.3463 | 0.2741 | 22.07 |
+| 전체 forward | 1.0 | **0.1960** | 0.2100 | **656.13** (G11 FAIL) |
+기울기: T=42에서 max|∇W_Q| η=0.05 6.6e-4 → η=1.0 3.8e+3, T에 지수적(`selector_gradient.txt`). key 경로 절단은 24배 감소에 그침 → 폭주 본체는 forward 누적. `grad_localise`: key 열 최대 1.75e13.
+
+**결과.** 최적화가 η≈0에 정지(η 격자 0.0/0.2/0.5 → 0.2763/0.3194/0.4335). η=0.2 확증 개입 비유의(−0.0037, CI [−0.0154, +0.0080], n=8). oracle η=1은 0.0350 → 구조는 검색 가능, 학습 경로만 막힘.
+
+**요약:** 근본 원인은 **읽은 결과를 기억 자체에 되써 넣는 설계**. A(섞어야 하므로 희석), B(되쓰므로 질량·상한 제약), C(되쓰므로 고리)를 동시에 만든다.
+
+### 3. 수정 후보 (문헌)
+
+| # | 후보 | 겨냥 | 근거 | 대가 |
+|---|---|---|---|---|
+| **1** | **읽기/쓰기 분리**: 상태는 순수 f-LIF(η=0), 읽기 `r(n)=Σ_j p(n,j)ξ_j`는 soma/readout에만 덧셈 | A·B·C 전부 | RetNet `S_n=γS_{n-1}+KᵀV`, `Retention=Q S`, γ 고정 스칼라 `1−2^{−5−i}` (arXiv 2307.08621); NTM/DNC 읽기·쓰기 헤드 분리, 읽기는 출력으로 (1410.5401; Nature 538:471, 2016); 현대 Hopfield (2008.02217) | 사전등록 핵심 기제 변경 → 새 사전등록. "읽기가 기억을 갱신"하는 효과 상실 — 필요 근거 현재 없음 |
+| 2 | 상한 대신 수축 갱신 (delta rule) | B·C | DeltaNet `S_t=S_{t-1}−β(S_{t-1}k−v)kᵀ`, `I−βkkᵀ` 고유값 1(d−1개)·1−β‖k‖² (2406.06484); Gated DeltaNet `S_t=S_{t-1}α_t(I−βkkᵀ)+βvkᵀ` (2412.06464) | 감사 ⑥과 동일. 되쓰기 유지 시 대안 |
+| 3 | 전역 η → 시점별 게이트 `η_n=σ(wξ_n+b)` + 선택기 기울기 절단 | A·C 부분 | Mamba Thm 1 `h_t=(1−g_t)h_{t−1}+g_t x_t`, A 고정·Δ만 입력 의존, `Ā=exp(ΔA)` (2312.00752); forget bias 초기화 (Jozefowicz 2015); TTT 미니배치 절단 `G_t=∇ℓ(W_{t′},x_t)` (2407.04620); Pascanu 2013 스펙트럼 반경>1 → 지수 폭주 (1211.5063) | key 절단만으로 24배 → forward 되먹임 잔존, 점수 오염 못 막음. 보조 |
+| 4 | 가변 차수 `α_n=α_0+Δα g(ξ_n)` | 기억 세기 | Teka 2014 α=적응 정도 (PLoS CB 10:e1003526); Sun et al. 2019 VO-FDE review (FCAA 22(1):27–59, 본문 접근 불가·서지만 확인) | 내용 주소 지정 아님 → 검색이 아님. 후보 1의 보조 |
+
+**권고:** 1 → (3의 게이트) → 2. 1이 세 원인을 동시에 제거, f-LIF 정확 보존(G7/G12), 사용자의 점수 교체와 직교.
+
+### 4. 검증 순서
+1. 후보 1 스크리닝(학습 없음): 현 checkpoint η=0 궤적에서 `r(n)` 생성 → 선형 readout만 재학습 → 회상 오차. 궤적 고정 표(η=1 정답 질량 0.2741)가 전제. 불통이면 기각.
+2. 통과 시 새 사전등록: 기제 변경 결정 코드, 선택 지표 1개, 동률·탈락 규칙, 확증 분할 재사용 금지, G11 유지, `score→p→r→출력` 단계 진단.
+3. 학습: 세 readout, 8 seed, 확증 분할.
+
+**미확인:** NTM 본문 구조 서술은 초록 수준까지만 확인. Sun 2019는 서지만.
