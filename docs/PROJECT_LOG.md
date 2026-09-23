@@ -4409,3 +4409,82 @@ git push -u origin exp/f-lif-pop-v3
 | 본 항목 | 다음 항목에 기록 |
 
 **Artifacts:** `NSMT/.claude/skills/briefing/SKILL.md`
+
+
+## 2026-09-22 17:45 KST — 예약 추적 감사27: §2I 선택·confirm 절차의 구현 계약 검사 (학습 없음)
+
+- Branch exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7/HEADf98fab4fe9940c281355597a0c91741f0b96ec05,snapshot17:40:58/224파일,manifest불일치0. 감사commit/tag/push없음.
+- A13-ETA-PROTOCOL OPEN. 실제AST+fake main 검사에서seed1도confirm접근후NaN CI를0포함으로출력;diag finite=False/상한None도OK;8seed전원confirm G11 FAIL에도최종유의개선표시. 진단batches4고정은default1000에부족하나실제seeds config n_confirm256은전체. 8seed완료/고정checkpoint·설정일치/중복seed·선택사전기록/1회성·G11위반JSON·전체보고항목검사필요.
+- 사전등록보완:후보0포함5개vs기준선제외코드4개명확화;주비교D-AI eta0 vs D-AJ원학습ηCI불일치해결;w=bp/Σbp는pre=(1−η)kernel+ηw와다름. 모든후보/기준선score→p→w→pre→post+recall-first등D-AH필드추가.
+- Seeds-173737 seed7 12epoch2048/256/256/confirm256,batch64,no-test완료(test=None,skipped=True),seed13config는진행중. 새실제confirm/성능/pairedCI는not run. Offset의분리만RNG stub으로확인(20260921/20270921/20280921/20290921),미사용confirm을생성·열람·평가하지않음. 조건부초기화seed반복과data_seed반복구분필요.
+- Artifacts NSMT/f_lif_pop_v3/forecasting/results/assessment/20260922T084001Z-3cfbaf43/(inventory,source.diff,protocol_probe.py,protocol_probes.json,validation,append_validation);rawlog forecasting/log/assessment/동일run/protocol_probe.log. CPUtorch1.12/2threads합성검사만,학습/backward/optimizer/GPU/환경설치/연구소스수정/git변이/프로세스중단/타세션접근전송없음. 미사용분할접근전선택protocol완성최우선,기존OPEN/후보순위유지. 상세수치·명령·문헌은ASSESMENT감사27.
+
+
+## 2026-09-22 17:53 KST — 예약 추적 감사28: 5seed 완료 기록·checkpoint identity 확인 (학습 없음)
+
+- Branch exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7/HEADae0f4ff50e247b255269342dd8f6879d192cfae8,snapshot17:50:39/245파일. Manifest불일치seed256진행CSV1개(9행),연구소스/§2I변경없음. 감사commit/tag/push없음.
+- Seeds-173737 seed7/13/21/42/123 완료각12epoch/CSV12행,test=None/skipped=True. JSONcheckpoint·CPU복원parameter·sourcehash일치/CSVminval일치. Best전체valMSE 각각.227581720311/.230577197456/.229433826632/.228135011826/.227353208318;recall-only/confirm판정아님. Seed256완료JSON없음/CSV9행,512/1024완료근거미확인,미완료를실패로분류안함.
+- 공통설정data_seed20260921,train2048/val256/test256/confirm256,batch64,QKε.01/θ.381469877/inputscale8/frozen input norm一致. 32batch당4watch의기록statepeak22.684~25.388은전체step/G11개입안정성보장아님.
+- A13-ETA-PROTOCOL OPEN유지,confirm전절차·정확8seed완료/고정checkpoint검사필요. 새η선택/confirm/pairedCI·성능판단not run. 실제confirm데이터미생성·미열람. CPUtorch1.12/2threads메타데이터+파라미터복원hash검사만;학습/forward/backward/optimizer/GPU/설치/연구소스수정/git변이/프로세스중단/타세션접근전송없음.
+- Artifacts NSMT/f_lif_pop_v3/forecasting/results/assessment/20260922T085001Z-3622969b/(inventory,metadata_probe.py,metadata_probes.json,validation,append_validation),rawlog forecasting/log/assessment/동일run/metadata_probe.log. Exactcommand·문헌은ASSESMENT감사28. 감사3문서append·텍스트artifact만작성.
+
+---
+
+## 2026-09-23 13:46 KST — 통합 요약 정정 (감사 26 수용, 학습 없음)
+
+**성격:** 정정. 새 실험 없음. 원 항목(「통합 요약」)은 **수정하지 않고** 여기에 정정을 남긴다(§0 규칙 3).
+
+감사 26이 통합 요약의 오류를 지적했고, **전부 직접 재계산해 사실임을 확인했다.**
+
+### 정정 ① — §5.1 표의 `G`가 **다른 조건의 값**이었다
+
+§5.1은 **QK 정규화를 쓰지 않은** `etagrid` 조건의 recall MSE를 실었는데, `G` 열에는 **QK 정규화를 쓴** 조건의 값을 붙였다. 같은 JSON의 공통 분모(`E_full = 0.2763386361581949`, `E_oracle η=1 = 0.03496568833854037`)로 재계산했다.
+
+| 조건 (QK **없음**) | recall MSE | §5.1에 적힌 G | **올바른 G** |
+|---|---:|---:|---:|
+| 학습 η | 0.272620149439 | +0.012 | **+0.0154** |
+| 고정 η=0.2 | 0.319387285780 | −0.123 | **−0.1783** |
+| 고정 η=0.5 | 0.433504353901 | −0.177 | **−0.6511** |
+| 고정 η=1.0 | 0.416682604337 | −0.581 | −0.5814 (유일하게 맞음) |
+
+**영향이 가장 큰 곳은 η=0.5다.** 실제로는 선택 없음 대비 손해가 −0.651인데 −0.177로 적혀 **훨씬 덜 나빠 보이게** 됐다. `+0.012 / −0.123 / −0.177`은 **QK 조건**의 값이며, 원래 날짜별 기록(고정 η 격자 항목·QK 정규화 항목)에는 각 조건의 값이 올바르게 적혀 있다. **요약하면서 두 표를 섞은 것이 원인이다.**
+
+### 정정 ② — "결함 전부 수정 완료"는 같은 문서와 모순된다
+
+§8의 "**전부 수정 완료**"는 §11의 미결 목록(A07-REGEN, A10-PROVENANCE·LOG, A02 실제 분포 연결, A05-ETA-INTERVENTION-BOUND 등) 및 최신 감사와 충돌한다. **"해당 이슈·해당 버전에서 재검사 조건까지 확인된 범위에서 수정 완료"**로 한정한다.
+
+### 정정 ③ — "모든 결과가 12 epoch"는 부정확하다
+
+실제 epoch 수를 저장 JSON에서 확인했다.
+
+| 조건 | epoch |
+|---|---:|
+| `sparse_eta0.5_k3` | **11** (조기 종료) |
+| 그 외 etagrid 6개 조건 | 12 |
+| 로깅 확인 실행들 | 1 |
+| η 분리 분석(§5.5) | **새 학습 없음** — 저장 checkpoint 평가 |
+
+### 정정 ④ — §5.5의 궤적 고정 행 `G11 = OK`는 그 행의 안정성이 아니다
+
+표의 `max|u| 22.07`은 **원 학습 η 궤적**의 값이다. **계수를 바꿔 실제로 돌린 계의 안정성은 그 행에서 측정하지 않았다(N/A).** 전체 forward의 η=1은 656.13으로 **불합격**이며 이것이 그 조건의 실제 안정성 판정이다.
+
+### 정정 ⑤ — 표현 범위 축소
+
+| 위치 | 기존 | 정정 |
+|---|---|---|
+| §5.2 | "readout은 full·oracle에서 무관", "약한 신호가 스파이크를 통과하지 못한다" | 표 하나로 원인을 확정하는 표현이다. **관측 범위·oracle 정책 버전 안의 관찰**로 한정한다 |
+| §7 ①② | "완료" | **"seed 1개 탐색으로서 완료"**. η 선택 규칙·독립 seed·미사용 평가자료 검증은 여전히 **not run** |
+| §4 | MDE 상대 1.2% | **v2에서 측정한 값**이며 v3 회상 과제에서 확인한 검정력이 아니다 |
+
+### 변하지 않는 것
+
+§6의 판정(**O7-① 0.21 / O7-② ≈0으로 미달**)과 §5.1의 **MSE 값 자체**는 그대로다. 정정된 `G`는 학습 선택자가 더 해로웠음을 보이므로 결론을 **약화하지 않고 강화**한다.
+
+### Commit
+
+| 대상 | commit |
+|---|---|
+| 직전 항목(`/briefing` skill 등록) | `ae0f4ff50` |
+| 본 항목 | 다음 항목에 기록 |
+
+**Artifacts:** `docs/PROJECT_LOG.md` 「통합 요약」 §5.1·§5.2·§5.5·§4·§7·§8
