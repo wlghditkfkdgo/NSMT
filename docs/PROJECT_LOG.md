@@ -5292,3 +5292,94 @@ shared 축에서 가장 유사한 과거는 **절반 가까이 직전 칸**이�
 
 ### 7. 다음
 사용자 결정 대기: (a) `mode='hard'`(shared 축, 상위 q%)로 12 epoch 탐색 학습 → η=0 0.2763 / oracle 0.0350과 비교, (b) 빈 mask fallback과 q 선택 규칙을 사전등록에 명시. 아무것도 채택하지 않음.
+
+
+## 2026-09-25 00:04 KST — 예약 추적 감사36: hard mask 집계 수정 재검증 (학습 없음)
+
+- Branch exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7/HEAD5b0f1815135c61832300056732799a7079d26f67. Snapshot269파일/trigger불일치0;hard_mask_screen.py SHAff57b660ad71aef22a9e6c93fa8ca33128f047b35dbc49f62e422eb5f5bd2c16,txt최초0byte/감사중72행결과도착별도snapshot. 모델/학습소스/사전등록/기존결과동일. 감사commit/tag없음.
+- CPU2threads torch1.12.0+cu113:실제helper 2행 회귀및합성validation seed20270921/64시퀀스/2004query allones에서모든지표유한·answer_kept1, A17-AGGREGATION 해당원인VERIFIED. kernel평균.134411009696은감사64표본기술통계/본실행값아님. MCseed9.
+- 추가rank식AST 실행 n1/3/5×정답수5사례전수열거일치. A17-RANK-TIES OPEN(동점전체1/정답마지막이면rank1/기대.5),finite누락재확인. A17 NULL/REPORT·A13~A16잔여유지. 성능및72조건main·checkpoint/model forward·학습/GPU/confirm not run. 우선finite/동점/baseline정정후결과완성;η.2보류.
+- 명령·문헌·근거 NSMT/docs/ASSESMENT.md 감사36, NSMT/f_lif_pop_v3/forecasting/results/assessment/20260924T150001Z-689fad22/,raw NSMT/f_lif_pop_v3/forecasting/log/assessment/20260924T150001Z-689fad22/. canonical00:03/결과동시변경으로쓰기전보존검사중단후새prefix보존;concurrent_changes.json에분리. 결과72행/저장peak최대72.18·sharedPearson top25 M_eff.3230/random.1378관찰만,전체재현다음주기. 기존prefix/연구소스보존,새감사코드·3문서append만수행.
+
+---
+
+## 2026-09-25 00:06 KST — 감사 34·35 수용: 원인 분석 글의 과장 여덟 곳 정정, 스크리닝 코드 결함 수정
+
+**성격:** 감사 수용. 감사 34(2026-09-23 23:47, `A16-*` OPEN)는 제 "읽기/쓰기 분리" 계획 항목을, 감사 35(2026-09-24 23:45, `A17-*` OPEN)는 실행 중이던 스크리닝 코드를 검사했다. 사용자의 설계 설명(2026-09-24)으로 읽기/쓰기 분리 계획 자체는 대체됐지만, 그 항목에 쓴 **주장의 오류는 그대로 남으므로** 여기서 정정한다.
+
+### 감사 34 — 제 원인 분석 글의 정정 (모두 수용)
+
+| # | 제가 쓴 것 | 감사 지적 | 정정 |
+|---|---|---|---|
+| 1 | "`qk_norm`이면 점수 = 코사인" | 실제 변환은 `q/√(‖q‖²+ε²)` 후 음의 제곱거리. **정확한 단위 정규화일 때만** 코사인의 아핀 변환. 감사 예: ε=0.01, q=(0.01,0,0,0), k₁=(0.001,0,0,0), k₂=(1,0,0,0)이면 코사인은 둘 다 1이지만 제곱거리는 0.3692 / 0.0858 | "근사적으로 코사인에 단조"로 강등. 실제 데이터에서 차이 크기는 미측정 |
+| 2 | "η=0.026 → 계수의 97.4%가 선택과 무관" | 97.4%는 **혼합식의 기본 커널 비중**이지 cap 후 개별 계수·부호 있는 증분·출력 기여율이 아니다 | 표현을 "혼합 가중치의 97.4%"로 한정 |
+| 3 | "B/b₀=12.7 → 13칸 미만 집중 불가" | **총 질량 B 보존과 상한 b₀를 동시에 요구할 때**의 조건부 경계. 실제 cap 후 질량은 줄며, η=1 one-hot의 κ=0.0788이 회상 불가를 뜻하지 않음(맞는 칸이면 정답 질량 비율 1) | 조건부임을 명시 |
+| 4 | "key 경로 절단이 24배에 그침 → 폭주 본체는 forward 누적" | key detach는 forward를 두고 미분 경로만 끊으므로 **유일 원인 판정 불가**. oracle도 "학습 경로만 막힘"의 증명 아님 | 유일 원인 주장 철회 |
+| 5 | "궤적 고정 η=1에서 정답 질량 0.2741" | 이는 **원 학습 η 궤적**에서 계수만 재계산한 값. η=0 궤적·별도 읽기 경로·회상 MSE의 수치가 아님 | 새 설계의 사전 근거로 쓰지 않음 |
+| 6 | "cap OFF: 7160 → 발산" | 7160.17은 T42/τ2/η0.3 greedy-adversarial의 **유한 peak**. 발산 판정은 별도 문턱·별도 행 | 범위 정정. cap이 모든 설정에서 유일 필수라는 정리는 아님 |
+| 7 | "학습 없음: 선형 readout만 재학습" | **모순.** 동결 표현 위 readout fit도 학습 | "동결 표현의 탐색적 readout 학습"으로 표기해야 함 |
+| 8 | NTM "읽기는 출력으로만" | NTM §3.4: recurrent controller가 이전 read vector를 내부에 보관 가능 → **되먹임 없음이라는 인용은 과도** | 인용 범위 축소 |
+| 9 | DeltaNet "`I−βkkᵀ` 수축" | 단위 k, β=0.5의 고유값 (0.5,1,1,1), spectral norm **1** — 비팽창이지 엄밀한 수축 아님. ‖k‖=2, β=1이면 norm 3 | "비팽창"으로 정정 |
+
+감사 34의 우선순위: **최우선 A13 절차·A16 정의 고정** → ① 혼합 구조 대안 탐색 → ② 같은 상태·query에서 점수식만 바꾸는 짝지은 비교 → 기존 조건부 후보. 점수 통계량 교체는 ⑦ 고정 lag mask와 **별개 후보**로 분리 기록.
+
+### 감사 35 — 스크리닝 코드 결함 (모두 수용, 코드 수정 후 재실행)
+
+감사는 제 첫 실행 중(txt 0바이트)에 **실제 함수를 불러 재현**했다:
+
+| 이슈 | 내용 | 수정 |
+|---|---|---|
+| A17-AGGREGATION | `answer_kept = (m·a).sum / a_cnt`가 정답 0인 row에서 0/0 → `NaN×0=NaN`이 유효 query가 있는 시퀀스까지 오염. 2행 예제로 재현 | `a_cnt.clamp_min(1)` + `accumulate`에서 `where(valid, …)`; 유효 row 비유한이면 즉시 중단 |
+| A17-FINITE | `gap > 1e-6`은 NaN을 거부하지 않음; `max(0., NaN)=0.`이 비유한 peak를 숨겨 G11 OK로 보이게 함 | 게이트에 `isfinite` 강제; 배치별 상태 `isfinite` 검사; closed의 비유한 배치는 max에 넣지 않고 **별도 열(`nonfin`)로 기록** |
+| 기준선 상수 | 출력 끝의 `0.1303`은 계산값이 아니라 **상수 문자열**, `kernel=None` 미사용. 과거 test 값의 이식(A09 조건 혼용) | 같은 실행·같은 표본·같은 집계에서 `m≡1` 행을 **직접 계산**해 출력 |
+| 귀무 표기 | `queries()`로 recall/정답 존재를 조건화하므로 **완전한 label-free가 아님**; batch=1이면 자기 자신과 짝지어짐; 같은 cue 알파벳을 공유해 교환가능성 미보장 | "train의 사건 라벨로 조건화한 교차 시퀀스 reference"로 개명(`ref0.90` 등); batch<2 거부; docstring에 한계 명시 |
+| MC 오차·순서 의존 | 32회 추출의 표준오차 미보고; 생성기 하나를 순차 소비해 규칙 순서에 의존 | 규칙별 고정 seed 생성기; `se` 열 추가 |
+| 표본 수 오인 | 5/160/32는 **성분 수**이지 독립 표본 수가 아님(임베딩 32개는 한 patch의 투영) | docstring 정정; df 주장 삭제 |
+| 출처 | checkpoint/config/source hash, 정확 명령, seed, 전정밀 문턱, 시퀀스별 결과 미저장 | `hard_mask_screen.json`에 전부 기록 |
+
+감사 35가 확인한 것: 국소 재귀·인덱스 **PASS**(T8/B2/D3/K4에서 `mode='full'`과 비트 일치, 미래 입력 변경에 서술자 불변); 같은 슬롯 수 대조 **PASS**(n5/선택2 전수 열거 기대값 0.3010 vs MC 0.3030, any-hit 정확 0.7 vs 0.69999999). "`m·b ≤ b ≤ b₀`이므로 별도 cap 불필요"라는 산술은 타당하되, 상태·기울기 안정성의 증명은 아니다.
+
+**재실행 결과는 다음 항목에.** 첫 실행(commit `e9c75f2e2`)의 수치는 NaN 열을 제외하면 모두 유한했고 결정적이었으나, 기준선·se·출처·유한성 검사가 없었으므로 **다음 항목의 artifact를 정본으로 한다.**
+
+
+## 2026-09-25 00:15 KST — 예약 추적 감사37: hard mask guard·부분 checkpoint 재현 (학습 없음)
+
+- Branch exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7/HEADe9c75f2e2ef6f8b097f1a3e436fd22de774d3644. Snapshot269파일/trigger불일치0,분석코드49637f569e892e8705dc6478bd8aef88eafc8ccdf280ae08eaad7c87d759017d;모델/훈련소스/사전등록동일. txt재실행0byte,구판72행은감사36late보존. 감사commit/tag없음.
+- 실제helper CPU실패주입으로A17-FINITE 원NaN은폐수정VERIFIED/NULL batch1거부·표기정정부분VERIFIED. baseline같은표본계산검사PASS. 새A17-MC OPEN:규칙위치r seed로순서독립반례,평균localSE를최종meanSE로표기문제. 동점미수정/JSON연결검증대기.
+- checkpoint/config 별도snapshot:best e357470c7b664d47201d32c7659ee62809bbe8028d2969212d0a637db6e830e7/config4a0d1ecc9dd443aa330ebe2b835685f0c3edb7bbd5702dc9502d385c63f5c3c9. CPU2threads torch1.12.0+cu113,seed7/data20260921/η0/α.7/τ4,8,16,32/bound305.0375175. val256생성중앞8만forward/248query/sharedPearson top25/MC8draw seed0;구신결정지표일치,Meff frozen.2516944319/closed.3180776662,peak20.101547/14.606207,nf0,baseline.1347351189. 전체256결과재현/효능확증아님.
+- 새학습/backward/GPU/회상MSE/confirm/전체72조건not run. η.2보류·기존잔여유지. 우선MC·동점·결과출처완성후규칙고정/성능대조. 코드/명령/원문링크 NSMT/docs/ASSESMENT.md 감사37, artifacts NSMT/f_lif_pop_v3/forecasting/results/assessment/20260924T151001Z-a6aef6db/,raw NSMT/f_lif_pop_v3/forecasting/log/assessment/20260924T151001Z-a6aef6db/. prefix/연구파일/checkpoint보존.
+
+---
+
+## 2026-09-25 00:17 KST — hard mask 스크리닝 재실행 (감사 35 반영판, 정본)
+
+**성격:** 탐색적 스크리닝, 학습 없음, 검증 분할. 직전 두 항목의 후속. 첫 실행(`e9c75f2e2`)과 **모든 M_eff/any-hit/kept 수치가 소수점 4자리까지 동일**(결정적). 달라진 것: 기준선을 같은 실행에서 계산, MC 표준오차 열, 유한성 검사, `nonfin` 열, 출처 JSON.
+**Artifact:** `analysis/hard_mask_screen.py`, `.txt`(반올림 표), `.json`(3.7 MB: checkpoint/config/model/script/layers SHA256, git HEAD, 정확 명령, torch/numpy 버전, data/MC seed, 전정밀 문턱, 시퀀스별 결과 전부).
+**표본:** 검증 256 시퀀스, **8,050 recall query**, reference 207,551 쌍(train 4 batch). 게이트: finite=True, max|diff|=0.000e+00. closed의 비유한 배치 **0**.
+
+### 같은 실행에서 계산한 기준선
+`m≡1`(순수 커널), 같은 표본·같은 집계: **M_eff = 0.1332**. 첫 실행 출력에 박혀 있던 상수 0.1303은 과거 test 값이었다(감사 35 지적 확인). 이후 이 설계의 기준선은 **0.1332**다.
+
+### 발췌 (피어슨; 전체 72행은 txt)
+| 설정 | 축 | 규칙 | M_eff | 무작위 | ±se | 남긴% | 빈% | 정답보존 | any-hit | 무작위 | max\|u\| |
+|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| frozen | unit | ref0.90 | 0.1540 | 0.1178 | 0.0300 | 11.6 | 14.77 | 0.1629 | 0.3607 | 0.3316 | 22.85 |
+| frozen | shared | ref0.90 | 0.0272 | 0.1148 | 0.0287 | 12.0 | 16.00 | 0.0449 | 0.0809 | 0.3435 | 22.85 |
+| frozen | input | ref0.90 | 0.0000 | 0.0780 | 0.0162 | 12.4 | 39.31 | 0.0000 | 0.0000 | 0.3248 | 22.85 |
+| frozen | shared | top25% | 0.2533 | 0.1376 | 0.0209 | 25.0 | 0 | 0.4729 | 0.7036 | 0.6454 | 22.85 |
+| closed | unit | top10% | 0.2374 | 0.1465 | 0.0381 | 10.0 | 0 | 0.1622 | 0.4489 | 0.3259 | 13.81 |
+| **closed** | **shared** | **top25%** | **0.3230** | 0.1378 | 0.0209 | 25.0 | 0 | 0.5992 | 0.8255 | 0.6454 | 17.58 |
+| closed | shared | top50% | 0.2548 | 0.1348 | 0.0118 | 50.0 | 0 | 0.9873 | 0.9998 | 0.9008 | 19.93 |
+
+`se`는 무작위 대조의 MC 표준오차(32회). unit/ref0.90의 0.1540 vs 0.1178±0.0300은 **1.2 se 이내**로 구별되지 않는다. closed/shared/top25%의 0.3230 vs 0.1378±0.0209는 **8.9 se**.
+
+### 해석 (직전 항목과 동일, 기준선만 갱신)
+- reference 분위 문턱은 세 축 모두 실패(unit: 우연과 구별 불가; shared: 무작위보다 나쁨 — 최상위 유사 칸의 47.6%가 직전 칸; input: 정확히 0 — 동일 임베딩은 값 없는 나중 반복).
+- query 내 상위 25%(shared, closed): **0.3230 vs 커널 0.1332**(2.4배) vs 같은 칸 수 무작위 0.1378. 고정 예산이지 유의성 검정이 아니며, 축·통계·q는 같은 검증 표본을 본 뒤 고른 것(in-sample).
+- 마스크된 궤적은 η=0 이하가 아니다(closed/unit/top50% 72.18 vs 22.85). 모든 셀 G11 OK, 비유한 0.
+
+### 한계 (직전 항목 + 감사 35)
+회상 MSE 아님 · closed 문턱은 무마스크 train 궤적 보정 · reference는 라벨 조건화 교차 시퀀스(교환가능성 미보장) · 5/160/32는 성분 수 · seed 7 checkpoint 하나 · 빈 mask fallback 미정 · 상위 q%의 held-out 오통과율 미측정.
+
+### 다음 (사용자 결정 대기, 채택 없음)
+(a) `mode='hard'`(shared·피어슨·상위 q%) 12 epoch 탐색 학습 → η=0 0.2763 / oracle 0.0350 대비. (b) 빈 mask fallback·q 선택 규칙·held-out 분할을 새 사전등록에. 감사 34 우선순위(A13/A16 절차 먼저)와 충돌하지 않도록 사전등록 항목을 먼저 쓴다.
