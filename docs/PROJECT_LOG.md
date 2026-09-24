@@ -5416,3 +5416,30 @@ cd NSMT/f_lif_pop_v3/forecasting && bash scripts/hard_select.sh hardsel-<HHMMSS>
 #     --hard_q {1,0.1,0.25,0.5} --seed 7 --n_train 2048 --n_val 256 --n_test 256 -e 12 -bs 64 --cpu --no-test
 ```
 `--no-test`: test 분할을 이 후보에 대해 관찰하지 않는다. 결과·선택은 다음 항목에. Suite 이름은 `/tmp/claude-1001/hardsel_suite.txt`와 다음 항목에 기록.
+
+---
+
+## 2026-09-25 01:49 KST — 2J 선택 단계 결과 (val, seed 7, 탐색): q = 0.5 선택
+
+**성격:** 탐색 학습 4 run + 사전등록 D-AM 선택. Suite `hardsel-014614`. 명령은 직전 항목. 각 run 12 epoch, 43–48 s(CPU 4 thread, 4개 병렬). G11 위반 파일 없음.
+**Artifact:** `forecasting/results/hardsel-014614/*.json`(4 run, `--no-test`이므로 test 없음), `forecasting/results/hardsel-014614/hard_selection_record.json`(exclusive-create; checkpoint/config/소스 hash 포함), `analysis/hard_selection.py`, `analysis/hard_selection.txt`. Checkpoint는 로컬.
+
+### 검증 표 (seed 7, 4 batch 진단, 회상 MSE는 val 전체 256 시퀀스)
+| 조건 | q | **val 회상 MSE** | copy MSE | M_eff(post) | kernel | 학습 목표(전체 사건 val loss) | max\|u\| | G11 |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| 기준선 (≡ full) | 1 | 0.262529 | 0.137577 | 0.133246 | 0.133246 | 0.231128 | 22.85 | OK |
+| 후보 | 0.1 | 0.324605 | 0.046147 | 0.186304 | 0.133246 | 0.254627 | 17.19 | OK |
+| 후보 | 0.25 | 0.223217 | 0.067115 | **0.303506** | 0.133246 | 0.183988 | 22.46 | OK |
+| **후보** | **0.5** | **0.133172** | 0.085839 | 0.253076 | 0.133246 | 0.121277 | 20.73 | OK |
+
+### D-AM 적용
+최저 val 회상 MSE 0.133172 (q=0.5); 0.005 이내 동률 없음 → **선택 q = 0.5**. 탈락 없음. 기록 파일 생성(재실행 시 거부).
+
+### 관찰 (탐색; 주장 아님)
+- 기준선 0.2625는 η=0의 기존 val 값(0.2635, `eta_split`)과 일치 — 코드 경로가 실제로 full과 같음(G18과 정합).
+- **정답 질량 비율(M_eff)이 가장 높은 q=0.25(0.304)가 MSE 최저가 아니다.** q=0.5(M_eff 0.253)가 MSE에서 크게 앞선다. D-AM이 M_eff가 아니라 MSE로 고르게 한 이유가 그대로 드러남 — 스크리닝의 대리 지표와 실제 과제 오차가 어긋난다.
+- q=0.1은 기준선보다 나쁘다(0.3246): 너무 적게 남기면 정답이 빠진다(스크리닝의 any-hit 0.45와 정합).
+- copy 사건 오차도 전 후보에서 내려간다(0.138 → 0.046–0.086).
+- `hit` 열은 이 mode에서 의미 없음(p가 남긴 칸 위 균등이라 argmax가 임의).
+
+**이 수치로 말할 수 있는 것:** seed 7 하나, val, 12 epoch 탐색 설정에서 q=0.5가 순수 f-LIF 대비 회상 오차를 약 절반으로 줄였다. **말할 수 없는 것:** 다중 seed 일반화, confirm2 성능, O7. 확증은 D-AN대로 8 seed × {q=1, 0.5}를 같은 초기화로 학습한 뒤 confirm2에서 **한 번** 평가한다.
