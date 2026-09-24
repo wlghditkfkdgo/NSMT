@@ -95,7 +95,13 @@ def parse_arguments():
     # 선택자. mode가 곧 실험 조건이다.
     select_arg = parser.add_argument_group('selector')
     select_arg.add_argument('--mode', default='sparse',
-                            choices=['full', 'dense', 'sparse', 'recent', 'mass_matched', 'oracle'])
+                            choices=['full', 'dense', 'sparse', 'recent', 'mass_matched', 'oracle', 'hard'])
+    # mode=hard (prereg 2J): kernel kept, past slots gated 0/1 by a statistic. No eta, no cap.
+    select_arg.add_argument('--hard_axis', choices=['unit', 'shared', 'input'], default='shared',
+                            help='descriptor the similarity is computed on (2J fixes shared)')
+    select_arg.add_argument('--hard_stat', choices=['pearson', 'cosine'], default='pearson')
+    select_arg.add_argument('--hard_q', type=float, default=1.,
+                            help='fraction of past slots kept per query; 1.0 is the neutral limit (== full)')
     select_arg.add_argument('--theta', type=float, default=5.5,
                             help='score temperature; Phase B calibrates it (recall r2: 5.5)')
     select_arg.add_argument('--key_norm', choices=['none', 'frozen'], default='none',
@@ -147,6 +153,8 @@ class Config():
             self.variant += '_nocap'
         if self.eta_fixed is not None:
             self.variant += f'_eta{self.eta_fixed:g}'
+        if self.mode == 'hard':
+            self.variant += f'-{self.hard_axis}-{self.hard_stat}-q{self.hard_q:g}'
         if self.task == 'recall':
             self.variant += f'_k{self.n_keys}'
         # 모델·α·readout이 run_id에 없으면 서로 다른 실험이 같은 이름으로 충돌한다 (audit A10).
@@ -198,4 +206,5 @@ def neuron_kwargs(config):
                 eta_fixed=config.eta_fixed, cap=config.cap,      # audit A06: 이름만 바뀌면 안 된다
                 key_norm=config.key_norm, qk_norm=config.qk_norm, qk_eps=config.qk_eps,
                 tau_s=config.tau_s, threshold=config.threshold,
-                surrogate_scale=config.surrogate_scale)
+                surrogate_scale=config.surrogate_scale,
+                hard_axis=config.hard_axis, hard_stat=config.hard_stat, hard_q=config.hard_q)

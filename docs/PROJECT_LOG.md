@@ -5383,3 +5383,36 @@ shared 축에서 가장 유사한 과거는 **절반 가까이 직전 칸**이�
 
 ### 다음 (사용자 결정 대기, 채택 없음)
 (a) `mode='hard'`(shared·피어슨·상위 q%) 12 epoch 탐색 학습 → η=0 0.2763 / oracle 0.0350 대비. (b) 빈 mask fallback·q 선택 규칙·held-out 분할을 새 사전등록에. 감사 34 우선순위(A13/A16 절차 먼저)와 충돌하지 않도록 사전등록 항목을 먼저 쓴다.
+
+
+## 2026-09-25 00:24 KST — 예약 추적 감사38: 완성 hard mask 기록 대조 (학습 없음)
+
+- Branch exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7/HEADb8ba941f02326624f4cc9683932ec3263ca3d45b. Snapshot270파일/trigger불일치0. JSONfdff70b5/txt90b9ce4f 신규,소스49637f56동일. 감사commit/tag없음.
+- 실제checkpoint/config 사전snapshot/hash가JSON e357470c/4a0d1ecc 및소스/layers와일치.657배열×256값 유한/summary재산술오차0/72행stdout일치. A17-REPORT 저장연결범위VERIFIED. NumPy1.26.4 CPU2threads,생성기validation seed20270921/256시퀀스/8050query baseline.133246449074가저장.133246450022와float범위일치,rankchance.212008800261. 이전독립8표본측정과JSON10개지표차≤1.11e−16.
+- closed/shared/Pearson/top25 저장Meff.322970490976/random.137778433378,baseline대비2.42386배는진단기술통계. 전체저장nf0/peak72.18109894. A17-MC-INFERENCE OPEN:canonical1.2/8.9se해석은평균query/unitMCSE를최종mean/pairedSE로사용해근거불충분. MC·ties·NULL잔여,η.2보류/기존미채택유지. 실제recallMSE·새CI·모델forward·학습·GPU·confirm not run.
+- 감사parser설명행오인을axis열필터로정정후모든행통과;최초코드/로그보존,모델실패아님. 명령·근거 NSMT/docs/ASSESMENT.md 감사38, NSMT/f_lif_pop_v3/forecasting/results/assessment/20260924T152002Z-0cb4eb20/,raw NSMT/f_lif_pop_v3/forecasting/log/assessment/20260924T152002Z-0cb4eb20/. 기존prefix/연구파일/checkpoint보존.
+
+---
+
+## 2026-09-25 01:46 KST — `mode=hard` 구현, 게이트 G18, 사전등록 2J, 선택 단계 학습 착수
+
+**성격:** 구현 + 사전등록 + 탐색 학습 시작. 사용자 지시(2026-09-25): "(b) 사전등록을 짧게 쓰고 (a) 학습을 돌리자 → 진행."
+
+### 구현 (`forecasting/`)
+- `layers.py`: `SELECTOR_MODES`에 `hard`; `Selector.hard_mask(xi, xi_hist)` — 축 `unit/shared/input`, 통계 `pearson/cosine`, `k = max(1, round(q·J))` top-k, `@torch.no_grad`(m은 0/1, 기울기 없음); `forward`의 `hard` 분기 `c = b_hist · m` (η·ρ·상한 경로를 타지 않음); `q ≥ 1`이면 통계 계산 없이 `m ≡ 1`. aux의 `p`는 남긴 칸 위 균등(이 설계의 읽기 정책 자체). `PopulationNeuron`에 `hard_axis/hard_stat/hard_q` 전달.
+- `config.py`: `--mode hard`, `--hard_axis`(기본 shared), `--hard_stat`(기본 pearson), `--hard_q`(기본 1.0); variant 이름 `hard-{axis}-{stat}-q{q}`; `neuron_kwargs`에 추가.
+- `data_provider/synthetic.py`: 분할 `confirm2` (offset 4 → seed +40000, 크기 `n_confirm`).
+- `check_model.py`: **G18** — (i) 전체 뉴런 forward에서 `hard q=1` ≡ `full` 비트 동일(spike·state), (ii) `q=0.25`에서 남긴 칸 수 = round(qJ), `c == m·b` 정확, `max c ≤ b_0`, (iii) 독립 재작성한 규칙(평탄화→중심화→코사인→top-k)과 mask 동일, (iv) `full`과 다름. **게이트 21개 전부 PASS** (`/tmp` 출력; 재실행 가능).
+- `scripts/hard_select.sh`: 선택 단계 런처.
+- 스모크(`hardsmoke-*` suite, 2 batch): 학습·저장·재적재 mse 동일(0.432380718). W_Q/W_K/η 기울기 0 — 이 mode에서 쓰이지 않으므로 정상.
+
+### 사전등록 2J (`NSMT/docs/Population_fLIF_v3_prereg_KO.md`)
+D-AK 기제 · D-AL 분할(confirm2 신설, confirm 재사용 금지) · D-AM 선택(val, seed 7, q∈{0.10,0.25,0.50}, 지표 = val 회상 MSE, 동률 0.005 미만이면 큰 q, G11/비유한 탈락) · D-AN 확증(confirm2, seed 8개, 같은 초기화의 q=1 대비 짝지은 차이 95% CI, 1차 = CI가 0 제외, 2차 = ≥20%) · D-AO 주장 범위. **스크리닝을 본 뒤 쓴 부록임을 명시.**
+
+### 선택 단계 착수
+```bash
+cd NSMT/f_lif_pop_v3/forecasting && bash scripts/hard_select.sh hardsel-<HHMMSS>
+# = 4 × train.py --task recall --data recall --mode hard --hard_axis shared --hard_stat pearson
+#     --hard_q {1,0.1,0.25,0.5} --seed 7 --n_train 2048 --n_val 256 --n_test 256 -e 12 -bs 64 --cpu --no-test
+```
+`--no-test`: test 분할을 이 후보에 대해 관찰하지 않는다. 결과·선택은 다음 항목에. Suite 이름은 `/tmp/claude-1001/hardsel_suite.txt`와 다음 항목에 기록.

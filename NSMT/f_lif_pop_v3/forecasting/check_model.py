@@ -380,6 +380,40 @@ def phase_c_audit(report, T=42, D=2):
                f"approximation); eta_hat trainable: fixed {exact[0.][1]}, free {free.eta_hat.requires_grad}; "
                f"no-cap max c = {c_un.max().item():.3f} > b_0 = {b0:.3f}")
 
+    # G18 (prereg 2J): mode='hard' -- q >= 1 is bitwise full; q < 1 keeps exactly round(q J) slots
+    # with the untouched kernel value, matches the rule in analysis/hard_mask_screen.py, and
+    # actually changes the coefficients.
+    with torch.no_grad():
+        x = torch.randn(T, 3, D, dtype=torch.float64)
+        neutral = build_neuron(double=True, embed_dim=D, hard_q=1.)
+        bitwise = torch.equal(neutral(x, mode='hard'), neutral(x, mode='full'))
+        st_h = neutral(x, mode='hard', return_aux=True)[1]['state']
+        st_f = neutral(x, mode='full', return_aux=True)[1]['state']
+        bitwise = bitwise and torch.equal(st_h, st_f)
+        q = .25
+        sel_h = layers.Selector(4, None, 1., -4., hard_axis='shared', hard_stat='pearson', hard_q=q).double()
+        c_h, a_h = sel_h(xi, hist, b_hist, b0, 'hard')
+        J = hist.shape[-2]
+        want = max(1, int(round(q * J)))
+        m = (c_h > 0).to(c_h.dtype)
+        exact_kernel = torch.equal(c_h, b_hist * m)              # 남긴 칸은 b 그대로, 나머지는 0
+        count_ok = bool(((m.sum(-1) == want)).all())
+        under = c_h.max().item() <= b0 + 1e-12
+        # the same rule written independently: flatten units, centre, cosine, top-k
+        qv = xi.reshape(1, -1) - xi.reshape(1, -1).mean(-1, keepdim=True)
+        kv = hist.permute(0, 2, 1, 3).reshape(1, J, -1)
+        kv = kv - kv.mean(-1, keepdim=True)
+        sim = (qv.unsqueeze(1) * kv).sum(-1) / (qv.norm(dim=-1, keepdim=True) * kv.norm(dim=-1))
+        ref = torch.zeros(1, J, dtype=torch.float64).scatter_(-1, sim.topk(want, -1).indices, 1.)
+        same_rule = torch.equal(m[0, 0], ref[0]) and torch.equal(m[0, 1], ref[0])   # shared: 단위 간 동일
+        changes = not torch.equal(c_h, sel_h(xi, hist, b_hist, b0, 'full')[0])
+    report.add('G18', "mode='hard': q>=1 is bitwise full; q<1 keeps round(qJ) slots at exact b, "
+                      "matches the screening rule, and differs from full",
+               bitwise and exact_kernel and count_ok and under and same_rule and changes,
+               f"q=1 bitwise full (spikes and states): {bitwise}; q={q}: kept {int(m.sum(-1)[0, 0])}/{J} "
+               f"(want {want}), c == m*b: {exact_kernel}, max c <= b_0: {under}, rule matches "
+               f"independent top-k: {same_rule}, differs from full: {changes}")
+
 
 def main():
     parser = argparse.ArgumentParser(description='pre-registered numerical gates for v3-A')

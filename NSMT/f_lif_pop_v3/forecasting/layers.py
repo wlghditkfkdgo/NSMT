@@ -6,7 +6,9 @@ import torch.nn as nn
 
 __all__ = ['PopulationNeuron', 'Embedding', 'to_patches']
 
-SELECTOR_MODES = ('full', 'dense', 'sparse', 'recent', 'mass_matched', 'oracle')
+SELECTOR_MODES = ('full', 'dense', 'sparse', 'recent', 'mass_matched', 'oracle', 'hard')
+HARD_AXES = ('unit', 'shared', 'input')
+HARD_STATS = ('pearson', 'cosine')
 
 
 class Sparsemax(torch.autograd.Function):
@@ -123,11 +125,23 @@ class Selector(nn.Module):
     also be trained from scratch rather than only injected at test time.
     """
     def __init__(self, num_population=4, query_dim=None, theta=1., eta_init=-4.,
-                 eta_fixed=None, cap=True, key_norm='none', qk_norm=False, qk_eps=1e-6):
+                 eta_fixed=None, cap=True, key_norm='none', qk_norm=False, qk_eps=1e-6,
+                 hard_axis='shared', hard_stat='pearson', hard_q=1.):
         super().__init__()
 
         if key_norm not in ('none', 'frozen'):
             raise ValueError("key_norm must be 'none' or 'frozen'")
+        # mode='hard' (prereg 2J): the user's design. The kernel b(n-j) is kept exactly and each
+        # past slot is either included or not, m in {0,1}, decided by a statistic between the
+        # current descriptor and the past one. The statistic is never multiplied into a
+        # coefficient, so there is no eta, no rescale and nothing for the cap to bound
+        # (m*b <= b <= b_0). hard_q is the fraction of past slots kept per query; hard_q >= 1
+        # is the neutral limit and must reproduce mode='full' bit for bit (gate G18).
+        if hard_axis not in HARD_AXES or hard_stat not in HARD_STATS:
+            raise ValueError(f'hard_axis in {HARD_AXES}, hard_stat in {HARD_STATS}')
+        if not 0. < float(hard_q):
+            raise ValueError('hard_q must be positive')
+        self.hard_axis, self.hard_stat, self.hard_q = hard_axis, hard_stat, float(hard_q)
         # QK 정규화: 투영된 q, k를 x/sqrt(||x||^2 + eps^2)로 만든다. 하드 clamp가 아니라
         # soft norm인 이유는 Jacobian 때문이다. x/||x||의 Jacobian은 (I - xx^T)/||x||이라
         # ||x||->0에서 발산하는데, key는 [I 0]으로 초기화되어 k=u_j이고 초기 상태의 norm이
@@ -172,6 +186,41 @@ class Selector(nn.Module):
 
         return self.eta_value
 
+    @torch.no_grad()
+    def hard_mask(self, xi, xi_hist):
+        #  xi: [B, D, K+1]   xi_hist: [B, D, J, K+1]   ->  m: [B, D, J] in {0,1},  sim: [B, D, J]
+        """Top hard_q fraction of past slots by similarity; same rule as analysis/hard_mask_screen.py.
+
+        Axes (the numbers are component counts, not sample sizes):
+            unit    one unit's own xi, K+1 components, one decision per unit
+            shared  every unit's xi flattened, D*(K+1), one decision for the population
+            input   the I component across units, D, so the state never enters the decision
+        pearson centres each descriptor by its own component mean, then cosine. A constant
+        descriptor gets similarity 0, not NaN. No gradient: m is a hard 0/1 and sim is only
+        reported.
+        """
+        B, D, J, F = xi_hist.shape
+        if self.hard_q >= 1.:                                        # 중립 극한: 통계를 계산하지 않는다
+            ones = xi_hist.new_ones(B, D, J)
+            return ones, ones
+        if self.hard_axis == 'unit':
+            q, k = xi.unsqueeze(-2), xi_hist
+        elif self.hard_axis == 'shared':
+            q = xi.reshape(B, 1, 1, D * F)
+            k = xi_hist.permute(0, 2, 1, 3).reshape(B, 1, J, D * F)
+        else:
+            q = xi[..., -1].reshape(B, 1, 1, D)
+            k = xi_hist[..., -1].permute(0, 2, 1).reshape(B, 1, J, D)
+        if self.hard_stat == 'pearson':
+            q, k = q - q.mean(-1, keepdim=True), k - k.mean(-1, keepdim=True)
+        num = (q * k).sum(-1)
+        den = (q.square().sum(-1).sqrt() * k.square().sum(-1).sqrt()).clamp_min(1e-12)
+        sim = num / den                                              # [B, D or 1, J]
+        keep = max(1, int(round(self.hard_q * J)))                   # 고정 예산: 빈 mask가 없다
+        idx = sim.topk(keep, dim=-1).indices
+        m = torch.zeros_like(sim).scatter_(-1, idx, 1.)
+        return m.expand(B, D, J), sim.expand(B, D, J)
+
     def forward(self, xi, xi_hist, b_hist, b0, mode='sparse', oracle_p=None):
         #  xi: [B, D, K+1]   xi_hist: [B, D, J, K+1]   b_hist: [J]   ->  c: [B, D, J]
         """
@@ -196,6 +245,19 @@ class Selector(nn.Module):
                        'score_std': zeros,
                        'support_p': ones, 'support_rho': ones, 'support_braw': ones,
                        'support_c': ones}
+
+        if mode == 'hard':                                           # 사전등록 2J: c = m * b, 곱셈 없음
+            m, sim = self.hard_mask(xi, xi_hist)
+            c = b_hist * m
+            zeros = torch.zeros_like(c[..., 0])
+            frac = m.mean(-1)
+            # p는 남긴 칸 위의 균등 분포다: 이 설계의 읽기 정책 그 자체이지 latent p가 아니다.
+            return c, {'p': m / m.sum(-1, keepdim=True).clamp_min(1.), 'rho': m, 'score': sim,
+                       'eta': zeros, 'kappa': c.sum(-1) / b_hist.sum(), 'cap_rate': zeros,
+                       'would_cap_rate': zeros, 'support_size': m.sum(-1),
+                       'score_std': sim.std(-1, unbiased=False),
+                       'support_p': frac, 'support_rho': frac, 'support_braw': frac,
+                       'support_c': frac}
 
         if self.key_norm == 'frozen':
             # 점수를 원시 상태 크기에서 떼어 놓는다. 이것이 없으면 d(score)/d(u)가 |u|에
@@ -310,7 +372,8 @@ class PopulationNeuron(nn.Module):
     def __init__(self, embed_dim, num_population=4, alpha=.7, tau=(4., 8., 16., 32.),
                  heterogeneous=True, max_length=64, theta=1., eta_init=-4.,
                  eta_fixed=None, cap=True, key_norm='none', qk_norm=False, qk_eps=1e-6, tau_s=2.,
-                 threshold=1., surrogate_scale=5., query_dim=None, dtype=torch.float32):
+                 threshold=1., surrogate_scale=5., query_dim=None, dtype=torch.float32,
+                 hard_axis='shared', hard_stat='pearson', hard_q=1.):
         super().__init__()
 
         # 계수표는 생성 시점의 dtype으로 만든다. float32로 만든 뒤 .double()로 올리면
@@ -328,7 +391,7 @@ class PopulationNeuron(nn.Module):
         self.alpha = float(alpha)
         self.max_length = int(max_length)
         self.selector = Selector(num_population, query_dim, theta, eta_init, eta_fixed, cap,
-                                 key_norm, qk_norm, qk_eps)
+                                 key_norm, qk_norm, qk_eps, hard_axis, hard_stat, hard_q)
         self.soma = Soma(embed_dim, num_population, tau_s, threshold, surrogate_scale)
 
     def forward(self, x, mode='sparse', oracle_p=None, return_aux=False, analog=False):
