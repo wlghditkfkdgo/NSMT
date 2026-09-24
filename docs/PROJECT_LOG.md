@@ -5210,3 +5210,85 @@ c(n,j)   = min(b(n-j) ρ(n,j), b_0)
 3. 학습: 세 readout, 8 seed, 확증 분할.
 
 **미확인:** NTM 본문 구조 서술은 초록 수준까지만 확인. Sun 2019는 서지만.
+
+
+## 2026-09-23 23:47 KST — 예약 추적 감사34: 읽기/쓰기 분리 설계 검토 (학습 없음)
+
+- Branch exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7/HEAD5b0f1815135c61832300056732799a7079d26f67. Snapshot267파일/trigger불일치0;연구소스·기존결과·사전등록동일. Canonical23:30 신규계획만 검토. 감사commit/tag없음.
+- 새A16 OPEN:softQK=cosine/유일원인feedback/고정궤적η1값을새η0read근거로사용/전체G7G12자동보존/학습없음readout재학습 주장 정정필요. 미구현은진행중계획으로분류. 읽기value f→ξ·spike/readout변경과feedback차단을대조로분리할것.
+- NumPy1.26.4 CPU2threads 독립산술:cos1 두key거리.3691814812/.0857571530;B/b0=12.6859359533/κ.0788274514;단위keydeltaβ.5 spectralnorm1,비정규화key norm2/β1이면3,별도.9감쇠면.9. 실제데이터/모델효능측정아님. RetNetEq6/NTM§3/DeltaNetEq4/MambaThm1 원문확인·링크는 NSMT/docs/ASSESMENT.md 감사34.
+- ①-B읽기쓰기분리탐색·②같은상태점수교체진단우선,채택확정아님. 고정lagmask⑦와점수교체분리. η.2보류·A13A14A15잔여유지. 분할/전처리/seed/hyperparameter 새실험은not run;학습·readoutfit·모델forward/backward·GPU·confirm평가not run.
+- 정확명령/결과 NSMT/f_lif_pop_v3/forecasting/results/assessment/20260923T144001Z-44f00cb2/,stdout NSMT/f_lif_pop_v3/forecasting/log/assessment/20260923T144001Z-44f00cb2/. 기존문서prefix·연구파일보존,3문서append만 수행.
+
+
+## 2026-09-24 23:45 KST — 예약 추적 감사35: hard mask 스크리닝 사전 감사 (학습 없음)
+
+- Branch exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7/HEAD5b0f1815135c61832300056732799a7079d26f67. Snapshot269파일/manifest불일치0. 새analysis/hard_mask_screen.py(SHA7bef7e60e9258b5f096601253dc04532be7ba76cf86860ca5ecf1b030c91fe36)/0byte txt;모델·훈련소스·사전등록·기존결과동일. 감사commit/tag없음.
+- CPU2threads torch1.12.0+cu113/NumPy1.26.4: seed314159 tiny T8/B2/D3/K4 float32/64 무마스크/allones재귀full비트일치,미래descriptor불변. 실제per_query+accumulate에서정답0무효행NaN잔류확정(A17 OPEN). validation생성기만seed20270921/64시퀀스에서56개도달조건;checkpoint평가아님. MCseed123/2048draw n5선택2 weighted기대.3010115623 vs.3030289412/anyhit.7;NaN gate/peak비교누락재현.
+- A17 NULL/REPORT:truth/kind조건화reference label-free표기,단일roll/batch1selfpair·성분의존성·closed분포변화,미계산.1303기준선·출처/정밀결과저장보완필요. Winkler2014대학원문확인링크와검사명령은NSMT/docs/ASSESMENT.md 감사35. 결과빈파일은진행중/완료실패판정유보.
+- 실제72조건main·checkpoint/confirm평가·학습·backward·성능CI not run. η.2보류/A13~A16잔여유지,최우선A17수정과baseline포함진단완료. 증거 NSMT/f_lif_pop_v3/forecasting/results/assessment/20260924T144002Z-9781a7c1/,raw NSMT/f_lif_pop_v3/forecasting/log/assessment/20260924T144002Z-9781a7c1/. 기존문서prefix/연구파일보존,새감사코드와3문서append만수행.
+
+---
+
+## 2026-09-25 00:03 KST — 사용자 설계(고정 커널 + 통계적 0/1 선별) 스크리닝: 학습 없음, 검증 분할
+
+**성격:** 탐색적 스크리닝. 학습 없음. 사용자가 2026-09-24에 확정한 설계를 η=0 checkpoint(순수 f-LIF 궤적)에서 측정.
+**설계:** `u(n+1,k) = b_0 f(n,k) + Σ_j m(n,j)·b(n−j)·f(j,k)`, `m ∈ {0,1}`은 통계적 관련성 판정. 유사도는 **포함 여부만** 정하고 계수에 곱해지지 않는다. 현재 구현의 η·ρ·상한은 제가 사전등록 때 넣은 완화판이며 사용자 설계가 아니다(앞 항목 참조).
+**Artifact:** `analysis/hard_mask_screen.py`, `analysis/hard_mask_screen.txt` (결정적: 두 번 실행 동일). Checkpoint `etagrid-113240/.../seed7_flatten_spike_heterogeneous_sparse_eta0_k3` (test recall 0.2763). 검증 256 시퀀스(4 batch), 무작위 대조 32회 추출, seed 0. Confirm 미접근.
+**게이트:** 스크립트 내 재귀가 `m≡1`에서 모델 상태와 **max|diff| = 0.000e+00**.
+
+### 1. 측정 설계
+- **표본 축 3개:** `unit`(뉴런 하나의 ξ, 5차원), `shared`(D=32 뉴런의 ξ를 이어붙임, 160차원, 모집단 공유 결정), `input`(임베딩된 입력 patch, 32차원, 상태 무관).
+- **통계량:** 피어슨(중심화 코사인), 코사인.
+- **문턱 2종:** (a) **train 분할의 라벨 없는 순열 귀무분포**(현재 서술자 vs 배치 내 다른 시퀀스의 같은 위치 과거) 0.90/0.95/0.99 분위; (b) query 내 상위 q% (10/25/50).
+- **지표:** `M_eff` = 남긴 커널 질량 중 정답 비율(`m≡1`이면 커널 질량, oracle 1.0); **같은 남긴 칸 수**를 존재하는 칸에서 균등 추출한 무작위 대조(감사 A14-CONTROL 형식); 빈 mask 비율(빈 query는 M_eff=0으로 계상); 정답 칸 보존율; 정답 1개 이상 포함(any-hit)과 초기하 정확 기대값; max|u|·G11.
+- **두 설정:** `frozen`(η=0 궤적에서 통계 계산, 커널 재가중만), `closed`(매 단계 mask를 재귀에 적용, 서술자도 마스크된 상태에서 — 실제 닫힌 고리).
+
+### 2. 귀무 문턱 (train)
+| 축 | 통계 | n | q0.90 | q0.95 | q0.99 |
+|---|---|---:|---:|---:|---:|
+| unit | pearson | 6,641,632 | 0.9910 | 0.9970 | 0.9996 |
+| shared | pearson | 207,551 | 0.9034 | 0.9535 | 0.9867 |
+| input | pearson | 207,551 | 1.0000 | 1.0000 | 1.0000 |
+
+**무관한 쌍끼리도** unit 축은 r>0.99, shared는 r>0.90이다. 상태 벡터가 공통 방향에 몰려 있다(기존 key 기하: 실효 rank 3.97/42). input 축은 같은 신호가 반복될 때 임베딩이 **완전히 동일**하므로 90% 분위가 정확히 1.0이다.
+
+### 3. 유사도가 가리키는 곳 (검증, η=0 궤적, query별)
+| 축 | 통계 | 최상위 = 직전 칸 | 최상위 정답 순위 | 우연 |
+|---|---|---:|---:|---:|
+| unit | pearson | 0.2958 | 0.2788 | 0.2120 |
+| **shared** | pearson | **0.4763** | **0.1785** | 0.2120 |
+| input | pearson | 0.0950 | 0.1956 | 0.2120 |
+
+shared 축에서 가장 유사한 과거는 **절반 가까이 직전 칸**이다(상태 연속성). 정답의 최상위 순위 0.1785는 우연 0.2120보다 좋지만 최상위가 아니다. unit 축은 정답 순위가 **우연보다 나쁘다**(0.2788).
+
+### 4. 결과 (발췌; 전체 36 규칙 × 2 설정은 txt)
+| 설정 | 축 | 규칙 | **M_eff** | 무작위(같은 칸 수) | 남긴% | 빈% | 정답 보존 | any-hit | 무작위 | max\|u\| |
+|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| frozen | unit | null0.90 | 0.1540 | 0.1178 | 11.6 | 14.77 | 0.1629 | 0.3607 | 0.3316 | 22.85 |
+| frozen | shared | null0.90 | **0.0272** | 0.1140 | 12.0 | 16.00 | 0.0449 | 0.0809 | 0.3435 | 22.85 |
+| frozen | input | null0.90 | **0.0000** | 0.0785 | 12.4 | 39.31 | 0.0000 | 0.0000 | 0.3248 | 22.85 |
+| frozen | shared | top25% | 0.2533 | 0.1379 | 25.0 | 0 | 0.4729 | 0.7036 | 0.6454 | 22.85 |
+| frozen | shared | top50% | 0.2511 | 0.1349 | 50.0 | 0 | 0.9887 | 1.0000 | 0.9008 | 22.85 |
+| closed | unit | top10% | 0.2374 | 0.1466 | 10.0 | 0 | 0.1622 | 0.4489 | 0.3259 | 13.81 |
+| **closed** | **shared** | **top25%** | **0.3230** | 0.1378 | 25.0 | 0 | 0.5992 | 0.8255 | 0.6454 | 17.58 |
+| closed | shared | top50% | 0.2548 | 0.1348 | 50.0 | 0 | 0.9873 | 0.9998 | 0.9008 | 19.93 |
+| closed | input | null0.90 | 0.0000 | 0.0781 | 12.4 | 39.31 | 0.0000 | 0.0000 | 0.3248 | 18.97 |
+모든 셀 G11 OK (한계 305.04). 최대 max|u|는 closed/unit/top50% 72.18.
+
+### 5. 해석
+1. **"통계적으로 유의한" 문턱(귀무 분위)은 세 축 모두 실패.** unit: 문턱이 1 근처라 통과가 우연 수준(0.154 vs 0.118, 빈 15%). shared: **무작위보다 나쁨**(0.027 vs 0.114) — 가장 유사한 칸이 직전 칸이기 때문(§3). input: **정확히 0** — 임베딩이 동일한 과거는 같은 신호의 **나중 반복**(값 칸 0)이고, 정답인 첫 등장은 값이 실려 있어 입력이 다르다. 과제 구조상 입력 일치는 정확히 정답 아닌 곳을 고른다.
+2. **query 내 상위 q% 규칙은 작동.** closed/shared/top25%: M_eff **0.3230 vs 무작위 0.1378**(2.3배), 커널 0.13 대비 2.5배, any-hit 0.8255 vs 0.6454. 닫힌 고리가 frozen(0.2533)보다 **좋다** — 마스크된 상태가 더 구별력 있다. 단, 상위 q%는 유의성 검정이 아니라 **고정 예산**이다.
+3. **정정:** 직전 항목에서 "mask는 항을 뺄 뿐이라 상태가 η=0 범위 안에 갇힌다"고 썼다. **틀렸다.** 항을 빼면 이후 증분 f가 달라져 궤적이 바뀐다. closed/unit/top50%에서 max|u| 22.85 → **72.18**. 유계(Grönwall형)이지만 η=0 값 이하가 아니다. G11은 모든 셀에서 통과.
+4. 정답 순위가 우연보다 좋은 축은 shared(0.1785)·input(0.1956)이고 unit(0.2788)은 우연보다 나쁘다 → 5차원 뉴런별 판정은 표본 축으로 부적합.
+
+### 6. 한계
+- 회상 MSE 아님. 학습된 readout은 마스크 없는 상태를 전제하므로 평가 불가. 성능 판정에는 **hard mask로 학습**이 필요.
+- closed의 문턱은 마스크 없는 train 궤적에서 보정 — 분포 불일치 가능.
+- 상위 q%의 q와 축·통계 선택은 **같은 검증 표본에서 본 뒤 고른 것**이다(in-sample). 새 효능 주장은 사전등록 후 미사용 표본에서.
+- 빈 mask의 fallback 미정(현재 M_eff=0 계상). 채택 전 설계 결정 필요.
+- seed 7 checkpoint 하나, 검증 256 시퀀스. 다중 seed 미측정.
+- 순열 귀무의 partner는 배치 내 다음 시퀀스 1개(roll 1). 다른 짝짓기는 미측정.
+
+### 7. 다음
+사용자 결정 대기: (a) `mode='hard'`(shared 축, 상위 q%)로 12 epoch 탐색 학습 → η=0 0.2763 / oracle 0.0350과 비교, (b) 빈 mask fallback과 q 선택 규칙을 사전등록에 명시. 아무것도 채택하지 않음.
