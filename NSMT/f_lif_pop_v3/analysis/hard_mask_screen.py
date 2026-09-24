@@ -261,7 +261,7 @@ def per_query(m, tie, answer, b_hist, n, draws, gen):
         'answer_kept': (m * a).sum(-1) / a_cnt,
         'any_hit': ((m * a).sum(-1) > 0).to(m.dtype),
         'any_hit_random': any_rand,
-        'tie_frac': tie.to(m.dtype).expand(B, Dm) if tie.shape[-1] == Dm else tie.to(m.dtype).unsqueeze(1).expand(B, Dm),
+        'tie_frac': tie.to(m.dtype).reshape(B, -1).expand(B, Dm),   # [B,1] (shared/input) or [B,D] (unit)
     }
     return fields, torch.stack(samples)                         # [draws, B, Dm]
 
@@ -521,12 +521,19 @@ def main():
     print('closed thresholds were still calibrated on the unmasked train trajectory.')
     print('nothing here is a recall MSE: the trained readout expects unmasked states.')
 
+    def slim(seq):
+        """Per-sequence values for every field; for the random control, the per-DRAW sequence
+        means (what mc_se is computed from) rather than the draws x sequences matrix."""
+        d = {f: seq[f] for f in FIELDS}
+        d['random_per_draw'] = np.asarray(seq['draws'], dtype=np.float64).mean(0).tolist() if seq['draws'] else []
+        return d
+
     record = {'provenance': prov,
               'thresholds': {f'{ax}/{st}': v for (ax, st), v in thr.items()},
               'reference_pairs': n_pairs, 'pointing': pointing,
               'n_sequences': n_seq, 'n_queries': n_q, 'summary': summary,
-              'per_sequence': {'kernel': out['kernel'],
-                               **{s: {'/'.join(k): v for k, v in out[s].items()} for s in ('frozen', 'closed')}}}
+              'per_sequence': {'kernel': slim(out['kernel']),
+                               **{s: {'/'.join(k): slim(v) for k, v in out[s].items()} for s in ('frozen', 'closed')}}}
     Path(cli.out).write_text(json.dumps(record, indent=1))
     print(f'\nfull-precision record: {cli.out}')
 
