@@ -1145,3 +1145,61 @@ D-AK 본문의 "`상위 ⌈q·J⌉`"는 틀렸다. 구현·사용된 규칙은 �
 ### D-BB. 주장 범위
 
 말할 수 있는 것: 합성 회상 과제·q=0.5·12 epoch 예산에서 hard 피어슨 선별의 O7 판정, 그리고 같은 예산의 GRU와의 confirm4 회상 오차 비교. 말하지 않는 것: 실데이터(ETT) 성능, 용량 통제 우위, 다른 q·길이, 긴 학습에서의 결과.
+
+---
+
+## 2N. 부록 (2026-09-25) — 실데이터(ETT) 적용: hard 피어슨 선별 대 순수 f-LIF 대 GRU
+
+2J·2K·2M은 합성 회상 과제 결과다. 이 부록은 §5 ETT 프로토콜에서 같은 설계가 **실제 예측 오차**를 줄이는지 묻는다. 2M 결과(O7 ① 불통, ②·③ 통과, GRU 대비 −48%)를 본 뒤에 쓴 것이며, 새 자유 파라미터는 없다. 설정은 2J에서 확정한 값으로 고정한다: 피어슨, 공유 축, q=0.5.
+
+### D-BC. 조건 (seed {7, 13, 21, 42, 123, 256, 512, 1024}, 데이터셋 ETTh1·ETTh2, H96)
+
+| 조건 | 정의 |
+|---|---|
+| `q1` | myModel, mode=hard, q=1 (≡ 순수 f-LIF, G18) |
+| `pearson` | myModel, mode=hard, 공유 축, 피어슨, q=0.5 |
+| `gru` | GRUBaseline, embed 32, 1층 |
+
+- myModel 공통: embed 32, K=4, α=0.7, τ=[4,8,16,32], patch 8, L=336, T=42, spike readout, flatten head, input_norm frozen.
+- **채널 독립:** 7개 채널은 각각 별개의 시퀀스다. "공유 축"은 **한 채널의 D개 뉴런** 상태를 이어붙인 서술자다. 채널을 섞는 다변량 key(탐색 후보 ⑧)는 시험하지 않는다.
+
+### D-BD. 학습 예산 (O8 그대로)
+
+AdamW lr 1e-3, wd 1e-2, batch 128, grad clip 1, 최대 50 epoch, early stop patience 10(val MSE), ReduceLROnPlateau(0.5, patience 5), 최소 val MSE checkpoint 복원. 손실은 MSE(v3 `train.py`). `--no-test`로 학습하고, test는 D-BF의 평가기가 연다.
+
+### D-BE. 분할·보정·장치
+
+- 분할 §5: train `[0,8640)`, val `[8640,11520)`, test `[11520,14400)`, train 구간만으로 표준화. **H96만** 이 부록에서 판정한다. §5의 H720 보조 판정은 여기서 **실행하지 않으며(not run)**, 나중에 실행하면 결과와 무관하게 보고한다.
+- **보정:** 학습 전에 현재 코드로 `calibrate.py`를 ETTh1·ETTh2 각각 다시 돌린다(train 분할, seed 7). 그 input_scale과 G11 한계를 모든 run에 고정한다. ETTh1의 기존 보정(09-21)은 쓰지 않는다.
+- **장치:** GPU(RTX A6000), torch 1.12.0+cu113, 결정론 모드. 학습과 평가를 같은 종류의 장치에서 한다. **동점 규칙:** 그 torch 버전의 CUDA `torch.topk`. 평가기는 버전이 다르면 거부하고, 동점 수를 센다.
+
+### D-BF. test 개방 (2L D-AV·2M D-BA와 같은 절차)
+
+48 run이 모두 끝난 뒤, 데이터셋별로 다음 순서를 따른다.
+1. 24 run 전부의 manifest를 대조한다(조건별 설정, `epochs_run ≥ 1` 및 early stop 기록 존재, 고정 G11 한계). 어긋나면 거부한다.
+2. 전역 등록부 키 `ETTh1-test-H96`/`ETTh2-test-H96`를 잠근다.
+3. 결과 기록 파일을 만든다.
+4. 모델마다 test 전체를 한 번 통과한다. 한 번의 forward에서 오차와 모든 상태를 함께 얻는다.
+
+각 run 디렉터리에 `log/final+result.csv`를 남긴다(저장소 규칙).
+
+**사전 관찰 고지:** ETTh1 test는 `ettchk-103004`에서 한 번 관찰됐다(mode=sparse, 1 epoch, 3 batch 점검, test MSE 0.912). 이 관찰은 hard 설계의 어떤 결정에도 쓰이지 않았다. ETTh2 test는 v3에서 관찰된 적이 없다.
+
+### D-BG. 판정 (데이터셋별, 합치지 않는다)
+
+- **1차:** `Δ = E_test(pearson) − E_test(q1)`, seed 짝지은 차이, 95% t-구간(n=8). 구간 상한 < 0이면 "pearson이 test MSE를 낮춘다". 평균 |Δ|가 **MDE 0.005(O8)** 미만이면 "검출 한계 아래"로 적고 의미 있는 차이로 주장하지 않는다. 구간 하한 > 0이면 "높인다". 그 외는 "차이를 주장하지 않는다". 두 데이터셋은 별개의 질문이다. 다중비교 보정은 하지 않으며, 그 사실을 적는다.
+- **2차 (양방향):** `pearson − gru`, `q1 − gru`.
+- **참고 수치 (검정하지 않음):** §5의 v2 기준선. ETTh1 H96은 ridge .3702, 마지막값 정규화 ridge .3696, window-mean .706. ETTh2 H96은 .3010, .2719, .385. 파이프라인이 다르다.
+- **안전:** myModel은 모든 상태 유한 **그리고** max|u| < 고정 한계, GRU는 출력 유한. 실패 모델이 들어간 판정은 보류한다.
+- **기술 통계:** 남긴 커널 가중치 비율(시퀀스 가중), 동점 수, 발화율, MAE.
+
+### D-BH. 주장 범위
+
+말할 수 있는 것: ETTh1·ETTh2 H96, 채널 독립, 이 예산에서 hard 피어슨 선별(q=0.5)의 test MSE가 순수 f-LIF·GRU와 어떻게 다른가. 말하지 않는 것: 다른 데이터셋·H720·다변량 key·다른 q, 최신 예측 모델 대비 순위, 에너지·지연.
+
+### D-BI. 코드
+
+실데이터 쪽 새 코드(학습 런처, test 평가기, seed 비교 스크립트)는 사용자 지시에 따라 `model_v1/forecasting`의 작성 스타일을 따른다.
+- 인자는 `argparse`의 `dest=`·그룹·help 문자열로 정의한다.
+- `test(args, model=None)` 구조를 쓰고, `log/final+result.csv`에 머리줄과 값 줄을 남긴다.
+- 출력 문구 형식은 model_v1과 같게 한다.
