@@ -28,8 +28,14 @@ SEEDS = (7, 13, 21, 42, 123, 256, 512, 1024)
 CONDS = ('q1', 'pearson', 'gru')
 TORCH = '1.12.0+cu113'                                          # D-BE: 이 버전의 CUDA topk가 동점 규칙이다
 MDE = .005                                                      # O8
-REGISTERED = {'task': 'ett', 'seq_len': 336, 'patch_size': 8, 'embed_dim': 32, 'epoch': 50,
-              'batch_size': 128, 'lr': 1e-3, 'weight_decay': .01, 'patience': 10, 'scheduler_patience': 5}
+# audit 42 A20-MANIFEST: every setting a verdict depends on -- training budget, tensor shape,
+# readout and head, neuron constants, input path -- not only the condition fields.
+REGISTERED = {'task': 'ett', 'seq_len': 336, 'patch_size': 8, 'embed_dim': 32, 'head_dim': 32,
+              'head_mode': 'flatten', 'readout': 'spike', 'epoch': 50, 'batch_size': 128, 'lr': 1e-3,
+              'weight_decay': .01, 'patience': 10, 'scheduler_patience': 5, 'num_workers': 0,
+              'max_train_batches': 0, 'max_eval_batches': 0, 'num_population': 4, 'alpha': .7,
+              'tau': [4., 8., 16., 32.], 'heterogeneous': True, 'tau_s': 2., 'threshold': 1.,
+              'surrogate_scale': 5., 'input_norm': 'frozen'}
 HARD = {'q1': {'model': 'myModel', 'mode': 'hard', 'hard_axis': 'shared', 'hard_stat': 'pearson', 'hard_q': 1.},
         'pearson': {'model': 'myModel', 'mode': 'hard', 'hard_axis': 'shared', 'hard_stat': 'pearson', 'hard_q': .5},
         'gru': {'model': 'GRU'}}
@@ -61,8 +67,7 @@ def load_model(run, device):
     base.num_device = 0
     args = Config()
     args.load_args(run, base)
-    args.device = device
-    args.max_eval_batches = 0
+    args.device = device                                            # max_eval_batches는 덮어쓰지 않고 대조한다
     model = LOAD_MODEL[args.model](args, train=False)
 
     return model, args
@@ -77,6 +82,8 @@ def check_manifest(args, result, data, pred_len, cond, seed, bound):
             bad.append(f"g11_bound {getattr(args, 'g11_bound', None)!r} != {bound!r}")
         if getattr(args, 'input_scale', None) != 6.:
             bad.append(f"input_scale {getattr(args, 'input_scale', None)!r} != 6.0")
+    if getattr(args, 'data_path', None) != f'{data}.csv':
+        bad.append(f"data_path {getattr(args, 'data_path', None)!r} != '{data}.csv'")
     train = json.load(open(result)).get('train', {})
     if not 1 <= (train.get('epochs_run') or 0) <= REGISTERED['epoch']:
         bad.append(f"epochs_run {train.get('epochs_run')!r} outside 1..{REGISTERED['epoch']}")

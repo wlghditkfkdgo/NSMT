@@ -5751,3 +5751,47 @@ cd NSMT/f_lif_pop_v3/analysis && python hard_safety.py --twoj results/hardsel-01
 
 ### 다음
 실데이터(ETT) 적용. 사용자 지시에 따라 `model_v1/forecasting` 코드 스타일을 따른다. ETT에는 oracle이 없으므로 판정은 pearson 대 순수 f-LIF 대 GRU의 예측 오차로 한다. ETTh1 test 분할은 `ettchk-103004`(1 epoch·3 batch 점검, mode=sparse)에서 한 번 관찰됐다. hard 설계의 선택에는 쓰지 않았으며, 이 사실을 다음 사전등록에 명시한다.
+
+
+## 2026-09-25 17:37 KST — 추적 감사42: confirm4 산술 확인과 상한 해석 범위
+
+예약20260925T083001Z-14979858, exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7/관찰HEAD7d836cff4bf1f2b143ce591c10b1d84b46881bad. snapshot453+64파일,trigger일치. CPU2threads torch1.12/NumPy1.26/SciPy1.15;probe seed7 frozen5조건 validation8,oracle정책·분할registry fixture·manifest거부·상한988전수경우/val생성기1000 검사. 원cp32개/config/source와record일치,40행전부1000/safe. MSE산술및pairedCI일치:O7①.2472877불통,G14통과,G.639452통과,③−53.22%통과,종합불통유지. Pearson−GRU−.114219928 CI[−.120467234,−.107972621],−48.42%,8/8이며용량통제우위아님. 동일forward및불균등batch집계작은재현PASS. 학습/GPU/confirm4/ETT실행/not run;연구코드/Git변이/commit/tag없음.
+
+상한식988경우전수오차3.33e−16/validation1000결과txt일치. **앞항목“상한의79%”는confirm4관측/validation상한의교차분할비율이므로동일표본최적성비율로쓰지않는다.** .3135는그val표본평균상한이며모든입력에대한상한아님;O7불통은소급변경하지않음. G_s평균tCI는평균MSE비G의CI가아님. tto는q예산까지바꿔score만의개선여지로환산불가. 추가manifestreadoutanalog미검출(실제32config는spike/lr.001)·G14전0분모guard/blocked판정표현·옛entryregistry미연결잔여OPEN. 절차개선은새benchmark범위부분VERIFIED. 명령·hash·자세한범위 NSMT/docs/ASSESMENT.md 감사42,증거 NSMT/f_lif_pop_v3/forecasting/results/assessment/20260925T083001Z-14979858/,raw같은task log/assessment/run/.
+
+---
+
+## 2026-09-25 17:42 KST — 감사 42 수용: 2M 해석 다섯 곳 정정, ETT 평가기 설정 대조 확대 / 2N 학습 진행 중
+
+**성격:** 감사 수용 + 진행 기록. 새 판정 없음.
+
+### 감사 42가 확인한 것 (2M, 17:37)
+- 32개 checkpoint hash와 40회 평가(1000 시퀀스, 모두 유한·안전, 최대 상태 48.97 < 305.04)가 확인됐다. O7 산술 전부 VERIFIED이고 **O7 종합 불통**도 확인됐다. oracle 구현, 불균등 batch(3+3+2)에서 `one_pass` = `test.evaluate`, 등록부의 재개방 거부, manifest 불일치 시 개방 전 거부가 모두 확인됐다.
+- 동점 문제(A17)는 "이 환경의 torch.topk를 쓴다"는 명시 정책의 범위에서 해소됐다. 다른 backend의 동점 순서는 보장하지 않는다.
+
+### 제 2M 해석 정정 (전부 수용)
+| 제가 쓴 것 | 감사 지적 | 정정 |
+|---|---|---|
+| "pearson 0.247은 상한의 **79%**" | confirm4 실측을 **validation 표본의 상한**으로 나눈 값이다. 같은 질문·같은 분할의 최적성 격차가 아니다 | **철회.** 분할이 다른 두 수의 비는 해석하지 않는다. confirm4의 상한은 계산하지 않았다(분할 재접근 없음) |
+| "q=0.5에서 **어떤 선택기도** 0.314를 못 넘는다" | validation 표본·α=0.7·그 정답 배치에서의 **평균 상한**이다. 일반 정리가 아니다(과거가 전부 정답이면 1) | 범위를 "이 표본의 평균 상한"으로 한정한다 |
+| "q1 상한 0.1309와 실측 0.1312 **일치**" | 서로 다른 표본의 가까운 값이지 일치 검증이 아니다 | "가깝다"로 낮춘다 |
+| "G = 0.64, 구간 [0.615, 0.664]" | G는 **8 seed 평균의 비**이고, 구간은 **seed별 G_s 평균의 t-구간**이다. 서로 다른 추정량이다 | 둘을 구분해 쓴다. G 자체의 구간은 추정하지 않았다 |
+| "tto(0.087) < pearson → 점수 함수에 여지" | oracle 마스크는 q 예산을 무시하고 정답만 남긴다. 칸 수·질량·되먹임이 모두 달라지므로 "q=0.5에서 점수 함수만 고치면 얻을 효과"로 환산할 수 없다 | 해석을 "특권 개입의 개선 여지"로 제한한다 |
+
+### 감사 42의 잔여 지적 (수용, 다음 평가부터 적용)
+- **A20-MANIFEST:** 2M 평가기의 대조가 readout·lr·모양·데이터 생성 설정을 보지 않았다. 실제 32개 설정은 맞았다. → **ETT 평가기(`ett_test.py`)의 대조 항목을 확대했다.**
+  - 학습 예산: epoch 50, batch 128, lr, wd, patience, scheduler patience, num_workers, max_train/eval_batches
+  - 모양: seq_len, patch 8, embed 32, head_dim, head_mode flatten, readout spike
+  - 뉴런 상수: K=4, α, τ, heterogeneous, τ_s, threshold, surrogate scale
+  - 입력 경로: input_norm frozen, input_scale 6.0, data_path
+  - 고정 G11 한계
+  - 평가기가 `max_eval_batches`를 0으로 덮어쓴 **뒤에** 대조하던 문제도 고쳐, 저장값을 그대로 대조한다.
+  - 확인: 실제 run 3개는 오류 0이고, readout을 analog로 바꿔 넣으면 거부된다.
+- **A20-VERDICT-GUARD:** 2M 평가기는 G14 통과 여부를 보기 전에 나눗셈을 했다. unsafe는 pass 값과 별도 목록으로 저장했다. 이번 수치에는 영향이 없었다. ETT 평가기에는 G가 없으며, unsafe이면 판정 문구 자체가 "판정 보류"가 된다.
+- **등록부 범위:** 전역 등록부는 `open_once`를 호출하는 평가기에서만 강제된다. 기존 `hard_confirm`/`hard_control`/`hard_safety`는 등록부를 쓰지 않는다. 이 스크립트들은 이미 소진된 분할에만 쓰였다.
+
+### 2N 진행 상황
+- 사전등록 2N commit `d7f1a6472`. **순서 위반 기록:** 파일은 17:35:25에 작성돼 학습 시작(17:37:44)보다 앞섰지만, commit은 학습 시작 뒤에 됐다. queue 목록 파일이 gitignore라 `git add`가 전체 중단됐는데, 그것을 확인하지 않고 pool을 동시에 띄웠기 때문이다. 작성 시점에 ETT 결과는 없었고 test는 열지 않았다. 문서는 수정 없이 commit했다.
+- 보정 결과: ETTh1은 input_scale 6.0, 한계 507.6. ETTh2는 6.0, 한계 975.2. 파일은 `results/calibration/ETT*_260925-*.json`, 로그는 `analysis/ett_calibration_ETTh{1,2}.txt`.
+- 학습: suite `etthard-20260925`, 48 run(2 데이터셋 × {q1, pearson, gru} × 8 seed, H96). `scripts/gpu_pool2.sh`로 A6000 4장에 GPU당 2개씩 돌린다. run별 스크립트는 `scripts/run_ett.sh`(model_v1 `run_recall.sh` 형식)이다. queue 목록은 로컬 전용이며 내용은 다음과 같다: `bash f_lif_pop_v3/forecasting/scripts/run_ett.sh {ETTh1,ETTh2} 96 {q1,pearson,gru} {7,13,21,42,123,256,512,1024}`(데이터셋 → seed → 조건 순).
+- 평가기 `ett_test.py`(model_v1 `test.py` 형식, commit `1002a0d0f`)를 test를 열기 전에 validation으로 사전 시험했다. 기록된 최저 검증 MSE를 4e-8 이내로 재현했고, 마스크 불일치 0, 동점 0/799,295였다.
