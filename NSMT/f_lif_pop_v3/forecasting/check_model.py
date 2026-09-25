@@ -414,6 +414,43 @@ def phase_c_audit(report, T=42, D=2):
                f"(want {want}), c == m*b: {exact_kernel}, max c <= b_0: {under}, rule matches "
                f"independent top-k: {same_rule}, differs from full: {changes}")
 
+    # G19 (prereg 2K): the same-budget controls keep exactly k slots, look at no content, and
+    # share the parameter initialisation with the pearson model at the same seed.
+    with torch.no_grad():
+        q = .5
+        J = hist.shape[-2]
+        want = max(1, int(round(q * J)))
+        rec = layers.Selector(4, None, 1., -4., hard_stat='recent', hard_q=q, hard_seed=3).double()
+        c_rec, _ = rec(xi, hist, b_hist, b0, 'hard')
+        m_rec = (c_rec > 0).to(c_rec.dtype)
+        last_k = torch.zeros(J, dtype=torch.float64)
+        last_k[J - want:] = 1.                                   # 가장 최근 k칸
+        recent_ok = torch.equal(m_rec[0, 0], last_k) and bool((m_rec.sum(-1) == want).all())
+        c_rec2, _ = rec(xi * 3. + 1., hist.flip(-1), b_hist, b0, 'hard')
+        recent_blind = torch.equal(c_rec, c_rec2)                # 내용을 바꿔도 같은 mask
+        rnd = layers.Selector(4, None, 1., -4., hard_stat='random', hard_q=q, hard_seed=3).double()
+        c_r1, _ = rnd(xi, hist, b_hist, b0, 'hard')
+        c_r2, _ = rnd(xi, hist, b_hist, b0, 'hard')
+        rnd.reseed_hard()
+        c_r3, _ = rnd(xi, hist, b_hist, b0, 'hard')
+        m_r1 = (c_r1 > 0).to(c_r1.dtype)
+        random_ok = bool((m_r1.sum(-1) == want).all()) and torch.equal(c_r1, b_hist * m_r1)
+        random_fresh = not torch.equal(c_r1, c_r2)               # forward마다 새 추첨
+        random_reseed = torch.equal(c_r1, c_r3)                  # 재설정하면 같은 추첨
+        # same initialisation across stats at the same seed
+        inits = []
+        for stat in ('pearson', 'recent', 'random'):
+            torch.manual_seed(5)
+            n = layers.PopulationNeuron(embed_dim=D, hard_stat=stat, hard_q=q, hard_seed=5, dtype=torch.float64)
+            inits.append(torch.cat([p.detach().flatten() for p in n.parameters()]))
+        same_init = all(torch.equal(inits[0], v) for v in inits[1:])
+    report.add('G19', "2K controls: 'recent' keeps the last k slots and ignores content; 'random' keeps k slots, "
+                      "fresh per forward, reproducible after reseed; all stats share the init at a seed",
+               recent_ok and recent_blind and random_ok and random_fresh and random_reseed and same_init,
+               f"recent == last {want}/{J}: {recent_ok}, content-blind: {recent_blind}; random keeps k at exact b: "
+               f"{random_ok}, fresh per forward: {random_fresh}, reseed reproduces: {random_reseed}; "
+               f"same init across pearson/recent/random: {same_init}")
+
 
 def main():
     parser = argparse.ArgumentParser(description='pre-registered numerical gates for v3-A')

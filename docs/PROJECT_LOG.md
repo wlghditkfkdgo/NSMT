@@ -5537,3 +5537,32 @@ cd NSMT/f_lif_pop_v3/forecasting && bash scripts/hard_select.sh hardsel-<HHMMSS>
 
 ### 남은 OPEN (감사 기준)
 A17-NULL(reference 교환가능성·held-out 오통과율 미측정), 입력 축 동점 규칙(분석에서는 선언, 모델에는 없음).
+
+---
+
+## 2026-09-25 15:27 KST — 2K 착수: 같은 예산 대조(recent / random) 사전등록·구현·학습 시작
+
+**성격:** 사전등록 + 구현 + 학습 착수. 사용자 지시(2026-09-25): "1번(같은 예산 대조)을 진행하자."
+**질문:** 2J의 −51.7% 이득이 "**유사한** 과거를 골라서"인가, "같은 수의 칸만 남겨서"인가.
+
+### 사전등록 2K (`NSMT/docs/Population_fLIF_v3_prereg_KO.md`, 코드 실행 전 작성)
+- **D-AP 조건:** 모두 mode=hard, q=0.5, 남긴 칸 수 동일. `pearson`(2J 후보) / **`recent`**(최근 k칸) / **`random`**(query마다 균등 k칸) / `q=1`(순수 f-LIF).
+- **D-AQ:** 새 분할 **confirm3 (offset 5, +50000)**, 한 번만. recent·random은 8 seed 새로 학습(2J 설정 그대로); pearson·q=1은 **2J 확증 checkpoint 재사용**(confirm3를 본 적 없음). seed가 초기화를 정하므로 네 조건이 seed별 같은 초기화.
+- **D-AR 판정:** 1차 두 개 — `pearson − recent`, `pearson − random` 각각 CI(95% t, n=8)가 0 제외·음수. **둘 다 통과해야** 결합 주장. 2차(참고) — `recent − q1`, `random − q1`. 다중비교 보정 없음(두 개 모두 요구가 이미 보수적) 명시.
+- **D-AS 주장 범위.**
+
+### 구현
+- `layers.py`: `HARD_STATS`에 `recent`, `random`. recent = `arange(J)` 상위 k(항상 마지막 k칸, 동점 없음). random = 모델 생성 시 seed로 초기화한 전용 생성기에서 매 forward 새 추첨, 공유(뉴런 전체 같은 칸). `Selector.reseed_hard()` — 평가 직전 재설정해 재현 가능. 두 대조 모두 내용을 보지 않고 파라미터 생성에 관여하지 않음. `hard_seed` = 학습 seed(`config.neuron_kwargs`).
+- `synthetic.py`: 분할 `confirm3`(offset 5).
+- `check_model.py` **G19**: recent == 마지막 k칸, 내용 바꿔도 같은 mask; random이 정확히 k칸·계수 b 그대로·forward마다 다름·재설정 시 재현; seed 같으면 pearson/recent/random 초기 파라미터 비트 동일. **게이트 22/22 통과.**
+- 스모크: recent·random 각 2 batch 학습·평가 정상.
+- **재사용 checkpoint 무결성:** 새 코드로 2J의 seed 7 checkpoint(q=0.5, q=1)를 val에서 재평가 → 학습 당시 best_val_loss와 **소수 9자리 동일**(0.121277325, 0.231128403). pearson 경로 동작 불변.
+- `scripts/hard_control_train.sh`, `analysis/hard_control.py`(confirm3 평가기: 열기 **전**에 exclusive-create 기록 작성 → 두 번째 실행 거부; 각 모델의 stat/axis/seed 확인; random은 평가 직전 reseed).
+
+### 학습 착수
+```bash
+cd NSMT/f_lif_pop_v3/forecasting && THREADS=4 bash scripts/hard_control_train.sh hardctrl-152631
+# = 16 × train.py --mode hard --hard_axis shared --hard_stat {recent,random} --hard_q 0.5 --seed {7,13,21,42,123,256,512,1024}
+#       --n_train 2048 --n_val 256 --n_test 256 -e 12 -bs 64 --cpu --no-test
+```
+결과·판정은 다음 항목.

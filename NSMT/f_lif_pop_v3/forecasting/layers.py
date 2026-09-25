@@ -8,7 +8,7 @@ __all__ = ['PopulationNeuron', 'Embedding', 'to_patches']
 
 SELECTOR_MODES = ('full', 'dense', 'sparse', 'recent', 'mass_matched', 'oracle', 'hard')
 HARD_AXES = ('unit', 'shared', 'input')
-HARD_STATS = ('pearson', 'cosine')
+HARD_STATS = ('pearson', 'cosine', 'recent', 'random')      # recent/random: same-budget controls (2K)
 
 
 class Sparsemax(torch.autograd.Function):
@@ -126,11 +126,17 @@ class Selector(nn.Module):
     """
     def __init__(self, num_population=4, query_dim=None, theta=1., eta_init=-4.,
                  eta_fixed=None, cap=True, key_norm='none', qk_norm=False, qk_eps=1e-6,
-                 hard_axis='shared', hard_stat='pearson', hard_q=1.):
+                 hard_axis='shared', hard_stat='pearson', hard_q=1., hard_seed=0):
         super().__init__()
 
         if key_norm not in ('none', 'frozen'):
             raise ValueError("key_norm must be 'none' or 'frozen'")
+        # 2K same-budget controls: 'recent' keeps the k most recent slots, 'random' keeps k slots
+        # drawn uniformly per query from a generator seeded here (fresh draws every forward;
+        # an evaluator calls reseed_hard() before evaluating so the run is reproducible).
+        # Neither looks at the content, so neither touches parameter creation (gate G19).
+        self.hard_rng = torch.Generator().manual_seed(int(hard_seed))
+        self.hard_seed = int(hard_seed)
         # mode='hard' (prereg 2J): the user's design. The kernel b(n-j) is kept exactly and each
         # past slot is either included or not, m in {0,1}, decided by a statistic between the
         # current descriptor and the past one. The statistic is never multiplied into a
@@ -186,6 +192,10 @@ class Selector(nn.Module):
 
         return self.eta_value
 
+    def reseed_hard(self, seed=None):
+        """Reset the 'random' control's generator so an evaluation is reproducible (2K, D-AP)."""
+        self.hard_rng.manual_seed(self.hard_seed if seed is None else int(seed))
+
     @torch.no_grad()
     def hard_mask(self, xi, xi_hist):
         #  xi: [B, D, K+1]   xi_hist: [B, D, J, K+1]   ->  m: [B, D, J] in {0,1},  sim: [B, D, J]
@@ -203,6 +213,15 @@ class Selector(nn.Module):
         if self.hard_q >= 1.:                                        # 중립 극한: 통계를 계산하지 않는다
             ones = xi_hist.new_ones(B, D, J)
             return ones, ones
+        keep = max(1, int(round(self.hard_q * J)))                   # 고정 예산: 빈 mask가 없다
+        if self.hard_stat in ('recent', 'random'):                   # 2K: 내용을 보지 않는 같은 예산 대조
+            if self.hard_stat == 'recent':
+                sim = torch.arange(J, dtype=xi_hist.dtype).expand(B, 1, J)          # 최근 칸일수록 큼
+            else:
+                sim = torch.rand(B, 1, J, generator=self.hard_rng).to(xi_hist.dtype)
+            idx = sim.topk(keep, dim=-1).indices
+            m = torch.zeros_like(sim).scatter_(-1, idx, 1.)
+            return m.expand(B, D, J), sim.expand(B, D, J)
         if self.hard_axis == 'unit':
             q, k = xi.unsqueeze(-2), xi_hist
         elif self.hard_axis == 'shared':
@@ -216,7 +235,6 @@ class Selector(nn.Module):
         num = (q * k).sum(-1)
         den = (q.square().sum(-1).sqrt() * k.square().sum(-1).sqrt()).clamp_min(1e-12)
         sim = num / den                                              # [B, D or 1, J]
-        keep = max(1, int(round(self.hard_q * J)))                   # 고정 예산: 빈 mask가 없다
         idx = sim.topk(keep, dim=-1).indices
         m = torch.zeros_like(sim).scatter_(-1, idx, 1.)
         return m.expand(B, D, J), sim.expand(B, D, J)
@@ -373,7 +391,7 @@ class PopulationNeuron(nn.Module):
                  heterogeneous=True, max_length=64, theta=1., eta_init=-4.,
                  eta_fixed=None, cap=True, key_norm='none', qk_norm=False, qk_eps=1e-6, tau_s=2.,
                  threshold=1., surrogate_scale=5., query_dim=None, dtype=torch.float32,
-                 hard_axis='shared', hard_stat='pearson', hard_q=1.):
+                 hard_axis='shared', hard_stat='pearson', hard_q=1., hard_seed=0):
         super().__init__()
 
         # 계수표는 생성 시점의 dtype으로 만든다. float32로 만든 뒤 .double()로 올리면
@@ -391,7 +409,7 @@ class PopulationNeuron(nn.Module):
         self.alpha = float(alpha)
         self.max_length = int(max_length)
         self.selector = Selector(num_population, query_dim, theta, eta_init, eta_fixed, cap,
-                                 key_norm, qk_norm, qk_eps, hard_axis, hard_stat, hard_q)
+                                 key_norm, qk_norm, qk_eps, hard_axis, hard_stat, hard_q, hard_seed)
         self.soma = Soma(embed_dim, num_population, tau_s, threshold, surrogate_scale)
 
     def forward(self, x, mode='sparse', oracle_p=None, return_aux=False, analog=False):
