@@ -5618,3 +5618,61 @@ cd NSMT/f_lif_pop_v3/forecasting && THREADS=4 bash scripts/hard_control_train.sh
 
 ### 다음 후보 (사용자 결정)
 (a) oracle을 새 확증 분할(confirm4)·같은 seed로 → O7(G ≥ 0.5) 주장. (b) q 격자 확장(0.75, 0.9). (c) 실데이터(ETT) 전이. (d) 입력 축 동점 규칙 선언. (e) main 통합은 요청 시에만.
+
+
+## 2026-09-25 15:32 KST — 추적 감사39: hard 확증 산술과 안전성 조건 분리
+
+목적: 예약20260924T165002Z-79ac9087의 §2J 구현/선택/확증 및screenv3 감사. branch exp/f-lif-pop-v3, base329183b94f65090cc6b337f464c5aa4d8e127ad7; 관찰HEAD6bdd3f34dd7faf2b0d9f8dfcd6f23e0e2dd37009. 연구코드 변경/학습/GPU/Git변이/감사commit·tag 없음. 실제snapshot 15:23:16,290+92파일,trigger4파일후속변경. CPU2threads torch1.12 NumPy1.26.4 SciPy1.15.3; seed7 초기화/tensor39 probe, 전체명령·hash·artifact는 NSMT/docs/ASSESMENT.md 감사39 및 NSMT/f_lif_pop_v3/forecasting/results/assessment/20260924T165002Z-79ac9087/ 참조, raw log는 같은 task log/assessment/run/.
+
+저장 hardsel q.5선택과 hardconf16개12epoch(2048/256,bs64,no-test),confirm2n1000 data_seed20260921+40000 출처대조. 선택config/cp8hash와확증cp16hash·모델source 일치. 저장paired MSE.2629776929→.1269516922,−51.7253%,8/8,95%tCI[−.1418313618,−.1302206396] 재산술일치. 원 성능수치는 보존한다. 다만 hard_selection.metrics의 상태/분해진단은4batch=256개만이며diagfinite=False를무시해finite/within_bound=True가되는실패주입재현,결측bound도통과. 실제NaN발견아님. **01:56항목의 전체G11 OK·유한 및D-AN전체통과는 안전성coverage보완전 감사판정보류**로 정정 append한다. 실제confirm2 모델재평가/not run; 재선택·q변경 없이 frozen아티팩트 안전성보완절차를 먼저 기록할 것.
+
+추가 A18-SPEC:ceil/round불일치,J5q.5실제2개. 확인된모델topk동점정책은분석stable정책과다름;η0스크린동점0으로학습8seed동점0을단정할수없어02:08의“확증에서실무상무관”은미검증. 일회개방guard는완료후거부는있지만개방전영속기록·모든config/cp사전대조가없음. A17MC stream순서/최종SE toy·저장73요약재산술오차0 scoped VERIFIED,유의성z철회확인;NULL잔여유지. 우선안전성/manifest→같은budget recent/random 귀속대조→나머지후보. DeltaNet원문재확인/우리안정성보장으로확장금지. 감사중HEAD9d90c3ef §2K및소스변경은late별도보존후다음감사대상. 학습·checkpointforward·데이터생성·confirm접근·§2K재현 not run.
+
+
+## 2026-09-25 15:44 KST — 추적 감사40: §2K 결과 산술 확인, 안전성/확률적 진단 연결 보류
+
+예약20260925T064002Z-47bcdaa2. branch exp/f-lif-pop-v3, base329183b94f65090cc6b337f464c5aa4d8e127ad7, 관찰HEAD6d7f64ef8ae69fe0c90e54a1374aea90fb8fe97e. snapshot448파일15:40:35/trigger일치. 연구소스·학습/GPU/Git변이/commit/tag없음. CPU2threads torch1.12/NumPy1.26.4/SciPy1.15.3. 32run config/checkpoint hash·12epoch·CSV12행/no-test 확인. 조건samek/최근칸/random재seed/init작은CPU검사,seed7/tensor40;val생성기seed20270921 400시퀀스/12613query coverage재현 및 hypergeom36사례전수산술 통과. 명령·hash·원문근거·제약은 NSMT/docs/ASSESMENT.md 감사40, artifacts NSMT/f_lif_pop_v3/forecasting/results/assessment/20260925T064002Z-47bcdaa2/, raw logs 같은task log/assessment/run/.
+
+confirm3저장MSE에서 Pearson−recent 평균−.2119007463/95%tCI[−.2167951817,−.2070063109]/−63.94%,Pearson−random−.1482633463/CI[−.1534709640,−.1430557286]/−55.37%,각8/8을재산술확인. 새confirm모델평가/not run. 개방전exclusive기록 및기존record거부는§2K에구현됨. 그러나 공용metrics의256/1000상태coverage·finite누락은미수정으로D-AR전체안전성승인보류. random은MSE평가이후별도진단에서다른mask추첨을사용하는A19-RANDOM-EVAL-PATH추가;동일forward전체안전성·RNG/provenance보완필요. 실제NaN발견/결과폐기판정아님. 15:31의“이득의원인은내용기반선별”은현재두정책에대한성능대조범위로제한:동일칸수여도질량/lag/feedback다름,유일기전확정불가. A18SPEC/manifest·A17모델ties/NULL잔여유지. 학습/실제checkpointforward/confirm2·3접근/전체안전성보완 not run.
+
+---
+
+## 2026-09-25 17:09 KST — 감사 39·40 수용 + 사전등록 2L 안전성 보완: **2J·2K 판정 다섯 개 모두 유지** — 태그 `exp/f-lif-pop-v3-hard-safety-20260925`
+
+**성격:** 감사 수용과 사전등록 절차(2L D-AU)에 따른 안전성 보완입니다. 학습은 하지 않았고, 이미 확정된 checkpoint 48개를 평가했습니다. 절차는 실행 **전에** 2L로 고정해 commit했습니다(`ab636b7e3`). 이 항목이 속한 commit은 태그 `exp/f-lif-pop-v3-hard-safety-20260925`로 식별합니다. 이 태그는 학습 run이 아니라 **안전성 보완 실행**을 가리킵니다.
+
+### 감사가 지적한 내용 (감사 39: 2J, 감사 40: 2K). 전부 코드로 재현했고 수용합니다.
+| # | 지적 | 제 확인 |
+|---|---|---|
+| 1 | 안전 진단이 앞 4 batch, 즉 1000개 중 **256개**만 봄. 판정이 진단의 `finite` 값을 무시함. 한계값이 없어도 통과시킴. 가짜 NaN을 넣어도 "통과" | `hard_selection.metrics(batches=4)`와 `finite` 계산식에서 그대로 확인 |
+| 2 | random 조건은 오차·진단·분해를 **별도 forward 세 번**으로 계산했고 중간에 난수를 재설정하지 않음. 그래서 기록된 max\|u\| 등은 오차를 잰 궤적의 값이 아님 | 확인 |
+| 3 | 2J D-AK의 "⌈q·J⌉" 표기와 실제 `max(1, round(q·J))`(round-half-even)가 다름 | J=3→2, 5→2, 7→4, 9→4로 확인 |
+| 4 | "동점은 실무상 무관"은 η=0 스크리닝 모델의 동점률을 학습된 hard 모델에 옮겨 쓴 것 | 수용하고 아래에서 실측 |
+| 5 | 완료 판정이 `epochs_run > 0`. 개방 전 전체 설정 대조 없음. 2J 평가기에 개방 잠금 없음 | 확인. 실제 32 run은 정상이었다고 감사도 확인 |
+| 6 | 2K 해석 "이득의 원인은 내용 기반 선별"은 유일 기전을 확정한 것처럼 과함 | 수용하고 2L D-AW로 범위를 축소 |
+
+감사가 **맞다고 확인**한 것: 2J·2K 성능 수치와 신뢰구간 산술 전부, 선택 규칙, checkpoint 32개 hash, 12 epoch 완주, recent/random 구현, 조건 간 같은 초기화, 2K 개방 잠금.
+
+### 조치
+- **사전등록 2L** (`ab636b7e3`): D-AT 칸 수 표기 정정 · D-AU 안전성 보완 절차 · D-AV 다음 확증 절차 강화 · D-AW 2K 해석 범위 축소.
+- **코드:** `hard_selection.metrics`가 모든 batch를 보고, 진단의 finite를 AND로 반영하며, 한계값이 없으면 실패로 처리합니다. 세 수집기는 `epochs_run == 12`를 요구합니다. `analysis/hard_safety.py`는 한 번의 forward로 오차와 모든 상태를 함께 수집합니다.
+- **사전 시험 (validation만):** seed 7의 pearson q=0.5, q=1, random, recent에서 한 번 통과 방식이 `test.evaluate`의 오차를 **차이 0**으로 재현했습니다. random은 난수를 재설정한 뒤 재현됩니다. 피어슨 마스크를 재구성해 모델 마스크와 대조한 불일치는 0입니다.
+
+### 안전성 보완 결과 (`results/hardsafety-170640/hard_safety_record.json`, `analysis/hard_safety.txt`)
+```bash
+cd NSMT/f_lif_pop_v3/analysis && python hard_safety.py --twoj results/hardsel-014614/hard_selection_record.json \
+    --twok results/hardctrl-152631/hard_control_record.json --out hardsafety-170640
+```
+- **48행 전부 OK.** 재계산한 회상 MSE와 기록값의 차이는 **최대 0.0e+00**(random 포함)입니다. 모든 행이 **1000 시퀀스** 전체를 봤습니다. 비유한 batch는 **0**이고, max\|u\| 최댓값은 **60.91**(confirm3 random seed 1024)로 고정 한계 305.04보다 작습니다. manifest(설정 12개 필드, 한계, epochs_run=12, checkpoint hash) 오류도 **0**입니다.
+- **D-AU 5 적용 결과:** 2J D-AN, 2K D-AR 두 개, 2K 2차 두 개 모두 **기록된 판정이 유지됩니다.**
+- 256개에서 1000개로 늘리자 max\|u\|가 소폭 올랐습니다(예: 2J seed 7 q=0.5는 22.82에서 24.91). 한계와는 거리가 멉니다.
+
+### 기술 통계 (판정에 쓰지 않음, D-AU 6)
+- **학습된 hard 피어슨 모델의 top-k 경계 동점:** 16개 평가 중 **confirm2 seed 7에서 1건**이 나왔습니다. 41,000번의 선택 중 1번, 비율 2.44e-05입니다. 나머지 15개는 0입니다. 기록된 MSE는 `torch.topk`의 동점 순서로 계산됐고 그대로 재현되므로 재현성에는 영향이 없습니다. 다른 동점 규칙을 쓰면 그 한 번의 선택이 바뀔 수 있지만, 그 영향은 측정하지 않았습니다. 다음 부록에서 동점 규칙을 선언합니다.
+- **남긴 커널 가중치 비율 Σm·b/Σb** (confirm3, 8 seed): 피어슨 **0.539**, 무작위 **0.515**, 최근 **0.595**, q=1은 1.000입니다. 2J confirm2의 q=0.5는 0.537–0.541입니다. 요약 줄의 "2J mean 0.7692"는 q=1과 q=0.5를 섞은 평균이라 해석하지 않습니다. **최근 선별은 가중치를 가장 많이 남겼는데 오차는 가장 컸습니다.** 그래서 남긴 양만으로는 차이를 설명할 수 없습니다. 이것도 유일 기전의 증명은 아닙니다(D-AW).
+
+### 결론
+2J(순수 f-LIF 대비 −51.7%)와 2K(최근 대비 −63.9%, 무작위 대비 −55.4%)의 판정은 **전체 데이터 안전 검사를 거친 뒤에도 유지**됩니다. 해석 범위는 D-AW를 따릅니다: 이 과제·q=0.5·이 학습 예산에서 피어슨 선별이 두 내용 무관 대조보다 회상 오차가 낮습니다.
+
+### 실수 기록
+실행 명령의 출력 필터(`grep -v '^confirm2 \|^confirm3 '`)가 데이터 로더 출력뿐 아니라 **행별 결과 줄까지 지웠습니다.** 행별 표는 JSON 기록에서 다시 만들어 txt 끝에 덧붙였고, 원본 수치는 JSON에 전부 있습니다.
