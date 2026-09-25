@@ -78,7 +78,8 @@ class myModel(nn.Module):
         patch = to_patches(x, self.patch_size)                       # [T, B*C, patch_size]
 
         oracle_p = None
-        if mode == 'oracle':
+        # mode=hard with hard_stat=oracle (2M) needs the same answer sets as mode=oracle.
+        if mode == 'oracle' or (mode == 'hard' and self.embedding.neuron.selector.hard_stat == 'oracle'):
             if truth is None or kind is None:
                 raise ValueError('oracle mode needs the generator truth and the event kinds')
             if C != 1:

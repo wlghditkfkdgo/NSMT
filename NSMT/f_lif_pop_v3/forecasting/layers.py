@@ -8,7 +8,7 @@ __all__ = ['PopulationNeuron', 'Embedding', 'to_patches']
 
 SELECTOR_MODES = ('full', 'dense', 'sparse', 'recent', 'mass_matched', 'oracle', 'hard')
 HARD_AXES = ('unit', 'shared', 'input')
-HARD_STATS = ('pearson', 'cosine', 'recent', 'random')      # recent/random: same-budget controls (2K)
+HARD_STATS = ('pearson', 'cosine', 'recent', 'random', 'oracle')   # recent/random: 2K controls; oracle: 2M
 
 
 class Sparsemax(torch.autograd.Function):
@@ -197,7 +197,7 @@ class Selector(nn.Module):
         self.hard_rng.manual_seed(self.hard_seed if seed is None else int(seed))
 
     @torch.no_grad()
-    def hard_mask(self, xi, xi_hist):
+    def hard_mask(self, xi, xi_hist, oracle_p=None):
         #  xi: [B, D, K+1]   xi_hist: [B, D, J, K+1]   ->  m: [B, D, J] in {0,1},  sim: [B, D, J]
         """Top hard_q fraction of past slots by similarity; same rule as analysis/hard_mask_screen.py.
 
@@ -210,6 +210,14 @@ class Selector(nn.Module):
         reported.
         """
         B, D, J, F = xi_hist.shape
+        if self.hard_stat == 'oracle':                               # 2M: 정답 칸만 (회상 사건), 그 외 전부
+            # oracle_p is truth_to_oracle_p's policy: uniform on the answer slots of a recall
+            # event, uniform on every slot otherwise, so its support IS the oracle mask. q is
+            # not used: the oracle keeps as many slots as the answer set has.
+            if oracle_p is None:
+                raise ValueError("hard_stat='oracle' needs the generator truth (oracle_p)")
+            m = (oracle_p > 0).to(xi_hist.dtype)
+            return m, m
         if self.hard_q >= 1.:                                        # 중립 극한: 통계를 계산하지 않는다
             ones = xi_hist.new_ones(B, D, J)
             return ones, ones
@@ -265,7 +273,7 @@ class Selector(nn.Module):
                        'support_c': ones}
 
         if mode == 'hard':                                           # 사전등록 2J: c = m * b, 곱셈 없음
-            m, sim = self.hard_mask(xi, xi_hist)
+            m, sim = self.hard_mask(xi, xi_hist, oracle_p)
             c = b_hist * m
             zeros = torch.zeros_like(c[..., 0])
             frac = m.mean(-1)

@@ -451,6 +451,35 @@ def phase_c_audit(report, T=42, D=2):
                f"{random_ok}, fresh per forward: {random_fresh}, reseed reproduces: {random_reseed}; "
                f"same init across pearson/recent/random: {same_init}")
 
+    # G20 (prereg 2M): the hard oracle keeps exactly the answer slots on a recall event and
+    # every slot otherwise, at the untouched kernel value, ignores q, and refuses without truth.
+    from ours import truth_to_oracle_p
+    with torch.no_grad():
+        n = hist.shape[-2]                                       # the query position: n past slots
+        truth = torch.zeros(2, n + 1, n + 1, dtype=torch.bool)
+        truth[:, n, [0, 3, 7]] = True                            # answer slots 0, 3, 7 for both rows
+        kind = torch.zeros(2, n + 1, dtype=torch.int8)
+        kind[0, n] = 1                                           # row 0: recall event; row 1: copy
+        p = truth_to_oracle_p(truth, kind, n, D).double()        # [2, D, n]
+        xi2, hist2 = xi.expand(2, -1, -1), hist.expand(2, -1, -1, -1)
+        answers = torch.zeros(n, dtype=torch.float64)
+        answers[[0, 3, 7]] = 1.
+        exact = True
+        for q in (.25, 1.):
+            orc = layers.Selector(4, None, 1., -4., hard_stat='oracle', hard_q=q).double()
+            c_o, _ = orc(xi2, hist2, b_hist, b0, 'hard', p)
+            exact = exact and torch.equal(c_o[0], (b_hist * answers).expand(D, -1)) and torch.equal(c_o[1], b_hist.expand(D, -1))
+        try:
+            orc(xi2, hist2, b_hist, b0, 'hard', None)
+            refuses = False
+        except ValueError:
+            refuses = True
+    report.add('G20', "2M hard oracle: answer slots on recall events, every slot on copy events, exact b, "
+                      "q ignored, refuses without truth",
+               exact and refuses,
+               f"recall row keeps slots {{0,3,7}} at b and copy row keeps all {n} at b for q in (0.25, 1): {exact}; "
+               f"no truth -> ValueError: {refuses}")
+
 
 def main():
     parser = argparse.ArgumentParser(description='pre-registered numerical gates for v3-A')

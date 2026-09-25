@@ -112,8 +112,9 @@ def train_one_epoch(model, data_loader, optimizer, args):
             break
         x, y, truth, kind = batch
         x, y = x.float().to(args.device), y.float().to(args.device)
-        kinds = kind.to(args.device) if args.mode == 'oracle' else None
-        truth = truth.to(args.device) if args.mode == 'oracle' else None
+        privileged = args.mode == 'oracle' or (args.mode == 'hard' and getattr(args, 'hard_stat', None) == 'oracle')
+        kinds = kind.to(args.device) if privileged else None
+        truth = truth.to(args.device) if privileged else None
         watch = args.model == 'myModel' and i % max(args.g11_every, 1) == 0
         result = model(x, mode=args.mode, truth=truth, kind=kinds, return_aux=watch)
         output, aux = result if watch else (result, None)

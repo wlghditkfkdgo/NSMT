@@ -142,14 +142,16 @@ class Dataset_Recall(Dataset):
     training loop does not need a task-specific branch to fetch them.
     """
     def __init__(self, args, flag='train'):
-        assert flag in ['train', 'val', 'test', 'confirm', 'confirm2', 'confirm3']
+        assert flag in ['train', 'val', 'test', 'confirm', 'confirm2', 'confirm3', 'confirm4']
         count = {'train': args.n_train, 'val': args.n_val, 'test': args.n_test,
-                 'confirm': args.n_confirm, 'confirm2': args.n_confirm, 'confirm3': args.n_confirm}[flag]
+                 'confirm': args.n_confirm, 'confirm2': args.n_confirm, 'confirm3': args.n_confirm,
+                 'confirm4': args.n_confirm}[flag]
         # confirm은 후보 선택에 쓰지 않는 분할이다 (사전등록 D-AI). test는 탐색에서
         # 반복 관찰되었으므로 최종 판정에 쓰지 않는다. confirm은 η=0.2 확증에 한 번 쓰였으므로
         # 새 후보의 확증은 confirm2 (offset 4)에서 한다 (사전등록 2J). 한 분할은 한 번만 본다.
-        # confirm2는 2J에서, confirm3는 2K에서 각각 한 번 열린다.
-        offset = {'train': 0, 'val': 1, 'test': 2, 'confirm': 3, 'confirm2': 4, 'confirm3': 5}[flag]
+        # confirm2는 2J에서, confirm3는 2K에서, confirm4는 2M에서 각각 한 번 열린다.
+        offset = {'train': 0, 'val': 1, 'test': 2, 'confirm': 3, 'confirm2': 4, 'confirm3': 5,
+                  'confirm4': 6}[flag]
         rng = np.random.default_rng(args.data_seed + 10000 * offset)   # 분할 간 생성 난수 분리
 
         self.x, self.y, self.truth, self.recall = [], [], [], []

@@ -37,7 +37,8 @@ def evaluate(model, data_loader, args, mode=None, baselines=False):
         x, y, truth, kind = batch
         x, y = x.float().to(args.device), y.float().to(args.device)
         truth = truth.to(args.device) if truth.numel() else None
-        output = model(x, mode=mode, truth=truth, kind=kind.to(args.device) if mode == 'oracle' else None)
+        privileged = mode == 'oracle' or (mode == 'hard' and getattr(args, 'hard_stat', None) == 'oracle')
+        output = model(x, mode=mode, truth=truth, kind=kind.to(args.device) if privileged else None)
         error = (output - y).double()
         if args.task == 'recall':
             kind = kind.to(args.device)

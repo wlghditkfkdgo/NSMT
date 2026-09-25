@@ -99,8 +99,8 @@ def parse_arguments():
     # mode=hard (prereg 2J): kernel kept, past slots gated 0/1 by a statistic. No eta, no cap.
     select_arg.add_argument('--hard_axis', choices=['unit', 'shared', 'input'], default='shared',
                             help='descriptor the similarity is computed on (2J fixes shared)')
-    select_arg.add_argument('--hard_stat', choices=['pearson', 'cosine', 'recent', 'random'], default='pearson',
-                            help='recent/random: same-budget content-free controls (prereg 2K)')
+    select_arg.add_argument('--hard_stat', choices=['pearson', 'cosine', 'recent', 'random', 'oracle'], default='pearson',
+                            help='recent/random: same-budget content-free controls (2K); oracle: answer slots (2M)')
     select_arg.add_argument('--hard_q', type=float, default=1.,
                             help='fraction of past slots kept per query; 1.0 is the neutral limit (== full)')
     select_arg.add_argument('--theta', type=float, default=5.5,
