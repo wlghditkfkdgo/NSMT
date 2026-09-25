@@ -58,7 +58,7 @@ def collect_runs(suite):
         name = Path(run).name
         q = float(name.split('-q', 1)[1].split('_')[0])
         done = [f for f in glob.glob(str(result_root / f'*-q{q:g}_*seed{SELECTION_SEED}.json'))
-                if json.load(open(f)).get('train', {}).get('epochs_run')]
+                if json.load(open(f)).get('train', {}).get('epochs_run') == 12]    # 2L D-AV
         if not done:
             skipped.append((q, name, 'no finished result JSON'))
             continue
@@ -78,13 +78,22 @@ def load(run):
     return LOAD_MODEL[config.model](config, train=False), config
 
 
-def metrics(model, loader, config, batches=4):
-    """One D-AH row at the run's own mode and q."""
+def metrics(model, loader, config, batches=None):
+    """One D-AH row at the run's own mode and q.
+
+    Audits 39/40 (prereg 2L): the diagnostics used to stop after four batches (256 of 1000
+    confirm sequences), `finite` ignored the diagnostic's own flag, and a missing bound passed.
+    Now the diagnostics cover every batch by default, `finite` ANDs the state check, and no
+    bound means not within bound. The three stages are still separate forwards, so for the
+    random control the diagnostics describe different masks from the MSE: a confirmation must
+    take error and safety from ONE forward (hard_safety.single_pass), not from this row.
+    """
+    everything = batches or 10 ** 9
     err = evaluate(model, loader, config)[0]
-    diag = selection_diagnostics(model, loader, config, batches=batches)
-    stage = decompose(model, loader, config, batches=batches)
+    diag = selection_diagnostics(model, loader, config, batches=everything)
+    stage = decompose(model, loader, config, batches=everything)
     bound = getattr(config, 'g11_bound', None)
-    finite = all(math.isfinite(v) for v in (err['recall']['mse'], diag['max_abs_state']))
+    finite = bool(diag['finite']) and all(math.isfinite(v) for v in (err['recall']['mse'], diag['max_abs_state']))
     return {'q': config.hard_q, 'axis': config.hard_axis, 'stat': config.hard_stat,
             'recall_mse': err['recall']['mse'], 'copy_mse': err['copy']['mse'],
             'recall_first_mse': err['recall_first']['mse'],
@@ -94,7 +103,8 @@ def metrics(model, loader, config, batches=4):
             'kernel_mass': stage['kernel_mass'], 'uniform_slot': stage['uniform_slot'],
             'm_eff': diag['m_eff'], 'hit': diag['hit'], 'support_p': diag['support_p'],
             'max_abs_state': diag['max_abs_state'], 'bound': bound, 'finite': finite,
-            'within_bound': finite and (bound is None or diag['max_abs_state'] < bound)}
+            'diag_sequences': diag['sequences'], 'diag_queries': diag['queries'],
+            'within_bound': finite and bound is not None and diag['max_abs_state'] < bound}
 
 
 def show(rows, keys=('recall_mse', 'copy_mse', 'score_top1', 'score_rank', 'p_mass',

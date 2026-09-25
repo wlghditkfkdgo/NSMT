@@ -47,7 +47,7 @@ def find(suite, seed, stat, q):
     pat = f'seed{seed}_*hard-shared-{stat}-q{q:g}_k3'
     runs = glob.glob(str(TASK / 'log' / suite / 'recall' / '*' / '*' / pat))
     done = [f for f in glob.glob(str(TASK / 'results' / suite / f'*hard-shared-{stat}-q{q:g}_k3_seed{seed}.json'))
-            if json.load(open(f)).get('train', {}).get('epochs_run')]
+            if json.load(open(f)).get('train', {}).get('epochs_run') == 12]    # 2L D-AV
     if len(runs) != 1 or len(done) != 1:
         raise SystemExit(f'[control] need exactly one finished run for seed {seed} {stat} q={q:g} '
                          f'in {suite}; found {len(runs)} dirs, {len(done)} finished results')

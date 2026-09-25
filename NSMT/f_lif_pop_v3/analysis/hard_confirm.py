@@ -49,7 +49,7 @@ def collect(suite, qsel):
         seed = int(name.split('seed', 1)[1].split('_')[0])
         q = float(name.split('-q', 1)[1].split('_')[0])
         done = [f for f in glob.glob(str(result_root / f'*-q{q:g}_*seed{seed}.json'))
-                if json.load(open(f)).get('train', {}).get('epochs_run')]
+                if json.load(open(f)).get('train', {}).get('epochs_run') == 12]    # 2L D-AV
         if not done:
             continue
         if (seed, q) in runs:
