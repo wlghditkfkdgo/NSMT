@@ -1,0 +1,20 @@
+[bench] manifest OK for all 32 runs (8 seeds x pearson/q1/oracle/gru); torch 1.12.0+cu113
+ seed        q1   pearson    oracle       gru       tto        Meff p/q1/o        max|u| p/q1/o/tto  ties
+    7  0.259408  0.129730  0.044706  0.233901  0.086488  0.249/0.131/1.000  26.0/22.4/23.4/23.7  0/41000
+   13  0.261063  0.117090  0.042352  0.236986  0.082724  0.249/0.131/1.000  34.7/24.4/23.8/25.9  0/41000
+   21  0.263218  0.120015  0.048690  0.234179  0.089829  0.248/0.131/1.000  27.5/23.1/22.2/25.3  0/41000
+   42  0.259797  0.117110  0.045000  0.235943  0.089317  0.250/0.131/1.000  26.1/23.3/22.5/24.0  0/41000
+  123  0.258691  0.112734  0.041087  0.239706  0.078381  0.244/0.131/1.000  33.1/25.2/24.5/30.4  0/41000
+  256  0.258093  0.120850  0.040220  0.234054  0.086126  0.244/0.131/1.000  28.3/25.5/24.7/27.3  0/41000
+  512  0.259378  0.125754  0.044701  0.234945  0.088246  0.249/0.131/1.000  32.9/30.4/24.0/30.2  0/41000
+ 1024  0.261510  0.130251  0.042256  0.237580  0.094215  0.245/0.131/1.000  49.0/44.6/24.4/45.3  0/41000
+
+[bench] mean confirm4 recall MSE: q1 0.260145, pearson 0.121692, oracle 0.043627, gru 0.235912, tto 0.086916
+[bench] O7-1  M_eff(pearson) = 0.2473  (q1 0.1312, oracle 1.0000)  -> FAIL
+[bench] G14   q1 - oracle mean +0.216518, 95% CI [+0.214819, +0.218217] vs MDE 0.005  -> PASS
+[bench] O7-2  G = 0.6395 (per-seed mean 0.6395, 95% CI [0.6149, 0.6640])  -> PASS
+[bench] O7-3  pearson - q1 mean -0.138453, 95% CI [-0.143748, -0.133158], rel -53.22%  -> PASS
+[bench] O7-4  |E_tto - E_q1| / E_q1 = 66.59%  (diagnostic; <= 5% triggers the table's diagnostic row)
+[bench] GRU   pearson - gru mean -0.114220, 95% CI [-0.120467, -0.107973], rel -48.42%, pearson lower in 8/8; gru - q1 -0.024233 [-0.026525, -0.021942]  (not capacity-matched, A10-PARAM)
+[bench] pearson top-k boundary ties 0/328000; mask reconstruction mismatches 0
+[bench] recorded to /home/yschoi/CLS_spiking_transformer/Bio-inspired-Spiking-Memory-Transformer-for-time-series-representation-learning/NSMT/f_lif_pop_v3/forecasting/results/hardbench-172518-eval/hard_benchmark_record.json
