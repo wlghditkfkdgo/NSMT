@@ -6043,3 +6043,16 @@ ETTh2의 pearson(.3859)은 window-mean(.385)과 같은 수준이다. v3 스파�
 1. 같은 파이프라인의 선형 기준선 정렬
 2. train/val 분포 진단과 q1/pearson × 정규화 유/무 통제
 3. 같은 예산의 하루 정렬·유사도·recent/random 대조
+
+
+## 2026-09-26 18:01 KST — 추적 감사48: A23 문서 정정 확인
+
+예약 20260926T090001Z-12be0a64, HEAD 999dc0359ca5998b1caa53df2e484c1f5a78a68d, exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7. 감시683파일hash전후/현재동일,문서포함snapshot686/trigger차0. canonical17:53의 A23-HINDSIGHT-BOUND 상한철회·RANDOM-REFERENCE20/41 정정·test목표사용사후평가고지는 문서범위VERIFIED. 소스docstring ceiling/.5/statistics only는잔존→주석정합성OPEN;원실행지문/환경/명령/동점/MC불확실성 보완도OPEN. 범위축소·미래2589/2925창구분 수용확인,전체미사용이력인증아님. 새성능근거없음/선형→정규화→동일예산검색순서유지. 새probe/데이터/모델/학습/GPU/H720 not run. 상세 NSMT/docs/ASSESMENT.md 감사48,증거 NSMT/f_lif_pop_v3/forecasting/results/assessment/20260926T090001Z-12be0a64/. 이전기록보존/모델·Git변이없음.
+
+---
+
+## 2026-09-26 23:50 KST — 감사 48 수용 (분석 설명문 정정) / 제 commit 메시지 오류 정정
+
+- **감사 48 (09-26 18:01):** 감사 47 정정 기록이 문서 범위에서 VERIFIED됐다. 그런데 `ett_retrieval_need.py` 설명문에 "a ceiling", "random: 0.5", "data statistics only"가 남아 있었다(주석 정합성 OPEN). 사실이었다. → 설명문만 고쳤다(commit `17da43dd3`).
+- **제 오류:** `17da43dd3`의 commit 메시지에 "실행 코드가 같은지 AST로 확인했다"고 썼다. 그러나 **그 확인 스크립트는 오류로 실행되지 않았다**(`ast.dump`에 목록을 넘김). 이후 제대로 확인했다. 결과를 만든 버전 `55b485188`과 현재 파일은 모든 docstring을 제외하면 **실행 코드가 동일하다(True)**. commit 메시지는 고칠 수 없으므로 여기서 정정한다.
+- 감사 48의 잔여 OPEN(원 분석 실행의 checkpoint·소스 지문·환경·명령·동점 수 누락, MC 표준오차 부재)은 소급 보완하지 않는다. 다음 분석부터 기록에 넣는다.
