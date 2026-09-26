@@ -5795,3 +5795,43 @@ cd NSMT/f_lif_pop_v3/analysis && python hard_safety.py --twoj results/hardsel-01
 - 보정 결과: ETTh1은 input_scale 6.0, 한계 507.6. ETTh2는 6.0, 한계 975.2. 파일은 `results/calibration/ETT*_260925-*.json`, 로그는 `analysis/ett_calibration_ETTh{1,2}.txt`.
 - 학습: suite `etthard-20260925`, 48 run(2 데이터셋 × {q1, pearson, gru} × 8 seed, H96). `scripts/gpu_pool2.sh`로 A6000 4장에 GPU당 2개씩 돌린다. run별 스크립트는 `scripts/run_ett.sh`(model_v1 `run_recall.sh` 형식)이다. queue 목록은 로컬 전용이며 내용은 다음과 같다: `bash f_lif_pop_v3/forecasting/scripts/run_ett.sh {ETTh1,ETTh2} 96 {q1,pearson,gru} {7,13,21,42,123,256,512,1024}`(데이터셋 → seed → 조건 순).
 - 평가기 `ett_test.py`(model_v1 `test.py` 형식, commit `1002a0d0f`)를 test를 열기 전에 validation으로 사전 시험했다. 기록된 최저 검증 MSE를 4e-8 이내로 재현했고, 마스크 불일치 0, 동점 0/799,295였다.
+
+
+## 2026-09-25 17:50 KST — 추적 감사43: ETT 진행·개방 전 점검
+
+예약20260925T084002Z-d598bb43; exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7. 최초HEADd7f1a647/snapshot519+12파일/trigger차11은진행파일;후기HEAD9bb51e3c/ett_test e8437fc별도보존. 완료ETTh1 6건(P7,q1-21,GRU7/13/21/42)cp/source11일치·test_skipped. CPUfixture loader train-onlyfit/target분리8209·2785·2785,collector2+1batch오차·마지막NaN/Inf/bound검출PASS. 보정scale6/bound507.555771·975.164948산술확인. 후기manifest7변조거부→A20 ETT수정범위VERIFIED. A21OPEN:48완료gate/earlystop증거/원cp해시·no-test·장치대조/root_path누락,실제오염발견아님;발화율batch가중정의주의. canonical2M79%철회·표본상한/추정량/tto정정VERIFIED. 사전등록commit이학습후였다는자진고지확인/작성시점독립입증없음. 우선48완료·gate보완뒤등록대로평가1회;부분val로후보변경금지. ETTtest성능/학습/GPU/실제모델forward/registry/Git변이not run. 명령·hash·제한 NSMT/docs/ASSESMENT.md 감사43,증거 NSMT/f_lif_pop_v3/forecasting/results/assessment/20260925T084002Z-d598bb43/; raw task log/assessment/20260925T084002Z-d598bb43/.
+
+
+## 2026-09-25 18:03 KST — 추적 감사44: ETT48학습 완료 증거 확인
+
+예약20260925T090001Z-e7a55cd1; exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7/HEAD9bb51e3c. snapshot629+96cp/config·stdout48,trigger차0/대상hash보존. ett_test e8437fc는감사43후기동일. 48건cp원hash/source11/manifest/8seed/CSVepochs/no-test/CUDA/fullbatch일치. 모두12~49epoch 조기종료,stdout명시종료+CSVpatience10재계산일치,bestval차≤5.01e−7→A21COMPLETION현48건VERIFIED. 자동48gate/earlystop·원cp/no-test/장치/root대조누락은OPEN유지. val평균ETTh1 q1 .760730745/P .786684334/GRU .651431050;ETTh2 .272265199/.266417920/.223906451,효과방향다르나최종판정아님. testrecord/ETTregistry없음;testCI·H720·모델forward·학습·GPU·실제데이터접근not run. 다음gate보완→고정test1회,부분val로후보/기준변경금지. 증거NSMT/f_lif_pop_v3/forecasting/results/assessment/20260925T090001Z-e7a55cd1/,raw같은task log/assessment/20260925T090001Z-e7a55cd1/;상세명령/제한ASSESMENT감사44. Git변이없음.
+
+---
+
+## 2026-09-26 15:09 KST — 감사 43·44 수용: ETT 개방 관문 보완 (test 개방 전)
+
+**성격:** 감사 수용 + 평가기 수정. test는 아직 열지 않았다. 사용자 지시(2026-09-26): "진행".
+**감사 43(17:50)·44(18:03) 요약:**
+- ETT 분할 경계와 train 구간만으로 한 표준화가 확인됐다(fixture).
+- 한 번의 forward로 오차와 상태를 함께 얻는 경로, 넓힌 설정 대조가 확인됐다.
+- 48개 학습 완료가 checkpoint 지문·조기 종료 로그·CSV 수준에서 확인됐다.
+- 검증 오차 평균은 다음과 같다. 제 결과 파일 계산과 일치하며, checkpoint 선택에 쓴 분할이므로 **판정이 아니다.**
+
+| 데이터 | 순수 f-LIF | pearson | GRU |
+|---|---:|---:|---:|
+| ETTh1 | 0.7607 | 0.7867 | 0.6514 |
+| ETTh2 | 0.2723 | 0.2664 | 0.2239 |
+
+**A21-ETT-OPEN-GATE 지적 → 조치(`ett_test.py`):** 제 코드에서 다섯 가지 모두 사실임을 확인했다.
+1. 한 데이터셋 24개만 대조했다 → 개방 전에 **두 데이터셋 48개 전부**를 대조하고, 하나라도 틀리면 어느 쪽도 열지 않는다.
+2. 조기 종료 근거를 대조하지 않았다 → 세 가지 흔적이 모두 맞아야 한다. 에폭 CSV 행이 0..n−1과 일치하고, stdout에 `[train] early stop at epoch n−1`가 있으며, CSV의 val_loss로 patience 10 규칙을 다시 세었을 때 같은 에폭에서 멈춰야 한다(50 epoch 완주는 예외). CSV 최소값과 기록된 best_val_loss 차이는 5.01e-7 이내여야 한다.
+3. 출처를 대조하지 않았다 → 다음을 대조한다: checkpoint 지문 = 학습 기록의 지문, `test=None`·`test_skipped=True`, 학습 장치 CUDA, 학습 torch 1.12.0+cu113, 보정 파일 이름.
+4. 보정을 "최신 파일(glob)"로 골랐다 → **고정 파일명과 SHA256**을 쓴다. 데이터 CSV도 고정 SHA256으로 대조한다(ETTh1 `f18de3ad…`, 감사 32 기록과 일치; ETTh2 `a3dc2c59…`). root_path도 대조한다.
+5. 발화율을 batch 평균의 평균으로 냈다 → 창×채널 가중으로 바꿨다.
+
+**시험 (`analysis/ett_gate_check.{py,txt}`, test 분할과 등록부는 건드리지 않음):**
+- 실제 48 run 관문 통과 **48/48**.
+- 결함 주입 **9/9 거부**: test_skipped 거짓, checkpoint 지문, CPU 학습, 다른 torch, 다른 보정, epochs와 CSV 불일치, 잘린 CSV, best_val 불일치, 다른 root_path.
+- validation 통과 6건(두 데이터셋 × 세 조건, seed 7): 기록값과의 차이 최대 1.1e-7. pearson 마스크 재구성 불일치 0. 동점은 ETTh1 0/799,295, ETTh2 1/799,295(선언한 CUDA topk 규칙 그대로 처리).
+
+**잔여 (감사 42·43):** 전역 등록부는 `open_once`를 호출하는 평가기에서만 강제된다. 사전등록 2N의 commit 시점 문제는 이미 고지했다(감사가 독립 확정할 수 없음).

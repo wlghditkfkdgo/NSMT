@@ -42,6 +42,16 @@ HARD = {'q1': {'model': 'myModel', 'mode': 'hard', 'hard_axis': 'shared', 'hard_
 # §5 참고 기준선 (v2, 같은 프로토콜의 다른 파이프라인). 검정하지 않는다.
 REFERENCE = {'ETTh1': {'ridge': .3702, 'ridge_lastvalue': .3696, 'window_mean': .706},
              'ETTh2': {'ridge': .3010, 'ridge_lastvalue': .2719, 'window_mean': .385}}
+# audit 43 A21-ETT-OPEN-GATE: the data files and the calibration are fixed artifacts with fixed
+# fingerprints, not "whatever is newest in the folder", so a later file cannot slip in.
+DATASETS = ('ETTh1', 'ETTh2')
+DATA_ROOT = (TASK.parents[1] / 'forecasting' / 'dataset' / 'ETT-small').resolve()
+DATA_SHA256 = {'ETTh1': 'f18de3ad269cef59bb07b5438d79bb3042d3be49bdeecf01c1cd6d29695ee066',
+               'ETTh2': 'a3dc2c597b9218c7ce1cd55eb77b283fd459a1d09d753063f944967dd6b9218b'}
+CALIBRATION = {'ETTh1': ('ETTh1_a0.7_norm-frozen_seed7_260925-173548.json',
+                         '60d04bf64a550c0c7eb7a1adb82724c0105ae688458fb2e94c15c989e3077d02'),
+               'ETTh2': ('ETTh2_a0.7_norm-frozen_seed7_260925-173554.json',
+                         '359c0d3461b3e648313a41bb0b2efcea37e77a0d6aeffb122e6267e051c526c2')}
 
 
 def sha256(path):
@@ -84,9 +94,61 @@ def check_manifest(args, result, data, pred_len, cond, seed, bound):
             bad.append(f"input_scale {getattr(args, 'input_scale', None)!r} != 6.0")
     if getattr(args, 'data_path', None) != f'{data}.csv':
         bad.append(f"data_path {getattr(args, 'data_path', None)!r} != '{data}.csv'")
-    train = json.load(open(result)).get('train', {})
-    if not 1 <= (train.get('epochs_run') or 0) <= REGISTERED['epoch']:
-        bad.append(f"epochs_run {train.get('epochs_run')!r} outside 1..{REGISTERED['epoch']}")
+    if Path(getattr(args, 'root_path', '')).resolve() != DATA_ROOT:
+        bad.append(f"root_path {getattr(args, 'root_path', None)!r} != {str(DATA_ROOT)!r}")
+    payload = json.load(open(result))
+    train, provenance = payload.get('train', {}), payload.get('provenance', {})
+    epochs = train.get('epochs_run') or 0
+    if not 1 <= epochs <= REGISTERED['epoch']:
+        bad.append(f"epochs_run {epochs!r} outside 1..{REGISTERED['epoch']}")
+
+    # audit 43 A21: 출처와 종료 근거를 개방 전에 강제 대조한다
+    if payload.get('test') is not None or payload.get('test_skipped') is not True:
+        bad.append(f"test was not skipped in training (test={payload.get('test')!r}, test_skipped={payload.get('test_skipped')!r})")
+    if provenance.get('checkpoint_sha256') != sha256(Path(args.save_model_state_path) / 'best+model.pt'):
+        bad.append('checkpoint sha256 differs from the one the training run recorded')
+    if not str(provenance.get('device', '')).startswith('cuda'):
+        bad.append(f"trained on {provenance.get('device')!r}, not CUDA (the declared tie rule is CUDA topk)")
+    if provenance.get('torch') != TORCH:
+        bad.append(f"trained with torch {provenance.get('torch')!r} != {TORCH}")
+    if (provenance.get('calibration') or {}).get('file') != CALIBRATION[data][0]:
+        bad.append(f"calibration {(provenance.get('calibration') or {}).get('file')!r} != {CALIBRATION[data][0]!r}")
+    bad += stopping_evidence(args, train, cond, data, pred_len, seed)
+
+    return bad
+
+
+def stopping_evidence(args, train, cond, data, pred_len, seed):
+    """The run ended the registered way: early stop after `patience` epochs without a new best
+    validation MSE, or the full 50 epochs. Three independent traces must agree -- the epoch CSV,
+    the trainer's stdout line, and a recount of the stopping rule on the CSV's val_loss."""
+    bad = []
+    epochs = train.get('epochs_run') or 0
+    csv_path = Path(args.save_log_path) / 'best_log_0.csv'
+    rows = [line.split(',') for line in csv_path.read_text().splitlines()]
+    head, body = rows[0], rows[1:]
+    if [int(r[0]) for r in body] != list(range(epochs)):
+        bad.append(f"best_log_0.csv epochs {[r[0] for r in body][:3]}... != 0..{epochs - 1}")
+        return bad
+    val = [float(r[head.index('val_loss')]) for r in body]
+    best, since, stop = float('inf'), 0, None                   # EarlyStopping: 개선이 없으면 카운트
+    for epoch, v in enumerate(val):
+        if v < best:
+            best, since = v, 0
+        else:
+            since += 1
+            if since >= REGISTERED['patience']:
+                stop = epoch
+                break
+    stdout = glob.glob(str(TASK / 'log' / args.suite / f'ett_{data}_p{pred_len}_{cond}_seed{seed}_*.stdout'))
+    if len(stdout) != 1:
+        bad.append(f"{len(stdout)} run_ett.sh stdout files")
+        return bad
+    said = f"[train] early stop at epoch {epochs - 1}" in Path(stdout[0]).read_text()
+    if epochs < REGISTERED['epoch'] and not (said and stop == epochs - 1):
+        bad.append(f"stopped at {epochs} epochs without matching evidence (stdout line {said}, CSV recount {stop})")
+    if abs(min(val) - train.get('best_val_loss', float('inf'))) > 5.01e-7:  # CSV는 소수 6자리
+        bad.append(f"CSV best val {min(val)} != best_val_loss {train.get('best_val_loss')}")
 
     return bad
 
@@ -109,7 +171,7 @@ def test(args:Config, model=None, cond='pearson', flag='test'):
 
     spiking = args.model == 'myModel'
     peak, finite, nonfinite, windows = 0., True, 0, 0
-    kept, kept_n, ties, tie_n, mismatch, rate = 0., 0, 0, 0, 0, []
+    kept, kept_n, ties, tie_n, mismatch, spikes, spike_n = 0., 0, 0, 0, 0, 0., 0
     with torch.no_grad():
         model.eval()
 
@@ -133,7 +195,8 @@ def test(args:Config, model=None, cond='pearson', flag='test'):
                 finite, nonfinite = False, nonfinite + 1               # 최대값에 섞지 않는다
             else:
                 peak = max(peak, state.abs().max().item())
-            rate.append(aux['spikes'].mean().item())
+            spikes += aux['spikes'].double().mean(dim=(0, 2)).sum().item()   # 시퀀스(=창 x 채널) 가중
+            spike_n += aux['spikes'].shape[1]
 
             b = model.embedding.neuron.b
             share = torch.zeros(state.shape[1], dtype=torch.float64, device=args.device)
@@ -170,7 +233,7 @@ def test(args:Config, model=None, cond='pearson', flag='test'):
         'bound' : bound if spiking else None,
         'safe' : finite and (not spiking or (bound is not None and peak < bound)),
         'kept_mass_frac' : kept / kept_n if kept_n else None,
-        'firing_rate' : float(np.mean(rate)) if rate else None,
+        'firing_rate' : spikes / spike_n if spike_n else None,
         'ties' : [ties, tie_n] if cond == 'pearson' else None,
         'mask_mismatch' : mismatch if cond == 'pearson' else None,
     }
@@ -253,24 +316,30 @@ if __name__ == '__main__':
     if torch.__version__ != TORCH:
         raise SystemExit(f"[ett_test] torch {torch.__version__} != {TORCH}: the declared tie rule is that torch.topk")
     device = torch.device(f'cuda:{config.num_device}')
-    calibration = sorted(glob.glob(str(TASK / 'results' / 'calibration' / f'{config.data}_a0.7_norm-frozen_seed7_260925-*.json')))
-    bound = json.load(open(calibration[-1]))['picked']['declared_bound']
-
-    # ---- 1. 개방 전 전체 대조: 하나라도 어긋나면 test를 열지 않는다 ------------------------------
-    runs, errors = {}, {}
-    for cond in CONDS:
-        for seed in SEEDS:
-            run, result = find_run(config.suite, config.data, config.pred_len, cond, seed)
-            model, args = load_model(run, device)
-            bad = check_manifest(args, result, config.data, config.pred_len, cond, seed, bound)
-            runs[(cond, seed)] = (model, args, sha256(Path(run) / 'model_state' / 'best+model.pt'), result)
-            if bad:
-                errors[f'{cond}/{seed}'] = bad
+    # ---- 1. 개방 전 전체 대조 (D-BF, audit 43 A21): 두 데이터셋 48 run이 모두 끝나고 모두 맞아야 한다 ----
+    errors, bounds, runs = [], {}, {}
+    for data in DATASETS:
+        for name, digest in ((DATA_ROOT / f'{data}.csv', DATA_SHA256[data]),
+                             (TASK / 'results' / 'calibration' / CALIBRATION[data][0], CALIBRATION[data][1])):
+            if not Path(name).exists() or sha256(name) != digest:
+                errors.append(f"{data}: {Path(name).name} missing or its sha256 is not the fixed one")
+        bounds[data] = json.load(open(TASK / 'results' / 'calibration' / CALIBRATION[data][0]))['picked']['declared_bound']
+        for cond in CONDS:
+            for seed in SEEDS:
+                run, result = find_run(config.suite, data, config.pred_len, cond, seed)
+                model, args = load_model(run, device)
+                bad = check_manifest(args, result, data, config.pred_len, cond, seed, bounds[data])
+                errors += [f"{data} {cond}/{seed}: {b}" for b in bad]
+                if data == config.data:
+                    runs[(cond, seed)] = (model, args, sha256(Path(run) / 'model_state' / 'best+model.pt'), result,
+                                          sha256(Path(run) / 'model_state' / 'config.pt'))
+    bound = bounds[config.data]
     if errors:
-        for k, v in errors.items():
-            print(f"[ett_test] manifest {k}: {v}")
-        raise SystemExit(f"[ett_test] {len(errors)} run(s) fail the manifest; {config.data} test was NOT opened")
-    print(f"[ett_test] manifest OK for all {len(runs)} runs of {config.data} H{config.pred_len}; "
+        for e in errors:
+            print(f"[ett_test] manifest {e}")
+        raise SystemExit(f"[ett_test] {len(errors)} manifest error(s); {config.data} test was NOT opened")
+    print(f"[ett_test] manifest OK for all {len(DATASETS) * len(CONDS) * len(SEEDS)} runs "
+          f"({', '.join(DATASETS)} H{config.pred_len}); data and calibration fingerprints fixed; "
           f"torch {torch.__version__}; frozen G11 bound {bound:.1f}")
 
     # ---- 2-3. 전역 등록부 잠금 -> 기록 생성 -------------------------------------------------------
@@ -281,6 +350,8 @@ if __name__ == '__main__':
     head = {'prereg': '2N', 'data': config.data, 'pred_len': config.pred_len, 'suite': config.suite,
             'torch': torch.__version__, 'device': torch.cuda.get_device_name(device), 'bound': bound,
             'checkpoint_sha256': {f'{c}/{s}': v[2] for (c, s), v in runs.items()},
+            'config_sha256': {f'{c}/{s}': v[4] for (c, s), v in runs.items()},
+            'data_sha256': DATA_SHA256[config.data], 'calibration': CALIBRATION[config.data],
             'source_sha256': {f: sha256(TASK / f) for f in ('layers.py', 'ours.py', 'model.py', 'train.py', 'test.py',
                                                            'config.py', 'ett_test.py', 'data_provider/data_loader.py')}}
     with open(record_path, 'x') as handle:
@@ -290,7 +361,7 @@ if __name__ == '__main__':
     rows, mse = [], {c: [] for c in CONDS}
     for seed in SEEDS:
         for cond in CONDS:
-            model, args, _, result = runs[(cond, seed)]
+            model, args, _, result, _ = runs[(cond, seed)]
             print(f"{f' {config.data} {cond} seed {seed} ':=^100s}")
             r = test(args, model, cond)
             r.update(cond=cond, seed=seed, epochs_run=json.load(open(result))['train']['epochs_run'])

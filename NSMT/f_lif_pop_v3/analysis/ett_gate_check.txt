@@ -1,0 +1,17 @@
+[gate] real runs passing the manifest: 48/48
+[gate] inject test_not_skipped       -> REFUSED: ['test was not skipped in training (test=None, test_skipped=False)']
+[gate] inject checkpoint_hash        -> REFUSED: ['checkpoint sha256 differs from the one the training run recorded']
+[gate] inject trained_on_cpu         -> REFUSED: ["trained on 'cpu', not CUDA (the declared tie rule is CUDA topk)"]
+[gate] inject other_torch            -> REFUSED: ["trained with torch '2.1.0' != 1.12.0+cu113"]
+[gate] inject other_calibration      -> REFUSED: ["calibration 'ETTh1_other.json' != 'ETTh1_a0.7_norm-frozen_seed7_260925-173548.json'"]
+[gate] inject epochs_vs_csv          -> REFUSED: ["best_log_0.csv epochs ['0', '1', '2']... != 0..17"]
+[gate] inject csv_truncated          -> REFUSED: ["best_log_0.csv epochs ['0', '1', '2']... != 0..16"]
+[gate] inject best_val_mismatch      -> REFUSED: ['CSV best val 0.782567 != best_val_loss 0.7835669602531666']
+[gate] inject root_path              -> REFUSED: ["root_path '/tmp/ETT-small' != '/home/yschoi/CLS_spiking_transformer/Bio-inspired-Spiking-Memory-Transformer-for-time-series-representation-learning/NSMT/forecasting/dataset/ETT-small'"]
+[gate] injected faults refused: 9/9
+[gate] ETTh1       q1 seed 7 val: 0.766305 vs recorded 0.766305 |diff| 4.1e-08; safe True; firing 0.16896082939459448; kept 0.999999990226389; ties None; mismatch None
+[gate] ETTh1  pearson seed 7 val: 0.782567 vs recorded 0.782567 |diff| 1.1e-07; safe True; firing 0.16843650386545997; kept 0.5172230090979228; ties [0, 799295]; mismatch 0
+[gate] ETTh1      gru seed 7 val: 0.652093 vs recorded 0.652093 |diff| 2.6e-09; safe True; firing None; kept None; ties None; mismatch None
+[gate] ETTh2       q1 seed 7 val: 0.270918 vs recorded 0.270918 |diff| 3.6e-08; safe True; firing 0.16103186561877889; kept 0.999999990226389; ties None; mismatch None
+[gate] ETTh2  pearson seed 7 val: 0.261775 vs recorded 0.261775 |diff| 1.2e-08; safe True; firing 0.16565778465784878; kept 0.5239702278567255; ties [1, 799295]; mismatch 0
+[gate] ETTh2      gru seed 7 val: 0.231699 vs recorded 0.231699 |diff| 1.3e-08; safe True; firing None; kept None; ties None; mismatch None
