@@ -9,14 +9,22 @@ verdict; 2N stands as recorded.
       values). The continuation that followed a past patch j predicts the future, level-aligned:
           pred = last value + mean_j (continuation_j - last value of patch j)
       Sets of j: all / top-50% similar / most recent 50% / random 50% (Monte Carlo) /
-      daily-aligned (offset a multiple of 24 h) / hindsight-best 50% (uses the target: a ceiling).
+      daily-aligned (offset a multiple of 24 h) / "hindsight" 50%: the k candidates whose OWN
+      forecast errors against the target are smallest. That is not the set whose averaged
+      forecast is best, so it is not a ceiling (audit 47 A23-HINDSIGHT-BOUND).
       Horizons h=8 (next patch, j<=40) and h=96 (12 patches, continuation inside the window, j<=29).
   (2) what the trained pearson mask picks on validation: overlap of its last-step mask with the
-      hindsight-best 50% for h=8 (random: 0.5), agreement with the data-space top-50%, the share
-      of kept slots in the recent half, and the analog error of its own selection.
+      "hindsight" 50% for h=8, agreement with the data-space top-50%, the share of kept slots in
+      the recent half, and the analog error of its own selection. A random k-subset of J slots
+      overlaps a fixed k-subset by k/J on average: 20/41 = 0.488 at h=8, 0.5 at h=96; the recent
+      half j>=21 is also 20 of 41 slots (audit 47 A23-RANDOM-REFERENCE).
   (3) period shift: channel means/stds of the train-standardised series in the train, val and
       test periods, and the (1) gap similar-minus-all per period. The test period was opened for
-      2N; here it is used for data statistics only, without any model, and says so.
+      2N. Here no model touches it, but (1) does compute target-using analog errors and the
+      "hindsight" selection on it -- more than descriptive statistics, exploratory only (audit 47
+      A23-EXPLORATORY-PROTOCOL).
+
+Docstring corrected after the run (audit 48); the code and the saved results are unchanged.
 """
 import sys
 import json
@@ -77,7 +85,7 @@ def topk_mask(score, k):
 
 
 def analog(patches, target, h, draws=64, seed=0, chunk=8192):
-    """(1): MSE of each selection rule, and overlap of the similar set with the hindsight-best set."""
+    """(1): MSE of each selection rule, and overlap of the similar set with the "hindsight" set."""
     gen = torch.Generator().manual_seed(seed)
     sums = {k: 0. for k in ('persistence', 'all', 'similar', 'recent', 'random', 'daily', 'hindsight')}
     overlap, n_el = 0., 0
