@@ -8,6 +8,9 @@ from config import set_seed_worker
 def data_provider(args, flag):
     if args.task == 'recall':
         build = Dataset_Recall
+    elif args.data == 'weather':                       # prereg 2R: model_v1 Dataset_Custom 분할
+        from .data_loader import Dataset_Custom
+        build = Dataset_Custom
     else:
         from .data_loader import Dataset_ETT_hour     # pandas는 ETT 경로에서만 필요하다
         build = Dataset_ETT_hour

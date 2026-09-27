@@ -6708,3 +6708,33 @@ ETTh2의 pearson(.3859)은 window-mean(.385)과 같은 수준이다. v3 스파�
 - **A31:** 유한성·영 분모를 먼저 검사하는 재현 관문 `selection_parity_check.py`로 다시 돌려 12/12 통과했다. 주입한 NaN과 영 기준은 거부된다. 원 스크립트는 실행된 그대로 둔다.
 - **A29(실패 칸 데이터 출처)·A32(weather):** `weather_test.check_failure`에 root_path·data_path 대조를 넣었다. 평가 main은 등록부 잠금과 test 행 접근 **전에** 모든 완료 run의 validation 재현(차이 1e-6 이하)을 돌리고, 하나라도 어긋나면 멈춘다. repro_ok가 없으면 보류로 처리한다. `weather_checks.py`의 4값 풀기와 train 첫 목표 행(336)을 고쳤다. 세 파일 모두 아직 실행 전이며, 2R commit 뒤에 실행한다.
 - ett_readout·ett_alpha는 실행된 그대로 둔다.
+
+---
+
+## 2026-09-28 03:35 KST — 2R 구현·사전 점검·weather 보정 (학습 전, test 행 사용 없음)
+
+**성격:** 사전등록 2R(commit `2934b857e`, 03:33:35, 코드 실행·보정·학습 전). 2Q는 태그 `exp/f-lif-pop-v3-readout-diag-20260928`(commit `89e2568f6`)로 마감했다.
+**코드:**
+- `data_provider/data_loader.py` `Dataset_Custom`: model_v1의 70/10/20 행 분할, 변수 21개 중 OT를 마지막, train 행만으로 StandardScaler, 분할마다 앞 336행 문맥. 반환 형식은 ETT 로더와 같은 4값.
+- `data_factory.py`: `--data weather`이면 `Dataset_Custom`. `config.py`: 선택지에 weather.
+- `scripts/run_ett.sh`: DS=weather면 `--root_path <NSMT>/forecasting/dataset/weather`를 붙인다.
+- `weather_test.py`: 2R 평가기. 40칸 관문, 실패 칸 출처(데이터 root·파일 포함), 모든 완료 run의 validation 재현을 등록부 잠금·test 행 접근 전에 한다. 보정 파일·SHA256을 고정했다.
+- `analysis/weather_gate_check.py`: 학습 뒤, 개방 전에 돌릴 관문 결함 주입 점검(아직 실행 안 함).
+**사전 점검 6/6 통과:**
+1. 로더 경계(합성 CSV, 같은 모양): train 첫 입력 0·목표 [336, 36886]·창 36,456; val 첫 입력 36,551·목표 [36887, 42156]·창 5,175; test 첫 입력 41,821·목표 [42157, 52695]·창 10,444 (`analysis/weather_checks.{py,txt,json}`).
+2. test 행을 바꿔도 scaler가 그대로다.
+3. 변수 21개, 마지막이 OT.
+4. 실제 weather.csv: SHA256 `34ee981d…`, 52,696 × 21, 유한, OT 있음. 창을 만들거나 val·test 통계를 계산하지 않았다.
+5. ETT 경로 불변: 2O R 켬 스파이킹 checkpoint 16개의 val MSE 재현 최대차 0 (`analysis/weather_ett_path_check.{py,txt,json}`).
+6. `check_model.py` 관문 23/23.
+**weather 보정** (train 분할, seed 7, GPU; `calibrate.py --task ett --data weather --root_path <NSMT>/forecasting/dataset/weather --input_norm frozen --revin --alpha {0.7, 1} --seed 7`):
+
+| α | input_scale | 발화율 | G11 한계 | 파일 (SHA256 앞 12자리) |
+|---|---:|---:|---:|---|
+| 0.7 | **10.0** | 0.2190 | 3679.9 | `weather_a0.7_norm-frozen_revin_seed7_260928-033451.json` (`2f28660cef72`) |
+| 1 | **6.0** | 0.1987 | 2207.9 | `weather_a1.0_norm-frozen_revin_seed7_260928-033451.json` (`3915d27c49f0`) |
+
+- 두 α 모두 가지 건강, 한계 이내, 주의 모드 초기값 발화율도 구간 안(0.221, 0.197). α=0.7은 ETT R 켬과 같은 10.0, α=1은 6.0이다. P2는 α별 보정을 포함한 효과로 읽는다(D-CI).
+- 보정 stdout은 로컬 `forecasting/log/calibration-weather-20260928/`.
+
+**다음:** 시험 run(seed 7, 5 조건, 2 epoch, 별도 suite, 보고 안 함)으로 시간·메모리를 본 뒤 본 학습 40개.

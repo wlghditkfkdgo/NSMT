@@ -39,7 +39,8 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description='Population f-LIF v3-A')
     parser.add_argument('--model', default='myModel', choices=['myModel', 'GRU', 'Linear'])
     parser.add_argument('--task', default='recall', choices=['recall', 'ett'])
-    parser.add_argument('--data', default='ETTh1', choices=['ETTh1', 'ETTh2', 'recall'])
+    parser.add_argument('--data', default='ETTh1', choices=['ETTh1', 'ETTh2', 'weather', 'recall'],
+                        help="weather (prereg 2R) needs --root_path <NSMT>/forecasting/dataset/weather")
     parser.add_argument('--root_path', default=str(NSMT / 'forecasting/dataset/ETT-small'))
     parser.add_argument('--suite', default='v3a-phaseD-20260921')
     parser.add_argument('--seed', type=int, default=7)

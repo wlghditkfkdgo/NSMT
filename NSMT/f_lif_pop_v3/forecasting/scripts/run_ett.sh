@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prereg 2N / 2O / 2P / 2Q: one ETT training run. Hard statistical selection on the fixed fractional kernel
+# Prereg 2N / 2O / 2P / 2Q / 2R: one ETT (or weather, 2R) training run. Hard statistical selection on the fixed fractional kernel
 # (pearson, shared axis per channel, q=0.5) against the plain f-LIF (q=1, bitwise full) and the
 # GRU baseline. O8 budget from the config defaults: AdamW lr 1e-3 wd 1e-2, batch 128, clip 1,
 # max 50 epochs, early stop 10 on val MSE, ReduceLROnPlateau(0.5, 5). The test split is NOT
@@ -35,8 +35,10 @@ case $C in
   pearson_R_lin) MF="--model myModel --mode hard --hard_axis shared --hard_stat pearson --hard_q 0.5 --revin --head_mode linear" ;;
   *) echo "bad cond $C"; exit 1 ;;
 esac
+# prereg 2R: weather lives in its own folder (model_v1 Dataset_Custom split); ETT keeps the config default
+RP=""; [ "$DS" = weather ] && RP="--root_path $R/forecasting/dataset/weather"
 IX="ett_${DS}_p${PL}_${C}"; OUT=$LOG/${IX}_seed${S}_${TS}_${SHA}.stdout; t0=$(date +%s)
-(cd "$W" && CUDA_VISIBLE_DEVICES=$GPU OMP_NUM_THREADS=${THREADS:-4} $PY ./train.py --task ett --data $DS \
+(cd "$W" && CUDA_VISIBLE_DEVICES=$GPU OMP_NUM_THREADS=${THREADS:-4} $PY ./train.py --task ett --data $DS $RP \
   --pred_len $PL --suite $SUITE --seed $S -nd 0 -e $EPOCHS --no-test $MF > "$OUT" 2>&1)
 RC=$?
 VAL=$(grep -aoE 'Validation loss decreased \([^)]*--> [0-9.]+' "$OUT" | tail -1 | grep -oE '[0-9.]+$')
