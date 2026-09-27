@@ -6104,3 +6104,16 @@ ETTh2의 pearson(.3859)은 window-mean(.385)과 같은 수준이다. v3 스파�
 
 ### 다음
 시험 run(seed 7·13, R 켠 4조건, 두 데이터셋, 3 epoch, 별도 suite, 보고하지 않음)을 거쳐 본 학습 80개로 간다.
+
+---
+
+## 2026-09-27 17:59 KST — 2O 시험 run(배선 점검, 보고 안 함) / 본 학습 80개 착수
+
+- **시험 run:** suite `etthard-revin-pilot-20260927`, seed 7·13 × R 켠 4조건 × 두 데이터셋, 3 epoch, 16개 모두 오류 없음.
+  - 확인한 배선:
+    - R 켠 myModel이 R용 보정을 불러왔다(input_scale 10.0, 한계 1334.7/2026.3, 파일명 `…_revin_…`).
+    - frozen 통계는 R 변환 입력으로 추정됐다(평균 ±0.34 범위, 보정과 같음).
+    - run 이름에 `_revin`이 붙었다.
+    - Linear 파라미터 수는 32,352다.
+  - **수치는 사전등록대로 해석·보고하지 않는다.** 구현 수정이 없었으므로 시험 산출물은 보존만 하고 최종 suite와 분리한다.
+- **본 학습:** suite `etthard-revin-20260927`, 80개 = 2 데이터셋 × 8 seed × {q1_R, pearson_R, gru_R, linear, linear_R}. `scripts/gpu_pool2.sh`, A6000 4장에 GPU당 2개. queue는 로컬 전용이다. 완료 대기는 pool PID로 한다(09-25에 명령줄 검색 대기가 자기 자신을 잡아 멈추지 않았던 문제를 피하기 위함).
