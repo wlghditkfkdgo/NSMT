@@ -14,6 +14,7 @@ Neither the registry nor any test row is touched.
 """
 import sys
 import json
+import math
 import runpy
 from pathlib import Path
 from unittest import mock
@@ -124,7 +125,7 @@ def main():
     expect('validation reproduction fails closed', all(fixtures.values()), f'{fixtures}')
 
     # ---- 3 ---------------------------------------------------------------------------------
-    worst = 0.
+    diffs = []                                                   # fail closed (audit 63): no max(worst, nan)
     for cond in W.CONDITIONS:
         status, run, result = W.find_cell(cond, 7)
         if status != 'done':
@@ -132,10 +133,12 @@ def main():
             continue
         model, args = ett_test.load_model(run, device)
         r = W.test(args, model, cond, flag='val')
-        stored = json.load(open(result))['train']['best_val_loss']
-        worst = max(worst, abs(r['mse'] - stored))
-        print(f"[weather-gate] {cond:>9} seed 7 val {r['mse']:.6f} vs recorded {stored:.6f}; safe {r['safe']}")
-    expect('validation pass reproduces the recorded best MSE (seed 7, every condition)', worst <= 1e-6, f'max |diff| {worst:.1e}')
+        stored = json.load(open(result)).get('train', {}).get('best_val_loss')
+        finite = all(isinstance(v, float) and math.isfinite(v) for v in (r['mse'], stored))
+        diffs.append(abs(r['mse'] - stored) if finite else None)
+        print(f"[weather-gate] {cond:>9} seed 7 val {r['mse']!r} vs recorded {stored!r}; safe {r['safe']}")
+    ok = bool(diffs) and all(d is not None and d <= 1e-6 for d in diffs)
+    expect('validation pass reproduces the recorded best MSE (seed 7, every condition)', ok, f'differences {diffs}')
 
     print(f"[weather-gate] {sum(OK)}/{len(OK)} checks pass")
 
