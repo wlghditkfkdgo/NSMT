@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prereg 2N / 2O: one ETT training run. Hard statistical selection on the fixed fractional kernel
+# Prereg 2N / 2O / 2P: one ETT training run. Hard statistical selection on the fixed fractional kernel
 # (pearson, shared axis per channel, q=0.5) against the plain f-LIF (q=1, bitwise full) and the
 # GRU baseline. O8 budget from the config defaults: AdamW lr 1e-3 wd 1e-2, batch 128, clip 1,
 # max 50 epochs, early stop 10 on val MSE, ReduceLROnPlateau(0.5, 5). The test split is NOT
@@ -27,6 +27,9 @@ case $C in
   gru_R)     MF="--model GRU --mode full --revin" ;;
   linear)    MF="--model Linear --mode full" ;;
   linear_R)  MF="--model Linear --mode full --revin" ;;
+  # prereg 2P: the same spiking model with ordinary LIF branches (alpha=1, all b_d = 1), R on
+  q1_R_a1)      MF="--model myModel --mode hard --hard_axis shared --hard_stat pearson --hard_q 1 --revin --alpha 1" ;;
+  pearson_R_a1) MF="--model myModel --mode hard --hard_axis shared --hard_stat pearson --hard_q 0.5 --revin --alpha 1" ;;
   *) echo "bad cond $C"; exit 1 ;;
 esac
 IX="ett_${DS}_p${PL}_${C}"; OUT=$LOG/${IX}_seed${S}_${TS}_${SHA}.stdout; t0=$(date +%s)
