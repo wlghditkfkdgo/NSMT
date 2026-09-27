@@ -6499,3 +6499,41 @@ ETTh2의 pearson(.3859)은 window-mean(.385)과 같은 수준이다. v3 스파�
 - **문구 정정 (22:20 결과 항목):**
   - "목표 변수 OT에서는 차이가 없다" → **"OT의 평균차는 +0.0005(α=0.7이 낮은 seed 3/8)이고, 이 기술 분석에서 일관된 개선을 보이지 않았다. 동등성 검정은 하지 않았다."**
   - "분수 커널이 GRU와의 차이 중 약 1/4을 줄였다" → **"α와 α별 보정을 함께 바꾼 차이(F_q)가 GRU와의 기술적 거리의 약 1/4(ETTh1 24%, ETTh2 28%)에 해당한다."** 커널만의 기여가 아니고 검정하지 않은 수치다.
+
+
+## 2026-09-27 22:22 KST — 추적 감사57: 문서 수용만 변경, 새 성능 근거 없음
+
+감사(새 실험 아님),exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7/HEAD88b46af06769c5c4f44c7c96ba4b8f624842aa44. 감시1199파일 trigger·감사56 snapshot과동일,1203파일별도snapshot/hash. canonical22:14수용·OT/GRU거리정정확인;A29두관문결함OPEN/차기평가기재검사필요. 기존2P val탐색판정과감사56개선우선순위유지. 추가probe/실데이터forward/학습/GPU not run;새seed·hyperparameter·성능측정없음. 읽기전용git diff/hash대조증거: NSMT/f_lif_pop_v3/forecasting/results/assessment/20260927T132002Z-24e63d27/inventory.json 및같은task log/assessment/20260927T132002Z-24e63d27/. 상세NSMT/docs/ASSESMENT.md감사57. 연구소스/Git변이·commit/tag없음.
+
+---
+
+## 2026-09-28 02:46 KST — 기록 보완: 2N–2P 항목에서 빠진 브랜치·기준 commit·환경·학습 명령·예산·commit 대응·제목 시각
+
+**성격:** 기록 보완이다. 새 실행 없음. 사용자 질문(09-28)에 대한 점검에서 AGENTS.md 요구 항목 누락을 확인했다. 기존 항목은 고치지 않는다.
+
+- **브랜치·기준 commit:** `exp/f-lif-pop-v3`, 기준 `329183b94`(`exp/f-lif-pop-v2`의 끝, 09-21 항목에 기록). 09-23 이후 제 항목에서는 이 두 값이 빠져 있었다. 2I–2P 모두 같은 브랜치·기준이다.
+- **환경:** conda env `snn_recall`(`/home/yschoi/.conda/envs/snn_recall/bin/python`, `LD_LIBRARY_PATH`에 env의 `lib`), torch 1.12.0+cu113, NVIDIA RTX A6000 4장. 합성 과제 2J–2M은 CPU, ETT 2N–2P는 CUDA.
+- **ETT 학습 예산 (2N·2O·2P 공통, 사전등록 D-BD·D-BM·D-BU):** AdamW lr 1e-3, weight decay 1e-2, batch 128, gradient clip 1, 최대 50 epoch, val MSE 기준 early stop 10, ReduceLROnPlateau(factor 0.5, patience 5), 최저 val checkpoint, `--no-test`. 모양: seq 336, pred 96, patch 8, embed 32, head_dim 32, head flatten, spike readout. 뉴런: K=4, τ=[4,8,16,32], τ_s=2, threshold 1, surrogate 5, input_norm frozen.
+- **학습 명령:** NSMT 루트에서 `bash scripts/gpu_pool2.sh <queue> 0,1,2,3,0,1,2,3`(GPU당 2개). queue 파일은 로컬 전용이고 실행하며 비워진다. run별 정확한 명령·시작 시각·GPU를 pool 로그에서 옮겨 git에 넣었다:
+  - 2O 80개: `f_lif_pop_v3/forecasting/results/etthard-revin-20260927/run_commands.txt`
+  - 2P 32개: `f_lif_pop_v3/forecasting/results/etthard-alpha1-20260927/run_commands.txt`
+  - 형식 예: `SUITE=etthard-alpha1-20260927 bash f_lif_pop_v3/forecasting/scripts/run_ett.sh ETTh1 96 q1_R_a1 7 1`
+- **언급이 빠졌던 commit:**
+  - `a501bb565` (17:57:53) = "2O 구현·사전 점검·R 보정 (학습 전)" 항목
+  - `491bc5a0a` (17:59:55) = "2O 시험 run / 본 학습 80개 착수" 항목
+  - `1a1e55665` (18:08:40) = "2O 본 학습 80개 완료 / 평가기와 관문 점검" 항목
+  - `a05bc7805` (18:11:20) = "감사 51 수용" 항목
+  - `88b46af06` (22:14:42) = "감사 56 수용" 항목
+- **제목 시각과 실제 commit 시각 (09-27):**
+
+| 항목 제목 | 제목 시각 | 실제 commit |
+|---|---|---|
+| 감사 52·53 수용 / 사전등록 2P | 시각 없음 | `6e5f375cd` 21:38:46 |
+| 2P 사전 점검·α=1 보정 | 21:40 | `3cde96941` 21:40:49 |
+| 2P 시험 run … D-BX | 21:55 | `647641e70` 21:46:34 |
+| 2P 본 학습 32개 완료 … | 22:10 | `ac87a7823` 21:55:04 |
+| 2P 결과 (validation, 탐색) | 22:20 | `6f22eab22` 21:58:58 |
+| 감사 55 수용 | 시각 없음 | `6f22eab22` 21:58:58 |
+| 감사 56 수용 | 22:14 | `88b46af06` 22:14:42 |
+
+  이 항목부터 제목 시각은 `date` 출력만 쓴다.

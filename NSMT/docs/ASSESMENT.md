@@ -3698,3 +3698,18 @@ F_p·S_on(α=1)·J는 두 데이터 모두 각8개의 실패 칸을 명시하고
 실행: `CUDA_VISIBLE_DEVICES='' PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python f_lif_pop_v3/forecasting/results/assessment/20260927T130001Z-85c4c76a/audit_checks.py` 및 동일 환경의 `final_checks.py`. 종료0,19/19·합성 채널·저장값 산술/출처 검사 통과, A29 결함은 별도 재현 기록. 학습/backward·GPU·실제 데이터 forward·환경 설치·프로세스 중단·모델/학습 소스 수정·Git 변이·타 세션/메시지·새 예약 없음. A23 원실행 provenance/MC와2O A25 과거 채널 누락은 유지한다.
 
 <!-- assessment-watch:20260927T130001Z-85c4c76a -->
+
+
+## 2026-09-27 22:22 KST — 추적 감사57: HEAD만 변경 / 감사56 수용 기록 확인
+
+예약 `20260927T132002Z-24e63d27`. 관찰 HEAD `88b46af06769c5c4f44c7c96ba4b8f624842aa44` (직전 `6f22eab2271366e39eb418e566990dfbefd8d352`), branch `exp/f-lif-pop-v3`. 기억·감사56·사전등록2P D-BY/D-BZ·canonical PROJECT_LOG 최신22:14 append를 읽었다. **새 판단 근거 없음(구현·성능)**: 감시1199파일은 trigger 및 직전 감사56 snapshot과 모두 동일하며 누락0이다. 새 commit은 ASSESMENT·DOCS_REVIEW_MEMORY의 자기 감사 기록과 canonical 수용/정정 append만 포함한다. 자기 기록을 새 연구 변경으로 세지 않았다.
+
+22:21:09 KST까지 감시 파일·감사 문서·watcher 총1203파일을 별도 `f_lif_pop_v3/forecasting/results/assessment/20260927T132002Z-24e63d27/source_snapshot/`에 보존하고 `inventory.json`에 SHA256을 기록했다. prereg SHA256 `92345b38d514793085799559ba55b795405280aaa1ebb21ec1753596a367deac`, ett_alpha.py `d61c25a6b36f68489a20b54a6bc4a2e27a9f0b3f646ebc1375dcd7696ef32822` 동일. append 직전 전체 snapshot 대비 변화0. git diff/status 증거는 같은 task의 `log/assessment/20260927T132002Z-24e63d27/`에 보존했다.
+
+- **(a) 구현:** A29-GATE-COVERAGE·A29-FAILURE-PROVENANCE **OPEN 유지**. canonical은 실제 결함과 D-BU 실행 편차를 인정하고 원 평가기를 보존한 채 다음 평가기에서 보완한다고 명시한다. 보완 예정은 수정/재검사 완료가 아니다. 모델/API 변화가 없어 추가 CPU probe는 **not run**.
+- **(b) 검증:** 감사56의 저장 결과·통계 정합성 및 α별 보정을 포함한 val 탐색 판정을 유지한다. 새 실행 결과·독립 확증 없음. OT를 동등성으로 해석하지 않는 정정과 GRU 거리의 일부를 순수 커널 기여로 해석하지 않는 정정은 canonical append에서 확인했다(문서 정정 범위만 확인). 실제 데이터 forward 재현·학습·GPU는 **not run**. A23 잔여와 A25 과거2O 채널 누락도 유지한다.
+- **(c) 다음 방향:** 감사56의 우선순위 그대로 전달한다. 다음 평가기는 모든 데이터의 전체 칸을 forward 전에 검사하고 반대 데이터 마지막 칸 누락·실패 UUID/scale 변조를 거부하는 증거가 필요하다. 이어 미사용 자료의 q1 α별 보정 독립 확증을 먼저 설계하고, 커널 기여를 묻는다면 공통 current/scale 및 고정 mask 진단을 별도로 둔다. 이번에는 신규 실험·문헌 주장 없이 기존 감사56의 원문 근거와 제안을 유지한다. 후속 실험/기전 진단 **not run**.
+
+연구소스·checkpoint·기존 raw log 보존. 학습/GPU·환경 설치·프로세스 중단·Git 변이·타 세션 열람/메시지·새 예약 없음.
+
+<!-- assessment-watch:20260927T132002Z-24e63d27 -->
