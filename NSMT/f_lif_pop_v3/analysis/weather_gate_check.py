@@ -100,6 +100,29 @@ def main():
         expect(f'refuse {name} before the registry and the test rows', stopped and not fired and not out.exists(),
                f'{outcome}; tripwires {fired}; output dir {out.exists()}')
 
+    # ---- 2b (audit 62 A32): the reproduction check fails closed on a bad stored reference ------
+    import tempfile
+    tmp = Path(tempfile.mkdtemp(prefix='weather_repro_'))
+
+    def one(stored_train, recomputed):
+        path = tmp / f'r{len(list(tmp.iterdir()))}.json'
+        path.write_text(json.dumps({'train': stored_train}) if stored_train is not None else '{}')
+        with mock.patch.object(W, 'test', lambda *a, **k: {'mse': recomputed}):
+            _, bad = W.reproduce({('q1_R', 7): (None, None, None, None, str(path))})
+        return bool(bad)
+
+    nan_json = tmp / 'nan.json'
+    nan_json.write_text('{"train": {"best_val_loss": NaN}}')
+    with mock.patch.object(W, 'test', lambda *a, **k: {'mse': 1.0}):
+        nan_refused = bool(W.reproduce({('q1_R', 7): (None, None, None, None, str(nan_json))})[1])
+    fixtures = {'equal accepted': not one({'best_val_loss': 1.0}, 1.0),
+                'difference 0.01 refused': one({'best_val_loss': 1.0}, 1.01),
+                'stored NaN refused': nan_refused,
+                'stored non-numeric refused': one({'best_val_loss': 'x'}, 1.0),
+                'stored missing refused': one({}, 1.0),
+                'recomputed NaN refused': one({'best_val_loss': 1.0}, float('nan'))}
+    expect('validation reproduction fails closed', all(fixtures.values()), f'{fixtures}')
+
     # ---- 3 ---------------------------------------------------------------------------------
     worst = 0.
     for cond in W.CONDITIONS:

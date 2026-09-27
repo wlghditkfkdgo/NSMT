@@ -518,3 +518,8 @@ HEAD7d836cff/snapshot17:30:32/453+64파일/trigger불일치0. §2Mbenchmark32cp/
 ## 2026-09-28 03:23 KST — 추적 감사61: M9/M9b 결과의 제한적 해석
 
 예약20260927T182001Z-bc10ae69,HEAD0e5fc053df7729bc38db8c2e68c6022f70a06987;snapshot1364/trigger차0,감사60대비새결과4개만. JSON18조건씩/유한·txt24줄각완전재생·기하평균/조건2prime일치,α1q1해석해차≤1.63e−12(저장산술scoped VERIFIED). 초기α1 Pearson M9τ4 h1 1.374899/h2 1.272473로2prime통과,α.7초기/학습고정mask미통과. 학습ETTh2α.7만재선택응답큼:M9τ4 441.433/M9b1578.862 vsfixed.064465/.235933;mask경계·절대응답/분모추가진단우선,상태/G11·성능실패로단정금지. M4 badstep0/maxcondition97.684이나잔차/최종H1누락으로A30 OPEN, A31 finite/원실행지문잔여. 실제trainforward/새성능/Weather/not run. A29/A32유지. 상세NSMT/docs/ASSESMENT.md감사61,증거NSMT/f_lif_pop_v3/forecasting/results/assessment/20260927T182001Z-bc10ae69/,raw동일task log/assessment/. 감사코드괄호오류정정후통과/모델실패아님. 감사중run_ett.sh변화다음주기;학습/GPU/연구소스·Git변이없음.
+
+
+## 2026-09-28 03:35 KST — 추적 감사62: 안정성 결과 및 Weather 수정 부분검증
+
+예약20260927T183002Z-920c0e68;초기HEAD0e5fc053df7729bc38db8c2e68c6022f70a06987→후기89e2568f6ea4fdd9838bc2b61fb45e3a09e526c7. snapshot1371/trigger차mask진행txt1,후기canonical/txt별도보존. CPU새parity6fixture통과(A31새helper scoped VERIFIED/전체분모잔여);저장12peak/rel0일치,stability24요약재산술차0. D-CD H1초기α1두데이터지지/α.7네조건미지지 새canonical표일치,옛λ문자열폐기고지확인. A32합성weather mainAPI/경계통과;A29새Weather실패root/file변조거부. val차이/NaN개방전중단·누락repro40차단통과;저장best_val_loss=NaN은bad0→A32잔여OPEN. M8α1peak2515→78.63/2602→56.56,성능not run. A33후기canonical의일반안정/원인확정·평균lag균일성표현OPEN;범위정정·mask경계/절대응답진단→M8별도사전등록대조제안. 학습/GPU/실trainforward/Weather성능not run. 상세NSMT/docs/ASSESMENT.md감사62,증거NSMT/f_lif_pop_v3/forecasting/results/assessment/20260927T183002Z-920c0e68/,raw동일task log/assessment/. 감사설명q1/Pearson식별자혼동정정/모델실패아님;연구소스·Git변이없음.

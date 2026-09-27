@@ -308,9 +308,13 @@ def reproduce(runs):
     diffs, bad = {}, []
     for (cond, seed), (model, args, _, _, result) in runs.items():
         r = test(args, model, cond, flag='val', count_ties=False)
-        stored = json.load(open(result))['train']['best_val_loss']
-        diffs[(cond, seed)] = abs(r['mse'] - stored)
-        if not np.isfinite(r['mse']) or diffs[(cond, seed)] > REPRO_TOL:
+        stored = json.load(open(result)).get('train', {}).get('best_val_loss')
+        # audit 62 A32: the stored reference must be a finite number too -- NaN > tol is False
+        numbers = all(isinstance(v, (int, float)) and not isinstance(v, bool) and np.isfinite(v)
+                      for v in (stored, r['mse']))
+        diff = abs(r['mse'] - stored) if numbers else None
+        diffs[(cond, seed)] = diff
+        if diff is None or not diff <= REPRO_TOL:
             bad.append(f"{cond}/{seed}: validation {r['mse']!r} vs stored {stored!r}")
     return diffs, bad
 
@@ -404,7 +408,8 @@ if __name__ == '__main__':
             print(f"{f' {DATA} {cond} seed {seed} ':=^100s}")
             r = test(args, model, cond)
             r.update(cond=cond, seed=seed, status='evaluated', epochs_run=json.load(open(result))['train']['epochs_run'],
-                     val_repro_abs_diff=diffs[(cond, seed)], repro_ok=diffs[(cond, seed)] <= REPRO_TOL)
+                     val_repro_abs_diff=diffs[(cond, seed)],
+                     repro_ok=diffs[(cond, seed)] is not None and diffs[(cond, seed)] <= REPRO_TOL)
             rows.append(r)
 
     blocked, contrasts = analyse(rows)
