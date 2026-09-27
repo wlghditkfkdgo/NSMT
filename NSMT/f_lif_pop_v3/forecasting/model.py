@@ -2,12 +2,12 @@ import os
 
 import torch
 
-from ours import myModel, GRUBaseline
+from ours import myModel, GRUBaseline, LinearBaseline
 
 NEURON_KEYS = ['num_population', 'alpha', 'tau', 'heterogeneous', 'max_length', 'theta',
                'eta_init', 'eta_fixed', 'cap', 'tau_s', 'threshold', 'surrogate_scale']
 SHAPE_KEYS = ['task', 'seq_len', 'pred_len', 'patch_size', 'embed_dim', 'head_dim',
-              'head_mode', 'readout', 'input_scale', 'input_norm']
+              'head_mode', 'readout', 'input_scale', 'input_norm', 'revin']
 
 
 # 뒤에 추가된 buffer들. 누락을 허용하려면 그 값이 **그 설정에서** 항등이어야 한다.
@@ -60,4 +60,9 @@ def load_gru(args, train=True):
     return _restore(GRUBaseline(**shape), args, train)
 
 
-LOAD_MODEL = {'myModel': load_mymodel, 'GRU': load_gru}
+def load_linear(args, train=True):
+    return _restore(LinearBaseline(task=args.task, seq_len=args.seq_len, pred_len=args.pred_len,
+                                   revin=args.revin), args, train)
+
+
+LOAD_MODEL = {'myModel': load_mymodel, 'GRU': load_gru, 'Linear': load_linear}

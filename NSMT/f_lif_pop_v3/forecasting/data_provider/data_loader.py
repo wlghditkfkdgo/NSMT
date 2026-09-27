@@ -20,8 +20,13 @@ class Dataset_ETT_hour(Dataset):
             raise ValueError('Expected finite ETT-hour data with seven variables')
         self.scaler.fit(values[:8640])
         values = self.scaler.transform(values).astype(np.float32)
+        # 2O D-BL: 'future' has its targets in [14400, 17420) with the 336 preceding rows allowed
+        # as context -- 2,925 windows at H96. It is opened once, through the global registry.
+        if flag == 'future' and len(values) < 17420:
+            raise ValueError('the future period needs rows up to 17420')
         self.start, self.end = {'train': (0, 8640), 'val': (8640 - self.seq_len, 11520),
-                               'test': (11520 - self.seq_len, 14400)}[flag]
+                               'test': (11520 - self.seq_len, 14400),
+                               'future': (14400 - self.seq_len, 17420)}[flag]
         self.data_x = torch.from_numpy(values[self.start:self.end].copy())
         self.data_y = self.data_x
         if self.__len__() < 1:

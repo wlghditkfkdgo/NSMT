@@ -34,6 +34,26 @@ def truth_to_oracle_p(truth, kind, step, embed_dim):
     return mask.unsqueeze(1).expand(-1, embed_dim, -1)
 
 
+def window_norm(x, eps=1e-5):
+    #  x: [B, L, C]  ->  z: [B, L, C],  mu, s: [B, 1, C]
+    """Reversible input-window normalisation R of prereg 2O D-BK (RevIN without affine).
+
+    Each window and each channel is standardised along time only, with statistics that are
+    detached: the model learns on shape, and the level and scale it cannot see are put back
+    by window_denorm on the output. Nothing is shared across the batch or across channels,
+    and the future is never looked at.
+    """
+    mu = x.mean(dim=1, keepdim=True).detach()
+    s = (x.var(dim=1, keepdim=True, unbiased=False) + eps).sqrt().detach()
+
+    return (x - mu) / s, mu, s
+
+
+def window_denorm(y, mu, s):
+    #  y: [B, pred_len, C]  ->  same, back on the input's scale
+    return y * s + mu
+
+
 class myModel(nn.Module):
     """M1: patch -> population f-LIF -> readout. One backbone, two task heads.
 
@@ -52,9 +72,12 @@ class myModel(nn.Module):
     """
     def __init__(self, task='recall', seq_len=336, pred_len=96, patch_size=8, embed_dim=32,
                  head_dim=32, head_mode='flatten', readout='spike', input_scale=8.,
-                 input_norm='frozen', **neuron_args):
+                 input_norm='frozen', revin=False, **neuron_args):
         super().__init__()
 
+        if revin and task == 'recall':
+            raise ValueError('window normalisation R is defined for forecasting only (prereg 2O)')
+        self.revin = bool(revin)
         if seq_len < patch_size or seq_len % patch_size:
             raise ValueError('Require complete chronological non-overlapping patches')
         if head_mode not in ('flatten', 'last') or readout not in ('spike', 'analog', 'drive'):
@@ -75,6 +98,8 @@ class myModel(nn.Module):
         if x.ndim != 3 or x.shape[1] != self.seq_len:
             raise ValueError('Expected [B, seq_len, C] input')
         B, L, C = x.shape
+        if self.revin:
+            x, mu, s = window_norm(x)                                # 2O D-BK: patch/embedding 앞
         patch = to_patches(x, self.patch_size)                       # [T, B*C, patch_size]
 
         oracle_p = None
@@ -100,6 +125,8 @@ class myModel(nn.Module):
             h = self.head_compress(z)
             h = h.transpose(0, 1).reshape(B * C, -1) if self.head_mode == 'flatten' else h[-1]
             output = self.head(h).reshape(B, C, self.pred_len).transpose(1, 2)
+            if self.revin:
+                output = window_denorm(output, mu, s)                # 손실·평가는 복원 척도에서
 
         return (output, aux) if return_aux else output
 
@@ -113,9 +140,12 @@ class GRUBaseline(nn.Module):
     selection is actually responsible for.
     """
     def __init__(self, task='recall', seq_len=336, pred_len=96, patch_size=8, embed_dim=32,
-                 head_dim=32, head_mode='flatten', num_layers=1, **unused):
+                 head_dim=32, head_mode='flatten', num_layers=1, revin=False, **unused):
         super().__init__()
 
+        if revin and task == 'recall':
+            raise ValueError('window normalisation R is defined for forecasting only (prereg 2O)')
+        self.revin = bool(revin)
         self.task, self.seq_len, self.pred_len = task, seq_len, pred_len
         self.patch_size, self.head_mode = patch_size, head_mode
         self.num_patches = seq_len // patch_size
@@ -127,6 +157,8 @@ class GRUBaseline(nn.Module):
     def forward(self, x, mode='sparse', truth=None, kind=None, return_aux=False):
         #  x: [B, L, C]  ->  recall: [B, T]   ett: [B, pred_len, C]
         B, L, C = x.shape
+        if self.revin:
+            x, mu, s = window_norm(x)
         patch = to_patches(x, self.patch_size)
         z, _ = self.gru(patch)                                       # [T, B*C, D]
 
@@ -136,5 +168,35 @@ class GRUBaseline(nn.Module):
             h = self.head_compress(z)
             h = h.transpose(0, 1).reshape(B * C, -1) if self.head_mode == 'flatten' else h[-1]
             output = self.head(h).reshape(B, C, self.pred_len).transpose(1, 2)
+            if self.revin:
+                output = window_denorm(output, mu, s)
+
+        return (output, {}) if return_aux else output
+
+
+class LinearBaseline(nn.Module):
+    """Linear reference of prereg 2O (Zeng et al., AAAI 2023, the channel-shared Linear).
+
+    One Linear(seq_len -> pred_len) with bias, shared by every channel and applied to each
+    channel on its own, so it is channel-independent like the other models. With revin it is
+    Linear + R, not NLinear (NLinear subtracts and restores the last value, a different
+    operation). 336 * 96 + 96 = 32,352 parameters: small in structure, not in count.
+    """
+    def __init__(self, task='ett', seq_len=336, pred_len=96, revin=False, **unused):
+        super().__init__()
+
+        if task == 'recall':
+            raise ValueError('the linear reference is defined for forecasting only')
+        self.task, self.seq_len, self.pred_len = task, seq_len, pred_len
+        self.revin = bool(revin)
+        self.linear = nn.Linear(seq_len, pred_len)
+
+    def forward(self, x, mode='full', truth=None, kind=None, return_aux=False):
+        #  x: [B, L, C]  ->  [B, pred_len, C]
+        if self.revin:
+            x, mu, s = window_norm(x)
+        output = self.linear(x.transpose(1, 2)).transpose(1, 2)
+        if self.revin:
+            output = window_denorm(output, mu, s)
 
         return (output, {}) if return_aux else output

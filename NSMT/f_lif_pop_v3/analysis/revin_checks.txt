@@ -1,0 +1,7 @@
+[revin] 1 constant / near-constant channels -> finite output and states: {'q1': True, 'pearson': True, 'gru': True, 'linear': True}
+[revin] 2 denorm(norm(x)) - x, max |.|: {'torch.float32': 3.5762786865234375e-07, 'torch.float64': 4.440892098500626e-16}
+[revin] 3 batch split, max |.|: {'q1': 0.0, 'q1_R': 0.0, 'pearson': 0.0, 'pearson_R': 0.0, 'gru': 0.0, 'gru_R': 0.0, 'linear': 0.0, 'linear_R': 0.0}
+[revin] 3 channel permutation, max |.|: {'q1': 0.0, 'q1_R': 2.9802322387695312e-08, 'pearson': 0.0, 'pearson_R': 2.9802322387695312e-08, 'gru': 0.0, 'gru_R': 8.195638656616211e-08, 'linear': 0.0, 'linear_R': 2.384185791015625e-07}
+[revin] 5 f(x + 2.5) - f(x) - 2.5, max |.| (R on must be ~0, R off need not): {'q1': 2.9847679138183594, 'q1_R': 4.76837158203125e-07, 'pearson': 3.047006607055664, 'pearson_R': 4.76837158203125e-07, 'gru': 2.8461313247680664, 'gru_R': 4.76837158203125e-07, 'linear': 6.022916793823242, 'linear_R': 1.430511474609375e-06}
+[revin] 6 train_one_epoch computes criterion(output, y) on the forward output: True; with (5) the output is on the restored scale
+[revin] 4 R off: 48 reused 2N checkpoints reproduce best validation MSE, max |diff| 0.00e+00

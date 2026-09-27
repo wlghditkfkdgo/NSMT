@@ -143,7 +143,11 @@ def main():
     for i, batch in enumerate(loader):
         if i >= 8:
             break
-        batches.append(layers.to_patches(batch[0].to(config.device), config.patch_size))
+        x = batch[0].to(config.device)
+        if getattr(config, 'revin', False):                          # 2O D-BK: R 변환 입력으로 보정
+            from ours import window_norm
+            x = window_norm(x.float())[0]
+        batches.append(layers.to_patches(x, config.patch_size))
     sample_hash = hashlib.sha256(b''.join(t.cpu().numpy().tobytes() for t in batches)).hexdigest()[:16]
     print(f"[calib] fixed probe sample: {len(batches)} batches, "
           f"{sum(t.shape[1] for t in batches)} windows, sha256[:16] = {sample_hash}")
@@ -218,7 +222,8 @@ def main():
     stamp = datetime.now(ZoneInfo('Asia/Seoul')).strftime('%y%m%d-%H%M%S')
     stem = f"{config.dataset}_k{config.n_keys}_r2" if config.task == 'recall' else config.dataset
     qk = f'_qknorm-eps{config.qk_eps:g}' if config.qk_norm else ''
-    name = f"{stem}_a{config.alpha}_norm-{config.input_norm}{qk}_seed{config.seed}_{stamp}.json"
+    rv = '_revin' if getattr(config, 'revin', False) else ''
+    name = f"{stem}_a{config.alpha}_norm-{config.input_norm}{qk}{rv}_seed{config.seed}_{stamp}.json"
     payload = {'band': BAND, 'target': TARGET, 'mode': 'full', 'input_norm': config.input_norm,
                'grid': rows,
                'picked': picked, 'reason': reason,

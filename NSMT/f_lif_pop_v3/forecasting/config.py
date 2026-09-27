@@ -37,7 +37,7 @@ def set_seed_worker(worker_id):
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Population f-LIF v3-A')
-    parser.add_argument('--model', default='myModel', choices=['myModel', 'GRU'])
+    parser.add_argument('--model', default='myModel', choices=['myModel', 'GRU', 'Linear'])
     parser.add_argument('--task', default='recall', choices=['recall', 'ett'])
     parser.add_argument('--data', default='ETTh1', choices=['ETTh1', 'ETTh2', 'recall'])
     parser.add_argument('--root_path', default=str(NSMT / 'forecasting/dataset/ETT-small'))
@@ -76,6 +76,8 @@ def parse_arguments():
     shape_arg.add_argument('-emb', '--embedding_dim', dest='embed_dim', type=int, default=32)
     shape_arg.add_argument('--head_dim', type=int, default=32)
     shape_arg.add_argument('--head_mode', choices=['flatten', 'last'], default='flatten')
+    shape_arg.add_argument('--revin', action=argparse.BooleanOptionalAction, default=False,
+                           help='prereg 2O: per-window, per-channel standardisation of the input, inverted on the output')
     shape_arg.add_argument('--readout', choices=['spike', 'analog', 'drive'], default='spike',
                            help='analog reads the soma membrane WITH gradient (diagnostic, D8)')
 
@@ -156,6 +158,8 @@ class Config():
             self.variant += f'_eta{self.eta_fixed:g}'
         if self.mode == 'hard':
             self.variant += f'-{self.hard_axis}-{self.hard_stat}-q{self.hard_q:g}'
+        if self.revin:
+            self.variant += '_revin'
         if self.task == 'recall':
             self.variant += f'_k{self.n_keys}'
         # 모델·α·readout이 run_id에 없으면 서로 다른 실험이 같은 이름으로 충돌한다 (audit A10).

@@ -31,8 +31,9 @@ def load_calibration(args):
     """
     stem = f"{args.dataset}_k{args.n_keys}_r2" if args.task == 'recall' else args.dataset
     qk = f'_qknorm-eps{args.qk_eps:g}' if args.qk_norm else ''
+    rv = '_revin' if getattr(args, 'revin', False) else ''            # 2O: R 입력의 보정은 따로 둔다
     pattern = str(TASK / 'results' / 'calibration'
-                  / f'{stem}_a{args.alpha}_norm-{args.input_norm}{qk}_seed*.json')
+                  / f'{stem}_a{args.alpha}_norm-{args.input_norm}{qk}{rv}_seed*.json')
     files = sorted(glob.glob(pattern))
     if not files:
         return None
@@ -54,7 +55,7 @@ def load_calibration(args):
         if have is not None and list(have) != want if isinstance(want, list) else have != want:
             mismatch.append(f'{field}: calibration {have} vs requested {want}')
     # qk_eps는 변환과 score scale을 모두 바꾸므로 식별자에 포함되어야 한다 (audit 18 A10-CAL).
-    for field in ('patch_size', 'embed_dim', 'input_norm', 'qk_norm', 'qk_eps', 'key_norm',
+    for field in ('revin', 'patch_size', 'embed_dim', 'input_norm', 'qk_norm', 'qk_eps', 'key_norm',
                   'cue_mode', 'n_keys', 'seq_len'):
         have = saved.get(field)
         if have is not None and have != getattr(args, field, have):
@@ -87,7 +88,11 @@ def fit_input_norm(model, data_loader, args):
         for i, batch in enumerate(data_loader):
             if i >= 8:
                 break
-            sample.append(to_patches(batch[0].float().to(args.device), args.patch_size))
+            x = batch[0].float().to(args.device)
+            if getattr(args, 'revin', False):                         # 2O D-BK: R 변환 후의 입력으로 추정
+                from ours import window_norm
+                x = window_norm(x)[0]
+            sample.append(to_patches(x, args.patch_size))
         model.embedding.fit_norm(torch.cat(sample, dim=1))
     print(f"[train] frozen input norm fitted on {sum(t.shape[1] for t in sample)} windows: "
           f"mean in [{model.embedding.norm_mean.min():.3f}, {model.embedding.norm_mean.max():.3f}], "

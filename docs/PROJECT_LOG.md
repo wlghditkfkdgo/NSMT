@@ -6056,3 +6056,51 @@ ETTh2의 pearson(.3859)은 window-mean(.385)과 같은 수준이다. v3 스파�
 - **감사 48 (09-26 18:01):** 감사 47 정정 기록이 문서 범위에서 VERIFIED됐다. 그런데 `ett_retrieval_need.py` 설명문에 "a ceiling", "random: 0.5", "data statistics only"가 남아 있었다(주석 정합성 OPEN). 사실이었다. → 설명문만 고쳤다(commit `17da43dd3`).
 - **제 오류:** `17da43dd3`의 commit 메시지에 "실행 코드가 같은지 AST로 확인했다"고 썼다. 그러나 **그 확인 스크립트는 오류로 실행되지 않았다**(`ast.dump`에 목록을 넘김). 이후 제대로 확인했다. 결과를 만든 버전 `55b485188`과 현재 파일은 모든 docstring을 제외하면 **실행 코드가 동일하다(True)**. commit 메시지는 고칠 수 없으므로 여기서 정정한다.
 - 감사 48의 잔여 OPEN(원 분석 실행의 checkpoint·소스 지문·환경·명령·동점 수 누락, MC 표준오차 부재)은 소급 보완하지 않는다. 다음 분석부터 기록에 넣는다.
+
+
+## 2026-09-26 23:52 KST — 추적 감사49: A23 설명문 정합성 VERIFIED
+
+예약 20260926T145001Z-dd74b488; trigger17da43dd3/관찰0c970d537c3471297f7bb68705d971e4acad5115, exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7. snapshot686/감시683 trigger차0. 분석소스 SHA e97c2d0d9060fbc3a5b33b4be37a6fc2af9f77541fc8c126317dd4f015bb2d4c. 이전 snapshot 대비 docstring 제외 AST 동일(True), 최적상한 철회·20/41·test목표사용사후평가 설명 확인→A23 잔여 주석정합성 scoped VERIFIED. canonical23:50 최초AST명령실패 고지확인, 이번독립검사성공/모델실패아님. 원실행지문·환경·명령·동점·MC SE누락OPEN유지. 새성능근거없음/선형→정규화→동일예산검색순서유지. 수치probe·데이터·모델·학습·GPU·H720 not run. 상세 NSMT/docs/ASSESMENT.md 감사49; 증거 NSMT/f_lif_pop_v3/forecasting/results/assessment/20260926T145001Z-dd74b488/, raw task log/assessment/20260926T145001Z-dd74b488/. 연구소스·Git변이없음.
+
+
+## 2026-09-27 15:30 KST — A24 다음 실험 제안 전달 (실행 전)
+
+사용자 요청에 따라 ASSESMENT의 A24에 작업 에이전트용 구체안을 append. HEAD 0c970d537c3471297f7bb68705d971e4acad5115. q1/Pearson×가역 입력창 정규화 중심, Linear/GRU도±정규화의8조건×2데이터×8seed=128(조건일치시기존48재사용/추가80). affine=False/입력창시간축통계/출력복원후동일손실/train-only보정 고정. 새미사용검토후 목표[14400,17420),이전336문맥허용2925창 권장. 두1차Pearson정규화효과에97.5%paired CI/평균−.005기준 제안, 나머지보조;후속동일예산주기+유사도대조. 원문AAAI2023·RevIN저자자료/구현 직접재확인. 사전등록확정아님/새학습·모델forward·future접근 not run. 증거 NSMT/f_lif_pop_v3/forecasting/results/assessment/next_experiment_20260927T152800/evidence.json. 상세 NSMT/docs/ASSESMENT.md A24; 메신저전송없이 감사파일로 전달.
+
+---
+
+## 2026-09-27 17:57 KST — 2O 구현·사전 점검·R 보정 (학습 전)
+
+**성격:** 사전등록 2O(commit `2326b6166`, 코드·실행보다 먼저) 이후의 구현이다. 감사 A24 채택. 사용자 지시(2026-09-27): "진행하자."
+
+### 구현
+- `ours.py`
+  - `window_norm`/`window_denorm`: R = 창·채널별 시간축 평균·표준편차, `unbiased=False`, eps 1e-5, detach. patch 앞에서 정규화하고 출력에서 복원한다.
+  - `myModel`·`GRUBaseline`에 `revin` 인자를 추가했다. recall 과제에서는 거부한다.
+  - `LinearBaseline`: 채널 공유 Linear(336→96), bias 포함, 채널 독립, 32,352 파라미터.
+- `model.py`: `SHAPE_KEYS`에 `revin`을 넣고 `LOAD_MODEL['Linear']`를 추가했다.
+- `config.py`: `--model Linear`, `--revin`을 추가했다. R을 켜면 variant에 `_revin`이 붙는다.
+- `train.py`
+  - `fit_input_norm`: R을 켜면 **R 변환 후 입력으로** frozen 통계를 추정한다.
+  - `load_calibration`: R 설정별로 보정 파일 패턴(`…_revin_seed*`)을 분리하고, 호환성 검사에 `revin`을 넣었다.
+- `calibrate.py`: `--revin`이면 R 변환 입력으로 보정하고, 파일명에 `_revin`을 붙인다.
+- `data_provider/data_loader.py`: 분할 `future`를 추가했다. 목표 `[14400,17420)`, 입력 문맥은 직전 336행이다. 이번 단계에서는 **열지 않았다.**
+- `scripts/run_ett.sh`: 조건 `q1_R`, `pearson_R`, `gru_R`, `linear`, `linear_R`을 추가했다.
+
+### 확인
+- **게이트 23/23 통과.** R 없는 경로는 그대로다.
+- **사전 점검 6종** (`analysis/revin_checks.{py,txt,json}`):
+  1. 상수·준상수 채널에서 네 모델 모두 출력·상태가 유한하다.
+  2. 복원 오차는 float32 3.6e-7, float64 4.4e-16이다.
+  3. batch 분할 차이 0, 채널 순서를 바꿨을 때 차이 ≤2.4e-7.
+  4. **R 없는 재사용 2N checkpoint 48개가 새 코드에서 기록된 최저 검증 MSE를 차이 0으로 재현한다(GPU).**
+  5. 입력에 +2.5를 더하면 R 켠 예측은 같은 양만큼 이동한다(≤1.4e-6). R 없으면 이동하지 않는다(2.8–6.0). 즉 이 검사는 실패할 수 있는 검사다.
+  6. 손실은 forward 출력 = 복원 척도에서 계산된다.
+- **R 켠 보정** (train 분할, seed 7, 현재 코드):
+  - ETTh1: input_scale **10.0**(R 없음 6.0), G11 한계 **1334.7**, 발화율 0.190. 파일 `ETTh1_a0.7_norm-frozen_revin_seed7_260927-175652.json`.
+  - ETTh2: input_scale **10.0**, 한계 **2026.3**, 발화율 0.199. 파일 `…_revin_seed7_260927-175659.json`.
+  - D-BK대로 R 켠 q1·pearson에 공통 적용한다. R에 따라 보정값이 달라졌으므로 R의 효과는 **"정규화 + 그에 필요한 보정"의 결합 효과**로 해석한다.
+  - R 없는 조건은 여전히 09-25 보정(6.0, 507.6/975.2)을 고르는 것을 확인했다.
+
+### 다음
+시험 run(seed 7·13, R 켠 4조건, 두 데이터셋, 3 epoch, 별도 suite, 보고하지 않음)을 거쳐 본 학습 80개로 간다.
