@@ -3641,3 +3641,60 @@ D-BX commit 시각은21:46:34 KST, 본 실패 최초 기록은 ETTh1 21:47:02/ET
 실행: `/usr/bin/python3 f_lif_pop_v3/forecasting/results/assessment/20260927T125001Z-4f47a30f/record_audit.py` → PASS. 순수 저장값/지문/CSV 대조로 추가 모델 probe는 필요하지 않아 실행하지 않았다. 실제 데이터 forward·학습/backward·GPU·환경 설치·프로세스 중단·연구소스/Git 변이·다른 세션/메시지·새 예약 모두 하지 않았다. A25의 과거 채널 누락과 A23 잔여 provenance/MC 이슈도 유지한다.
 
 <!-- assessment-watch:20260927T125001Z-4f47a30f -->
+
+
+## 2026-09-27 22:06 KST — 추적 감사56: 2P validation 산술·채널 출력 검증 / 관문 범위와 실패 출처 검사 잔여
+
+예약 `20260927T130001Z-85c4c76a`. 대응 **A25(다음 평가기 보완) / A27-ALPHA-INTERPRETATION / A28-COMPLETION-GATE / A28-DIAGNOSTIC-CLAIM / A29-GATE-COVERAGE / A29-FAILURE-PROVENANCE**. branch `exp/f-lif-pop-v3`, base `329183b94f65090cc6b337f464c5aa4d8e127ad7`, trigger/최초·후기 HEAD `6f22eab2271366e39eb418e566990dfbefd8d352`. 기억·감사55·사전등록2P D-BY/D-BZ·canonical 완료/결과/정정 append를 읽었다. 자신의 직전 감사 기록은 새 연구 성과로 세지 않았다.
+
+### 보존과 재검사 범위
+
+22:00:28 KST에1202파일을 `f_lif_pop_v3/forecasting/results/assessment/20260927T130001Z-85c4c76a/source_snapshot/`에 별도 snapshot하고 SHA256 기록, trigger 차이0. 이어 대상96칸의 config96개·완료 checkpoint80개·학습 stdout96개·데이터CSV2개를 바이트 복사/hash했다(추가274파일, 데이터 행 파싱 없음). 후기 원1202파일 변화0. `inventory.json`, `additional_snapshot.json`, `checks.json`, `postcheck.json` 참조. raw stdout은 `f_lif_pop_v3/forecasting/log/assessment/20260927T130001Z-85c4c76a/checks.txt`.
+
+주요 SHA256: prereg `92345b38d514793085799559ba55b795405280aaa1ebb21ec1753596a367deac`; ett_alpha.py `d61c25a6b36f68489a20b54a6bc4a2e27a9f0b3f646ebc1375dcd7696ef32822`; gate probe `14b4153729279e904125ea585651e0aec6b0c94825f34a1895bb10a2ccf8e6aa`. 모델/학습 계산 소스는 직전 감사와 동일하다.
+
+### (a) 구현 정확성 — 평가 보완은 검증, 관문 두 항목은 OPEN
+
+현재 API와 진단 정의를 확인한 뒤 **snapshot source를 import하는 CPU adapter**로 기존19개 gate/결함/통계 fixture를 재실행해19/19 통과했다. 모델 로드는 snapshot checkpoint를 CPU로 읽도록 바꾸었고 실데이터 forward·GPU는 실행하지 않았다. 원 probe의 GPU 지정 main을 그대로 실행한 것이 아니다. 원본 소스·checkpoint·raw log는 바꾸지 않았다.
+
+**A25의 다음 평가기 보완 scoped VERIFIED:** ett_alpha.test는 전체 오차와 같은 forward에서 채널별 SSE/count를 누적한다. 별도 합성 Linear 출력 fixture(마지막 batch가 작은2+1창)에서 채널 MSE `[2,8,18,32,50,72,98]`, 전체40, 창수3을 정확히 재현했다. actual80행에 채널7개가 있고 채널 평균과 전체 MSE의 최대차는 ETTh1 1.369e−7/ETTh2 3.242e−8로 dtype·누적 정밀도 차이 범위다. unsafe/repro failure/training G11 failure에 따른 비교별 보류와 J의 relative=null·엄격 JSON fixture도 통과했다. **2O의 과거 채널 누락은 복구된 것이 아니므로 역사적 미충족 상태를 유지**한다.
+
+**A29-GATE-COVERAGE — OPEN(자동 강제 범위).** D-BU는 평가 전96칸 전체 관문을 요구하지만 CLI main은 `gate(config.data, ...)`를 한 번 호출해 요청 데이터의48칸만 검사한다. ETTh2 접근 시 누락을 던지는 fixture를 넣어도 ETTh1 gate는 ETTh1만 방문해40완료+8실패로 통과했다. 기존 점검 스크립트는 양 데이터를 순회하고 이번 감사에서도 실제96칸 모두 통과했으므로 **이번 결과가 누락 자료로 계산됐다는 뜻은 아니다**. 다만 각 CLI가96칸을 평가 전에 강제하는 보장은 없다. 전체 관문을 공통 진입점에서 먼저 강제하고, 반대 데이터의 마지막 칸을 누락시켜도 어떤 validation forward보다 앞에서 차단하는 fixture를 추가해야 닫는다. 또는 실제 실행 범위를 편차로 명시하되 사후 변경을 원래 규정 충족으로 소급하지 않는다.
+
+**A29-FAILURE-PROVENANCE — OPEN(재현된 누락).** `check_failure`는 run_id와 한계·일부 config·stdout의 G11 예외 존재를 확인하지만, G11 record의 run_uuid 대 config 일치와 config의 input_scale 대 고정 보정을 확인하지 않는다. 격리 fixture에서 (1) record UUID를 다른 값으로, (2) config input_scale을999로 각각 바꿔도 errors=[]로 통과했다. 잘못된 run_id/bound는 기존 fixture가 거부하므로 모든 검사가 무효인 것은 아니다. **실제16건의 UUID·scale·no-test는 감사에서 별도로 대조해 모두 정상**이며, 이번 실패 판정을 철회할 근거는 없다. 실패 칸도 완료 칸과 같은 동작점·데이터 경로·no-test 출처를 대조하고, UUID와 stdout의 구체적 epoch/batch/peak/한계를 묶는 검사를 추가해 재검사해야 닫는다. 새 결함은 완성된 평가 경로에서 확인한 것으로, 진행 중 파일의 미완성과 구분한다.
+
+### (b) 데이터 분리·통계·재현성 — 저장 결과의 정합성 VERIFIED, 독립 확증 아님
+
+**A28-COMPLETION-GATE:** 실제 칸의 완료 상태는96/96 확인했다(완료80+G11 실패16). 두 데이터별 CPU metadata gate 오류0, 기존19 fixture 통과로 실제 manifest·checkpoint·고정 보정·CSV 종료 증거 검사 범위는 VERIFIED. 자동 관문의 잔여는 위 A29로 분리해 OPEN이다. 신규 q1도16/16 완료이며 감사55의12/16 표기는 당시 snapshot으로 정확했다.
+
+두 record는 done, val, exploratory=True, 각48개의 중복 없는 condition×seed 행이다. record source10개·데이터/보정·config96/checkpoint80 SHA, 완료 결과의 source11개와 best_val_loss, 스파이킹48개 frozen_norm 지문을 대조했다. 신규16건 final CSV의 val-2P와 MSE도 일치한다. 평가80건 모두2785창·safe/repro_ok, 실패16건은 실제 G11 record와 일치한다. 저장된 평가 MSE와 best_val 최대차는 ETTh1 **1.36218e−7**, ETTh2 **3.24883e−8**, 등록 허용1e−6 안이다. 이 수치는 **저장값 대조**이며 감사가 실데이터 모델 forward를 재현했다는 뜻은 아니다. mask mismatch는 원 기록상0, Pearson 동점은 각각1/6394360·3/6394360이다.
+
+저장행으로 analyse 전체 출력과 채널 F_q를 다시 계산해 record와 일치했고, F_q 평균/표본 표준편차/t7의95% 구간은 별도 산술과 일치한다.
+
+| 데이터 | q1 α=.7+보정 MSE | q1 α=1+보정 MSE | F_q | 95% paired seed CI | 상대 차이 |
+|---|---:|---:|---:|---|---:|
+| ETTh1 | .725107282 | .744082488 | −.018975206 | [−.024689823, −.013260588] | −2.5501% |
+| ETTh2 | .228184896 | .235342668 | −.007157773 | [−.009025204, −.005290342] | −3.0414% |
+
+각각8/8 seed가 음수이고 D-BV의 평균≤−.005·구간상한<0 규칙에 맞는 **탐색적 신호**다. α별 scale10 대8/6과 고정 보정이 함께 달라 순수 커널 효과가 아니다. val은 조기 종료에 사용됐으므로 독립 일반화 검증·새 확증으로 해석하지 않는다. seed CI는 고정 기간의 학습 변동이며, 창·채널을 독립 반복 표본으로 세지 않았다.
+
+F_p·S_on(α=1)·J는 두 데이터 모두 각8개의 실패 칸을 명시하고 **withheld**, 통계값을 생성하지 않았다. 실패 seed 제외·임의 큰 MSE 대입 없이 처리됐다. GRU/Linear 대비 거리는 기술 수치이며 용량 통제/원인 분해 주장이 아니다. q1 α=.7+보정은 GRU_R보다 ETTh1 +9.25%, ETTh2 +8.58% MSE가 높아, 이번 α 대조의 개선이 비스파이킹 참고선 우위를 뜻하지 않는다.
+
+채널 F_q는 ETTh1 `[-.01015,−.02522,−.01575,−.02011,−.04118,−.02088,+.00047]`, ETTh2 `[-.01337,−.00169,−.00548,−.00343,−.01230,−.00042,−.01340]`. ETTh1 OT에서 음수인 seed는3/8이다. canonical의 “OT에서는 차이가 없다”는 **“OT 평균차는+.0004655이며 이 기술 분석에서 일관된 개선을 보이지 않았다”**로 좁히는 것이 정확하다. 무효과/동등성 검정을 한 것은 아니다.
+
+**A27-ALPHA-INTERPRETATION 및 A28-DIAGNOSTIC-CLAIM: 문서 정정 범위 VERIFIED.** D-BY·D-BZ와 canonical의 후속 정정이 α+보정 추정 대상, q1만 Euler 환원, random의 증가, 최대값 집계 범위, G11 update 이후 검사, 안전 보장 일반화 금지를 명시한다. D-BY가 학습 완료/최저 val 관찰 뒤 추가됐다는 고지도 확인했다. 메커니즘 자체 검증으로 닫는 것은 아니다. 제목 시각도 실제 commit 시각을 병기해 정정했다.
+
+### (c) 개선 방향 — 감사파일로 작업 에이전트에 전달
+
+새 결과는 **동일 스파이킹 구조에서 α=.7+자체 보정이 α=1+자체 보정보다 val 오차가 낮은 방향**, 그리고 α=1 Pearson의 고정 안전 실패다. 다음 작업은 묻고 싶은 대상을 분리해 진행하는 것이 좋다.
+
+1. **보고/관문 보완을 먼저 끝낸다.** A29 두 fixture를 추가해96칸 전부의 사전 강제와 실패 출처 검증을 보완한다. 결과 원본은 보존하고 이미 계산한 val/future를 다시 평가할 이유로 삼지 않는다. ETTh1 OT 및 “GRU 격차의1/4을 커널이 줄였다” 등의 문구도 각각 기술적 차이·α별 보정 포함 차이로 유지한다.
+2. **예측 성능의 다음 우선순위는 작은 독립 확증 설계다.** 새로운 자료의 미사용 이력·시간 경계·전처리·H96·주 대비·seed·보정/실패 규칙을 먼저 고정한 뒤 q1 α=.7 대1과 GRU/Linear 참고선을 비교한다. 첫 질문은 현재와 같은 α별 보정 시스템의 일반화 여부로 두고, 근거 없이 α 후보 grid나 여러 selector를 동시에 늘리지 않는다. 데이터셋별 탐색 val에 가장 잘 맞는 조건을 골라 이미 열린 ETT 기간에서 확증하지 않는다. 새 확증은 **not run**이다.
+3. **커널 기여가 질문이면 공통 current/scale 진단부터 한다.** 감사55의 선택/제외 증분 합·절댓값 합·상태와의 방향 정렬, lag와 남긴 질량, 고정 mask 재생을 train-only 소규모로 사전 정의한다. q1에서 보정 차이를 통제한 α 비교와 q=.5의 선택 되먹임 질문을 한 대비로 섞지 않는다. 수치적 동작점과 발화율을 보고 안전 셀만의 사후 선택을 피한다. 이 추가 진단/학습은 **not run**이다.
+4. **가중치 합 보정은 검증할 새 설계 가설로 둔다.** 현재처럼 선택한 증분을 재합산하는 경로에서 질량 보정이 어떤 항을 증폭/축소하는지와 q1 환원·안전성을 먼저 확인해야 한다. Pearson 실패만 보고 정규화가 문제를 해결한다고 가정하거나 기존 실패 조건을 같은 이름으로 교체하지 않는다. 양의 되먹임 설명은 아직 직접 측정되지 않았다.
+
+설계 근거는 재확인한 [RevIN 저자 자료](https://seharanul17.github.io/RevIN/)의 입력 통계 제거/복원과 [Zeng et al., AAAI2023 논문 페이지](https://ojs.aaai.org/index.php/AAAI/article/view/26317)의 단순 선형 기준선이다. 현재 모델에서의 kernel/selector 기전이나 개선을 이 문헌이 증명한다고 주장하지 않는다.
+
+실행: `CUDA_VISIBLE_DEVICES='' PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python f_lif_pop_v3/forecasting/results/assessment/20260927T130001Z-85c4c76a/audit_checks.py` 및 동일 환경의 `final_checks.py`. 종료0,19/19·합성 채널·저장값 산술/출처 검사 통과, A29 결함은 별도 재현 기록. 학습/backward·GPU·실제 데이터 forward·환경 설치·프로세스 중단·모델/학습 소스 수정·Git 변이·타 세션/메시지·새 예약 없음. A23 원실행 provenance/MC와2O A25 과거 채널 누락은 유지한다.
+
+<!-- assessment-watch:20260927T130001Z-85c4c76a -->
