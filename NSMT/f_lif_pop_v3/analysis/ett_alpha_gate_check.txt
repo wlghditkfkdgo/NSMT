@@ -1,0 +1,20 @@
+[alpha-gate] PASS  ETTh1 gate: 0 errors, 40 finished runs, 8 recorded G11 failures ['pearson_R_a1']
+[alpha-gate] PASS  ETTh2 gate: 0 errors, 40 finished runs, 8 recorded G11 failures ['pearson_R_a1']
+[alpha-gate] PASS  refuse alpha=1 run labelled alpha=0.7: 5 mismatch(es), e.g. ['alpha: 1.0 != 0.7']
+[alpha-gate] PASS  refuse alpha=0.7 run labelled alpha=1: 5 mismatch(es), e.g. ['alpha: 0.7 != 1.0']
+[alpha-gate] PASS  refuse alpha=1 run with the 0.7 scale 10: 1 mismatch(es), e.g. ['input_scale 10.0 != 8.0']
+[alpha-gate] PASS  refuse alpha=1 run with the 0.7 bound: 1 mismatch(es), e.g. ['g11_bound 1334.6653747558594 != 1067.7323150634766']
+[alpha-gate] PASS  refuse finished cell that also has a G11 record: stopped: [ett_alpha] ETTh1 q1_R_a1 seed 7: checkpoint True, result True, G11 record True -- neither a finished run nor a recorded G11 failure
+[alpha-gate] PASS  refuse G11 cell that also has a checkpoint: stopped: [ett_alpha] ETTh1 pearson_R_a1 seed 7: checkpoint True, result False, G11 record True -- neither a finished run nor a recorded G11 failure
+[alpha-gate] PASS  refuse missing cell (pearson_R_a1 seed 1024): stopped: [ett_alpha] ETTh1 pearson_R_a1 seed 1024: 0 run dirs, 0 results
+[alpha-gate] PASS  refuse G11 record with another bound: ['G11 bound 1068.7323150634766 / config 1067.7323150634766 != 1067.7323150634766']
+[alpha-gate] PASS  refuse G11 record from another run: ["G11 record run_id 'myModel_ett_ETTh1_p96_flatten_a1.0_spike_heterogeneous_hard-shared-pearson-q0.5_revin_seed13' != config 'myModel_ett_ETTh1_p96_flatten_a1.0_spike_heterogeneous_hard-shared-pearson-q0.5_revin_seed7'"]
+[alpha-gate] PASS  refuse G11 record below its bound: ['G11 record does not show the bound reached']
+[alpha-gate] PASS  accept the real G11 record: []
+[alpha-gate] PASS  no failure -> all 8 contrasts reported
+[alpha-gate] PASS  F_q arithmetic = independent paired t
+[alpha-gate] PASS  J has no relative change and the record is strict JSON
+[alpha-gate] PASS  q1_R seed 7 unsafe -> only the 4 contrasts using q1_R withheld: ['F_q = q1_R(0.7) - q1_R(1)', 'J = S_on(0.7) - S_on(1)', 'q1_R(0.7) - gru_R', 'q1_R(0.7) - linear_R']
+[alpha-gate] PASS  gru_R seed 13 not reproduced -> only the 2 GRU contrasts withheld: ['q1_R(0.7) - gru_R', 'q1_R(1) - gru_R']
+[alpha-gate] PASS  pearson_R_a1 failed in training -> F_p, S_on(1), J withheld; F_q reported: ['F_p = pearson_R(0.7) - pearson_R(1)', 'J = S_on(0.7) - S_on(1)', 'S_on(1) = pearson_R(1) - q1_R(1)']
+[alpha-gate] 19/19 checks pass

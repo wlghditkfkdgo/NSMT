@@ -6329,3 +6329,46 @@ ETTh2의 pearson(.3859)은 window-mean(.385)과 같은 수준이다. v3 스파�
 - **의미:** 사용자의 설계("관련 있는 과거 증분만 남긴다")는 중립적인 거르기가 아니라 상태를 키우는 쪽으로 작동한다. 분수 커널의 감쇠가 그것을 안전 범위에 두는 역할을 한다는 관찰이다. 초기 가중치·seed 7·8 batch의 진단이며 학습 중의 거동은 아니다.
 
 **처리 — 사전등록 2P에 D-BX 추가(본 학습 전, 규칙 변경 없음):** 한계를 넓히거나 보정을 다시 하지 않는다. 등록한 32 run을 그대로 돌리고, 실패한 칸은 "학습 중 안전 실패"로 남긴다. 실패가 있으면 F_p, S_on(α=1), J는 보류한다. 중심 대비 F_q(선택 없는 커널 비교)는 영향이 없다.
+
+
+## 2026-09-27 21:46 KST — 추적 감사54: 2P 구현 사전검사와2O 파생 정정 확인
+
+감사 작업, branch exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7; 관찰HEAD6e5f375cd→3cde96941. 1082파일snapshot/hash 후 CPU 새초기화 합성 입력 검사 및 저장값 재생만 실행. α1사전5종(Euler최대차0,hardq1/full동일,준상수finite,경로구분)통과. hard theta무관/sparse양성대조 재현으로 **감사53의theta요인·교차제안을철회**한다. 2O원JSON보존·파생전체일치/엄격JSON/unsafe비교상태 fixture통과. A25파생보완 scoped VERIFIED,채널누락미해결;A26canonical해석정정문서VERIFIED. A27표현OPEN:scale변경시α대조를순수커널이아닌보정포함효과로기록해야함. 사용자선택2P우선,96전체관문/채널오차/비교별차단을다음평가기에서검증할것. 새α성능판정보류;실제데이터·학습·GPU not run. 이번감사중추가된보정/pilot는다음주기검증범위. 명령·환경·문헌·잔여조건상세NSMT/docs/ASSESMENT.md감사54. artifacts NSMT/f_lif_pop_v3/forecasting/results/assessment/20260927T124001Z-4de1c1d2/,raw NSMT/f_lif_pop_v3/forecasting/log/assessment/20260927T124001Z-4de1c1d2/. 코드/config/연구결과원본변경없음,commit/tag없음(감사금지범위).
+
+---
+
+## 2026-09-27 22:10 KST — 2P 본 학습 32개 완료(피어슨 α=1 16개 전부 첫 batch 안전 실패) / 감사 54 수용 / 평가기와 관문 점검 (validation 평가 전)
+
+**본 학습:** suite `etthard-alpha1-20260927`, 32개(21:46–21:51 KST, `scripts/gpu_pool2.sh`, A6000 4장에 GPU당 2개, 코드 commit `647641e70`).
+- `q1_R_a1` 16/16 완료. epoch 14–28.
+- **`pearson_R_a1` 16/16이 epoch 0 batch 0에서 G11 위반으로 멈췄다.** 한계를 넓히거나 다시 돌리지 않았다(D-BX).
+
+| 데이터 | seed 7 | 13 | 21 | 42 | 123 | 256 | 512 | 1024 | 한계 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| ETTh1 max\|u\| | 2122.8 | 2402.1 | 1790.7 | 1998.2 | 2189.6 | 1810.6 | 1878.5 | 2070.3 | 1067.7 |
+| ETTh2 max\|u\| | 2694.2 | 1942.4 | 2394.2 | 3103.5 | 2355.6 | 2249.7 | 2052.1 | 1447.6 | 1215.8 |
+
+- 이것으로 F_p, S_on(α=1), J는 사전 규칙대로 **보류**된다. 중심 대비 F_q는 영향이 없다.
+- 관리 메모: 완료 확인 중 `pgrep -f gpu_pool2.sh`가 자기 명령줄을 잡아 "pool running"으로 잘못 나왔다. pool 로그("all workers finished")와 PID 종료로 확인했다(09-25와 같은 함정).
+
+**감사 54 (09-27 21:46) 요약:**
+- 검증(VERIFIED): 2O 파생 기록(원본 SHA 일치, 엄격 JSON, I 상대값 null, 합성 unsafe 주입 시 해당 비교만 보류), α=1 사전 점검 5종 CPU 재현, theta가 hard 경로에 쓰이지 않는다는 제 정정(감사 53의 scale×theta 교차 제안을 스스로 철회).
+- A25-CHANNEL은 잔여로 유지: 복원 불가를 명시한 것은 적절하지만 누락이 복구된 것은 아니다.
+- **A27-ALPHA-INTERPRETATION (OPEN):** α마다 보정 scale이 다르므로(8·6 대 10) "바꾸는 것은 α 하나뿐", "F_q는 순수 커널 비교"는 틀린 표현이다. F_q·F_p·J는 **α와 α별 보정을 함께 바꾼 대비**로 표현해야 한다. α=1의 오일러 환원은 q=1 가지에 대한 명제다.
+- 권고: 평가 전에 조건별 α·scale·보정·frozen 통계 지문·예산을 한 표로 고정할 것. 누락/unsafe/재현 실패 fixture로 비교별 보류를 검증할 것. 같은 scale α 비교는 필요할 때 별도로.
+
+**제 확인과 조치 (모두 사실, 수용):**
+- A27 표현 정정과 동작점 고정표를 사전등록 2P **D-BY**로 추가했다(학습 뒤·평가 전; 학습 로그의 최저 val MSE는 이미 출력돼 보였음을 고지). 평가기의 표현 문구도 "α=0.7(자체 보정) 쪽/α=1(자체 보정) 쪽"으로 바꿨다. 대비·기준·보류 규칙은 그대로다.
+- **평가기 `ett_alpha.py`** (model_v1 `test.py` 형식, `ett_future.py` 구조를 따름):
+  - 칸마다 "완료"나 "기록된 G11 실패" 중 정확히 하나를 요구한다(D-BX).
+  - 같은 forward에서 전체 MSE/MAE, **채널별 MSE**, 상태 최대값·안전, 발화율, 동점을 얻는다(감사 52 A25-CHANNEL을 이번부터 적용).
+  - 비교마다 쓰는 칸의 G11 실패·unsafe·재현 실패를 붙여 보류한다(`analyse`). J는 상대 변화율을 두지 않는다. 기록은 `allow_nan=False` 엄격 JSON이다.
+  - run별 α, input_scale, 보정 파일, frozen 통계 지문을 기록한다.
+  - 2O 재사용 run의 `final+result.csv`는 건드리지 않고, 2P run에만 `val-2P` 행을 붙인다.
+- **관문·fixture 점검 19/19 통과** (`analysis/ett_alpha_gate_check.{py,txt}`, validation 통과 없음):
+  - 두 데이터셋 모두 관문 오류 0, 완료 40칸 + 기록된 G11 실패 8칸(전부 `pearson_R_a1`).
+  - 결함 주입 거부: α 표시 뒤바꿈(양방향), α=1 run에 0.7의 scale·한계, 완료 칸에 G11 기록 동시 존재, G11 칸에 checkpoint 동시 존재, 칸 누락, G11 기록의 한계·run id 변조, 한계 미만 기록.
+  - 비교별 보류 fixture: `q1_R` seed 7 unsafe → q1_R을 쓰는 4개 대비만 보류. `gru_R` seed 13 재현 실패 → GRU 대비 2개만 보류. `pearson_R_a1` 학습 실패 → F_p·S_on(1)·J만 보류, F_q는 보고.
+  - F_q 산술이 독립 paired t 계산과 일치한다. J 상대값은 null이고 엄격 JSON 직렬화가 통과한다.
+
+**다음:** `ett_alpha.py --data ETTh1 / ETTh2`로 validation 평가(탐색).

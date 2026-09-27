@@ -3531,3 +3531,56 @@ ETTh1 상한을 반올림해0 또는 음수로 취급하지 않는다. 미통과
 실행 명령: `CUDA_VISIBLE_DEVICES='' PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python f_lif_pop_v3/forecasting/results/assessment/20260927T092001Z-0fce65ef/result_audit.py`. 이번 실행은 CPU 저장값 재계산과 read-only 대조이며, 모델/학습 소스 변경·학습/backward·GPU·프로세스 중단·설치·Git 변이·타 세션/에이전트 메시지·새 예약을 하지 않았다. A23 잔여 원실행 provenance/MC 이슈도 유지한다.
 
 <!-- assessment-watch:20260927T092001Z-0fce65ef -->
+
+
+## 2026-09-27 21:46 KST — 추적 감사54: 2O 파생 정정·α=1 사전검사 검증 / 감사53 theta 해석 정정
+
+예약 `20260927T124001Z-4de1c1d2`. 대응 **A25 / A26 / A27-ALPHA1-PRECHECK / A27-ALPHA-INTERPRETATION**. branch `exp/f-lif-pop-v3`, base `329183b94f65090cc6b337f464c5aa4d8e127ad7`. trigger/최초 HEAD `6e5f375cd5addbae90cdc56077aa76514dc498e0`, 후기 HEAD `3cde96941c4021fc45b000ecb758f1779c0299f8`. 문서 기억·감사53·사전등록2P·canonical 최신 append를 확인했다. 감사53 자체를 새 연구 성과로 세지 않았다.
+
+### 관찰 범위·증거 보존
+
+재검사 전 21:40:36 KST에1082파일을 별도 snapshot하고 SHA256을 기록했다. 처음 `/tmp/nsmt_assessment_20260927T124001Z-4de1c1d2`을 사용했고, 같은 바이트 전체를 `f_lif_pop_v3/forecasting/results/assessment/20260927T124001Z-4de1c1d2/source_snapshot/`에도 보존·hash 대조했다. `inventory.json`, `trigger.json`, `checks.json`, `audit_checks.py`, `postcheck.json`이 같은 artifact 폴더에 있다. raw stdout은 `f_lif_pop_v3/forecasting/log/assessment/20260927T124001Z-4de1c1d2/checks.txt`이다. fixture 폴더의 unsafe 값은 합성 결함 주입이며 실제 모델 실패가 아니다.
+
+trigger와 다른 것은 진행 중 `run_ett.sh`1파일이다. 후기 대조에서 snapshot1082파일 중 canonical PROJECT_LOG만 외부 append로 바뀌었고 검증 대상 소스/원 결과는 그대로였다. 감사 중 추가된 α=1 보정·pilot·진단은 다음 주기 범위로 남긴다. 새로 나타난 파일의 미완성이나 검증 전 상태를 확정 오류로 판정하지 않는다.
+
+주요 SHA256:
+- prereg: `8499ac9d6dc7e8f90014081d6b01f45ef6ea7cd8f100d4d870d39f0e3b0978fa`
+- layers: `85906858bdc51f90a314c9e6b9a73805e642ebab09dc2acfc1b9502f91a93db0`
+- alpha1_checks: `3fdcb2bfb3292a5835d03fdc3e00e812247672da2ef19cdb8b29d341e28f98f5`
+- theta_inert_hard: `e30a20b1932e2163ac6fbaa07f63d9dacc8ef4d2068e88e4743aa57d4264bb57`
+- ett_future_derived: `caa5b6d222a221741799457383a8247d2b3ae4bb953f97417c3341ef95c7c684`
+
+### (a) 아이디어 구현 정확성 — 검증한 범위만 VERIFIED
+
+**A27-ALPHA1-PRECHECK: 사전 점검5종 CPU 재현 VERIFIED.** 현재 API를 읽고 snapshot의 probe를 실행했다. α=1 계수표는 정확히1, q1 가지 상태와 명시적 Euler 재귀의 float64 최대차0, R-on 모델의 hard q1/full 출력·상태가 비트 단위로 같다. 상수 및 실제 분산이 있는 `3+1e-4 noise` 채널에서 두 조건의 출력·상태가 유한하고, α=.7/1의 run id·run directory·result path가 모두 다르다. 저장된 alpha1_checks.json 전체와 재검사 JSON이 일치한다. 새 초기화·합성 입력의 검사이며 학습 모델의 안정성·G11 충족·성능 검증은 아니다.
+
+**A26-THETA: 감사53의 설명·후속 제안을 정정한다.** Selector.forward의 hard 반환은 theta로 score를 나누는 attention 경로보다 앞이다. 기존 probe 재현과 별도 random seed11 합성 입력 검사 모두 hard q1/Pearson에서 두 theta 쌍의 출력·상태 차이0. sparse 양성 대조의 출력 최대차는 별도 검사에서 ETTh1 .087627823, ETTh2 .095698725로0이 아니다. 따라서 감사53이 theta 변경을 hard 경로의 작동 요인처럼 다루고 scale/theta 교차·후속 분해를 제안한 부분은 부정확했다. **hard 조건에서 명시적 보정 축은 input_scale이며 theta 교차는 필요 없다.** R에 맞춰 적합한 frozen 입력 통계와 입력 정규화 경로는 여전히 구분할 요인이다. selector temperature와 소마 발화 문턱은 같은 파라미터가 아니다.
+
+α=1의 Euler 환원은 **q1 가지**에 대한 명제다. Pearson q=.5는 과거 증분을 선택하므로 전체를 보통 단일 LIF와 동일하다고 부르면 안 된다. 모델은 계속4가지 leaky integrator와 별도 reset 소마를 가진다. α=1 대조의 목적에는 맞지만 일반 SNN 전체를 대표하거나 GRU와 구조를 맞춘 대조는 아니다.
+
+### (b) 검증 과정·분리·통계·재현성
+
+**A25-INTERACTION-RELATIVE / UNSAFE-SECONDARY: 두 파생 기록과 그 생성 경로의 보완은 scoped VERIFIED.** 원 ETTh1/2 future JSON SHA는 감사53의 `187f376b2227d066ec77dfeea32a403501f4bcf5eb531d01c26955adb09fe236` / `972f6ee0f03be00056615bd5de4712fb152310f1a7860135aef6a45e15430f8a`와 같다. 원본을 보존한 별도 파생 생성 결과가 저장된 두 derived JSON 전체와 일치한다. 엄격 JSON 파싱 통과, I relative=null, 나머지 대비의 seed 차이 평균과 기록 평균 일치. q1/seed7 unsafe를 합성 주입하면 D_q·S_off·I만 보류되고 q1을 쓰지 않는 S_on·GRU·Linear 비교는 보고 상태를 유지한다. 실제128건은 unsafe가 없어 보류된 비교가 없다. 과거 evaluator 자체가 고쳐졌다고 닫는 것이 아니라 **과거 결과의 파생 정정** 범위에서 검증했다.
+
+**A25-CHANNEL: 미충족 잔여 유지.** 파생 기록이 channel_errors=null과 복원 불가 사유를 명시한 것은 적절하지만, 누락된 측정이 복구된 것은 아니다. 이미 연 future를 다시 평가하지 않는다. 원 evaluator의 두 결함도 역사적으로 남는다. 다음 평가기에는 채널 오차·비교별 보류·엄격 JSON을 실제로 구현하고 검사해야 한다.
+
+**A26-INTERPRETATION: canonical의 무효과/특유효과/대체관계 문구 정정은 문서 범위 VERIFIED.** GRU/Linear R 상대값은 ETTh1 +.2908%/−.1383%, ETTh2 +.0006%/−.4243%로 파생 결과와 맞는다. CI의0 포함은 무효과의 증거가 아니며 모델 계열별 차이·대체 메커니즘은 가설이다. A23의 원실행 provenance/MC 불확실성 잔여는 유지한다.
+
+2P의32신규+64재사용, val만 사용, test/future 재개 금지, 전체96관문, best-val 재현 오차1e-6, unsafe/재현 실패의 비교별 보류, 겹치는 창을 독립 표본으로 세지 않는 규정은 질문에 맞는 계획이다. 다만 현재 snapshot에서96관문·새 평가기·채널별 집계·학습 완료·α 성능 CI는 **not run / 미검증**이다. 조기 종료에 사용한 val은 탐색용이며 동일 절차가 모델별 선택 편향의 동일 크기를 보장하지 않는다. 95% seed CI는 고정 기간의 학습 변동 범위이지 새 기간의 일반화나 다중 대비 확증이 아니다.
+
+**A27-ALPHA-INTERPRETATION — OPEN(표현 정합성).** D-BS는 scale이 다르면 커널+보정 결합 효과라고 올바르게 제한하지만, 서두의 “바꾸는 것은 α 하나뿐” 및 D-BV의 “선택 없는 순수 커널 비교”는 그 조건을 생략한다. scale 변경 여부를 결과표에 함께 고정하고, 다르면 F_q·F_p·J 모두 **α별 보정 정책을 포함한 대비**로 표현하도록 append 정정을 권한다. q1이 selector를 제거한다는 사실만으로 scale 혼동까지 제거되지는 않는다. 이는 모델 계산 오류가 아니다.
+
+### (c) 다음 실험 개선 방향 — 작업 에이전트에 감사파일로 전달
+
+새 성능 판단 근거는 없다. 이번 파생 기록은 같은2O 결과의 정정이며 ETTh1 1차 미통과/ETTh2 통과 판정은 감사53 그대로다. **α=1 대조가 개선되는지는 판단 보류**한다. 감사 중 시작된 후속 준비/실행은 본 snapshot의 완료 결과로 포함하지 않았다.
+
+1. **사용자가 고른2P α=1 대조를 우선하는 계획을 존중한다.** 감사53의 선택적 교차 제안 때문에 현재 계획을 다시 확대할 필요는 없다. 본 결과 전에 조건별 α·scale·frozen 통계 hash·calibration hash·학습 예산을 한 표로 고정한다. α별 보정이 다르면 kernel-only 표현을 철회하고 실제 실험이 추정하는 결합 효과를 보고한다.
+2. **현재 계획 안의 진단을 완결한다.** 같은 validation forward에서 전체/채널 MSE, seed별 F_q/F_p/J, 발화율·가지 상태·안전 한계·동점률을 함께 남긴다. 채널은 기술 분석으로 두며 좋은 채널만 골라 새 확증처럼 보고하지 않는다. 재사용64건과 신규32건 전체 관문을 통과한 뒤 비교하고, 누락/unsafe/재현 실패 fixture로 비교별 차단을 검증한다. 검증 전 FIXED-PENDING-REVIEW 항목을 VERIFIED로 닫지 않는다.
+3. **커널 자체 기전 질문이 남을 때만 다음 보완을 사전등록한다.** 우선 train-only 합성/실제 입력 진단에서 공통 scale의 안전성·발화율·state 범위를 비교한다. 이후 필요하면 동일 scale·동일 R/frozen 입력 처리·동일 예산으로 α 대조를 설계한다. 공통 scale이 안전하지 않거나 건강 기준을 벗어나면 실패/보류를 보고하고 결과를 보고 기준을 완화하지 않는다. 보정된 시스템 비교와 공통 scale 비교를 별도 추정 대상으로 둔다. theta 교차는 하지 않는다. 이번에는 이 보완 학습·실데이터 진단 **not run**이다.
+4. **확증은 새로 미사용임을 확인한 자료에서 한다.** 2P의 val 결과로 후보를 정할 수는 있지만 그 val/test/future를 다시 새 확증으로 부를 수 없다. 데이터 사용 이력·경계·전처리·주 대비·실질 차이 기준을 새 평가 전에 고정한다. Linear/GRU는 동일 pipeline의 예측 참고선으로 유지하며, α=1 스파이킹 대조가 추가되었다고 기존 참고선을 제거하거나 용량 통제 우위를 주장하지 않는다.
+
+설계 근거는 이번에 재확인한 [RevIN 저자 자료](https://seharanul17.github.io/RevIN/)의 입력 통계 제거·출력 복원과 [Zeng et al., AAAI2023 논문 페이지](https://ojs.aaai.org/index.php/AAAI/article/view/26317)의 단순 선형 기준선이다. α 대조와 보정 분리 제안은 로컬 계산·실험 설계에서 도출한 것이며 이 문헌이 현 모델의 개선을 보장하지 않는다.
+
+실행 명령: `CUDA_VISIBLE_DEVICES='' PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python f_lif_pop_v3/forecasting/results/assessment/20260927T124001Z-4de1c1d2/audit_checks.py`. 종료0·ALL CHECKS PASS. 학습/backward·GPU·실제 데이터 forward·연구 소스 수정·프로세스 중단·설치·Git 변이·타 세션 읽기/메시지·새 예약은 하지 않았다.
+
+<!-- assessment-watch:20260927T124001Z-4de1c1d2 -->
