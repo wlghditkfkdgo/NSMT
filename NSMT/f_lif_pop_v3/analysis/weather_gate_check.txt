@@ -1,0 +1,48 @@
+[weather-gate] PASS  gate over 40 cells: 0 errors, 40 finished, 0 recorded G11 failures
+[weather-gate] PASS  refuse last cell missing (linear_R 1024) before the registry and the test rows: stopped: [weather_test] linear_R seed 1024: 0 run dirs, 0 results; tripwires []; output dir False
+[weather_test] manifest q1_R_a1/7: alpha: 0.7 != 1.0
+[weather-gate] PASS  refuse alpha flag flipped (q1_R_a1 7) before the registry and the test rows: stopped: [weather_test] 1 manifest error(s); the test period of weather was NOT opened; tripwires []; output dir False
+[weather_test] manifest calibration alpha 1.0: weather_a1.0_norm-frozen_revin_seed7_260928-033451.json missing or not the fixed sha256
+[weather-gate] PASS  refuse alpha=1 calibration changed before the registry and the test rows: stopped: [weather_test] 1 manifest error(s); the test period of weather was NOT opened; tripwires []; output dir False
+[weather_test] manifest pearson_R/13: checkpoint sha256 differs from the one the training run recorded
+[weather-gate] PASS  refuse checkpoint changed (pearson_R 13) before the registry and the test rows: stopped: [weather_test] 1 manifest error(s); the test period of weather was NOT opened; tripwires []; output dir False
+[weather_test] manifest weather.csv sha256 is not the fixed one
+[weather-gate] PASS  refuse weather.csv changed before the registry and the test rows: stopped: [weather_test] 1 manifest error(s); the test period of weather was NOT opened; tripwires []; output dir False
+[weather_test] manifest gru_R/21: suite: 'no-such-suite' != 'weather-20260928'
+[weather_test] manifest gru_R/21: 0 run_ett.sh stdout files
+[weather-gate] PASS  refuse early-stop evidence missing (gru_R 21) before the registry and the test rows: stopped: [weather_test] 2 manifest error(s); the test period of weather was NOT opened; tripwires []; output dir False
+[weather-gate] PASS  validation reproduction fails closed: {'equal accepted': True, 'difference 0.01 refused': True, 'stored NaN refused': True, 'stored non-numeric refused': True, 'stored missing refused': True, 'recomputed NaN refused': True}
+Test was successfully done
+ > mse             : 0.406634
+ > mae             : 0.292170
+ > max_abs_state   :131.322220
+ > bound           :3679.873047
+ > kept_mass_frac  : 1.000000
+ > firing_rate     : 0.244752
+[weather-gate]      q1_R seed 7 val 0.4066343307495117 vs recorded 0.4066342710127513; safe True
+Test was successfully done
+ > mse             : 0.407502
+ > mae             : 0.292030
+ > max_abs_state   :367.001556
+ > bound           :3679.873047
+ > kept_mass_frac  : 0.551228
+ > firing_rate     : 0.239446
+[weather-gate] pearson_R seed 7 val 0.40750226378440857 vs recorded 0.407502230817499; safe True
+Test was successfully done
+ > mse             : 0.409716
+ > mae             : 0.297073
+ > max_abs_state   :73.424019
+ > bound           :2207.923737
+ > kept_mass_frac  : 1.000000
+ > firing_rate     : 0.248207
+[weather-gate]   q1_R_a1 seed 7 val 0.4097156524658203 vs recorded 0.4097156312851829; safe True
+Test was successfully done
+ > mse             : 0.389888
+ > mae             : 0.274269
+[weather-gate]     gru_R seed 7 val 0.38988807797431946 vs recorded 0.38988802395757544; safe True
+Test was successfully done
+ > mse             : 0.436406
+ > mae             : 0.305352
+[weather-gate]  linear_R seed 7 val 0.43640637397766113 vs recorded 0.43640639227937095; safe True
+[weather-gate] PASS  validation pass reproduces the recorded best MSE (seed 7, every condition): differences [5.97367604271426e-08, 3.2966909591092275e-08, 2.1180637410633807e-08, 5.4016744022167273e-08, 1.830170981431678e-08]
+[weather-gate] 9/9 checks pass

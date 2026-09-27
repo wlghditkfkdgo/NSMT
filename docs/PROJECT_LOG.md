@@ -6802,3 +6802,61 @@ ETTh2의 pearson(.3859)은 window-mean(.385)과 같은 수준이다. v3 스파�
 - 실제 16개: 실패 0, 최대차 0.0(유한) → 통과. 03:35 항목의 사전 점검 5 결과는 이 재실행으로 대체한다.
 - 음성 대조(재계산 MSE를 모두 NaN으로 바꿈): 16개 모두 실패로 잡혀 "통과 아님".
 - 앞으로 "최대 차이" 집계는 모두 유한성 검사를 먼저 하는 방식으로 쓴다.
+
+
+## 2026-09-28 04:12 KST — 추적 감사66: Weather 완료7/40, 성능 보류
+
+예약20260927T191002Z-e0003c8e;HEADeeeb8b6623f31f3294d881b77ef03fafd83e9ffb;snapshot1435/trigger차7진행CSV. source/사전등록2R동일. α.7Pearson/q1 seed13,α1q1 seed7 완료추가(24/41/38epoch,최저13/30/27후10epoch). source/보정/UUID·config_hash/no-test/CSV반올림·유한일치. 기록train상태한계내이나간격표본·JSON마지막epoch;전체안전성인증아님. 실제cp/config/val/전체gate/test not run,부분val비교로성능판정금지. A32-ETT-PATH-FINITE OPEN/A31잔여및기존판정유지. 상세NSMT/docs/ASSESMENT.md감사66;증거NSMT/f_lif_pop_v3/forecasting/results/assessment/20260927T191002Z-e0003c8e/,raw동일task log/assessment/. 학습/GPU/연구소스·Git변이없음.
+
+
+## 2026-09-28 04:23 KST — 추적 감사67: finite 수정 scoped VERIFIED
+
+예약20260927T192002Z-4b14784d,HEADa0535eab3366b5173c97400c1b953a8a67027722;snapshot1454/trigger차4진행CSV. A32-ETT-PATH-FINITE 원main CPU합성10사례(2허용/8fault각16거부),weather_gate_check마지막seed7부분동일10사례통과→두집계finite결함수정scoped VERIFIED. 실제ETT16생산자재실행fail0/max0기록,감사실forward not run·조건별값/지문미저장한계. Weather완료7추가→14/40,source/보정/UUID/no-test/CSV일치;α.7q1seed7 최대50epoch,나머지최저후10epoch. 실cp/config/전체val/gate/test not run,성능보류. A31분모등잔여유지·전체개방조건우선. 상세NSMT/docs/ASSESMENT.md감사67,증거NSMT/f_lif_pop_v3/forecasting/results/assessment/20260927T192002Z-4b14784d/,raw동일task log/assessment/. 학습/GPU/연구소스·Git변이없음.
+
+
+## 2026-09-28 04:31 KST — 추적 감사68: Weather 완료19/40
+
+예약20260927T193002Z-e3ffebce,HEADa0535eab3366b5173c97400c1b953a8a67027722;snapshot1471/trigger차5진행CSV. source/사전등록불변·자체append분리. GRU/Linear seed123·spiking3조건seed21 완료5추가(20/23/42/50/32epoch),모두최저후10epoch·CSV반올림/source/UUID/보정/no-test일치. 표본train상태한계내/전체안전인증아님. 실제cp/config/val/전체gate/test not run·성능판단근거없음. 감사67 finite scoped VERIFIED/A31분모등잔여·등록조건/개방조건유지. 상세NSMT/docs/ASSESMENT.md감사68,증거NSMT/f_lif_pop_v3/forecasting/results/assessment/20260927T193002Z-e3ffebce/,raw동일task log/assessment/. 학습/GPU/연구소스·Git변이없음.
+
+
+## 2026-09-28 04:41 KST — 추적 감사69: Weather 완료24/40
+
+예약20260927T194003Z-bacf1764,HEADa0535eab3366b5173c97400c1b953a8a67027722;snapshot1486/trigger차7진행CSV. source/사전등록불변·자체append분리. GRU/Linear seed256·Pearson seed123/42·q1seed42 완료5추가(17/19/19/25/32epoch),최저후10epoch/CSV반올림/source/보정/UUID/no-test일치. 표본train상태한계내/전체안전인증아님. 실제cp/config/val/전체gate/test not run·성능판단보류. 감사67finite scoped VERIFIED/A31분모등잔여·개방조건유지. 상세NSMT/docs/ASSESMENT.md감사69;증거NSMT/f_lif_pop_v3/forecasting/results/assessment/20260927T194003Z-bacf1764/,raw동일task log/assessment/. 학습/GPU/연구소스·Git변이없음.
+
+
+## 2026-09-28 04:51 KST — 추적 감사70: Weather 완료25/40
+
+예약20260927T195003Z-60530486,HEADa0535eab3366b5173c97400c1b953a8a67027722;snapshot1489/trigger차5진행CSV. source/사전등록동일·자체append분리. α1q1seed42 완료추가(46epoch/최저35후10epoch),CSV반올림/source/보정/UUID/no-test일치. 표본train상태한계내/전체안전인증아님. 실제cp/config/val/전체gate/test not run·성능보류. 감사67finite scoped VERIFIED/A31잔여등기존판정/개방조건유지. 상세NSMT/docs/ASSESMENT.md감사70,증거NSMT/f_lif_pop_v3/forecasting/results/assessment/20260927T195003Z-60530486/,raw동일task log/assessment/. 학습/GPU/연구소스·Git변이없음.
+
+
+### 2026-09-28 05:04 KST — 추적 감사71 (20260927T200002Z-e78e928a)
+
+HEAD `a0535eab3366b5173c97400c1b953a8a67027722`, 사전등록2R/source 불변. Weather 새 완료5건(GRU/Linear512, α.7 Pearson256, α.7 q1 123, α1 q1 256) 저장 출처·CSV·설정·보정·no-test 대조 통과, snapshot30/40. 성능 판단 보류; A32 scoped VERIFIED/A31 분모 등 기존 판정 유지. 실제 checkpoint/val 재현·전체40gate·test not run. snapshot1504파일 및 SHA/검사 증거는 `f_lif_pop_v3/forecasting/results/assessment/20260927T200002Z-e78e928a/`, raw는 같은 task `log/assessment/20260927T200002Z-e78e928a/checks.txt`. 학습/GPU/연구소스/Git변이 없음. 자체 감사 append는 다음 연구 변화에서 제외.
+
+
+### 2026-09-28 05:11 KST — 추적 감사72 (20260927T201002Z-55f719bf)
+
+HEAD `a0535eab3366b5173c97400c1b953a8a67027722`, source/사전등록2R 불변·자체 append 분리. snapshot1514파일/trigger 차4진행CSV. Weather 새 완료6건(GRU/Linear1024, α.7 Pearson512, α.7 q1 256/512, α1 q1 123) 저장 출처·CSV·설정·보정·no-test 일치→36/40. q1 α.7 seed256/α1 seed123은 등록50epoch 도달, 나머지 최저후10epoch. 표본 train 상태 한계 내이나 전체 안전성 인증 아님. 실제 checkpoint/val 재현·전체40gate·test not run, 성능 판단 보류. A32 scoped VERIFIED/A31 분모 등 기존 판정·개방 조건 유지. 증거 `f_lif_pop_v3/forecasting/results/assessment/20260927T201002Z-55f719bf/`, raw 같은 task `log/assessment/20260927T201002Z-55f719bf/checks.txt`. 학습/GPU/연구소스/Git변이 없음.
+
+
+### 2026-09-28 05:21 KST — 추적 감사73 (20260927T202002Z-4a55c8b1)
+
+HEAD `a0535eab3366b5173c97400c1b953a8a67027722`, source/사전등록2R 불변·자체 append 분리. snapshot1516파일/trigger 차1진행CSV. Weather α.7 Pearson seed1024(33epoch)·α1 q1 seed512(40epoch) 완료 추가→38/40; 최저후10epoch·CSV/source/설정/UUID/보정/no-test 일치. 표본 train 상태 한계 내이나 전체 안전성 인증 아님. 실제 checkpoint/val 재현·전체40gate·test not run, 성능 보류. A32 scoped VERIFIED/A31 분모 등 기존 판정·개방 조건 유지. 증거 `f_lif_pop_v3/forecasting/results/assessment/20260927T202002Z-4a55c8b1/`, raw 같은 task `log/assessment/20260927T202002Z-4a55c8b1/checks.txt`. 학습/GPU/연구소스/Git변이 없음.
+
+
+### 2026-09-28 05:32 KST — 추적 감사74 (20260927T203002Z-65590e78)
+
+HEAD `a0535eab3366b5173c97400c1b953a8a67027722`, source/사전등록 불변. 대상 snapshot1516파일, 완료 JSON38개 불변. seed1024 q1 CSV α.7/α1 44/41행, prefix·연속·유한 확인. 감지 이후 raw.txt에 α1 q1 seed1024 완료 요약 추가; JSON 대조는 다음 주기, 현재 전체 완료수로38을 단정하지 않는다. 새 판단 근거 없음·성능 보류·기존 A32/A31 판정 유지. 실제 cp/val/전체gate/test not run. 증거 `f_lif_pop_v3/forecasting/results/assessment/20260927T203002Z-65590e78/`, raw 같은 task `log/assessment/20260927T203002Z-65590e78/`. 자체 감사 append 분리, 학습/GPU/연구소스/Git변이 없음.
+
+---
+
+## 2026-09-28 05:34 KST — 2R 본 학습 40개 완료 / 개방 전 관문 점검 9/9 (weather test 개방 전)
+
+- **본 학습:** suite `weather-20260928`, 40/40 완료(03:37–05:33 KST). G11 위반 0, SKIP 0. epoch 범위: pearson_R 19–42, q1_R 32–50, q1_R_a1 30–50, gru_R 14–20, linear_R 16–32. 명령은 `results/weather-20260928/run_commands.txt`.
+- run별로 기록된 HEAD가 넷이다(`f9eacb901` 8개, `eb9e2049d` 1개, `eeeb8b662` 10개, `a0535eab3` 21개). 학습 중에 문서·평가기·점검 스크립트를 commit했기 때문이다. 네 commit 사이에 학습 코드(layers·ours·model·train·config·test·utils·data_provider·run_ett.sh)의 변경은 없다(`git diff` 확인).
+- **개방 전 관문 점검** (`analysis/weather_gate_check.{py,txt}`, 9/9 통과, 등록부·test 행 접근 없음):
+  - 40칸 관문 오류 0(완료 40, G11 실패 0).
+  - 실제 CLI에 결함 6종을 하나씩 넣었다: 마지막 칸 누락, α 표시 뒤바꿈, α=1 보정 파일 변경, checkpoint 변경, weather.csv 변경, 조기 종료 증거 없음. 모두 등록부·데이터 로더보다 먼저 멈췄고 출력 폴더도 생기지 않았다.
+  - validation 재현 관문이 비유한·누락·비수치 기준을 거부한다(fixture 6종).
+  - seed 7의 5조건 validation 재현 차이: 6.0e-8, 3.3e-8, 2.1e-8, 5.4e-8, 1.8e-8.
+- **다음:** `weather_test.py -nd 0`으로 관문 → 40개 전부 validation 재현 → 등록부 `weather-test-H96` 잠금 → test 한 번 통과.
