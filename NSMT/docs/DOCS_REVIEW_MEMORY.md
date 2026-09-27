@@ -523,3 +523,18 @@ HEAD7d836cff/snapshot17:30:32/453+64파일/trigger불일치0. §2Mbenchmark32cp/
 ## 2026-09-28 03:35 KST — 추적 감사62: 안정성 결과 및 Weather 수정 부분검증
 
 예약20260927T183002Z-920c0e68;초기HEAD0e5fc053df7729bc38db8c2e68c6022f70a06987→후기89e2568f6ea4fdd9838bc2b61fb45e3a09e526c7. snapshot1371/trigger차mask진행txt1,후기canonical/txt별도보존. CPU새parity6fixture통과(A31새helper scoped VERIFIED/전체분모잔여);저장12peak/rel0일치,stability24요약재산술차0. D-CD H1초기α1두데이터지지/α.7네조건미지지 새canonical표일치,옛λ문자열폐기고지확인. A32합성weather mainAPI/경계통과;A29새Weather실패root/file변조거부. val차이/NaN개방전중단·누락repro40차단통과;저장best_val_loss=NaN은bad0→A32잔여OPEN. M8α1peak2515→78.63/2602→56.56,성능not run. A33후기canonical의일반안정/원인확정·평균lag균일성표현OPEN;범위정정·mask경계/절대응답진단→M8별도사전등록대조제안. 학습/GPU/실trainforward/Weather성능not run. 상세NSMT/docs/ASSESMENT.md감사62,증거NSMT/f_lif_pop_v3/forecasting/results/assessment/20260927T183002Z-920c0e68/,raw동일task log/assessment/. 감사설명q1/Pearson식별자혼동정정/모델실패아님;연구소스·Git변이없음.
+
+
+## 2026-09-28 03:46 KST — 추적 감사63: Weather 2R 착수/finite 보완
+
+예약20260927T184002Z-9006a7a6,HEADeeeb8b6623f31f3294d881b77ef03fafd83e9ffb;snapshot1420/trigger차5진행CSV. A32 Weather reproduce 동일/허용내2건허용·NaN/Inf/누락/비수치/overflow등11거부,원main11건registry0→저장finite수정 scoped VERIFIED. A33 canonical03:39 해석범위정정 scoped VERIFIED. 새 A32-ETT-PATH-FINITE OPEN:weather_ett_path_check에NaN16건주입해max0/oktrue 재현;실모델NaN증거아님,seed별finite검사와재검사필요. 2R사전등록2934b857e→보정/학습순서기록일치. 보정α.7/1 scale10/6 firing.2190/.1987·hash/산술일치. 최초완료main GRU/Linear seed7두개+pilot5개test미실행/source일치;성능·실제40gate/val/test not run. maskJSON 기존txt일치/섭동전환검증아님. 기존A31분모/A23/A25/과거A29잔여유지. D등록조건유지·전체관문우선,M8/경계진단은A/B/D이후선택지. 상세NSMT/docs/ASSESMENT.md감사63;증거NSMT/f_lif_pop_v3/forecasting/results/assessment/20260927T184002Z-9006a7a6/,raw동일task log/assessment/. 연구소스·학습/GPU·Git변이없음.
+
+
+## 2026-09-28 03:52 KST — 추적 감사64: Weather 진행 기록
+
+예약20260927T185002Z-d4b16f76;HEADeeeb8b6623f31f3294d881b77ef03fafd83e9ffb;snapshot1426/trigger차7진행CSV. 모델/평가기/사전등록2R동일,직전감사자체append분리. GRU/Linear seed13완료추가→snapshot4/40;14/32epoch,최저epoch3/21뒤10epoch/CSV반올림/sourcehash/test미실행일치. 실제cp/config/val/전체gate/test not run;새성능판단근거없음. A32-ETT-PATH-FINITE OPEN·A31분모잔여등감사63유지,등록조건/개방전전체재현우선. 상세NSMT/docs/ASSESMENT.md감사64;증거NSMT/f_lif_pop_v3/forecasting/results/assessment/20260927T185002Z-d4b16f76/,raw동일task log/assessment/. 학습/GPU/소스·Git변이없음.
+
+
+## 2026-09-28 04:01 KST — 추적 감사65: 새 판단 근거 없음
+
+예약20260927T190002Z-8a5f5fb9,HEADeeeb8b6623f31f3294d881b77ef03fafd83e9ffb. snapshot1426/trigger차6진행CSV. 감사64자체append제외 CSV8개만추가,기존prefix보존·epoch연속·유한확인. source/사전등록/완료JSON4개불변,성능보류·모델probe/실val/test not run. A32-ETT-PATH-FINITE OPEN·A31잔여등기존판정/개방조건유지. 상세NSMT/docs/ASSESMENT.md감사65,증거NSMT/f_lif_pop_v3/forecasting/results/assessment/20260927T190002Z-8a5f5fb9/;학습/GPU/연구소스·Git변이없음.

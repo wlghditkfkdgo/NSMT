@@ -6776,3 +6776,29 @@ ETTh2의 pearson(.3859)은 window-mean(.385)과 같은 수준이다. v3 스파�
   - "피어슨은 과거 전체에 고르게 퍼진 칸을 남긴다" → **"평균 lag가 전체 이력 평균과 비슷하다(약 13)."** 분포가 고르다는 것은 확인하지 않았다.
   - "모든 스텝에서 식별 가능" → **"검사한 스텝 10–41에서 식별 가능."**
 - 감사 61의 한 사례 좁힘 진단(ETTh2 학습 모델의 선택 전환)과 M8 후보의 학습 비교는 다음 선택지로 둔다. 이번 작업 범위(A·B·D)에는 넣지 않는다.
+
+
+## 2026-09-28 03:46 KST — 추적 감사63: Weather 2R 착수/finite 보완
+
+예약20260927T184002Z-9006a7a6,HEADeeeb8b6623f31f3294d881b77ef03fafd83e9ffb;snapshot1420/trigger차5진행CSV. A32 Weather reproduce 동일/허용내2건허용·NaN/Inf/누락/비수치/overflow등11거부,원main11건registry0→저장finite수정 scoped VERIFIED. A33 canonical03:39 해석범위정정 scoped VERIFIED. 새 A32-ETT-PATH-FINITE OPEN:weather_ett_path_check에NaN16건주입해max0/oktrue 재현;실모델NaN증거아님,seed별finite검사와재검사필요. 2R사전등록2934b857e→보정/학습순서기록일치. 보정α.7/1 scale10/6 firing.2190/.1987·hash/산술일치. 최초완료main GRU/Linear seed7두개+pilot5개test미실행/source일치;성능·실제40gate/val/test not run. maskJSON 기존txt일치/섭동전환검증아님. 기존A31분모/A23/A25/과거A29잔여유지. D등록조건유지·전체관문우선,M8/경계진단은A/B/D이후선택지. 상세NSMT/docs/ASSESMENT.md감사63;증거NSMT/f_lif_pop_v3/forecasting/results/assessment/20260927T184002Z-9006a7a6/,raw동일task log/assessment/. 연구소스·학습/GPU·Git변이없음.
+
+
+## 2026-09-28 03:52 KST — 추적 감사64: Weather 진행 기록
+
+예약20260927T185002Z-d4b16f76;HEADeeeb8b6623f31f3294d881b77ef03fafd83e9ffb;snapshot1426/trigger차7진행CSV. 모델/평가기/사전등록2R동일,직전감사자체append분리. GRU/Linear seed13완료추가→snapshot4/40;14/32epoch,최저epoch3/21뒤10epoch/CSV반올림/sourcehash/test미실행일치. 실제cp/config/val/전체gate/test not run;새성능판단근거없음. A32-ETT-PATH-FINITE OPEN·A31분모잔여등감사63유지,등록조건/개방전전체재현우선. 상세NSMT/docs/ASSESMENT.md감사64;증거NSMT/f_lif_pop_v3/forecasting/results/assessment/20260927T185002Z-d4b16f76/,raw동일task log/assessment/. 학습/GPU/소스·Git변이없음.
+
+
+## 2026-09-28 04:01 KST — 추적 감사65: 새 판단 근거 없음
+
+예약20260927T190002Z-8a5f5fb9,HEADeeeb8b6623f31f3294d881b77ef03fafd83e9ffb. snapshot1426/trigger차6진행CSV. 감사64자체append제외 CSV8개만추가,기존prefix보존·epoch연속·유한확인. source/사전등록/완료JSON4개불변,성능보류·모델probe/실val/test not run. A32-ETT-PATH-FINITE OPEN·A31잔여등기존판정/개방조건유지. 상세NSMT/docs/ASSESMENT.md감사65,증거NSMT/f_lif_pop_v3/forecasting/results/assessment/20260927T190002Z-8a5f5fb9/;학습/GPU/연구소스·Git변이없음.
+
+---
+
+## 2026-09-28 04:11 KST — 감사 63–65 수용: 2R 사전 점검 5(ETT 경로)를 NaN 거부 방식으로 다시 실행
+
+**감사 63 (03:46):** weather 재현 관문의 비유한 기준 거부(11개 결함 거부)와 A33 문구 정정을 확인했다(VERIFIED). **A32-ETT-PATH-FINITE (OPEN):** `weather_ett_path_check.py`가 `max(worst, d)`로만 집계해, 재계산 MSE 16개가 모두 NaN이어도 "최대차 0, 통과"로 나온다(A31과 같은 유형). **감사 64·65:** 새 판단 근거 없음(weather 학습 진행 중, 기준선 완료 기록 확인).
+
+**제 확인과 조치:** 사실이다. 같은 실수를 세 번째 반복했다. 재계산 값과 저장 기준이 모두 유한한 실수일 때만 차이를 계산하고, 아니면 실패로 기록하도록 고쳐 **다시 실행**했다(`CUDA_VISIBLE_DEVICES=3`, 학습과 병행).
+- 실제 16개: 실패 0, 최대차 0.0(유한) → 통과. 03:35 항목의 사전 점검 5 결과는 이 재실행으로 대체한다.
+- 음성 대조(재계산 MSE를 모두 NaN으로 바꿈): 16개 모두 실패로 잡혀 "통과 아님".
+- 앞으로 "최대 차이" 집계는 모두 유한성 검사를 먼저 하는 방식으로 쓴다.

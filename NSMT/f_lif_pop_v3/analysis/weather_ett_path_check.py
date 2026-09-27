@@ -4,6 +4,7 @@
 stored best validation MSE within 1e-6 on the GPU they were trained on."""
 import sys
 import json
+import math
 from pathlib import Path
 
 import torch
@@ -17,17 +18,27 @@ import ett_alpha as A                                           # noqa: E402
 @torch.no_grad()
 def main():
     device = torch.device('cuda:0')
-    worst, n = 0., 0
+    # audit 63 A32-ETT-PATH-FINITE: fail closed -- max(worst, nan) keeps worst, so every value is
+    # checked for being a finite number before it is compared
+    diffs, bad = [], []
     for data in A.DATASETS:
         for cond in ('q1_R', 'pearson_R'):
             for seed in (7, 13, 21, 42):
                 _, run, result = A.find_cell(data, 96, cond, seed)
                 model, args = A.load_model(run, device)
                 _, val = data_provider(args, 'val')
-                d = abs(evaluate(model, val, args)[0]['mse'] - json.load(open(result))['train']['best_val_loss'])
-                worst, n = max(worst, d), n + 1
-    print(f"[weather-ett] {n} ETT checkpoints reproduce best validation MSE, max |diff| {worst:.2e} -> {worst <= 1e-6}")
-    Path(__file__).with_suffix('.json').write_text(json.dumps({'runs': n, 'max_abs_diff': worst, 'ok': worst <= 1e-6}))
+                now = evaluate(model, val, args)[0]['mse']
+                stored = json.load(open(result)).get('train', {}).get('best_val_loss')
+                finite = all(isinstance(v, float) and math.isfinite(v) for v in (now, stored))
+                d = abs(now - stored) if finite else None
+                diffs.append(d)
+                if d is None or not d <= 1e-6:
+                    bad.append(f'{data} {cond}/{seed}: {now!r} vs {stored!r}')
+    ok = len(diffs) == 16 and not bad
+    worst = max(d for d in diffs if d is not None) if any(d is not None for d in diffs) else None
+    print(f"[weather-ett] {len(diffs)} ETT checkpoints, failures {bad}, max |diff| {worst!r} -> {ok}")
+    Path(__file__).with_suffix('.json').write_text(json.dumps({'runs': len(diffs), 'max_abs_diff': worst,
+                                                              'failures': bad, 'ok': ok}))
 
 
 if __name__ == '__main__':

@@ -3973,3 +3973,72 @@ M7은 ETTh1 α1에서 α.7 mask 재생해도2253.8378(동적2514.9707), 반대 �
 명령: `CUDA_VISIBLE_DEVICES='' PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python f_lif_pop_v3/forecasting/results/assessment/20260927T183002Z-920c0e68/cpu_checks.py`, `/usr/bin/python3 .../20260927T183002Z-920c0e68/result_checks.py`, 종료0. 감사 산술 스크립트의 초기 설명문이 q1/Pearson peak식별자를 혼동해 불일치라고 썼으나 실제 수치는 같았다. 최종 설명을 일치로 정정해 재실행했고 최초/최종 raw 모두 보존했다. 연구 코드 오류로 세지 않는다. 연구소스·학습·설치·프로세스·Git변이·타 세션/메시지·새 예약 없음.
 
 <!-- assessment-watch:20260927T183002Z-920c0e68 -->
+
+
+## 2026-09-28 03:46 KST — 추적 감사63: Weather 2R 착수·finite 관문 수정과 ETT 점검 잔여
+
+예약 `20260927T184002Z-9006a7a6`; branch `exp/f-lif-pop-v3`, base `329183b94f65090cc6b337f464c5aa4d8e127ad7`. 관찰 HEAD `eeeb8b6623f31f3294d881b77ef03fafd83e9ffb`(검사 후 동일). 기억/감사62/사전등록2R/canonical PROJECT_LOG03:39까지 복구했다. **2026-09-28T03:40:31.240763+09:00 실제 바이트1420파일 snapshot/SHA256**, missing0. trigger와 차이5는 진행 중 Weather best_log CSV이며 확정 오류로 세지 않는다. 스케줄러 hash는 사본이 아니다. 감사 중 들어오는 학습 결과는 다음 주기 대상으로 남겼다.
+
+증거 `f_lif_pop_v3/forecasting/results/assessment/20260927T184002Z-9006a7a6/`의 inventory.json/source_snapshot/, cpu_checks.py/json, result_checks.py/json, postcheck.json. raw `f_lif_pop_v3/forecasting/log/assessment/20260927T184002Z-9006a7a6/`.
+- weather_test.py SHA256 `b06a2a0fc4abac66cc0fa25749b8b2e0e0588a29554899ee228b72bbe18425ba`
+- weather_ett_path_check.py `09e06182128cd64a30d7ae48401cb5ab7340f03d72c60877e1291904b259a2f5`
+- weather_gate_check.py `b69091328988dd156037f79b8053943ea0b071840e0ed8f9c3db453561e0b511`
+- 사전등록 `46cb85e57b50e0334d131cba2a7931c3602be28c6062fbee847ff76415de4726`
+
+### (a) 구현 및 해석의 정확성
+
+**A32-WEATHER-GATE 저장 기준 finite 수정 scoped VERIFIED.** snapshot 모듈의 reproduce를 CPU mock test로 호출했다. 같은 값/허용오차 안(.5e-6) 2건 허용; 차이.01, 저장 NaN/Inf/문자열/bool/None/누락, 재계산 NaN/Inf/문자열, 유한 입력끼리 뺀 overflow 총11건 거부. 모든 호출은 flag=val, count_ties=False. 거부11건은 원 main AST를 mock gate로 실행해 등록부 호출0에서 SystemExit도 확인했다. 실제 data/checkpoint/모델 forward 없이 실시한 관문 검사이며 **40칸 실제 재현 VERIFIED는 아니다**. 생산자 weather_gate_check 전체는 CUDA 및 완료40칸을 요구하므로 감사에서는 not run.
+
+**A33-STABILITY-INTERPRETATION 문서 정정 scoped VERIFIED.** canonical03:39 append가 α1 불안정/α.7 안정의 일반 단정을 seed7·train8batch·step20·1e-6 한 방향의 고정 mask 응답으로 제한했다. ETTh2 학습 동적 응답441/1579를 별도 고지하고 구조 원인·선택 뒤집힘은 가설, 평균lag≈13은 균일분포 증거 아님, 식별성은 t10..41로 정정했다. 문구 범위 문제는 닫되 기전 인과·일반 안정성을 검증한 것으로 읽지 않는다.
+
+새 selection_mask_agreement JSON은 기존 txt의 ETTh1 30.20%/ETTh2 29.45%와 일치한다. peak sequence는 각각179/305,5990/4104; 해당 sequence의 differing entries는34/46,0/0. 이는 α별 초기 모델의 두 mask 간 기술 비교다. **섭동 전후 전환 수가 아니며** ETTh2 학습 모델 M9/M9b의 mask 전환 가설을 직접 검증하지 않는다. 원 mask tensor/실행 지문·실forward 독립 재현은 여전히 없다.
+
+### (b) 검증·자료 분리·통계·재현성
+
+사전등록2R commit `2934b857e` 03:33:35가 보정 파일03:34:51 및 구현·점검 commit `f9eacb901` 03:35:29, pilot 종료03:36–37/본 학습03:38 기록보다 먼저다. Git시각과 기록상 순서가 맞으며 모든 과거 미사용을 독립 인증한 것은 아니다. 사용 이력 고지는 v3와 다른 모델의 과거 사용 가능성을 분리한다. train/val/test 목표경계·창수36456/5175/10444 및 train-only scaler는 감사62의 합성 검사 범위를 유지한다. 실제 Weather 내용·test 통계는 이번 감사가 읽지 않았다.
+
+보정2 JSON 저장 산술을 확인했다: α.7 scale10, firing .2190169785, bound3679.873046875; α1 scale6, firing .1987123061, bound2207.9237365722656. 구간 내 target .2 최인접 선택·가지 dead/saturated0·bound=10max|I| 및 기록된 source16자리 지문이 snapshot과 일치한다. 고정 SHA는 각각 `2f28660cef72f3541f70cefd9f5dbfb22f8b90ae8b61be0a49f363f13dc30942`, `3915d27c49f07a9aaab5b30c55070e36750e6a094278c08a882d79a8458f4f98`로 평가기와 일치. 보정 forward 재실행은 not run.
+
+최초 snapshot 본 학습 완료 JSON은 **GRU/Linear seed7 두 개**, 각각16/28epoch. pilot은5조건 seed7×2epoch. 7파일 모두 test=null/test_skipped=true, train/val 창수 및 모든 기록 source SHA가 snapshot과 일치했다. pilot 오차는 성능으로 보고하지 않는다. 진행 중 spiking/나머지seed 부재는 모델 실패가 아니다. checkpoint/config/stdout 전체 대조·완료40개 val 재현·test 개방·성능 판정은 **not run/보류**. JSON의 완료 주장과 실제 전체 provenance gate 통과를 구분한다.
+
+2R의 paired8seed, 1차 P1/P2 97.5% CI(Bonferroni2), 평균차±.005와 CI방향의 결합 판정, 보조6비교95% 기술 구분은 평가기 정적 정의와 맞는다. seed간 불확실성은 하나의 Weather 시간 구간에 조건부이며 창10444개를 독립 반복으로 세지 않는다. P2는 자체 보정이 달라 순수 커널 효과가 아니다. 현재 자료로 새 성능 판단 근거 없음.
+
+**A32-ETT-PATH-FINITE OPEN (A31 유형 재발):** 새 weather_ett_path_check.main은 `worst=max(worst,d)`만으로16건을 집계한다. snapshot 원 main의 evaluate/find_cell/load_model/data_provider만 CPU mock으로 대체해 유한 동일값 양성대조 및 **재계산 MSE가 모두 NaN인16건**을 실행했다. 두 경우 모두 `runs=16,max_abs_diff=0.0,ok=true`가 출력됐다. 따라서 생산자의 저장 `16/16,maxdiff0` 요약만으로 모든 값의 유한성을 보증할 수 없다. 실제 ETT 모델이 NaN이었다는 증거는 아니며, 수정된 Weather 본 평가기 reproduce에는 위11건 거부 확인이 있다. weather_gate_check 마지막 seed7 점검에도 동일 max 집계가 남아 있어 함께 보완하는 편이 맞다(후자는 정적 지적, 별도 실행 not run).
+
+### (c) 감사파일을 통한 다음 실험 개선 방향
+
+1. **현재 D는 등록한40조건과 두 대비를 유지한다.** 전체 결과가 갖춰지면 source/config/checkpoint/calibration·실패 출처·조기 종료 기록을 고정하고 모든 완료칸 val 재현을 거친 뒤에만 test를 연다. 완료/진행/G11 실패/재현 실패를 구분하고 일부 완료 성능으로 조건이나 예산을 고르지 않는다. 신규 학습을 감사가 시작하지 않는다.
+2. 개방 전 점검 보완은 우선 **ETT 경로 검사 및 보조 gate-check의 finite 처리**다. 저장값·재계산값·차이 각각 유한 수인지 먼저 검사하고, 조건/seed별값과 실패목록을 저장하자. NaN/Inf/누락·비수치 fault는 합성검사로 거부 확인 후, 필요 재현 범위만 수행할 것. 기존16건 실제 재검사 전에는 요약0을 근거로 VERIFIED하지 않는다. 원 로그와 결과를 보존한다.
+3. A/B/D 이후 후보는 감사61–62 제안을 유지한다: ETTh2 학습seed7 한 사례의 고정 current/mask에서 절대 응답·분모·최초 전환·score margin을 좁혀 측정하고, M8은 별도 사전등록 q1/원Pearson 대조에서 성능·안전·비용을 함께 평가한다. **현 A/B/D 범위 밖의 선택지**이며 이번 Weather 결과를 본 후 같은 test로 설계를 확증하지 않는다. 이번 mask agreement를 그 전환 측정의 대용으로 쓰지 않는다.
+
+기존 확인 [RevIN 저자 자료](https://seharanul17.github.io/RevIN/)와 [Zeng et al., AAAI2023](https://ojs.aaai.org/index.php/AAAI/article/view/26317)는 정규화/선형 기준선 유지의 근거로 재사용한다. 새 외부 사실/논문 없음; 현재 기전 제안은 로컬 진단에 근거한다. A23/A25 역사적 잔여, A31 M9/M9b 분모, A29 과거 평가기 잔여는 그대로다.
+
+명령: `CUDA_VISIBLE_DEVICES='' PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python .../20260927T184002Z-9006a7a6/cpu_checks.py`, `/usr/bin/python3 .../20260927T184002Z-9006a7a6/result_checks.py`, 모두 종료0. CPU 합성 관문/저장 산술만 실행했다. 모델·학습소스 수정, 학습/backward/GPU, 설치, 프로세스 중단, Git변이, 타 세션/메시지, 새 예약 없음.
+
+<!-- assessment-watch:20260927T184002Z-9006a7a6 -->
+
+
+## 2026-09-28 03:52 KST — 추적 감사64: Weather 기준선 seed13 완료 기록
+
+예약 `20260927T185002Z-d4b16f76`. 관찰 HEAD `eeeb8b6623f31f3294d881b77ef03fafd83e9ffb`; branch `exp/f-lif-pop-v3`, base `329183b94f65090cc6b337f464c5aa4d8e127ad7`. 기억/감사63/사전등록2R/canonical 최신 append 확인. `2026-09-28T03:50:40.880173+09:00`에 실제1426파일 snapshot/SHA256 보존(missing0). trigger 불일치7은 진행 중 spiking best_log CSV다. 감사63 대비 문서3개의 변화는 직전 감사 자체 append로 구분했다. 모델/학습/평가기/진단 source·사전등록 변경 없음. weather_test.py SHA `b06a2a0fc4abac66cc0fa25749b8b2e0e0588a29554899ee228b72bbe18425ba`, 사전등록 SHA `46cb85e57b50e0334d131cba2a7931c3602be28c6062fbee847ff76415de4726` 유지.
+
+- **(a) 구현:** 새 판단 근거 없음. A32 Weather finite 수정/A33 문구정정의 scoped VERIFIED 및 **A32-ETT-PATH-FINITE OPEN**, A31 분모 잔여 등 감사63 판정 유지. 소스가 같으므로 기존 CPU probe 반복하지 않았다.
+- **(b) 검증:** 새 완료 JSON은 GRU/Linear seed13 두 개이며 snapshot 내 본 학습 완료 결과 총4/40개. 각각14/32epoch, CSV 최저 epoch(0-based)3/21 뒤10epoch 기록으로 patience10과 일치한다. CSV 최저val과 JSON 차이는 각각3.481e-7/3.583e-7로 6자리 반올림 범위다. CSV 수치 유한, test=null/test_skipped=true, train/val36456/5175, source SHA 전부 snapshot 일치. logargs의 seed13/weather/suite/R/flatten/no-test/예산과 α.7 보정 파일 기록도 확인했다. 결과 SHA는 GRU `7db1e9bcbb475943dfd12f0005dd91235a681899f054eabcf2074078e550d0a7`, Linear `4799c7dba21e929efea3129e28cf0914bcbe56b17c632089188d8485ec41e68f`. 진행 중 CSV와 seed21 시작 기록은 완료·실패로 간주하지 않는다. checkpoint/config binary 대조, 실val 재현, 전체40gate 및 test는 **not run**. 저장 기록 일관성 확인이며 전체 재현성 인증은 아니다.
+- **(c) 개선 방향:** 새 성능 판단 근거 없음. 등록 조건을 유지하고 감사63의 finite 점검 보완→전체 완료/실패 출처 대조→모든 완료칸 val 재현→test 개방 조건을 그대로 전달한다. 부분 결과로 모델/예산/가설을 선택하지 않는다. 새 실험·문헌 제안 없이 기존 방향 유지; 현재 성능 판단 보류.
+
+증거 `f_lif_pop_v3/forecasting/results/assessment/20260927T185002Z-d4b16f76/`(inventory/source_snapshot/check_results.py/checks.json/postcheck.json), raw 같은 task `log/assessment/20260927T185002Z-d4b16f76/checks.txt`. `/usr/bin/python3 .../20260927T185002Z-d4b16f76/check_results.py` 종료0, 표준 라이브러리 저장 산술만 실행. 학습·GPU·모델소스·환경·진행 프로세스·Git변이 없음. 감사 중 새 실행 결과는 다음 주기에 확인한다.
+
+<!-- assessment-watch:20260927T185002Z-d4b16f76 -->
+
+
+## 2026-09-28 04:01 KST — 추적 감사65: 새 판단 근거 없음 (Weather 학습 진행)
+
+예약 `20260927T190002Z-8a5f5fb9`, 관찰 HEAD `eeeb8b6623f31f3294d881b77ef03fafd83e9ffb`(감사64와 동일). 기억·감사64 최신 append·사전등록2R·canonical PROJECT_LOG를 읽었다. `2026-09-28T04:00:34.908046+09:00`에 실제1426파일 snapshot/SHA256 보존, missing0; trigger 차6은 진행 중 CSV. 직전 감사 자체 문서3개 append를 제외한 변화는 Weather spiking 학습 CSV8개뿐이다. source·사전등록·완료 결과 불변. weather_test.py SHA `b06a2a0fc4abac66cc0fa25749b8b2e0e0588a29554899ee228b72bbe18425ba`; 모든 파일 hash는 아래 inventory에 기록했다.
+
+- **(a) 구현:** 새 판단 근거 없음. 기존 판정 유지; 변경 없는 API에 CPU 모델 probe는 **not run**.
+- **(b) 검증:** snapshot CSV8개는 이전 바이트를 prefix로 보존한 추가 기록이며 epoch 연속·저장 수치 유한을 확인했다. 본 학습 완료 JSON은 기존4/40개로 추가 없음. 진행 기록을 완료나 실패로 판정하지 않는다. 실val 재현·40칸 관문·test·학습/GPU는 **not run**. A32-ETT-PATH-FINITE OPEN, A31 분모 잔여 및 나머지 열린 이슈 유지; 재검사 없이 VERIFIED 전환 없음.
+- **(c) 개선:** 새 성능 판단 근거 없음, 성능 보류. 감사63–64의 finite 보완·전체 완료/실패 출처 대조·모든 완료칸 val 재현 후 test 개방 조건 유지. 새 실험/문헌 제안 없음.
+
+증거 `f_lif_pop_v3/forecasting/results/assessment/20260927T190002Z-8a5f5fb9/`의 inventory.json/source_snapshot/check_progress.py/checks.json; raw 같은 task `log/assessment/20260927T190002Z-8a5f5fb9/checks.txt`. `/usr/bin/python3 .../20260927T190002Z-8a5f5fb9/check_progress.py` 종료0(저장 CSV 검사만). 기존 local changes·checkpoint·raw 보존, 모델/학습소스·환경·진행 프로세스·Git변이·타 세션/메시지·예약 변경 없음.
+
+<!-- assessment-watch:20260927T190002Z-8a5f5fb9 -->
