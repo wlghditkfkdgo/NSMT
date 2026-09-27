@@ -6117,3 +6117,28 @@ ETTh2의 pearson(.3859)은 window-mean(.385)과 같은 수준이다. v3 스파�
     - Linear 파라미터 수는 32,352다.
   - **수치는 사전등록대로 해석·보고하지 않는다.** 구현 수정이 없었으므로 시험 산출물은 보존만 하고 최종 suite와 분리한다.
 - **본 학습:** suite `etthard-revin-20260927`, 80개 = 2 데이터셋 × 8 seed × {q1_R, pearson_R, gru_R, linear, linear_R}. `scripts/gpu_pool2.sh`, A6000 4장에 GPU당 2개. queue는 로컬 전용이다. 완료 대기는 pool PID로 한다(09-25에 명령줄 검색 대기가 자기 자신을 잡아 멈추지 않았던 문제를 피하기 위함).
+
+
+## 2026-09-27 18:08 KST — 추적 감사51: 2O R 구현 범위 검증 / 전체 확증 대기
+
+예약20260927T090001Z-b9116dd1, HEAD491bc5a0aca392f5fea79a66244804cb5ac5ae9d, exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7. snapshot786+완료25건cp/config50파일,trigger와진행파일9차이. A24제안2O채택확인. CPU합성4조건 출력복원/MSE차0,R-off구source3조건차0,이동최대7.16e-7,구간8209/2785/2785/2925·train scaler확인→A24-IMPLEMENTATION 한정VERIFIED. 기존준상수fp32검사의반올림을보완해통과;48val재현GPU/사전CPU편차고지,감사전체재현not run. probe오류2건은감사도구설정수정후PASS/모델실패아님. pilot16×3epoch,본실험snapshot9/80완료;25건config/no-test/cp hash/source11/CSVepoch·best·보정일치,본9patience10일치. A24-FUTURE-GATE PENDING(평가기작성중),전체128관문·새구간성능/CI not run. 다음128셀지문/완료대조→개방전결함거부→사전D_P97.5%/−.005·보조대비;선택확대는후순위. Rscale10/bound1334.6654·2026.3174는정규화+보정결합효과. A23원실행지문/MC잔여OPEN. 상세ASSESMENT감사51,증거NSMT/f_lif_pop_v3/forecasting/results/assessment/20260927T090001Z-b9116dd1/,raw같은task log/assessment/. 학습/GPU/실제데이터접근/연구소스·Git변이없음.
+
+---
+
+## 2026-09-27 18:08 KST — 2O 본 학습 80개 완료 / 미래 구간 평가기와 관문 점검 (개방 전)
+
+- **본 학습:** suite `etthard-revin-20260927`, 80/80 완료. 실패 0, G11 위반 0, SKIP 0이다. 결과 JSON 80개는 `results/etthard-revin-20260927/`에 있다.
+- **평가기:** `ett_future.py`. model_v1 `test.py` 형식을 따른다(`test(args, model, cond, flag)`, torchmetrics, `final+result.csv`에 split 열 추가).
+  - 2N 평가기 `ett_test.py`는 이미 실행돼 지문이 기록돼 있으므로 **건드리지 않았다.** 바뀌지 않은 보조 함수만 가져다 쓴다.
+  - 2O suite 안에서 GRU와 Linear의 variant 이름이 같으므로, run 탐색 경로에 모델 이름을 넣었다.
+  - 대조 항목:
+    - 조건별로 R 유무를 대조한다.
+    - R 켠 스파이킹 조건의 input_scale 10.0과 R용 G11 한계를 대조한다.
+    - R 설정별로 고정한 보정 파일과 SHA를 대조한다.
+    - 그 외에 데이터 CSV SHA, checkpoint 지문, CUDA·torch, test 미실행, 조기 종료 증거를 대조한다.
+  - 판정: 1차 `D_P = pearson_R − pearson`(97.5% CI, 상한 < 0 이고 평균 ≤ −0.005). 보조로 D_q, S_off, S_on, I, GRU·Linear의 R 차이(95%)를 본다.
+- **관문 점검** (`analysis/ett_future_gate_check.{py,txt}`, 미래 구간과 등록부는 건드리지 않음):
+  - 128 run이 대조를 **128/128** 통과했다.
+  - 2O 특유 결함 주입 **6/6 거부**: R 켠 run에 R 없는 input_scale·한계·보정 파일을 넣은 경우, revin 표시가 빠진 경우, R 없는 run을 R 켠 조건으로 지정한 경우, Linear run을 GRU로 지정한 경우.
+  - validation 통과 16건(8조건 × 2데이터, seed 7)에서 기록된 최저 검증 MSE와의 차이는 최대 1.1e-7이다. pearson·pearson_R 마스크 재구성 불일치는 0이다.
+- validation 수치는 checkpoint 선택에 쓴 분할이므로 **여기서 해석하지 않는다.**
