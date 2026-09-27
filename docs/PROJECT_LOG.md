@@ -6537,3 +6537,65 @@ ETTh2의 pearson(.3859)은 window-mean(.385)과 같은 수준이다. v3 스파�
 | 감사 56 수용 | 22:14 | `88b46af06` 22:14:42 |
 
   이 항목부터 제목 시각은 `date` 출력만 쓴다.
+
+
+## 2026-09-28 02:55 KST — 추적 감사58: 단일 Linear 사전검사와 안정성 진단 해석 조건
+
+감사;branch exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7/HEADf596b6f6062bbe1c04d534445e4f37a8e448ae73. snapshot1220+pool2보존. CPU no_grad 합성2seed×2q에서구flatten불변/공통초기tensor동일/−1056params/fold차≤4.72e−16;초기함수는상이. A30-READOUT scoped VERIFIED. A30-M4-INTERPRETATION OPEN:회귀계수를실제국소증폭률로단정금지,rank부족/식별성/perturbation검사필요. A29두관문새평가기검증대기OPEN. 4pilot2epochCSV만기술/Hq·Hp성능판정보류;2O80/2P32명령pool정합. 조건·수치·명령·문헌·다음방향은NSMT/docs/ASSESMENT.md감사58. 증거NSMT/f_lif_pop_v3/forecasting/results/assessment/20260927T175002Z-8a6ea748/,raw같은task log/assessment/20260927T175002Z-8a6ea748/. 실데이터forward/학습/backward/GPU not run. 연구소스·환경·Git변이/commit/tag없음.
+
+---
+
+## 2026-09-28 03:02 KST — 2Q (B) 결과 (ETT validation, **탐색**): model_v1식 단일 Linear readout은 ETTh1에서 더 나쁘다(+2.0%, +0.9%), ETTh2에서는 차이를 보이지 못함 → D-CB 규칙대로 D는 기존 두 단 head
+
+**성격:** 사전등록 2Q D-CB(commit `059172f0c`, 코드·실행 전). 탐색이다. validation은 모든 조건의 조기 종료에 쓰였다.
+**목적:** 사용자 제안(09-28) "readout을 위한 마지막 layer는 model_v1처럼 non-spiking `nn.Linear` 한 단"이 기존 v3 head보다 나은지.
+**브랜치·기준:** `exp/f-lif-pop-v3`, 기준 `329183b94`. 환경 `snn_recall`, torch 1.12.0+cu113, RTX A6000.
+**코드:** `ours.py` head_mode `linear`(스파이크 [42, B·C, 32]를 펼쳐 `nn.Linear(1344, 96)` 한 단, bias 있음, PyTorch 기본 초기화). 압축층을 먼저 만든 뒤 Identity로 바꿔 같은 seed의 초기값을 `flatten`과 맞췄다. GRU는 `linear`를 거부한다. `config.py` 선택지, `run_ett.sh` 조건 `q1_R_lin`·`pearson_R_lin`. commit `f596b6f60`.
+**사전 점검 4/4** (`analysis/readout_checks.{py,txt,json}`):
+- 기존 `flatten` 경로: 2O R 켬 스파이킹 checkpoint 32개의 val MSE 재현 최대차 0.
+- 같은 seed에서 공유 tensor 17개가 모두 같다. 처음 실행에서 `eta_value`가 "다름"으로 나왔는데, η를 학습할 때 NaN을 담는 표지 buffer여서 NaN ≠ NaN 비교 때문이었다. 비교를 `equal_nan`으로 고쳐 다시 돌렸다(제 점검 코드의 결함).
+- 파라미터 수: flatten 130,666, linear 129,610(차이 1,056).
+- 학습된 flatten head(ETTh1 pearson_R seed 7)를 한 개의 Linear로 접으면 예측 차이 1.1e-15. 두 head가 표현할 수 있는 함수는 같다.
+- `check_model.py` 관문 23/23.
+**시험 run:** suite `etthard-readout-pilot-20260928`, seed 7, 2 epoch, 4개. 보고하지 않는 배선 점검(head_mode linear, 129,610, α=0.7 R 보정 파일).
+**본 학습:** suite `etthard-readout-20260928`, 32개(2 데이터 × {q1_R_lin, pearson_R_lin} × 8 seed), 02:49–02:57 KST, 실패 0, epoch 12–35. 명령은 `results/etthard-readout-20260928/run_commands.txt`. 학습 중 HEAD가 `f596b6f60`에서 `f2e27fd7d`로 바뀌어 15개와 17개가 각각 기록됐다. 두 commit 사이 차이는 분석 스크립트 한 개뿐이다. 짝(`flatten`)은 2O의 q1_R·pearson_R checkpoint를 재사용했다. 예산은 2N·2O 그대로다.
+**평가기:** `ett_readout.py`(commit `2dd1bd005`). 감사 56 A29를 반영했다: 두 데이터셋 모든 칸을 어떤 forward보다 먼저 검사하고, 실패 칸은 run_uuid·동작점·no-test·stdout 중단 줄을 대조한다.
+**관문·fixture 16/16** (`analysis/ett_readout_gate_check.{py,txt}`):
+- 두 데이터셋 64칸 오류 0.
+- 실제 CLI에서 반대 데이터셋 마지막 칸(ETTh2 pearson_R_lin 1024)을 빼면 관문에서 멈춘다. 데이터 로더는 한 번도 호출되지 않았고 출력 폴더도 생기지 않았다.
+- 실제 2P 실패 칸은 받아들이고, uuid·input_scale·보정 파일·no-test·epoch·최대값을 바꾸면 거부한다.
+- 비교별 보류와 head 결정 규칙 fixture도 통과했다.
+**명령:** `ett_readout.py -nd 0`(`CUDA_VISIBLE_DEVICES=0`). 관문 64칸 통과, 재현 최대차 1.42e-7, 64개 모두 안전, 마스크 불일치 0, 피어슨 경계 동점 5/25,577,440.
+**Artifact:** `results/etthard-readout-20260928-val/ett_readout_record.json`(행별 전체·채널 MSE, 파라미터 수, 지문, 대비, D head 결정). stdout은 로컬 `log/etthard-readout-20260928/ett_readout_val.stdout`.
+
+### validation MSE 평균 (8 seed)
+| 데이터 | q1_R 두 단 | q1_R 한 단 | pearson_R 두 단 | pearson_R 한 단 |
+|---|---:|---:|---:|---:|
+| ETTh1 | **.725107** | .739820 | .732199 | .738796 |
+| ETTh2 | .228185 | .229645 | **.227354** | .227971 |
+
+### 대비 (n=8 paired t, 95%; 양수 = 한 단이 나쁨)
+| 대비 | ETTh1 | ETTh2 |
+|---|---|---|
+| H_q = q1_R 한 단 − 두 단 | **+0.014712** [+0.009612, +0.019812], +2.03%, 한 단이 낮은 seed 0/8 | +0.001460 [−0.000193, +0.003113], +0.64%, 2/8 |
+| H_p = pearson_R 한 단 − 두 단 | **+0.006597** [+0.002583, +0.010611], +0.90%, 1/8 | +0.000617 [−0.000411, +0.001646], +0.27%, 2/8 |
+| S(두 단) = pearson − q1 | +0.007091 [+0.000996, +0.013187], +0.98%, 1/8 | −0.000831 [−0.002561, +0.000899], −0.36%, 5/8 |
+| S(한 단) = pearson − q1 | −0.001024 [−0.008941, +0.006893], −0.14%, 4/8 | −0.001673 [−0.002646, −0.000700], −0.73%, 8/8 |
+
+- 발화율(평균): ETTh1 q1 두 단 .204, 한 단 .187; pearson .239, .208. ETTh2 q1 .191, .190; pearson .219, .214. 최대 |u|는 한계(1334.7·2026.3) 안이다(최대 143.2).
+
+### 판정 (D-CB 규칙, 결과 전에 고정)
+- ETTh1의 H_q와 H_p가 모두 "95% 하한 > 0 이고 평균 ≥ +0.005"를 만족한다. 규칙대로 **D에서는 기존 두 단 head(`flatten`)를 쓴다.**
+- ETTh2에서는 두 head의 차이를 보이지 못했다(무효과·동등성의 증거가 아님).
+
+### 해석
+1. **사용자 예상과 달리, 이 예산에서 한 단 readout은 이득이 아니었다.** ETTh1에서 선택 없는 모델은 8개 seed 모두 한 단이 더 나빴다. 두 head가 표현할 수 있는 함수는 같으므로, 차이는 **학습 과정**에서 나온 것이다. 같은 lr·weight decay에서 두 층 곱으로 나눈 매개변수화가 실제 학습 속도와 정규화를 바꾼다는 설명이 가능하지만 **가설이다.** 이 실험은 그 원인을 측정하지 않았다.
+2. model_v1의 설정(bias 옵션, trunc_normal 초기화, T 반복 평균)은 가져오지 않았다. 따라서 "model_v1의 readout 전체"가 아니라 "v3 안에서 두 단을 한 단으로 바꾼 것"의 결과다.
+3. 선택 효과(S)는 head와 무관하게 작다(±1%). ETTh2의 한 단에서만 8/8 음수였다.
+
+### 점검
+사전 점검 4/4, 관문 23/23, 관문·fixture 16/16, 재현 ≤1.42e-7, 안전 64/64. **not run:** 매개변수화가 학습 동역학을 바꾸는 방식의 측정, model_v1 초기화·bias를 넣은 변형, 다른 데이터셋.
+
+### 주장 범위
+말할 수 있는 것: ETTh1·ETTh2 H96 validation, 이 예산에서 v3 스파이킹 모델의 readout을 두 단에서 한 단으로 바꿨을 때 ETTh1에서 오차가 커졌다는 탐색적 관찰.
+말하지 않는 것: 확증, 원인, model_v1 전체 설정의 효과, 다른 데이터셋.
