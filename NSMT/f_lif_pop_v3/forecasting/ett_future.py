@@ -239,6 +239,35 @@ def paired(a, b, level=.95):
             'a_lower': int((d < 0).sum()), 'n': n}
 
 
+def gate(opening, pred_len, device):
+    """Everything that must hold before the future period is touched (2O D-BM, audit 51).
+
+    Reads configs, checkpoints, calibration files, the data CSV bytes (for their SHA256 only),
+    training logs and stdout -- never the future rows, never the registry. A missing or
+    duplicated cell stops here with SystemExit from find_run. Returns the manifest errors and,
+    for the dataset about to be opened, the loaded models.
+    """
+    errors, runs = [], {}
+    for data in DATASETS:
+        for revin in (False, True):
+            name, digest = calibration_of(data, revin)
+            if sha256(TASK / 'results' / 'calibration' / name) != digest:
+                errors.append(f"{data}: calibration {name} sha256 is not the fixed one")
+        if sha256(DATA_ROOT / f'{data}.csv') != DATA_SHA256[data]:
+            errors.append(f"{data}: data CSV sha256 is not the fixed one")
+        for cond in CONDITIONS:
+            for seed in SEEDS:
+                run, result = find_run(data, pred_len, cond, seed)
+                model, args = load_model(run, device)
+                bad = check_manifest(args, result, data, pred_len, cond, seed)
+                errors += [f"{data} {cond}/{seed}: {b}" for b in bad]
+                if data == opening:
+                    runs[(cond, seed)] = (model, args, sha256(Path(run) / 'model_state' / 'best+model.pt'),
+                                          sha256(Path(run) / 'model_state' / 'config.pt'), result)
+
+    return errors, runs
+
+
 def parse_arguments():
 
     parser = argparse.ArgumentParser(description='prereg 2O: one look at the future period for the R question')
@@ -260,23 +289,7 @@ if __name__ == '__main__':
     device = torch.device(f'cuda:{config.num_device}')
 
     # ---- 1. 개방 전 전체 대조: 두 데이터셋 128 run이 모두 끝나고 모두 맞아야 한다 (2O D-BM) --------
-    errors, runs = [], {}
-    for data in DATASETS:
-        for revin in (False, True):
-            name, digest = calibration_of(data, revin)
-            if sha256(TASK / 'results' / 'calibration' / name) != digest:
-                errors.append(f"{data}: calibration {name} sha256 is not the fixed one")
-        if sha256(DATA_ROOT / f'{data}.csv') != DATA_SHA256[data]:
-            errors.append(f"{data}: data CSV sha256 is not the fixed one")
-        for cond in CONDITIONS:
-            for seed in SEEDS:
-                run, result = find_run(data, config.pred_len, cond, seed)
-                model, args = load_model(run, device)
-                bad = check_manifest(args, result, data, config.pred_len, cond, seed)
-                errors += [f"{data} {cond}/{seed}: {b}" for b in bad]
-                if data == config.data:
-                    runs[(cond, seed)] = (model, args, sha256(Path(run) / 'model_state' / 'best+model.pt'),
-                                          sha256(Path(run) / 'model_state' / 'config.pt'), result)
+    errors, runs = gate(config.data, config.pred_len, device)
     if errors:
         for e in errors:
             print(f"[ett_future] manifest {e}")

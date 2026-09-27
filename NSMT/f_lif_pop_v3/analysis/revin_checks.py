@@ -60,7 +60,10 @@ def main(device):
     # 1 -------------------------------------------------------------------------------------
     flat = x.clone()
     flat[:, :, 0] = 3.
-    flat[:, :, 1] = 3. + 1e-9 * torch.randn(6, 336)
+    # audit 51: 3 + 1e-9 * noise rounds back to exactly 3 in float32 and is not a near-constant
+    # channel at all. 1e-4 survives float32 (eps ~ 2.4e-7 at 3) and has a tiny but real variance.
+    flat[:, :, 1] = 3. + 1e-4 * torch.randn(6, 336)
+    assert flat[:, :, 1].std(dim=1).min() > 0, 'near-constant channel collapsed to a constant'
     finite = {}
     for cond in CONDS:
         model, args = build(cond, True)
