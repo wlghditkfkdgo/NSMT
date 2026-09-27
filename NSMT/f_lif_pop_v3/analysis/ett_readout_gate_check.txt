@@ -1,0 +1,17 @@
+[readout-gate] PASS  gate over both datasets: 0 errors, 64 finished runs, 0 G11 failures
+[readout-gate] PASS  CLI stops in the gate when the other dataset's last cell is missing: stopped: [ett_readout] ETTh2 pearson_R_lin seed 1024: 0 run dirs, 0 results; tripwires fired []; output dir created False
+[readout-gate] PASS  accept the real G11 failure: []
+[readout-gate] PASS  refuse record run_uuid from another run: ["G11 record run_uuid '0000000000000000' != config 'f30896df6c352a75'"]
+[readout-gate] PASS  refuse config input_scale 999: ['config input_scale 999.0 != 8.0']
+[readout-gate] PASS  refuse config calibration_file of alpha 0.7: ["config calibration_file 'ETTh1_a0.7_norm-frozen_revin_seed7_260927-175652.json' != 'ETTh1_a1.0_norm-frozen_revin_seed7_260927-214003.json'"]
+[readout-gate] PASS  refuse config without --no-test: ['config test True (the run was not --no-test)']
+[readout-gate] PASS  refuse record epoch 1 (stdout says 0): ['stdout stop line (epoch 0, batch 0, peak 2122.801, bound 1067.732) != G11 record']
+[readout-gate] PASS  refuse record peak +1 (stdout disagrees): ['stdout stop line (epoch 0, batch 0, peak 2122.801, bound 1067.732) != G11 record']
+[readout-gate] PASS  no failure -> 4 contrasts reported
+[readout-gate] PASS  q1_R seed 7 unsafe -> H_q and S(flatten) only: ['H_q = q1_R(linear) - q1_R(flatten)', 'S(flatten) = pearson_R - q1_R']
+[readout-gate] PASS  pearson_R_lin seed 13 not reproduced -> H_p and S(linear) only: ['H_p = pearson_R(linear) - pearson_R(flatten)', 'S(linear) = pearson_R - q1_R']
+[readout-gate] PASS  head rule: nothing clearly worse -> linear: ('linear', [])
+[readout-gate] PASS  head rule: H_p clearly worse on one dataset -> flatten: ('flatten', ['ETTh1 H_p = pearson_R(linear) - pearson_R(flatten): mean +0.010750, 95% CI [+0.010159, +0.011341]'])
+[readout-gate] PASS  head rule: a withheld H -> flatten: ('flatten', ['ETTh2 H_q = q1_R(linear) - q1_R(flatten): withheld'])
+[readout-gate] PASS  strict JSON of the contrasts
+[readout-gate] 16/16 checks pass
