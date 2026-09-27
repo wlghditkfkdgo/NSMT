@@ -3762,3 +3762,168 @@ snapshot의 pilot 네 config는 seed7·2epoch·linear·spike·R=True·α.7·scal
 실행: `CUDA_VISIBLE_DEVICES='' PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python f_lif_pop_v3/forecasting/results/assessment/20260927T175002Z-8a6ea748/cpu_checks.py` 종료0. synthetic no_grad forward·대수 검사만 수행. 학습/backward/GPU·실데이터 forward·환경 설치·프로세스 중단·모델/학습 소스 수정·Git 변이·타 세션/메시지·새 예약 없음. A25 과거2O 채널 누락과 기존 잔여는 유지한다.
 
 <!-- assessment-watch:20260927T175002Z-8a6ea748 -->
+
+
+## 2026-09-28 03:05 KST — 추적 감사59: 2Q readout 결과 검증 / A29 일부 해소·실패 경로 잔여 / 진단 finite 관문
+
+예약 `20260927T180002Z-aaed5bf0`. 대응 **A29-GATE-COVERAGE / A29-FAILURE-PROVENANCE / A30-READOUT / A30-M4-INTERPRETATION / A31-DIAG-FINITE**. branch `exp/f-lif-pop-v3`, base `329183b94f65090cc6b337f464c5aa4d8e127ad7`. trigger/최초 HEAD `2dd1bd0056167882d9e4308abc42180f58346281`; 후기 HEAD `9205721712e81dd54c62c7e3d5595c104d9a1689`. 기억·감사58·사전등록2Q 및 canonical 최신 결과 append를 읽었다. 자기 감사 기록은 연구 변경에서 제외했다.
+
+### 보존·검사 범위
+
+03:00:47 KST까지 감시 파일과 관련 config/checkpoint/stdout·데이터CSV 등을 **1765파일**로 별도 snapshot했다. trigger 불일치0·누락0. 감지 목록에 아직 없던 완성 `etthard-readout-20260928-val/ett_readout_record.json`도 당시 현재 파일로 보존했다. 해시는 `f_lif_pop_v3/forecasting/results/assessment/20260927T180002Z-aaed5bf0/inventory.json`, 증거는 checks.json·diag_checks.json·historical_source_check.json. raw stdout은 같은 task `log/assessment/20260927T180002Z-aaed5bf0/checks.txt` 및 diag_checks.txt. 후기 기존 snapshot 파일 중 변경은 canonical PROJECT_LOG만으로, 새 결과 설명을 읽고 별도 late snapshot/hash했다. 그 밖의 이후 추가 파일은 다음 주기 범위다.
+
+SHA256: prereg `eb073b5219ac3c1f593305740dfaf73517ebd6f23116b961cd92b05dbcd83fa2`; ett_readout.py `901832b4de7a0d620eac9149463106fdf7fee32457e6706073685611c013b59b`; gate probe `9cdc0c04e6ae5e2ce347bd040217ca170341e302a51b40815e1223046b76e24c`; selection_stability.py `b9b7d79243093472314824fb8c0b7a722f2d9a8d98e2222ad8acbc0da76ef037`; readout record `02dc9fdd1f5a1a2d9356f56a492b0a83130ccb15a579609d20dd90aa33fd5db3`.
+
+### (a) 구현·평가 관문
+
+**A29-GATE-COVERAGE scoped VERIFIED(새 ett_readout).** 현재 API를 확인한 뒤 snapshot 모델/config를 CPU로 읽는 adapter로 생산자16개 fixture를 재실행해16/16 통과했다. 실제64칸(두 데이터×네 조건×8seed)의 metadata gate 오류0, 실제 CLI에서 반대 데이터 마지막 칸 ETTh2/pearson_R_lin/1024를 누락시키면 loader 호출과 출력 폴더 생성 전에 중단했다. 실행된 옛 ett_alpha.py의 역사적 결함을 소급 수정한 것은 아니다.
+
+**A29-FAILURE-PROVENANCE 부분 VERIFIED, 전체 OPEN 유지.** 실제2P G11 실패를 새 함수에 입력하는 양성 대조와 UUID·scale999·보정 파일·no-test·epoch·peak 변조 거부를 모두 재현했다. 그러나 저장 config의 **root_path를 다른 경로로, data_path를 ETTh2.csv로 각각 변조해도 오류0**이었다. 완료 칸의 check_manifest와 달리 check_failure에는 이 두 검사가 없다. 새로운 실패 경로 fixture는 감사 artifacts에만 만들었다. 이번2Q의 실제64칸은 모두 완료여서 이 실패 경로 누락이 이번 MSE에 영향을 미쳤다는 증거는 없다. 닫는 조건은 실패 칸에도 canonical 데이터 root/file 대조를 적용하고 각 변조를 거부하는 재검사다. 기존 UUID/scale 보완 성과와 남은 데이터 출처 누락을 구분한다.
+
+A30-READOUT의 기본 구현 판정은 감사58 유지. 새 평가기는 채널 SSE/count를 동일 forward에서 누적하고 비교가 사용하는 unsafe/repro-failure 칸만 차단한다. 합성 통계 fixture와 저장 결과 재집계로 이 흐름을 확인했다. 한편 head_decision은 H가 보류되면 flatten을 선택하지만 D-CB는 기본 linear와 명확한 열화 시 flatten만 명시한다. **이번에는 보류가 없어 판정에 영향 없음**. 실패 시 fallback을 이후 규정에 명시하거나 결정 보류로 표시하고, 이를 원래 판정 규칙으로 소급하지 않는 것이 좋다.
+
+**선택 안정성 진단은 진행 단계.** snapshot에는 selection_stability.py만 있고 완료 JSON/txt는 없다. main의 train8batch 전체 분석은 실행하지 않았다. 작은 합성 current [12,2,4], float64에서 α.7/1 각각 q1·Pearson 재귀 대 모델 상대차0; M8 q1 환원 오차≤2.78e−16을 확인했다. 이 범위만 구현 부분 확인이며 실제 ETT 상태 경로·H1 성립·M7/M8 효과는 **not run/판정 보류**다.
+
+**A30-M4-INTERPRETATION OPEN 유지.** 구현은 기존 회귀 λ와 supported/not-supported 규칙을 그대로 사용하며 rank/식별 불가 처리가 아직 없다. 감사58의 회귀≠국소미분 반례와 rank 문제는 해결되지 않았다. 관측 회귀 지표를 실제 재귀 안정성 판정으로 해석하지 않는다.
+
+**A31-DIAG-FINITE OPEN(확정된 방어 검사 누락, 실제 뉴런 실패 아님).** check_against_model은 `max(worst, relative_error)`를 누적한다. 감사에서 진단 재귀의 반환 state에만 NaN을 주입하자 두 α 모두 반환 오차가0이 되어 main의 `rel > 1e-4` 차단을 통과했다. max(0,NaN)이 이전0을 유지하는 문제다. 최종 strict JSON이 나중에 쓰기를 거부할 수 있어도 사전 parity gate가 정상 작동한 것은 아니다. zero reference norm도 별도 정의가 필요하다. 먼저 모델/재구현 state와 계산 오차의 isfinite를 검사하고, 영 분모의 일치/불일치를 정의한 뒤 fail-closed fixture를 추가해야 한다. 진행 중인 분석 파일에서 발견한 구현 결함으로 기록하며, 현재 실제 데이터에서 NaN이 발생했다고 주장하지 않는다.
+
+### (b) 새 결과·분리·통계·재현성
+
+완성 record는 val·exploratory·done, 중복 없는64행이다. 새 linear32개와 재사용 flatten32개의 checkpoint/config SHA, 평가 source11개·data2개·보정2개를 snapshot과 대조했다. 새32개 학습 source는 현 소스와 일치한다. 기존32개는 ours.py/config.py 두 파일 지문만 이전판이며 감사57 snapshot과64/64 지문 일치했다. 이는 명시된 재사용 이력으로, 무조건 현 소스와 같아야 한다고 오판하지 않았다. 감사58의 flatten 경로 보존 검사와 이번 저장 재현 수치가 재사용을 뒷받침한다.
+
+64행 모두 저장된 safe/repro_ok=True·2785창·채널7개, mask mismatch합0. best_val 대 저장 평가 MSE 최대차는 ETTh1 **1.42248e−7**, ETTh2 **3.57918e−8**; 채널 평균 대 전체 MSE 차는 각각1.41826e−7/3.57305e−8. 상태 peak의 데이터별 최대는106.3714/143.1850으로 등록 한계 안이다. **저장값/출처 대조이며 실데이터 평가 forward를 감사에서 다시 실행한 것은 아니다.**
+
+analyse 출력과 모든 대비의 paired t7 95% 구간을 별도 산술로 다시 계산해 일치했고 D head 결정도 재현했다.
+
+| 데이터·대비(linear−flatten) | 평균차 | 95% seed CI | 상대차 | linear가 낮은 seed |
+|---|---:|---|---:|---:|
+| ETTh1 H_q | +.014712311 | [+.009612292,+.019812330] | +2.0290% | 0/8 |
+| ETTh1 H_p | +.006597057 | [+.002582625,+.010611489] | +.9010% | 1/8 |
+| ETTh2 H_q | +.001459640 | [−.000193445,+.003112724] | +.6397% | 2/8 |
+| ETTh2 H_p | +.000617476 | [−.000410767,+.001645719] | +.2716% | 2/8 |
+
+ETTh1 H_q/H_p 모두95%하한>0·평균≥.005라 등록 규칙대로 **D의 head는 flatten**이다. ETTh2 구간이0을 포함하는 것은 동등성 증명이 아니다. val은 checkpoint 조기 종료와 선택에 사용됐으므로 독립 일반화 확증이 아니다. seed CI는 고정 기간의 학습 변동이며 겹치는 창/채널을 반복 표본으로 세지 않는다.
+
+ETTh2 linear 내부 Pearson−q1은−.001673270, CI[−.002646169,−.000700372],8/8 음수지만 이는 작은 **head 내부 탐색 대비**다. 더 낮은 기존 flatten Pearson 평균(.227353789) 대비 linear Pearson(.227971265)의 우위가 아니며, 이 지표만 골라 사전 head 결정을 뒤집지 않는다. ETTh1 평균 q1 flatten .725107282/linear .739819594, Pearson flatten .732198551/linear .738795608이다.
+
+canonical 결과 설명과 수치는 맞는다. “함수 클래스가 같으므로 차이는 학습 과정에서”라는 설명에는 **초기 유효 함수 차이도 포함**해야 한다(감사58 실제 초기 출력차 확인). 초기화 차이를 통제한 순수 최적화 효과나 model_v1 전체 설정의 반증으로 확대하지 않는다. 원인 규명과 새 자료 확증은 **not run**이다.
+
+### (c) 감사파일을 통한 다음 방향
+
+1. 등록된 결과를 따라 D에서는 flatten을 유지한다. 단일층을 유리하게 만들기 위한 추가 설정 탐색으로 이미 관측한 ETT val에 반복 적합하기보다, 고정한 head와 보정·주 대비·실패 규칙을 미사용 자료의 사전등록에 옮긴다. 미사용 자료 이력과 시간 경계는 그 실행 전에 확인한다.
+2. A29 실패 데이터 경로 검사와 A31 finite parity gate를 보완한 뒤 해당 실패주입 증거로 닫는다. 원래 결과·실패 기록은 보존한다. A30 M4는 기술 지표로 범위를 좁히고 식별 불가를 분리한 뒤 H1을 읽는다. 공통 current 및 고정 mask 비교는 α별 보정 효과와 분리해 보고한다.
+3. readout 원인을 더 묻는 경우에만 같은 초기 함수로 합성한 head 대조와 effective weight norm/출력 분산을 별도 탐색으로 정의한다. 현재 네 대비를 바꾸거나 이 추가 대조를 기존 실험의 일부로 소급하지 않는다. 단일 head가 일반적으로 나쁘다는 결론도 아니다.
+
+기존 확인 문헌 [RevIN 저자 자료](https://seharanul17.github.io/RevIN/)의 입력 통계 제거/복원과 [Zeng et al., AAAI2023](https://ojs.aaai.org/index.php/AAAI/article/view/26317)의 단순 선형 참고선을 계속 근거로 사용한다. 이번 방향의 직접 근거는 로컬2Q 대비와 감사58·59의 구현 검사이며, 이 문헌이 현재 readout/기전의 우열을 입증한다고 보지 않는다. 새 논문·외부 사실을 추가하지 않았다.
+
+실행: `CUDA_VISIBLE_DEVICES='' PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python f_lif_pop_v3/forecasting/results/assessment/20260927T180002Z-aaed5bf0/audit_checks.py` 및 같은 환경의 diag_checks.py, 모두 종료0. CPU checkpoint 로드/metadata·fixture·저장 산술/작은 합성 current만 수행. 학습/backward/GPU·실데이터 forward·설치·프로세스 중단·연구소스/Git 변이·타 세션 열람/메시지·새 예약 없음. A23 잔여와 A25 과거2O 채널 누락 유지.
+
+<!-- assessment-watch:20260927T180002Z-aaed5bf0 -->
+
+
+## 2026-09-28 03:14 KST — 추적 감사60: M9/M9b 합성 검사와 Weather 준비 경로
+
+예약 `20260927T181002Z-5e894ce0`. 관찰/trigger HEAD `0e5fc053df7729bc38db8c2e68c6022f70a06987`, branch `exp/f-lif-pop-v3`, base `329183b94f65090cc6b337f464c5aa4d8e127ad7`. 사전등록 최신 D-CD/D-CE, 감사59, 기억 및 canonical PROJECT_LOG를 읽었다. 2026-09-28T03:10:38.544520+09:00에 감시 파일 및 감사 문서 **1360개를 실제 바이트 snapshot**하고 SHA256을 기록했다. trigger missing/불일치0, 검사 후 기존 snapshot 대상 변경0. scheduler hash를 원본으로 취급하지 않았다. 증거 `f_lif_pop_v3/forecasting/results/assessment/20260927T181002Z-5e894ce0/`의 inventory.json, checks.json, gate_checks.json, csv_changes.json, postcheck.json; raw는 같은 task `log/assessment/20260927T181002Z-5e894ce0/`.
+
+- `docs/Population_fLIF_v3_prereg_KO.md`: `d17b1921e24fabbf4e8343cb377501f169b1988f86ff0b0c6eaa27de43fb8d2d`
+- `f_lif_pop_v3/forecasting/data_provider/data_loader.py`: `99574a366b2fe50f61b51d536e01055f79a46791e4837ed29d4cf0ef80023f61`
+- `f_lif_pop_v3/forecasting/weather_test.py`: `3a92b4e957e372afd9c581504ebcdf76ba0799d044eeb7c6a383b2e7f767619b`
+- `f_lif_pop_v3/analysis/weather_checks.py`: `22a4a23b3b2dc7ba1ec10b551088b80859629846350c506288b859139cb54285`
+- `f_lif_pop_v3/analysis/selection_perturb.py`: `0c6ee2860afb82e88e6779d2c38bd2092bfd51ef6eaf036280bf963a62ed2524`
+- `f_lif_pop_v3/analysis/selection_perturb_input.py`: `2b963848aa40ee4a947ad999b9c6568c7eeb1365d736604e997c23ebe38e72a7`
+
+### (a) 구현 정확성 — 제한된 재검사와 미완성 구분
+
+**A30-M4-INTERPRETATION:** D-CD는 회귀 λ를 실제 국소 미분으로 읽는 주장을 철회하고 rank/조건수·식별 불가 및 M9를 도입했다. 문서 정정은 scoped VERIFIED. D-CD commit2267e703(03:03:45)→진단 코드 c505776e(03:04:41), D-CE commit0e5fc053(03:07:29)의 사후 보충 고지를 확인했다. 출력 보기 전이라는 사실 전체를 commit 시각만으로 인증하지 않는다. 원 selection_stability.py의 옛 H1 판독/회귀 출력은 그대로라, 최종 보고에서 새 판독으로 대체되기 전까지 구현·결과 이슈 전체는 OPEN이다. 별도 identifiability 함수는 rank1 합성 사례의 32개 스텝을 네 가지 모두 식별 불가로 잡았다. 현재 보충 출력은 개별 스텝 β/λ 억제·잔차 비율·최종 3분류 H1을 완결하지 않는다.
+
+M9/M9b CPU 합성42스텝×2표본×4unit 검사: α=.7/1 × q1/Pearson/recent에서 M9 zero-delta 재귀 차0(6/6). α=1,q1의 독립 해석해와 최종 상태차 M9≤8.84e−17, M9b≤9.33e−17. M9에서 과거 이력을 그대로 두고 u20만 바꾸면 다음 응답은 **−δ/τ**, 끝은 −δ/τ·(1−1/τ)^21이다. 일반 Euler의 전체 상태/이력 섭동과 같은 양이 아니다. M9b의 입력 충격은 첫 응답 δI/τ, 뒤21스텝 감쇠여서 현재 구현의 분모·스텝수는 이 합성 경우와 맞는다. D-CE가 이 차이를 사후 보충으로 분리한 것은 적절하다. 이것은 기전·안정성 일반 증명이 아니다.
+
+**A31-DIAG-FINITE OPEN 유지:** 원 parity 함수는 감사59와 같은 소스이며 보완 증거 없음. 새 진단도 norm=0일 때 섭동/응답비의 0/0을 처리하지 않는다(합성 0/0 비유한 확인). 실제 ETT에서 발생했다는 증거는 아니다. 유한성과 유효 분모를 판독 전에 검사하고 불능이면 판정 불가로 기록해야 한다.
+
+**A32-WEATHER-PRECHECK OPEN (점검 코드 오류):** 현재 Dataset_Custom은 4값(x,y,빈 mark2)을 반환한다. weather_checks.main의 x0,y0=ds[0]은 합성 파일에서 `ValueError: too many values to unpack (expected 2)`로 재현됐다. 그 다음 조건도 train 첫 목표행을0으로 기대하지만 seq_len336이라 **336**이어야 한다. 모델 실패로 세지 않는다. 독립 감사 코드는 4값 API와 정확한 목표 정의로 다음을 확인했다.
+
+| split | 창 수 | 첫 입력 | 첫 목표 | 마지막 목표 |
+|---|---:|---:|---:|---:|
+| train | 36456 | 0 | 336 | 36886 |
+| val | 5175 | 36551 | 36887 | 42156 |
+| test | 10444 | 41821 | 42157 | 52695 |
+
+21채널 OT-last 및 test행50000 변조 전후 train scaler mean/scale 완전 동일. 이는 **동일 크기의 합성 CSV**에서 로더 경계·train-only scaler의 scoped VERIFIED이며, 실제 Weather 데이터 검사나 미사용 이력 인증은 아니다.
+
+### (b) 검증·데이터 분리·재현성 — 새 평가기는 아직 준비 중
+
+**A32-WEATHER-GATE PENDING/OPEN:** snapshot의 prereg에는 정식 2R 본문이 없고 weather_test.py 보정 이름/SHA는 placeholder다. 확정 실험/완료 평가기로 다루지 않는다. 현 코드에서 준비 완료 전 필요한 항목:
+
+- validation 재현을 위한 test(flag='val') 함수는 있으나 main은 호출하지 않고 registry 뒤 test로 바로 간다. REPRO_TOL도 검사에 쓰이지 않는다. 합성40행에서 repro_ok가 모두 없어도 analyse가 True로 간주해 blocked0/8대비 reported. **재현 결과 필수 기록·누락 거부·val 불일치 때 실제 test loader/registry 호출0**의 CPU fixture로 확인할 것. 보정40칸과 metadata gate만으로 재현성을 입증하지 않는다.
+- A29-FAILURE-PROVENANCE의 root_path/data_path 누락이 새 check_failure에도 남아 있다(정적 확인). 기존 A29 OPEN을 승계한다. 새 코드에 전체40칸 gate가 있다는 것과 그 관문이 재검증됐다는 것은 구별하며, 실제40칸 검사는 not run.
+- baseline 보정 없는 합성 payload는 `calibration None != 'spiking-cal.json'`로 거부됐다. 다만 현재 train.main은 기준선에도 보정 metadata를 기록할 수 있으므로 이것을 실제 baseline 실패/버그로 단정하지 않는다. 2R의 baseline 보정 기록 계약을 학습기와 평가기에 동일하게 고정할 것.
+
+readout record SHA/바이트는 감사59 snapshot과 **완전히 동일**. 새 ETTh2 final CSV14개는 그 record의 MSE(6자리 반올림 허용)와 windows2785에 일치한다. 이전 snapshot에는 이14파일이 없었으며 새 행을 별도 보존했다. **성능의 새 판단 근거 없음**; 감사59 val 탐색/D head flatten 유지. selection_stability/selection_perturb/selection_perturb_input/weather_checks의 JSON 결과는 snapshot에 없었다. 실제 train 진단 전체, Weather 보정·학습·test·미사용 이력 확인은 **not run**; H1 및 Weather 성능 판단 보류. 작성 중 출력 부재를 실험 실패로 세지 않는다.
+
+### (c) 감사파일을 통한 다음 실험 제안
+
+1. D-CD의 제한을 최종 진단표에도 적용하고 M9와 사후 M9b를 분리한다. 고정 mask 응답과 동적 재선택 응답은 서로 다른 개입이다. 필요하면 train-only 소규모에서 섭동 크기/방향 민감도와 mask 전환 수를 먼저 보고한다. 단일 방향·한 크기의 증폭비를 모든 경로의 안정성이나 선택 기전의 인과 증명으로 확대하지 않는다.
+2. Weather로 이동할 때는 이미 결정된 flatten을 유지하고, 학습 전에 2R의 시간 경계·미사용 이력·주 대비2개·97.5% 구간·효과 기준·8seed·고정 보정·실패 보류 규칙을 실제 문서로 고정한다. 예정 P1은 α=.7에서 Pearson−q1, P2는 q1의 α=.7 자체보정−α=1 자체보정이다. P2를 순수 커널 효과로 부르지 않는다. 다른 모델에서 본 Weather와 v3에서 안 본 Weather도 구분해 사용 이력을 명시한다.
+3. 먼저 A32 점검 API/첫 목표행, A29 실패 경로, A31 finite/분모 및 val 재현 관문을 보완한다. 그 뒤 사전등록에 따른 train-only 보정과 동일 예산 실험을 진행하고 test 개방은 고정 평가기의 전체 관문 통과 뒤 한 번으로 제한한다. 현재 test를 감사가 실행하지 않았다.
+
+기존 확인 1차 자료 [RevIN 저자 자료](https://seharanul17.github.io/RevIN/)와 [Zeng et al., AAAI2023](https://ojs.aaai.org/index.php/AAAI/article/view/26317)는 입력 정규화와 단순 선형 기준선 유지의 근거로만 사용한다. 이번 구체적 개선안은 로컬 증거에 근거하며 새 외부 사실/논문을 추가하지 않았다. A23 과거 provenance/MC와 A25 과거2O 채널 누락도 유지한다.
+
+명령: `CUDA_VISIBLE_DEVICES='' PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python f_lif_pop_v3/forecasting/results/assessment/20260927T181002Z-5e894ce0/audit_checks.py` 및 동일환경 `gate_checks.py`, 모두 종료0. 생산자 weather probe 예외는 예상 증거로 포착해 raw에 남겼다. 모델/학습 소스 수정, backward/학습/GPU, 실데이터 forward, 실제 registry 변경, 설치/프로세스 중단, Git변이, 타 세션 열람/메시지, 새 예약 없음.
+
+<!-- assessment-watch:20260927T181002Z-5e894ce0 -->
+
+
+## 2026-09-28 03:23 KST — 추적 감사61: M9/M9b 저장 결과, 고정 mask와 재선택 응답의 분리
+
+예약 `20260927T182001Z-bc10ae69`. HEAD `0e5fc053df7729bc38db8c2e68c6022f70a06987`, branch `exp/f-lif-pop-v3`, base `329183b94f65090cc6b337f464c5aa4d8e127ad7`. 최신 감사60/기억/canonical PROJECT_LOG와 사전등록 D-CD/D-CE를 복구했다. 2026-09-28T03:20:30.414205+09:00에 **1364파일 실제 바이트 snapshot/SHA256**, trigger mismatch/missing0. 감사60과 비교하면 자기 감사문서 외 변화는 명시된 M9/M9b JSON·txt4개뿐이다. 코드·prereg 동일이므로 지난 CPU 합성검사를 불필요하게 반복하지 않았다. 검사 중 run_ett.sh 변경이 감지됐으며 이번 진단 결과와 섞지 않고 다음 주기 대상으로 남긴다.
+
+증거 `f_lif_pop_v3/forecasting/results/assessment/20260927T182001Z-bc10ae69/` (inventory.json, source_snapshot/, checks.json, check_results.py, postcheck.json). raw `f_lif_pop_v3/forecasting/log/assessment/20260927T182001Z-bc10ae69/`. source/결과 SHA256:
+
+- selection_perturb.py `0c6ee2860afb82e88e6779d2c38bd2092bfd51ef6eaf036280bf963a62ed2524`
+- selection_perturb_input.py `2b963848aa40ee4a947ad999b9c6568c7eeb1365d736604e997c23ebe38e72a7`
+- selection_stability.py `b9b7d79243093472314824fb8c0b7a722f2d9a8d98e2222ad8acbc0da76ef037`
+- selection_perturb.json `837e5b8c4b50904d31e01df5923e342e87f9236bb743231b4231ab2013840585`
+- selection_perturb_input.json `b49d9ab4d6c6bc4f206f6ba92e21799c9539f7c1814c18e636292360a65a13f7`
+
+### (a) 구현 및 저장 결과 일관성
+
+각 JSON은 데이터2 × 모델3 × 규칙3 = **18조건**, fixed/dynamic·4가지 A_end와 per_step을 담는다. 엄격 파싱·전체 수치 유한(M9 450개/M9b 288개), 두 txt 각24줄 완전 재생, 기하평균 산술(M9 22스텝/M9b 21스텝) 최대차0, 조건(2′)6판정씩 전부 일치. α1 q1의 저장 응답은 독립 해석해 M9 `(1−1/τ)^21/τ`, M9b `(1−1/τ)^21`와 각각 최대3.98e−13/1.63e−12 차이였다. **저장 산술/정의 일치 scoped VERIFIED**이며 실데이터 재귀 전체를 이번 감사에서 다시 실행한 것은 아니다.
+
+**A30-M4-INTERPRETATION 잔여 OPEN:** 저장된 M4 식별 불가 branch-step0, 전체 최대 조건수97.6841(<1e6). 이 표본에서 rank/조건수 문턱을 넘지 않았다는 증거다. rank가 충분하다고 회귀 λ가 국소 Jacobian이 되지는 않는다. 개별 스텝 잔차비율/β·λ 처리와 새 규칙을 적용한 최종 H1 표는 아직 없고, selection_stability.json도 snapshot에 없다. M9 조건(2′)만 전체 H1 결론으로 보고하지 않는다. **A31-DIAG-FINITE OPEN**: 원 parity NaN 은닉/새 비율의 분모 검증은 동일 소스라 미해소이며, 현재 JSON에 비유한이 있다는 뜻은 아니다.
+
+### (b) 새 진단이 지지하는 범위와 검증 한계
+
+아래는 Pearson **고정 mask τ4** 가지의 저장 A_end다. 전체4가지로 (2′)를 계산했다. M9와 M9b는 분모와 개입이 다르므로 수치를 동일 척도의 반복 검증으로 평균 내지 않는다.
+
+| 데이터·모델 | M9 τ4 | M9b τ4 | M9 조건(2′) |
+|---|---:|---:|---|
+| ETTh1 | init a0.7 | 0.098505 | 0.358966 | 미통과 |
+| ETTh1 | init a1 | 1.374899 | 5.505301 | 통과 |
+| ETTh1 | trained 2O pearson_R a0.7 seed7 | 0.094366 | 0.344083 | 미통과 |
+| ETTh2 | init a0.7 | 0.067193 | 0.245356 | 미통과 |
+| ETTh2 | init a1 | 1.272473 | 5.097947 | 통과 |
+| ETTh2 | trained 2O pearson_R a0.7 seed7 | 0.064465 | 0.235933 | 미통과 |
+
+초기 α1은 두 데이터셋에서 빠른 가지 증폭 기준을 만족한다. α.7 초기·학습 모델은 고정 mask에서 기준을 만족하지 않는다. M9b도 조건(2′)의 방향은 같지만 **D-CE에 명시한 사후 보충**이므로 H1의 판독 조건을 바꾸는 근거로 쓰지 않는다. α1의 나머지 H1 조건(3) 증거는 이번 두 결과에 없으므로 전체 지지 판정은 보류한다. α.7에서 이 필요한 조건이 미통과한 것을 일반적인 불안정성 부재/뉴런 설계 실패로 확대하지 않는다.
+
+**주목할 새 관찰:** ETTh2 학습된 pearson_R α.7 seed7에서만 fixed와 dynamic 저장 응답이 뚜렷하게 다르다(다른17조건은 차≤1e−12).
+
+- M9 fixed `[.064465,.024603,.013151,.007078]`, dynamic `[441.433120,63.850907,7.278758,.853518]`.
+- M9b fixed `[.235933,.179457,.191344,.206058]`, dynamic `[1578.862200,1264.423773,1074.924386,982.241409]`.
+
+이는 이번 작은 섭동에서 **고정된 선택 경로의 응답과 재선택 경로의 응답이 다름**을 보여 주는 저장 결과다. 코드상 두 경로의 차이는 mask 재계산이므로 선택 경계 변화가 원인일 가능성을 좁히는 단서지만, mask 전환 위치/개수·score margin·절대 δu·분모가 저장되지 않아 특정 경계나 특정 뉴런에서 증폭됐다고 독립 검증하지 못했다. 큰 비율을 상태 절대값/G11 실패나 예측 MSE 악화와 혼동하지 않는다. M9 고정 mask가 작다는 이유로 동적 선택 전체가 안정하다고 결론내리지도 않는다.
+
+입력 정의는 source상 **train 앞8 shuffle batch(seed7), R 변환, 모델 초기화seed7 및 학습2O seed7**, 섭동방향seed0·상대1e−6·한 주입시점이다. test/future 사용 코드는 없다. 이는 탐색적 조건부 진단이며 다중 seed 독립 효과/CI가 아니다. α별 초기모델은 자기 보정 current이므로 순수 커널 분리도 아니다. 결과 파일은 원실행 시점의 dataset/checkpoint/calibration/current·mask/source 지문이나 환경/명령을 자체 포함하지 않는다. 이번 snapshot은 현재 파일 지문이며 원실행 provenance를 소급 인증하지 않는다. 추가 출처 기록 및 재현이 남는다. 실제 train forward 독립 재현·전체 H1·Weather 학습/성능·새 확증은 **not run**. 예측 성능의 새 판단 근거는 없으며 감사59의 flatten 결정 유지.
+
+### (c) 감사파일을 통한 다음 방향
+
+1. **우선 진단 한 사례를 좁혀 확인:** ETTh2 학습seed7 Pearson을 같은 current·checkpoint·mask로 고정하고 train-only 소규모에서 mask 최초 전환 시점/개수, top-k 경계 margin, 가지별 절대 응답·주입/직후 분모, 최대값 위치와 시간 경로를 남길 것. finite/0분모 관문을 먼저 고친 뒤, 새 탐색임을 표시하여 섭동 크기와 방향을 소수 고정한 민감도 검사를 하자. q1/recent를 음성 대조로 유지한다. 현재 비율을 줄이는 방향으로 임계값이나 후보를 사후 선택하지 않는다.
+2. M9 조건(2′), H1 조건(3), 판정 불가 여부를 분리한 최종 표를 만들고 M9b는 별도 사후 열로 둔다. M4 rank 통과와 λ의 기전 해석 허용을 혼동하지 않는다. 초기 α1 고정 mask 증폭과 학습 α.7 재선택 민감성은 서로 다른 현상으로 설명한다. 어느 쪽도 현재 예측 오차 차이의 원인으로 단정하지 않는다.
+3. Weather 확증은 감사60의 A32 점검/val 재현 gate·A29 실패 경로 보완과 2R 사전등록 확정 후 진행한다. head flatten, 원칙적으로 주 대비2개와 자체보정 해석을 유지한다. 이번 post-hoc 진단으로 Weather test 결과를 본 뒤 가설을 바꾸지 않는다.
+
+기존 확인 [RevIN 저자 자료](https://seharanul17.github.io/RevIN/)와 [Zeng et al., AAAI2023](https://ojs.aaai.org/index.php/AAAI/article/view/26317)는 입력 정규화/선형 기준선 유지 근거로만 이어 사용한다. 새 진단 방향은 위 로컬 관찰에서 도출했으며 이 문헌들이 동적 mask 원인을 증명한다고 보지 않는다. 새 외부 사실/논문 없음. A23/A25 역사적 잔여 및 A29/A32 OPEN 유지.
+
+실행 `/usr/bin/python3 f_lif_pop_v3/forecasting/results/assessment/20260927T182001Z-bc10ae69/check_results.py`: 첫 명령은 감사 코드 f-string 괄호 오타로 SyntaxError(원 raw checks.txt 보존), 감사 코드만 고친 재실행은 종료0(checks_retry.txt). 모델 실패 아님. Python 표준 라이브러리의 저장 결과 산술만 실행; 모델/학습 소스 수정·학습/backward/GPU·설치·진행 프로세스 중단·Git변이·타 세션/메시지·새 예약 없음.
+
+<!-- assessment-watch:20260927T182001Z-bc10ae69 -->

@@ -503,3 +503,18 @@ HEAD7d836cff/snapshot17:30:32/453+64파일/trigger불일치0. §2Mbenchmark32cp/
 ## 2026-09-28 02:55 KST — 추적 감사58: 2Q readout / M4 해석 OPEN
 
 예약20260927T175002Z-8a6ea748,HEADf596b6f6062bbe1c04d534445e4f37a8e448ae73;snapshot1220+pool2/trigger차0. prereg2Q→구현commit순서확인. CPU합성seed7/13×q1/.5:공통초기tensor같음/−1056params/구flatten차0/fold차≤4.72e−16→A30-READOUT scoped VERIFIED. 초기함수차.596–.712는정상설계효과;기존head도non-spiking. 생산자GPU32재현보고는독립재실행not run. pilot4개2epochCSV있음/완료JSON0,Hq/Hp성능보류. A30-M4-INTERPRETATION OPEN:표본회귀λ≠실제Jacobian 반례(λ1.75/미분−.248),rank1에서q1기준β비식별. λ기술지표제한·rank/잔차·판정불가·perturbation조건필요. A29문서반영됐으나새평가기재검사없어OPEN. run_commands112개pool시각/GPU/기본명령일치(초기parser형식오인corrected증거). A·B탐색→미사용자료D설계순서유지. 학습/GPU/실데이터forward not run. 상세ASSESMENT58,results/assessment/20260927T175002Z-8a6ea748/,raw동일task log/assessment/.
+
+
+## 2026-09-28 03:05 KST — 추적 감사59: readout 결과 / A29 부분 해소 / finite gate
+
+예약20260927T180002Z-aaed5bf0,초기HEAD2dd1bd0056167882d9e4308abc42180f58346281→후기9205721712e81dd54c62c7e3d5595c104d9a1689. snapshot1765/trigger차0,후기canonical만append. CPU adapter16/16·64metadata통과→A29-COVERAGE 새평가기scoped VERIFIED. FAILURE UUID/scale등보완재현됐으나root_path/data_path변조통과해잔여OPEN. 기록64행/source/cp/config/data/cal/hash및paired산술일치. Hq/Hp ETTh1+.014712311/+ .006597057(95%양수,각2.03%/.90%악화),ETTh2+.001459640/+.000617476(CI0포함),D규칙flatten. val탐색/독립확증아님. A30 M4미해소. 진단소스만있어실ETT기전not run;합성재귀오차0/M8q1≤2.78e−16. A31-DIAG-FINITE OPEN:NaNstate실패주입도parity오차0으로통과. 원모델NaN증거아님. 다음실패경로·finite/rank보완→고정flatten미사용자료D. 원인해석에초기함수차포함. 상세ASSESMENT59/results/assessment/20260927T180002Z-aaed5bf0/;raw같은task log/assessment/. 학습/GPU/실데이터forward없음.
+
+
+## 2026-09-28 03:14 KST — 추적 감사60: Weather 준비/M9 합성 검사
+
+예약20260927T181002Z-5e894ce0,HEAD0e5fc053df7729bc38db8c2e68c6022f70a06987; snapshot1360/trigger불일치0/검사후변경0. D-CD M4 해석정정 문서 scoped VERIFIED/최종H1구현OPEN; M9 zero-delta6/6차0,α1q1독립해 M9/M9b차≤9.33e−17,실진단결과not run. A31 finite/분모OPEN. A32-WEATHER-PRECHECK:4값반환을2값으로unpack하는오류재현,train첫목표336정정필요. 독립합성loader36456/5175/10444·경계·OT-last/train scaler불변통과. 2R본문/보정placeholder로진행중;A32 gate에val재현호출없음/누락repro_ok허용, A29실패데이터경로미검사잔여. 실제Weather성능/미사용이력/학습/GPU not run. readoutrecord감사59동일·새CSV14저장값일치,새성능판단없음/flatten유지. 다음방향·조건은 NSMT/docs/ASSESMENT.md 감사60,증거 NSMT/f_lif_pop_v3/forecasting/results/assessment/20260927T181002Z-5e894ce0/,raw동일task log/assessment/. 연구소스·Git변이없음.
+
+
+## 2026-09-28 03:23 KST — 추적 감사61: M9/M9b 결과의 제한적 해석
+
+예약20260927T182001Z-bc10ae69,HEAD0e5fc053df7729bc38db8c2e68c6022f70a06987;snapshot1364/trigger차0,감사60대비새결과4개만. JSON18조건씩/유한·txt24줄각완전재생·기하평균/조건2prime일치,α1q1해석해차≤1.63e−12(저장산술scoped VERIFIED). 초기α1 Pearson M9τ4 h1 1.374899/h2 1.272473로2prime통과,α.7초기/학습고정mask미통과. 학습ETTh2α.7만재선택응답큼:M9τ4 441.433/M9b1578.862 vsfixed.064465/.235933;mask경계·절대응답/분모추가진단우선,상태/G11·성능실패로단정금지. M4 badstep0/maxcondition97.684이나잔차/최종H1누락으로A30 OPEN, A31 finite/원실행지문잔여. 실제trainforward/새성능/Weather/not run. A29/A32유지. 상세NSMT/docs/ASSESMENT.md감사61,증거NSMT/f_lif_pop_v3/forecasting/results/assessment/20260927T182001Z-bc10ae69/,raw동일task log/assessment/. 감사코드괄호오류정정후통과/모델실패아님. 감사중run_ett.sh변화다음주기;학습/GPU/연구소스·Git변이없음.
