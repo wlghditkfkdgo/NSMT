@@ -6738,3 +6738,18 @@ ETTh2의 pearson(.3859)은 window-mean(.385)과 같은 수준이다. v3 스파�
 - 보정 stdout은 로컬 `forecasting/log/calibration-weather-20260928/`.
 
 **다음:** 시험 run(seed 7, 5 조건, 2 epoch, 별도 suite, 보고 안 함)으로 시간·메모리를 본 뒤 본 학습 40개.
+
+
+## 2026-09-28 03:35 KST — 추적 감사62: 안정성 결과 및 Weather 수정 부분검증
+
+예약20260927T183002Z-920c0e68;초기HEAD0e5fc053df7729bc38db8c2e68c6022f70a06987→후기89e2568f6ea4fdd9838bc2b61fb45e3a09e526c7. snapshot1371/trigger차mask진행txt1,후기canonical/txt별도보존. CPU새parity6fixture통과(A31새helper scoped VERIFIED/전체분모잔여);저장12peak/rel0일치,stability24요약재산술차0. D-CD H1초기α1두데이터지지/α.7네조건미지지 새canonical표일치,옛λ문자열폐기고지확인. A32합성weather mainAPI/경계통과;A29새Weather실패root/file변조거부. val차이/NaN개방전중단·누락repro40차단통과;저장best_val_loss=NaN은bad0→A32잔여OPEN. M8α1peak2515→78.63/2602→56.56,성능not run. A33후기canonical의일반안정/원인확정·평균lag균일성표현OPEN;범위정정·mask경계/절대응답진단→M8별도사전등록대조제안. 학습/GPU/실trainforward/Weather성능not run. 상세NSMT/docs/ASSESMENT.md감사62,증거NSMT/f_lif_pop_v3/forecasting/results/assessment/20260927T183002Z-920c0e68/,raw동일task log/assessment/. 감사설명q1/Pearson식별자혼동정정/모델실패아님;연구소스·Git변이없음.
+
+---
+
+## 2026-09-28 03:38 KST — 2R 시험 run(보고 안 함) / 본 학습 40개 착수
+
+- **시험 run:** suite `weather-pilot-20260928`, seed 7, 5 조건, 2 epoch, 오류 없음. 배선·시간 점검용이며 수치는 사전등록대로 해석·보고하지 않는다.
+  - α=0.7 조건과 GRU·Linear는 `weather_a0.7_…` 보정(scale 10.0, 한계 3679.9)을, `q1_R_a1`은 `weather_a1.0_…`(scale 6.0, 한계 2207.9)을 불러왔다. 기준선도 보정 파일을 기록한다는 2R 계약과 맞다.
+  - 파라미터 수: 스파이킹 130,666, GRU 134,241, Linear 32,352.
+  - 시간: 스파이킹 약 26–35초/epoch, GRU·Linear 약 5초/epoch(GPU당 1–2개).
+- **본 학습:** suite `weather-20260928`, 40개 = 8 seed × {pearson_R, q1_R, q1_R_a1, gru_R, linear_R}. `scripts/gpu_pool2.sh`, A6000 4장에 GPU당 2개, 코드 commit `f9eacb901`. queue는 로컬 전용이고, 끝나면 run별 명령을 `results/weather-20260928/run_commands.txt`로 옮긴다.
