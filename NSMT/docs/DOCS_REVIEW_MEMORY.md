@@ -498,3 +498,8 @@ HEAD7d836cff/snapshot17:30:32/453+64파일/trigger불일치0. §2Mbenchmark32cp/
 ## 2026-09-27 22:22 KST — 추적 감사57: HEAD-only / 감사56 수용 확인
 
 예약20260927T132002Z-24e63d27,HEAD88b46af06769c5c4f44c7c96ba4b8f624842aa44. 감시1199파일 trigger/감사56 snapshot 차0,총1203별도보존/hash;commit은감사문서와canonical수용append만. 구현·성능 새 판단 근거 없음. A29 두 항목 OPEN(다음평가기보완예정/실행편차명시),OT·GRU거리 문구정정확인;감사56 val탐색/α별보정해석 및 다음실험우선순위유지. 추가probe/forward/학습/GPU not run. ASSESMENT57와results/assessment/20260927T132002Z-24e63d27/inventory.json 참조. 자기감사기록재감사제외.
+
+
+## 2026-09-28 02:55 KST — 추적 감사58: 2Q readout / M4 해석 OPEN
+
+예약20260927T175002Z-8a6ea748,HEADf596b6f6062bbe1c04d534445e4f37a8e448ae73;snapshot1220+pool2/trigger차0. prereg2Q→구현commit순서확인. CPU합성seed7/13×q1/.5:공통초기tensor같음/−1056params/구flatten차0/fold차≤4.72e−16→A30-READOUT scoped VERIFIED. 초기함수차.596–.712는정상설계효과;기존head도non-spiking. 생산자GPU32재현보고는독립재실행not run. pilot4개2epochCSV있음/완료JSON0,Hq/Hp성능보류. A30-M4-INTERPRETATION OPEN:표본회귀λ≠실제Jacobian 반례(λ1.75/미분−.248),rank1에서q1기준β비식별. λ기술지표제한·rank/잔차·판정불가·perturbation조건필요. A29문서반영됐으나새평가기재검사없어OPEN. run_commands112개pool시각/GPU/기본명령일치(초기parser형식오인corrected증거). A·B탐색→미사용자료D설계순서유지. 학습/GPU/실데이터forward not run. 상세ASSESMENT58,results/assessment/20260927T175002Z-8a6ea748/,raw동일task log/assessment/.

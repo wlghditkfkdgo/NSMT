@@ -3713,3 +3713,52 @@ F_p·S_on(α=1)·J는 두 데이터 모두 각8개의 실패 칸을 명시하고
 연구소스·checkpoint·기존 raw log 보존. 학습/GPU·환경 설치·프로세스 중단·Git 변이·타 세션 열람/메시지·새 예약 없음.
 
 <!-- assessment-watch:20260927T132002Z-24e63d27 -->
+
+
+## 2026-09-28 02:55 KST — 추적 감사58: 2Q 단일 Linear 구현 검증 / M4 회귀·안정성 해석 조건
+
+예약 `20260927T175002Z-8a6ea748`. 대응 **A29-GATE-COVERAGE / A29-FAILURE-PROVENANCE / A30-READOUT / A30-M4-INTERPRETATION**. 관찰 HEAD `f596b6f6062bbe1c04d534445e4f37a8e448ae73`, branch `exp/f-lif-pop-v3`, base `329183b94f65090cc6b337f464c5aa4d8e127ad7`. 기억·감사57·사전등록2Q·canonical02:46 기록 보완을 읽었다. 사전등록 commit `059172f0c34060f9d0093697d61d49edf123cc5d`(02:46:16 KST), 구현 commit `f596b6f60`(02:49:51 KST)의 순서를 확인했다. 자기 감사57 append는 새 연구 성과로 세지 않았다.
+
+### 보존·범위
+
+02:50:46 KST까지 trigger 대상 및 문서·pilot config/CSV 등 **1220파일**을 `f_lif_pop_v3/forecasting/results/assessment/20260927T175002Z-8a6ea748/source_snapshot/`에 별도 바이트 복사/SHA256 기록했다. trigger 불일치0·누락0. 2O/2P pool log 두 개도 `additional_snapshot/`에 별도 복사했다. inventory.json·checks.json·record_checks_corrected.json·postcheck.json 참조. stdout·git status/diff는 같은 task `log/assessment/20260927T175002Z-8a6ea748/`에 있다. snapshot 뒤 새 본 실행/진단 파일은 다음 주기 대상으로 두며 이번 확정 결과에 섞지 않는다.
+
+주요 SHA256: prereg `eb073b5219ac3c1f593305740dfaf73517ebd6f23116b961cd92b05dbcd83fa2`; ours.py `39db85f4e81072739d3e45863812e72ef776e60ff58dd4fcb479a597c1dbdb13`; config.py `c1a3e3c71022f2568ec6ce19dfe4e5088f893e3dbc1910c7cf2676914c8974b3`; readout_checks.py `3b26b1dad0742ffb7ce3f06ba3d8001a62de3f2044fde97ce22dab4266ff6ead`. 구 flatten 비교 소스는 감사57 snapshot의 ours.py SHA `a271cf1552c3e4967631525d8ad77ed9ed08352ed89f43d08adafe75496b350d`다.
+
+### (a) 구현 정확성
+
+**A30-READOUT — 사전등록 기본 모양에서 scoped VERIFIED.** linear는 Identity를 거쳐 [B·C,42·32]를 nn.Linear(1344,96)으로 읽고 R 통계를 복원한다. 임시 압축층 생성으로 난수 소비를 맞춘 뒤 제거하므로 등록된 embed_dim=head_dim=32에서 공통 tensor 초기값이 같다. 기존 flatten 두 층 사이에는 비선형이 없다. GRU가 linear를 거부하는 것도 확인했다.
+
+현재 probe/API를 읽고 snapshot 소스로 CPU·no_grad 합성 검사만 실행했다(seed7/13 × q1/.5, B2×L336×C2, float64). 네 경우 모두 공통 초기 tensor 일치, 파라미터 차1056, 구/new flatten 출력 최대차0, 유한 출력 [2,96,2]. 압축층과 최종층의 weight·bias를 합성해 새 단일층에 복사하면 전체 모델 출력 최대차는 **4.71845e−16 이하**다. 기존 함수의 합성이 가능한 것은 등록 모양에서 확인했으며 모든 비정사각 head_dim으로 일반화하지 않는다.
+
+**초기 함수까지 같다는 뜻은 아니다.** 합성 weight를 복사하기 전 새 linear와 flatten 초기 출력 최대차는0.5960–0.7115였다. 이는 등록된 초기화 방식의 정상 결과이며 구현 오류가 아니다. 이 실험은 동일 함수 초기값에서 최적화만 비교하는 실험이 아니라 압축층 제거·초기 유효 함수·파라미터화/정규화 효과를 포함한 head 설계 비교다. 기존 head도 비스파이킹이므로 결과를 “spiking head 제거 효과”로 부르지 않는다.
+
+생산자 readout_checks.json/txt의 32개 기존 checkpoint val 재현 최대차0·학습 checkpoint 합성차1.11e−15는 저장 보고로 확인했다. 감사는 GPU 전체32개 재평가 및 학습 checkpoint forward를 **not run**으로 두고, 위 신선한 합성 입력 검사와 구 소스 경로 대조만 독립 재현했다. check_model 전체 실행에는 backward가 있어 이번 감사에서 재실행하지 않았다. 생산자23/23 주장을 감사의 신규 전체 검증으로 옮기지 않는다.
+
+**A30-M4-INTERPRETATION — OPEN(등록된 해석의 문제, 실행 결과 실패 아님).** D-CA M4의 관측 표본 회귀 H≈β_u·u+β_f·f는 기술적 분해로 유용하지만, 이 계수로 만든 λ=β_u−(b0+β_f)/τ를 실제 재귀의 국소 증폭률로 동일시해 “|λ|>1이면 편차가 커진다”고 단정할 근거는 부족하다. history 상태·동적 선택 경계가 있는 시스템에서 표본 간 회귀는 고정 입력 perturbation의 미분이 아니다.
+
+독립 수학 반례를 CPU로 재현했다: τ4,b0=1, 표본(u,f)=(±1,±1), H(u)=2tanh(5u)/tanh(5)이면 잔차0 회귀 β=(2,0), λ=1.75이나 고정 입력에서 해당 한 스텝의 실제 미분은 약−0.248184다. 이는 **M4 해석의 일반적 추론 반례**이며 현재 뉴런이 안정/불안정하다는 측정이 아니다. 또한 q1 α1의 H=u에서도 I=0인 표본은 f=−u/4라 설계행렬 rank1이고, 최소 norm 계수는(.941176,−.235294)로 β=(1,0)을 유일하게 식별하지 못한다(잔차 약2.22e−16). 기준 재귀가 맞아도 fitted β 기준을 어길 수 있다.
+
+남은 조건: λ를 회귀 기반 기술 지표로 제한하고 rank·singular values/condition·잔차 및 식별 불가 처리를 먼저 정한다. 실제 증폭 주장을 하려면 동일 current에서 전체 이력 상태 perturbation 또는 명시된 고정 mask 선형 재귀 검사를 별도로 정의한다. H1 판독은 rank 부족을 자동 “지지되지 않음”으로 치환하지 말고 **판정 불가**와 구분해야 한다. 이 단계는 사전등록/진단 설계 검토이며, 아직 snapshot에 없는 진단 구현의 버그나 실제 모델 실패로 판정하지 않는다. H1의 Σf=u 환원도 α1 **선택 없음(q1)**에 한정한다.
+
+### (b) 검증 과정·분리·대조·통계·재현성
+
+2Q는 A=train-only 진단, B=이미 조기 종료에 쓴 val 탐색, D=추후 미사용 자료 확증으로 구분한다. B는 두 데이터·두 규칙·8seed 새32run과 재사용 flatten32run의 비교이며 paired seed CI를 사용한다. 네 대비 중 하나라도 등록된 열화 기준을 넘으면 head를 바꾸는 규칙은 탐색적 의사결정 규칙이다. 결과가 기준을 넘지 않는다고 동등성/비열등성이 입증되는 것은 아니며, 새 자료의 D로 일반화 검증을 분리해야 한다.
+
+snapshot의 pilot 네 config는 seed7·2epoch·linear·spike·R=True·α.7·scale10·test=False, 기존2O 보정 파일을 사용한다. 네 CSV는 각각 epoch0/1을 포함하며 최저 val MSE는 ETTh1 Pearson **.747163**, q1 **.771132**, ETTh2 Pearson **.229139**, q1 **.230889**다(반올림된 CSV 수치). 이는 두 epoch smoke의 기록이며 기존50epoch/early-stop 결과와 공정 성능 비교하지 않는다. snapshot 내 readout 결과 JSON은0개로 종료/출처/전체 seed gate 완료를 확정하지 않는다. **H_q/H_p·head 선택·본 실험 성능 판정 보류**, 독립 확증 **not run**. pilot 로그나 결과 JSON의 시간차를 모델 실패로 오인하지 않는다.
+
+**A29 두 항목 OPEN 유지.** D-CB가 전체 데이터 forward 전 gate와 실패 UUID·동작점·no-test·stdout 및 변조 fixture를 명시한 것은 개선이다. 하지만 snapshot에서 새 평가기/실패주입 재검사 증거는 없어 VERIFIED로 닫지 않는다. 과거 실행된 ett_alpha.py와 기록은 보존한다.
+
+기록 보완의 run_commands는 2O80개·2P32개 유일 명령이며, 원 pool의 START 시각·GPU·기본 명령과 **112/112 일치**했다. pool START에는 worker가 뒤에 붙이는 GPU 인자가 빠져 있으므로 이를 분리해 대조했다. 최초 문자열 대조0건은 감사 parser 형식 차이였고 수정 후 모두 일치한다. no-test의 저장 필드 역시 no_test가 아니라 test=False였다. 초기 record_checks.json은 그대로 보존하고 corrected 파일에서 정정했다. 새 실행이나 과거 출처 이슈 전체 해소로 확대하지 않는다(A23 잔여 유지).
+
+### (c) 다음 개선 방향 — 감사파일로 전달
+
+1. **진단 A:** M4를 위 조건으로 보완한 뒤 M3 증분 분해·M6 실제 한 셀 경로·M7 고정 mask 재생을 함께 해석한다. α별 자체 보정 replay는 scale 차이도 포함하므로, 기전 분리가 목적이면 동일 current 비교를 별도 표시한다. M8 누설 보존 선택은 새 구조 후보로 분리해 q1 환원과 안전성부터 확인하고 원 실패 조건을 같은 이름으로 교체하지 않는다. 추가 진단은 이번 감사 **not run**.
+2. **실험 B:** 등록된32짝과 안전/재현/전체 gate를 완성하고 H_q/H_p를 보고한다. 함수 클래스가 같다는 사실은 학습 결과가 같다는 뜻이 아니다. 초기 유효 head weight norm/출력 분산을 기술하면 최적화 해석에 도움이 되지만 현재 결과를 본 뒤 원 사전 기준을 바꾸지 않는다. 원한다면 같은 함수로 초기화한 합성 head 대조를 차후 별도 탐색으로 설계한다.
+3. **확증 D:** A·B로 head를 결정한 뒤 미사용 자료의 이력·시간 경계·주 대비·보정·실패 처리·seed·분석을 먼저 고정한다. 열린 ETT val/test/future 재사용을 독립 확증으로 부르지 않는다. 본 head 성능의 새 근거가 없으므로 이 단계로 효과를 예단하지 않는다.
+
+기존 문헌인 [RevIN 저자 자료](https://seharanul17.github.io/RevIN/)와 [Zeng et al., AAAI2023](https://ojs.aaai.org/index.php/AAAI/article/view/26317)를 재확인했다. 각각 입력 통계 제거/복원과 단순 선형 참고선의 근거다. 이 문헌이 현재 뉴런의 단일 head 우위나 M4 안정성 해석을 입증하는 것은 아니다. M4 반례와 초기 함수 지적은 이번 로컬 대수/CPU 증거에 근거한다.
+
+실행: `CUDA_VISIBLE_DEVICES='' PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python f_lif_pop_v3/forecasting/results/assessment/20260927T175002Z-8a6ea748/cpu_checks.py` 종료0. synthetic no_grad forward·대수 검사만 수행. 학습/backward/GPU·실데이터 forward·환경 설치·프로세스 중단·모델/학습 소스 수정·Git 변이·타 세션/메시지·새 예약 없음. A25 과거2O 채널 누락과 기존 잔여는 유지한다.
+
+<!-- assessment-watch:20260927T175002Z-8a6ea748 -->
