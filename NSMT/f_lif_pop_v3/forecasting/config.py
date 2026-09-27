@@ -75,7 +75,8 @@ def parse_arguments():
     shape_arg.add_argument('--patch_size', type=int, default=8)
     shape_arg.add_argument('-emb', '--embedding_dim', dest='embed_dim', type=int, default=32)
     shape_arg.add_argument('--head_dim', type=int, default=32)
-    shape_arg.add_argument('--head_mode', choices=['flatten', 'last'], default='flatten')
+    shape_arg.add_argument('--head_mode', choices=['flatten', 'last', 'linear'], default='flatten',
+                           help="'linear' = model_v1's single nn.Linear readout on the flattened spikes (prereg 2Q)")
     shape_arg.add_argument('--revin', action=argparse.BooleanOptionalAction, default=False,
                            help='prereg 2O: per-window, per-channel standardisation of the input, inverted on the output')
     shape_arg.add_argument('--readout', choices=['spike', 'analog', 'drive'], default='spike',

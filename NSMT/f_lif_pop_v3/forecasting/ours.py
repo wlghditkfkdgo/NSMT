@@ -80,7 +80,7 @@ class myModel(nn.Module):
         self.revin = bool(revin)
         if seq_len < patch_size or seq_len % patch_size:
             raise ValueError('Require complete chronological non-overlapping patches')
-        if head_mode not in ('flatten', 'last') or readout not in ('spike', 'analog', 'drive'):
+        if head_mode not in ('flatten', 'last', 'linear') or readout not in ('spike', 'analog', 'drive'):
             raise ValueError('Invalid readout configuration')
         self.task, self.readout = task, readout
         self.seq_len, self.pred_len = seq_len, pred_len
@@ -91,7 +91,15 @@ class myModel(nn.Module):
         # 두 head를 항상 함께 만든다. 그래야 초기화가 task에 따라 달라지지 않는다.
         self.recall_head = nn.Linear(embed_dim, 1)
         self.head_compress = nn.Linear(embed_dim, head_dim)
-        self.head = nn.Linear(head_dim * (self.num_patches if head_mode == 'flatten' else 1), pred_len)
+        # 'linear' (prereg 2Q D-CB): model_v1's readout -- the flattened spikes go through ONE
+        # non-spiking nn.Linear(embed_dim * num_patches, pred_len). head_compress is still built
+        # first so the random stream, and with it every other initial value, matches the
+        # 'flatten' run at the same seed; it is then dropped.
+        head_in = {'flatten': head_dim * self.num_patches, 'last': head_dim,
+                   'linear': embed_dim * self.num_patches}[head_mode]
+        self.head = nn.Linear(head_in, pred_len)
+        if head_mode == 'linear':
+            self.head_compress = nn.Identity()
 
     def forward(self, x, mode='sparse', truth=None, kind=None, return_aux=False):
         #  x: [B, L, C]  ->  recall: [B, T]   ett: [B, pred_len, C]
@@ -122,8 +130,8 @@ class myModel(nn.Module):
         if self.task == 'recall':
             output = self.recall_head(z).squeeze(-1).transpose(0, 1)  # [B*C, T] -> 채널 1개
         else:
-            h = self.head_compress(z)
-            h = h.transpose(0, 1).reshape(B * C, -1) if self.head_mode == 'flatten' else h[-1]
+            h = self.head_compress(z)                                # 'linear': Identity
+            h = h.transpose(0, 1).reshape(B * C, -1) if self.head_mode in ('flatten', 'linear') else h[-1]
             output = self.head(h).reshape(B, C, self.pred_len).transpose(1, 2)
             if self.revin:
                 output = window_denorm(output, mu, s)                # 손실·평가는 복원 척도에서
@@ -145,6 +153,8 @@ class GRUBaseline(nn.Module):
 
         if revin and task == 'recall':
             raise ValueError('window normalisation R is defined for forecasting only (prereg 2O)')
+        if head_mode not in ('flatten', 'last'):                     # 'linear' is the spiking model's readout (2Q)
+            raise ValueError(f"GRUBaseline head_mode must be 'flatten' or 'last', not {head_mode!r}")
         self.revin = bool(revin)
         self.task, self.seq_len, self.pred_len = task, seq_len, pred_len
         self.patch_size, self.head_mode = patch_size, head_mode
