@@ -6223,3 +6223,49 @@ ETTh2의 pearson(.3859)은 window-mean(.385)과 같은 수준이다. v3 스파�
 ### 주장 범위 (D-BO)
 말할 수 있는 것: ETTh2 H96 미래 구간에서 R(+보정)이 pearson의 오차를 15.8% 줄였다(사전등록 기준 통과). ETTh1에서는 그 기준을 통과하지 못했다.
 말하지 않는 것: 용량 통제 우위, GRU·Linear 대비 우위, 다른 데이터셋·H720, 분포 변화의 인과 증명, 보조 대비(I 등)의 확증, 이 결과가 선택 규칙 자체의 우수성이라는 주장.
+
+
+## 2026-09-27 18:15 KST — 추적 감사52: 2O128관문 범위VERIFIED / A25평가출력 보완
+
+예약20260927T091001Z-07aaecc1; trigger/최초HEAD1a1e556653ffda9dc8bed7f734296f3900ed7e8b,후기ce4780652456471914654f781bf3d4558e199a9a,exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7. snapshot988+cp/config256/stdout130/CSV바이트2,trigger차1(진행gate검사). 본80완료+재사용48=128 metadata CPU관문오류0,종료CSV/stdout검증,신규source11×80일치,기존cp/config각48감사45동일. 9결함거부·실제CLI128번째누락개방전거부·격리registry중복거부→A24-FUTURE-GATE 해당범위VERIFIED(실제GPU/future검증아님). A25-CHANNEL 채널오차누락OPEN; A25-UNSAFE-SECONDARY 보조비교별차단누락OPEN; A25-INTERACTION-RELATIVE zeros분모−Infinity재현OPEN(mean/CI와구분). 준상수1e-4/assert수정소스확인/전체재실행not run. 감사중ETTh1/2 future registry18:11:34/35개방고지,후기성능결과는읽지않음/판정보류. 이미개방된future임의재실행·registry초기화금지,누락고지/원본보존후산술표시정정,다음결과대조. 상세ASSESMENT감사52; 증거NSMT/f_lif_pop_v3/forecasting/results/assessment/20260927T091001Z-07aaecc1/,raw동일task log/assessment/20260927T091001Z-07aaecc1/. 모델학습/GPU/실제행파싱/Git변이없음.
+
+
+## 2026-09-27 18:26 KST — 추적 감사53: 2O future128 산술·출처 VERIFIED / 해석·보정 분리 제안
+
+예약20260927T092001Z-0fce65ef; HEADce4780652456471914654f781bf3d4558e199a9a,exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7. snapshot1073/trigger차0+cp/config256·stdout130·CSV바이트2(감사52동일). done64행×2각2925창,source9/cp/config/data/calibration지문·CSV128일치,기존48CSV prefix보존. 기록상safe128/스파이킹64고정bound내,mismatch0,ties8/13431600·18/13431600. D_P97.5% ETTh1−.005342700 CI[−.010754721,+.000069322]미통과;ETTh2−.033079779 CI[−.039151427,−.027008131]−15.8172%통과. 보조I h1+.022816129/h2−.008013217,산술VERIFIED/확증아님. A25채널누락·unsafe보조차단·I±Infinity OPEN유지(현재unsafe없음,1차영향없음). A26-INTERPRETATION OPEN:기준선무효과/스파이킹특유/대체메커니즘확정금지;GRUh1+.2908%,Linearh2−.4243%로<.2%문구정정필요. 다음기록정정→train/val상태진단→필요시q×R×scale/theta보정묶음교차사전등록,미사용자료확보후확증;현재future재실행금지. 새실험/모델forward/GPU not run. RevIN/AAAI저자·논문페이지재확인. 상세ASSESMENT감사53,증거NSMT/f_lif_pop_v3/forecasting/results/assessment/20260927T092001Z-0fce65ef/,raw task log/assessment/20260927T092001Z-0fce65ef/.
+
+---
+
+## 2026-09-27 — 감사 52·53 수용: 2O 기록 정정(무한 상대값·비교별 보류·채널 오차 누락) / 18:13 해석 문구 정정 / 사전등록 2P(α=1 대조) 작성
+
+**감사 52 (09-27 18:15) 요약:** 2O 학습 128개 완료와 개방 전 관문(결함 9종 거부)을 CPU에서 다시 확인했다(VERIFIED). 평가기 출력에 세 가지 누락이 있다고 했다.
+1. **A25-CHANNEL:** 사전등록 D-BN이 요구한 채널별 오차를 평가기가 모으지 않았다.
+2. **A25-UNSAFE-SECONDARY:** 보조 비교(D_q, S_on, I 등)에 "실패 모델이 들어가면 보류" 표시가 없다. 1차 비교에만 있다.
+3. **A25-INTERACTION-RELATIVE:** 상호작용 I를 0과 비교하면서 상대 변화율을 평균/0으로 계산해 ±Infinity가 기록에 남는다.
+
+**감사 53 (09-27 18:26) 요약:** 저장된 128행으로 1차·보조 통계를 독립 재계산해 일치를 확인했다(ETTh2 통과, ETTh1 불통). 해석 정정을 요청했다(A26-INTERPRETATION).
+1. "R은 GRU·Linear에 효과가 없다(차이 < 0.2%)"는 틀린 표현이다. 구간이 0을 포함한다는 것은 무효과의 증거가 아니고, 상대 차이도 ETTh1 GRU +0.29%, ETTh2 Linear −0.42%다.
+2. "일반 정규화 효과가 아니다 / 스파이킹 특유"는 확정할 수 없다. 모델 계열별 차이의 **가설**이다. R 켠 스파이킹 조건은 scale뿐 아니라 theta(6→10과 함께 1.83→6.16, 2.38→7.15)와 frozen 입력 통계도 바뀌었다.
+3. ETTh1의 "R과 선택이 같은 부분을 고치는 대체 관계"는 메커니즘 가설이다. S_on 구간이 0을 포함한다.
+- 다음 권장: 기록 정정 → train/val 진단 → 필요하면 q×R×보정 교차 사전등록. 미사용 자료 없이는 탐색으로만 표시. 이미 연 future를 다시 통과하지 않는다.
+
+**제 확인과 조치:**
+- **A25 세 항목 모두 사실이다.** `ett_future.test`는 전체 MSE/MAE만 누적한다. 보조 비교에 보류 표시가 없다. 원 기록 JSON에 ETTh1 `Infinity`, ETTh2 `-Infinity`가 있고 엄격 JSON 파서가 거부한다.
+  - 원 기록은 **수정하지 않았다.** 같은 폴더에 파생 기록 `ett_future_record_derived.json`을 새로 만들었다(`analysis/ett_future_derived.{py,txt}`). 원본 SHA256(감사 53 기록값과 일치)을 참조한다.
+    - I의 상대 변화율은 null(정의되지 않음)이다.
+    - 비교마다 쓰는 조건, unsafe 칸, 상태를 붙였다. 이번 128행은 unsafe가 없어 모든 비교가 "보고"다.
+    - 채널별 오차는 **복원 불가**로 적었다. 예측도 저장하지 않았고, 열린 future를 다시 통과하지 않는다.
+  - 2O 평가기 `ett_future.py`는 실행된 그대로 둔다(지문이 기록돼 있다). 세 보완은 다음 평가기(2P)부터 적용한다.
+- **해석 정정 (18:13 항목의 해당 문장을 대체한다):**
+  - "R은 GRU·Linear에는 효과가 없다(차이 < 0.2%)" → **"이 예산·기간에서 GRU·Linear의 R 차이에 대한 보조 95% 구간은 0을 포함했고, 일관된 개선을 보이지 못했다."** 상대 차이는 ETTh1 GRU +0.2908%, Linear −0.1383%, ETTh2 GRU +0.0006%, Linear −0.4243%다(파생 기록에서 계산).
+  - "일반 정규화 효과가 아니다 / 스파이킹 모델 쪽에 특유한 효과" → **"R의 효과가 모델 계열에 따라 다를 수 있다는 가설."** 스파이킹 조건에서 R과 함께 바뀐 것은 input_scale(6→10)과 frozen 입력 통계다.
+  - "R과 선택이 같은 부분을 고치는 대체 관계" → **메커니즘 가설.** 관찰은 "ETTh1에서 R 유무에 따라 선택 효과가 달라졌다(I > 0)"까지다.
+- **감사 53의 theta 지적은 기록상 사실이지만, hard 모델의 계산에는 영향이 없다.** theta는 주의 점수(W_Q·W_K) 경로에만 쓰이고 mode=hard는 그 앞에서 반환한다. `analysis/theta_inert_hard.{py,txt}`에서 확인했다(CPU, float64, 새 초기화 모델).
+  - hard q1·pearson: θ를 1.83↔6.16, 2.38↔7.15로 바꿔도 출력·상태 차이가 **정확히 0**이다.
+  - 대조로 돌린 주의 모드(sparse)는 출력이 달라진다(최대 0.105, 0.078). 즉 이 검사는 실패할 수 있는 검사다.
+  - 따라서 2O의 "보정 묶음"은 hard 모델에서 사실상 **input_scale + R 입력으로 다시 적합한 frozen 통계**다. 감사가 제안한 교차 실험의 보정 축 B도 hard 모델에서는 scale만 의미가 있다.
+
+**다음 — 사전등록 2P (이 commit에 포함, 보정·학습 전):**
+- 사용자가 고른 α=1 스파이킹 대조다. R 켠 q1·pearson을 α=1로 새로 학습한다(32 run). α=0.7 쪽과 GRU_R·Linear_R은 2O에서 재사용한다(64 run).
+- **ETT의 test·future가 모두 열렸으므로 평가는 validation에서만 하고 전부 탐색으로 표시한다.** 등록부 원칙(새 질문은 새 기간)에 따라 future를 다른 키로 다시 열지 않는다. 확증은 미사용 데이터셋에서 새 부록으로 해야 한다.
+- 중심 대비는 F_q = E(q1_R, α=0.7) − E(q1_R, α=1)이다. 선택 없는 순수 커널 비교다.

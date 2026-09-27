@@ -333,3 +333,148 @@ HEAD031fb758af0fc2dc9257acc100783b5cd44404fe/snapshot16:10:35/206파일,manifest
 ## 추적 갱신 — 2026-09-22 16:26 KST (예약 감사23)
 
 HEADadb43e4/snapshot16:20:44/231파일/manifest불일치0,forecasting소스동일. Stage6행·eta개입8행 CPUtest256/8085query 재현. 신규A02-STAGE-RANK:최상위복수정답무작위rank .214817734(0.5아님),조합열거검증. p→w=bp/Σbp→η혼합→cap분리:QK학습η .287272→.262290→.133799→.133799. η변경은가중치고정이나상태/score는변경(QKscore .340716→η1 .189319);c hit .341513과원score근접을동일신호증명으로못씀. QKη.2개입recall .268067504245/G .03426702117 탐색재현,η1peak664.141357>G11bound305.037518 신규A05-ETA-INTERVENTION-BOUND OPEN. QKη.2학습score .150597이며canonical .1214는비QK혼용. A09absmax/count잔여유지. 우선같은validation η0/학습η/격자+고정궤적대조/G11;entmax자동승격근거없음. Validation/8seedCI/새학습not run. ASSESMENT감사23 및results/assessment/20260922T072001Z-785d6d29/.
+
+
+## 추적 갱신 — 2026-09-22 17:04 KST (예약 감사24)
+
+HEADadb43e4/snapshot17:00:50/207파일;train감지이후변경으로manifest불일치1,검사SHA d5a6faa339fc918052c96ccfaec40b7c63e564068775155b0c7f9429abcac160. 실제AST absmax[1,9]→9/WK[2,10]→10,finite관찰수2/globalcount JSON전달VERIFIED범위. Postclip주입[3,4]norm5→.999999821/[.3,.4] .5유지VERIFIED. 단watch표본absmax≠전batch최대. 신규A10-LOG-COUNT-TYPE OPEN:len(finite)int→EpochLog._verbose v.mean() AttributeError,CSV쓰기전실패;감사입력float변환대조만성공. 실제완료artifact검증not run. 감사중live재수정/새absmax2결과는다음주기. 기존A02/A05/개입해석OPEN및validation우선순위유지,새학습/성능판정/8seedCI not run. ASSESMENT감사24/results/assessment/20260922T080001Z-b5162cb6/.
+
+
+## 추적 갱신 — 2026-09-22 17:15 KST (예약 감사25)
+
+HEAD5db6e315/snapshot17:10:50/230파일/manifest불일치0. A10-LOG-COUNT-TYPE float전달실제reducer→loggerCSV성공VERIFIED. Absmax4 1epoch512/64/64,g11_every1:8batch모두관찰,JSON/CSV max1.4416555166/count8/postnorm.99999966996확인;absmax2 .85107249는과거평균. 두checkpoint SHA34c6965c동일,gradient재생성not run. A02-STAGE-RANK실제함수.214817733876 VERIFIED. Val분리8행재현+원ηbaseline .259146662958,η0 .263483596918/η.2 .254324974062/η.5 .260108542602/η1 .293643652987. η.2원η대비1.8606%,η0대비3.4760%개선(단seed1). η1peak656.12958>305.03752 OPEN불합격유지. 고정궤적G11 OK는원궤적만/개입시스템안전아님;η1 p.296239→w/pre.270999→post.274052로남은차이cap단독설명정정필요. η.2후보유지/사전등록·독립검증필요;8seedCI·새학습not run. ASSESMENT감사25/results/assessment/20260922T081001Z-2214c860/.
+
+
+## 추적 갱신 — 2026-09-22 17:33 KST (예약 감사26)
+
+HEAD0314e931/snapshot17:31:14/216파일/manifest불일치0. 연구소스·결과hash변경없음,새성능근거없음. Canonical통합요약신규A09-SUMMARY-CONDITION-MIX OPEN:비QK MSE에QK G혼용. 동일JSON공통full/oracle1재계산G 학습η+.015405565/.2−.178349107/.5−.651132280(요약+.012/−.123/−.177오류). 비QK.5실제11epoch,모든실행12epoch아님. 전부수정완료/①②완료단정범위제한;고정궤적G11 OK·readout원인단정·v2MDE이식잔여. 기존VERIFIED/OPEN·η.2독립검증우선순위유지. 모델재실행/학습/통계not run. ASSESMENT감사26/results/assessment/20260922T083001Z-36837373/.
+
+
+## 추적 갱신 — 2026-09-22 17:45 KST (예약 감사27)
+
+HEADf98fab4f/snapshot17:40:58/224파일/manifest불일치0. 새§2I/eta_selection/confirm offset30000연결검사,실제confirm미생성·미열람. A13-ETA-PROTOCOL OPEN:합성main seed1도confirm진입→CI NaN,finiteFalse/상한없음도OK,8seed전원G11 FAIL이어도유의개선출력. 진단4batch고정(default1000이면256만,실제run confirm256은전체). 8seed완료·동일config/고정checkpoint·중복seed/1회성·선택사전기록/G11기록보완필요. D-AE0포함5후보vs코드4모호,D-AI eta0 CI와D-AJ원학습η주장불일치,D-AH필드부족/w≠pre. 새seed7 12epoch no-test완료/seed13진행중;실제confirm/성능/8seedCI not run. 미사용분할접근전protocol완성우선/기존OPEN유지. ASSESMENT감사27/results/assessment/20260922T084001Z-3cfbaf43/.
+
+
+## 추적 갱신 — 2026-09-22 17:53 KST (예약 감사28)
+
+HEADae0f4ff5/snapshot17:50:39/245파일,manifest불일치seed256진행CSV1개(9행). 소스·§2I동일/A13 OPEN유지. Seeds-173737 완료7/13/21/42/123각12epoch/CSV12행,no-test;checkpoint/복원parameter/sourcehash일치,CSVminval반올림일치. Seed256완료JSON없음,512/1024완료근거미확인,실패판정아님. 공통data20260921/2048·256·256·confirm256/QKε.01/θ.381469877동일. WholevalMSE .22758/.23058/.22943/.22814/.22735는recall/confirm아님. Watch4/32batch상태22.684~25.388<305.038는전step안전증명아님. 실제confirm·η선택·8seedCI·학습/forward not run. Confirm전A13보완최우선,기존판정유지. ASSESMENT감사28/results/assessment/20260922T085001Z-3622969b/.
+
+
+## 추적 갱신 — 2026-09-23 18:08 KST (예약 감사29)
+
+예약20260922T090001Z-b9a6a20e보다 늦은 실제9/23관찰. HEADe511d57c/snapshot18:01:08/260파일,manifest·감사28대비연구변경eta_selection.py만. 8seed 모두12epoch no-test/checkpoint·복원parameter/source 및 선택config hash일치. 실제저장confirm8seed재산술 η.2−0 −.003721354 CI[−.015408880,+.007966172],.2−원η+.000246292 CI[−.009954048,+.010446631]→채택보류. 원η−0 −.003967646 CI[−.005677091,−.002258201]는부차탐색. 보존7seed선택기록confirm없음(오염단정금지). A13 부분VERIFIED:완료confirm재실행·seed변경·checkpoint변경거부. OPEN:정확8강제없음(7seed데이터경계도달),config/source미비교,finiteFalse/상한없음OK,시작기록/G11종합판정/w누락,D-AE·AI/AJ모호성. 이번24조건기록유한/peak상한통과,실제forward재현not run. A09비QK G정정표만재계산VERIFIED;confirm G≈.016환산은대응oracle/full없어보류. Autoformer§3.2·Cliff원문확인,통계mask⑦미채택;cosine≠시간상관,lag41 pair1,미래차단/fallback/동일coverage대조필요. ASSESMENT감사29/artifacts results/assessment/20260922T090001Z-b9a6a20e/. 학습/forward/실제confirm재평가not run.
+
+
+## 추적 갱신 — 2026-09-23 18:11 KST (예약 감사30)
+
+20260923T091001Z-b12ed8cd: 감사29와 HEAD/연구소스/사전등록/8seed confirm·checkpoint hash동일. Snapshot262파일/trigger불일치0. 새로확인한보존seed1024중단CSV는2행,새성능근거아님. 감사29자체3문서append는연구변화에서제외. A13 OPEN·η.2채택보류·mask⑦미채택유지. 재현/학습/confirm재평가 not run.
+
+
+## 추적 갱신 — 2026-09-23 21:24 KST (예약 감사31)
+
+HEAD442b0b7a/snapshot21:20:37/263파일,manifest불일치0. 새stat_mask_feasibility.txt와canonical21:19만 연구변화;소스/§2I/기존결과동일. A14-STAT-MASK-EVIDENCE OPEN:validation seed20270921/400생성기재현 query12613/정답43746/H3.570160598/top8coverage.261898231. txt.908은query당정답개수(.908348529)이며확률아님;query-any-hit.419249980. 같은가용슬롯수무작위대조coverage.255914559/anyhit.631271687. k/41은고정41lag무작위에서만해석. train pooling표기와실제validation혼용;ACF27.8%코드/공식부재로재현미확인. NIST/statsmodels공식확인 ±1.96/√(T−lag)는일반Bartlett기준아님,검정력0/lag전면기각과도,cosine≠시간상관반복정정. ①~⑥유지/⑦미채택,train-only귀무 calibration·causal·같은budget대조·fallback계약우선. A13 OPEN유지. 모델forward/학습/confirm not run. 증거 ASSESMENT감사31/results/assessment/20260923T122002Z-71edaa29/.
+
+
+## 추적 갱신 — 2026-09-23 21:35 KST (예약 감사32)
+
+HEAD23f8621b/snapshot21:31:12/265파일/manifest불일치0. 새granularity_channel.txt+canonical21:26,기존모델/§2I동일. cosine추론·pair수·confirmG환산철회문서정정만scoped VERIFIED;A13/A14잔여유지. 새A15 OPEN:ETTh1train rawACF24.927911/168.840381,patch3.938854/21.850421,차분.164546/.345647,GramPR3.551865 재현. 합성300 H3.570160786/39support재현은lag×8재라벨링,raw효능기각아님;실제cue/valuephase예시lag62/68 vs동일phase64. R².0026은동일SST면잔차10.7438%감소,유무의미/Granger판정못함. 검색.1178/.0683코드·rank정의부재;best-positive라면chance.5아님(N168m7=.120509예시). PatchTST/iTransformer원문확인;①~⑦유지+⑧다변량key미채택탐색후보,③과관련. 모델/회귀fit/학습/confirm not run. 증거 ASSESMENT감사32/results/assessment/20260923T123001Z-f7ba8d71/.
+
+
+## 추적 갱신 — 2026-09-23 21:45 KST (예약 감사33)
+
+HEAD8b5a4340/snapshot21:40:41/267파일/manifest불일치0. stat_mask_control.py 실제snapshot main CPU재실행 stdout txt byte일치,감사31독립산술5개k×6열반올림일치,조건부대조전수조합5경계사례pass. A14 UNIT/CONTROL/SPLIT 및INFERENCE문서철회 scoped VERIFIED. A14전체OPEN(원ACF27.8%코드/정의미복구·효능미검증). k8 pooled+.60%p/anyhit−21.20%p,k20 pooled+8.49%p여서모든k무이득단정금지. feasibility옛prefix보존. 첫감사wrapper numpy bool JSON오류후감사코드만수정/재실행통과,raw양쪽보존/모델실패아님. A13/A15변경없음,①~⑥/⑦⑧미채택·η.2보류유지. 모델학습/forward/confirm not run. ASSESMENT감사33/results/assessment/20260923T124001Z-4b7568a4/.
+
+
+## 추적 갱신 — 2026-09-23 23:47 KST (예약 감사34)
+
+HEAD5b0f1815/snapshot23:40:47/267파일/trigger불일치0. 모델·결과·§2I변경없음,canonical23:30새분리계획검토. A16-READ-WRITE-CAUSALITY OPEN:softQK≠cosine(같은cos1에서거리.369181/.085757);B/b0=12.685936,13칸경계는질량보존조건;97.4%는precap혼합비중. 고정η1post.2741/peak22.07은원학습η궤적/새η0read아님. f→ξ와readout변경효과를feedback분리와구별;detach/oracle로유일원인단정불가. readout재학습은학습,사전규칙·freshconfirm필요. RetNet/NTM/DeltaNet/Mamba원문확인;단위keydelta eigen(.5,1,1,1)비팽창/엄밀수축아님. ①-B분리탐색과②고정상태점수교체진단우선/채택보장아님;점수교체와⑦mask분리. η.2보류/A13A14A15잔여유지. 모델학습/forward/confirm not run. ASSESMENT감사34/results/assessment/20260923T144001Z-44f00cb2/.
+
+
+## 추적 갱신 — 2026-09-24 23:45 KST (예약 감사35)
+
+HEAD5b0f1815/snapshot23:40:46/269파일/trigger불일치0. 新hard_mask_screen.py SHA7bef7e60/txt空0byte、완료성능미확인. A17 OPEN:actual per_query→accumulate 무효row0/0×0으로answer_kept NaN잔류;validation생성기64중56도달조건. NaNgap OK(fp)/max(0,NaN)=0으로finite감시누락. 小T8/B2/D3/K4 float32/64 allones재귀full비트일치/미래descriptor불변PASS,같은선택수random기대weighted.30101156 vsMC.30302894/anyhit.7일치. NULL은truth/kind조건화/한rollcrossseqreference,160성분iid아님,batch1selfpair;분위유의수준미보장. .1303는미계산상수/과거test기준선. hardmask는c=mb내용선택/고정lag⑦및①-B분리read와다름;소스메인72조건/학습/실제checkpoint/confirm not run. Winkler2014원문교환가능성확인. A13~A16유지/η.2보류/우선A17수정후진단완료. ASSESMENT감사35/results/assessment/20260924T144002Z-9781a7c1/.
+
+
+## 추적 갱신 — 2026-09-25 00:04 KST (예약 감사36)
+
+HEAD5b0f1815/snapshot00:00:39/269파일/불일치0. hard_mask SHAff57b660:분모clamp+순위표추가,txt최초0byte/감사중72행도착별도보존. A17-AGGREGATION 실제2행및validation생성기64/2004query allones 재검사 유한/answer_kept1→해당원인VERIFIED. A17-FINITE/NULL/REPORT OPEN유지. 新rank식AST실행 n≤5 전수5사례일치(n5m2 .25);A17-RANK-TIES OPEN:모든점수1/마지막정답에서rank1/chance.5/prev0,동점규칙필요. Rank query평균/M_eff sequence평균구별. 현재64표본kernel .134411009696와문구.1303를혼용금지/본실행baseline직접계산. 늦게도착한closed shared Pearson top25 저장M_eff.3230/random.1378/전체peak72.18은관찰만,전체표재현다음주기. 회상성능보류;학습/checkpoint/model forward/confirm not run. 기존우선순위/η.2보류/A13~A16유지. ASSESMENT감사36/results/assessment/20260924T150001Z-689fad22/.
+
+
+## 추적 갱신 — 2026-09-25 00:15 KST (예약 감사37)
+
+HEADe9c75f2e/snapshot00:10:53/269파일/불일치0. hard_mask SHA49637f56,수정판txt0byte/JSON없음. A17-FINITE 원NaN경로실패주입VERIFIED;NULL batch1거부/label-free·df철회부분VERIFIED;baseline actualscreen독립산술일치구현부분VERIFIED,JSON전체연결FIXED-PENDING-REVIEW. 새A17-MC OPEN:rule seed가r위치라순서반전random변화재현,평균localSE≠최종평균SE. RANK-TIES미수정. 구판72행은이전late snapshot보존. 실제eta0checkpoint(config4a0d1ecc/model e357470c)사전복사후val앞8/248query/sharedPearson top25/MC8draw에서구신결정지표일치:frozenM_eff.25169443/closed.31807767,peak20.10155/14.60621,nf0;baseline.13473512. 전체표·회상MSE·학습·confirm not run. A16철회문서확인/효능보장아님,단일reference실패로축전체기각금지. η.2보류/기존잔여유지. ASSESMENT감사37/results/assessment/20260924T151001Z-a6aef6db/.
+
+
+## 추적 갱신 — 2026-09-25 00:24 KST (예약 감사38)
+
+HEADb8ba941f/snapshot00:20:27/270파일/불일치0. 소스49637f56동일;완성JSONfdff70b5/txt90b9ce4f. 실제cp/config/hash일치,657배열×256 유한/summary재평균오차0/표72행반올림일치→A17-REPORT-SERIALIZATION scoped VERIFIED. Generator256/8050query 독립baseline.133246449074 vs저장.133246450022/seq차3.83e−9,rankchance.212008800261일치→baseline이번artifact VERIFIED. 감사37독립앞8지표10개와JSON차≤1.11e−16. closedsharedPearson top25 Meff.32297049/random.13777843/kernel.13324645/정답보존.599196/anyhit.825471,저장전체peak72.1811,nf0;효능확증아님. A17-MC-INFERENCE OPEN:canonical1.2se/8.9se는평균localSE로유의·비유의판정불가. MC/rankties/NULL잔여유지. 감사parser설명행오인수정후통과/초기코드로그보존. 새모델forward/학습/confirm/CI not run. ASSESMENT감사38/results/assessment/20260924T152002Z-0cb4eb20/.
+
+
+## 추적 갱신 — 2026-09-25 15:32 KST (예약 감사39)
+
+초기 HEAD6bdd3f34/snapshot15:23:16/290+92파일. 감지 이후 완성 confirm2와screenv3 포함; trigger4파일불일치. hard c=mb/q1full 작은CPU비트일치;round(.5*5)=2 vs§2Jceil3→A18-HARD-SPEC OPEN. 분석stable ties와modeltopk반례;η0스크린ties0를학습8seedconfirm에전이금지. A17MC stream/최종SE·73요약재집계오차0 및과거z철회scoped VERIFIED;NULL잔여. 선택q.5val.133172 vsq1.262529;선택4cp/config8hash·확증16cp/sourcehash일치/12epoch·CSV12행·no-test. confirm2저장paired MSE.262977693→.126951692,delta−.136026001,95%tCI[−.141831362,−.130220640],−51.7253%,8/8 산술VERIFIED. A18-HARD-SAFETY OPEN:metrics batches4→256/1000상태만;diagfiniteFalse무시/결측bound통과실패주입재현(실제NaN발견아님). D-AN전체안전성승인보류. A18-CONFIRM-PROTOCOL OPEN:12epoch/config/q/seed/cp사전강제·분석sourcehash·개방전started기록부재(실제artifact정상과구별). 우선안전성/manifest→동일budgetrecent/random새확증→보조진단/나머지후보. 후기HEAD9d90c3ef §2K·소스변경late snapshot후다음주기. 모델실제cpforward/데이터/학습/GPU/confirm not run. 감사39 evidence results/assessment/20260924T165002Z-79ac9087/.
+
+
+## 추적 갱신 — 2026-09-25 15:44 KST (예약 감사40)
+
+HEAD6d7f64ef/snapshot15:40:35/448파일/trigger불일치0. 감사39기존파일중모델4개만변경;hardconf/screen등동일증거반복집계안함. §2Kcontrol32config/cp/hash/12epoch/CSV/no-test 일치. PearsonMSE.11951294,q1.24696837,recent.33141368,random.26777628;pairedPearson−recent−.21190075 CI[−.21679518,−.20700631]/−63.94%,−random−.14826335 CI[−.15347096,−.14305573]/−55.37%,각8/8 재산술VERIFIED. A19control 작은CPU동일k/최근칸/재seed/내용무관/init일치. 개방전exclusive기록·실제기존record거부§2K부분VERIFIED;전체manifest사전검증잔여. A18SAFETY그대로256/1000/finite누락실패주입재현→전체승인보류. 새A19-RANDOM-EVAL-PATH OPEN:reseed한번뒤MSE→진단→분해가서로다른mask 소비재현;같은실행전체안전성필요. coverage400val/12613query txtbyte일치·hypergeom36사례오차1.11e−16. 동일칸수≠동일질량/lag/feedback;두대조정책우위와유일기전확정분리. 우선안전성/RNGmanifest→필요시좁은기전새분할. 실제cpforward/학습/confirm2·3접근 not run;기존A17ties/NULL·A18SPEC잔여유지. 증거 results/assessment/20260925T064002Z-47bcdaa2/.
+
+
+## 추적 갱신 — 2026-09-25 17:16 KST (예약 감사41)
+
+HEAD14240a4b/snapshot17:10:31/387+64파일/trigger불일치0. §2L/ab636b7e절차→안전성48평가(genuine32checkpoint)검토. A18SPEC round정정VERIFIED;metrics finiteFalse/결측bound거부·default전체·coverage반환회귀PASS. single_pass실제snapshotseed7 q1/Pearson/recent/random val앞8(batch4)에서evaluate4종MSE차0/mismatch0;fake5번째batch NaN/Inf/BOUND이상실패전부포착→A18SAFETY 및 A19RANDOM §2L보완경로 scoped VERIFIED. 48record 모두원MSE/cp/source8+analysis5 hash·manifest맞음/1000개/비유한0/최대60.905754<305.037518. 이번frozen2J/2K안전성보류해제(전체confirm독립실행not run). 모델ties confirm2seed7 1/41000저장실측;정책선언잔여OPEN. 일반metrics는여전히random별도forward,다음entrypointD-AV연결/사전manifest거부/출력경로밖일회성미완→프로토콜전체OPEN. D-AW유일기전철회문서VERIFIED. 질량.5390/.5954/.5147은batch시간동일가중평균/시퀀스평균아님. 첫BOUND감사입력float32반올림assert실패→float64감사용수정후PASS/원로그보존. 학습/GPU/confirm2·3/not run;증거 results/assessment/20260925T081001Z-d4bab0e3/.
+
+
+## 추적 갱신 — 2026-09-25 17:37 KST (예약 감사42)
+
+HEAD7d836cff/snapshot17:30:32/453+64파일/trigger불일치0. §2Mbenchmark32cp/config/hash/source확인,40행1000개safe유한/최대48.968994. oracle정답support/copyfull직접확인;실제seed7q1/Pearson/oracle/GRU/tto validation8(batch3+3+2) evaluate/one_pass4종MSE차0,spikingbatch8재집계Meff질량일치. registryfixture출력명바꿔재개방거부·32개badmanifest개방전거부PASS→해당경로부분VERIFIED;readoutanalog는manifest통과gapOPEN(실제configspike/lr.001). O7Meff.2472877불통/G14통과/G.639452통과/−53.22%통과→종합불통. Pearson−GRU−.114219928 CI[−.120467234,−.107972621]/−48.42%,8/8 재산술VERIFIED;용량동등아님. G평균비CI와seed별비평균CI구분. ceiling988전수경우오차3.33e−16·val1000txt일치(.9384/.5989/.3135/.1309). A20CROSS-SPLIT OPEN:confirm4.247/val상한.3135=79%는동일표본최적성비율아님/보편불가능성아님. tto는budget무시라score만개선효과아님. G14나눗셈전gate/blocked명시·readoutmanifest·등록부호출안하는옛entry잔여. 감사중canonical결과append late보존검토. 학습/confirm4/ETT not run. 증거 results/assessment/20260925T083001Z-14979858/.
+
+
+## 2026-09-25 17:50 KST — 추적 감사43: ETT 진행·개방 전 점검
+
+예약20260925T084002Z-d598bb43; exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7. 최초HEADd7f1a647/snapshot519+12파일/trigger차11은진행파일;후기HEAD9bb51e3c/ett_test e8437fc별도보존. 완료ETTh1 6건(P7,q1-21,GRU7/13/21/42)cp/source11일치·test_skipped. CPUfixture loader train-onlyfit/target분리8209·2785·2785,collector2+1batch오차·마지막NaN/Inf/bound검출PASS. 보정scale6/bound507.555771·975.164948산술확인. 후기manifest7변조거부→A20 ETT수정범위VERIFIED. A21OPEN:48완료gate/earlystop증거/원cp해시·no-test·장치대조/root_path누락,실제오염발견아님;발화율batch가중정의주의. canonical2M79%철회·표본상한/추정량/tto정정VERIFIED. 사전등록commit이학습후였다는자진고지확인/작성시점독립입증없음. 우선48완료·gate보완뒤등록대로평가1회;부분val로후보변경금지. ETTtest성능/학습/GPU/실제모델forward/registry/Git변이not run. 명령·hash·제한 NSMT/docs/ASSESMENT.md 감사43,증거 NSMT/f_lif_pop_v3/forecasting/results/assessment/20260925T084002Z-d598bb43/; raw task log/assessment/20260925T084002Z-d598bb43/.
+
+
+## 2026-09-25 18:03 KST — 추적 감사44: ETT48학습 완료 증거 확인
+
+예약20260925T090001Z-e7a55cd1; exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7/HEAD9bb51e3c. snapshot629+96cp/config·stdout48,trigger차0/대상hash보존. ett_test e8437fc는감사43후기동일. 48건cp원hash/source11/manifest/8seed/CSVepochs/no-test/CUDA/fullbatch일치. 모두12~49epoch 조기종료,stdout명시종료+CSVpatience10재계산일치,bestval차≤5.01e−7→A21COMPLETION현48건VERIFIED. 자동48gate/earlystop·원cp/no-test/장치/root대조누락은OPEN유지. val평균ETTh1 q1 .760730745/P .786684334/GRU .651431050;ETTh2 .272265199/.266417920/.223906451,효과방향다르나최종판정아님. testrecord/ETTregistry없음;testCI·H720·모델forward·학습·GPU·실제데이터접근not run. 다음gate보완→고정test1회,부분val로후보/기준변경금지. 증거NSMT/f_lif_pop_v3/forecasting/results/assessment/20260925T090001Z-e7a55cd1/,raw같은task log/assessment/20260925T090001Z-e7a55cd1/;상세명령/제한ASSESMENT감사44. Git변이없음.
+
+
+## 2026-09-26 15:16 KST — 추적 감사45: ETT test 판정·A21 보완 검증
+
+예약20260926T061001Z-e71a3200,exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7,최초HEADa9952755/후기ab5fa3d3. snapshot683+144cp/config/stdout+CSV2,trigger차0. ett_test25c1d7cf. 실제48manifest통과/9결함거부/ETTh1요청때ETTh2최종config오류가48대조후registry전차단/발화율2+1fixture2/3→A21해당공식경로VERIFIED. 원48cp/config감사44동일,record source8/data/calibration hash및CSV일치. 두record done/24행각2785창,finite/safe48,spiking peak124.8937<507.5558/95.6957<975.1649;GRU는출력유한만. ties16/6394360·19/6394360,mismatch0. MSE q1/P/GRU ETTh1 .444222197/.428796981/.379472192;ETTh2 .356839556/.385926671/.307447858. PairedP−q1 ETTh1−.015425216CI[−.018828401,−.012022032]−3.47%8/8;ETTh2+.029087115CI[.014534915,.043639316]+8.15%0/8. P−GRU+13%/+25.53%,산술VERIFIED/일관전이우위없음. A22해석OPEN:다른pipelinev2선형비교와백본원인확정구분,효과방향반전≠분포변화원인증명. 우선동일pipeline선형대조→train/val분포진단·정규화2×2→검색확대. AAAI2023원문/RevIN저자페이지직접확인(OpenReviewPDF차단),링크감사45. 새후보의기존test재사용은탐색/새확증필요. 모델test재실행/학습/GPU/Git변이not run. 증거NSMT/f_lif_pop_v3/forecasting/results/assessment/20260926T061001Z-e71a3200/,raw task log/assessment/20260926T061001Z-e71a3200/.
+
+
+## 2026-09-26 17:34 KST — 추적 감사47: ETT 검색 탐색의 정의·범위 점검
+
+예약 20260926T083001Z-2dfc6c98, HEAD 1772351f64a4a5909516378db84a6389f2ac414c, exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7. snapshot686파일/trigger차0. CPU 합성4창×7채널 정렬 및6입력 analog 독립 산술 최대차4.44e−16, JSON/txt108값 일치. A23-HINDSIGHT-BOUND OPEN: 개별오차 top20은 평균예측의 최적상한 아님(J41/k20 반례 MSE1 vs.0025). A23-RANDOM-REFERENCE OPEN: h8겹침/최근비율 무작위기준20/41=.487804878, h96만.5. A23-EXPLORATORY-PROTOCOL OPEN: test에서도 목표사용 analog/hindsight 평가, 탐색만; 하루13/10칸 vs유사20/15칸 예산차·MC불확실성·원실행지문잔여. ETTh2 h96유사/지속 상대차 train+4.71%/val−4.68%/test+.92%, 데이터 검색필요성/원인 배제 일반화금지. canonical17:24 A22해석정정 문서범위VERIFIED; 원인실험 검증아님. 미래3020행 창수2589(입력도새구간)/2925(이전문맥허용) 사전고정필요, 전체미사용이력 인증안함. 우선 동일pipeline선형→정규화2×2→동일예산주기선택. 실제데이터/모델forward/학습/GPU/새확증 not run. 상세·문헌·명령 NSMT/docs/ASSESMENT.md 감사47; 증거 NSMT/f_lif_pop_v3/forecasting/results/assessment/20260926T083001Z-2dfc6c98/, raw task log/assessment/20260926T083001Z-2dfc6c98/. 모델/Git변이없음.
+
+
+## 2026-09-26 18:01 KST — 추적 감사48: A23 문서 정정 확인
+
+예약 20260926T090001Z-12be0a64, HEAD 999dc0359ca5998b1caa53df2e484c1f5a78a68d, exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7. 감시683파일hash전후/현재동일,문서포함snapshot686/trigger차0. canonical17:53의 A23-HINDSIGHT-BOUND 상한철회·RANDOM-REFERENCE20/41 정정·test목표사용사후평가고지는 문서범위VERIFIED. 소스docstring ceiling/.5/statistics only는잔존→주석정합성OPEN;원실행지문/환경/명령/동점/MC불확실성 보완도OPEN. 범위축소·미래2589/2925창구분 수용확인,전체미사용이력인증아님. 새성능근거없음/선형→정규화→동일예산검색순서유지. 새probe/데이터/모델/학습/GPU/H720 not run. 상세 NSMT/docs/ASSESMENT.md 감사48,증거 NSMT/f_lif_pop_v3/forecasting/results/assessment/20260926T090001Z-12be0a64/. 이전기록보존/모델·Git변이없음.
+
+
+## 2026-09-26 23:52 KST — 추적 감사49: A23 설명문 정합성 VERIFIED
+
+예약 20260926T145001Z-dd74b488; trigger17da43dd3/관찰0c970d537c3471297f7bb68705d971e4acad5115, exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7. snapshot686/감시683 trigger차0. 분석소스 SHA e97c2d0d9060fbc3a5b33b4be37a6fc2af9f77541fc8c126317dd4f015bb2d4c. 이전 snapshot 대비 docstring 제외 AST 동일(True), 최적상한 철회·20/41·test목표사용사후평가 설명 확인→A23 잔여 주석정합성 scoped VERIFIED. canonical23:50 최초AST명령실패 고지확인, 이번독립검사성공/모델실패아님. 원실행지문·환경·명령·동점·MC SE누락OPEN유지. 새성능근거없음/선형→정규화→동일예산검색순서유지. 수치probe·데이터·모델·학습·GPU·H720 not run. 상세 NSMT/docs/ASSESMENT.md 감사49; 증거 NSMT/f_lif_pop_v3/forecasting/results/assessment/20260926T145001Z-dd74b488/, raw task log/assessment/20260926T145001Z-dd74b488/. 연구소스·Git변이없음.
+
+
+## 2026-09-27 15:30 KST — A24 다음 실험 제안 전달 (실행 전)
+
+사용자 요청에 따라 ASSESMENT의 A24에 작업 에이전트용 구체안을 append. HEAD 0c970d537c3471297f7bb68705d971e4acad5115. q1/Pearson×가역 입력창 정규화 중심, Linear/GRU도±정규화의8조건×2데이터×8seed=128(조건일치시기존48재사용/추가80). affine=False/입력창시간축통계/출력복원후동일손실/train-only보정 고정. 새미사용검토후 목표[14400,17420),이전336문맥허용2925창 권장. 두1차Pearson정규화효과에97.5%paired CI/평균−.005기준 제안, 나머지보조;후속동일예산주기+유사도대조. 원문AAAI2023·RevIN저자자료/구현 직접재확인. 사전등록확정아님/새학습·모델forward·future접근 not run. 증거 NSMT/f_lif_pop_v3/forecasting/results/assessment/next_experiment_20260927T152800/evidence.json. 상세 NSMT/docs/ASSESMENT.md A24; 메신저전송없이 감사파일로 전달.
+
+
+## 2026-09-27 18:08 KST — 추적 감사51: 2O R 구현 범위 검증 / 전체 확증 대기
+
+예약20260927T090001Z-b9116dd1, HEAD491bc5a0aca392f5fea79a66244804cb5ac5ae9d, exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7. snapshot786+완료25건cp/config50파일,trigger와진행파일9차이. A24제안2O채택확인. CPU합성4조건 출력복원/MSE차0,R-off구source3조건차0,이동최대7.16e-7,구간8209/2785/2785/2925·train scaler확인→A24-IMPLEMENTATION 한정VERIFIED. 기존준상수fp32검사의반올림을보완해통과;48val재현GPU/사전CPU편차고지,감사전체재현not run. probe오류2건은감사도구설정수정후PASS/모델실패아님. pilot16×3epoch,본실험snapshot9/80완료;25건config/no-test/cp hash/source11/CSVepoch·best·보정일치,본9patience10일치. A24-FUTURE-GATE PENDING(평가기작성중),전체128관문·새구간성능/CI not run. 다음128셀지문/완료대조→개방전결함거부→사전D_P97.5%/−.005·보조대비;선택확대는후순위. Rscale10/bound1334.6654·2026.3174는정규화+보정결합효과. A23원실행지문/MC잔여OPEN. 상세ASSESMENT감사51,증거NSMT/f_lif_pop_v3/forecasting/results/assessment/20260927T090001Z-b9116dd1/,raw같은task log/assessment/. 학습/GPU/실제데이터접근/연구소스·Git변이없음.
+
+
+## 2026-09-27 18:15 KST — 추적 감사52: 2O128관문 범위VERIFIED / A25평가출력 보완
+
+예약20260927T091001Z-07aaecc1; trigger/최초HEAD1a1e556653ffda9dc8bed7f734296f3900ed7e8b,후기ce4780652456471914654f781bf3d4558e199a9a,exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7. snapshot988+cp/config256/stdout130/CSV바이트2,trigger차1(진행gate검사). 본80완료+재사용48=128 metadata CPU관문오류0,종료CSV/stdout검증,신규source11×80일치,기존cp/config각48감사45동일. 9결함거부·실제CLI128번째누락개방전거부·격리registry중복거부→A24-FUTURE-GATE 해당범위VERIFIED(실제GPU/future검증아님). A25-CHANNEL 채널오차누락OPEN; A25-UNSAFE-SECONDARY 보조비교별차단누락OPEN; A25-INTERACTION-RELATIVE zeros분모−Infinity재현OPEN(mean/CI와구분). 준상수1e-4/assert수정소스확인/전체재실행not run. 감사중ETTh1/2 future registry18:11:34/35개방고지,후기성능결과는읽지않음/판정보류. 이미개방된future임의재실행·registry초기화금지,누락고지/원본보존후산술표시정정,다음결과대조. 상세ASSESMENT감사52; 증거NSMT/f_lif_pop_v3/forecasting/results/assessment/20260927T091001Z-07aaecc1/,raw동일task log/assessment/20260927T091001Z-07aaecc1/. 모델학습/GPU/실제행파싱/Git변이없음.
+
+
+## 2026-09-27 18:26 KST — 추적 감사53: 2O future128 산술·출처 VERIFIED / 해석·보정 분리 제안
+
+예약20260927T092001Z-0fce65ef; HEADce4780652456471914654f781bf3d4558e199a9a,exp/f-lif-pop-v3/base329183b94f65090cc6b337f464c5aa4d8e127ad7. snapshot1073/trigger차0+cp/config256·stdout130·CSV바이트2(감사52동일). done64행×2각2925창,source9/cp/config/data/calibration지문·CSV128일치,기존48CSV prefix보존. 기록상safe128/스파이킹64고정bound내,mismatch0,ties8/13431600·18/13431600. D_P97.5% ETTh1−.005342700 CI[−.010754721,+.000069322]미통과;ETTh2−.033079779 CI[−.039151427,−.027008131]−15.8172%통과. 보조I h1+.022816129/h2−.008013217,산술VERIFIED/확증아님. A25채널누락·unsafe보조차단·I±Infinity OPEN유지(현재unsafe없음,1차영향없음). A26-INTERPRETATION OPEN:기준선무효과/스파이킹특유/대체메커니즘확정금지;GRUh1+.2908%,Linearh2−.4243%로<.2%문구정정필요. 다음기록정정→train/val상태진단→필요시q×R×scale/theta보정묶음교차사전등록,미사용자료확보후확증;현재future재실행금지. 새실험/모델forward/GPU not run. RevIN/AAAI저자·논문페이지재확인. 상세ASSESMENT감사53,증거NSMT/f_lif_pop_v3/forecasting/results/assessment/20260927T092001Z-0fce65ef/,raw task log/assessment/20260927T092001Z-0fce65ef/.
