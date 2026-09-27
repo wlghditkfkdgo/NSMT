@@ -1411,3 +1411,12 @@ AdamW lr 1e-3, wd 1e-2, batch 128, grad clip 1, 최대 50 epoch, early stop pati
 | 둘 다 | gru_R, linear_R | — | — | — | 보정 없음 (출력 유한만 안전 기준) |
 
   - frozen 입력 통계는 run마다 R 변환 train 입력으로 적합한다(`train.fit_input_norm`). 평가 기록에 run별 지문(`frozen_norm_sha256_16`)과 input_scale·보정 파일을 남긴다.
+
+### D-BZ. (2026-09-27, 2P 평가 뒤 추가, 감사 55 A28-DIAGNOSTIC-CLAIM) D-BX 진단 문구 정정
+
+- D-BX의 "같은 예산의 내용 무관 규칙(recent, random)은 α=1에서도 작다 … **유사도로 고르는 경우에만** 커진다"는 절대 표현이라 틀렸다. random도 α=1에서 상태를 키웠다(ETTh1 28.2 → 67.6, 2.4배; ETTh2 31.8 → 50.2, 1.6배).
+  → **"이 초기화(seed 7)·표본(train 첫 8 batch)·예산(q=0.5)에서 비교한 규칙 중 피어슨만 G11 한계를 넘었고 증가 폭이 가장 컸다."**
+- "상태가 시퀀스를 따라 커진다"의 수치는 step별로 모든 batch·sample·unit·branch 중 **최대값**을 모은 것이다. 한 뉴런의 경로가 아니다.
+- "분수 커널의 감쇠가 억누른다"는 가설이다. 분수 커널이 선택의 안전을 보장한다고 일반화하지 않는다. 관찰은 "이 조건에서 α=0.7 피어슨은 한계 안, α=1 피어슨은 한계 밖"까지다.
+- "첫 batch에서 멈췄다"는 맞지만, G11 검사는 그 batch의 backward·clip·optimizer.step **뒤**에 있다(`train.train_one_epoch`). 기록된 최대값은 첫 update 이전 forward의 상태이고, 멈추기 전에 update가 한 번 적용됐다.
+- 판정·보류 규칙은 바뀌지 않는다.

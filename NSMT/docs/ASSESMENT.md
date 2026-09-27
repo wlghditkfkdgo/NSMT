@@ -3584,3 +3584,60 @@ trigger와 다른 것은 진행 중 `run_ett.sh`1파일이다. 후기 대조에�
 실행 명령: `CUDA_VISIBLE_DEVICES='' PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python f_lif_pop_v3/forecasting/results/assessment/20260927T124001Z-4de1c1d2/audit_checks.py`. 종료0·ALL CHECKS PASS. 학습/backward·GPU·실제 데이터 forward·연구 소스 수정·프로세스 중단·설치·Git 변이·타 세션 읽기/메시지·새 예약은 하지 않았다.
 
 <!-- assessment-watch:20260927T124001Z-4de1c1d2 -->
+
+
+## 2026-09-27 21:55 KST — 추적 감사55: α=1 Pearson16건 G11 실패 / q1 진행과 안전 진단 해석
+
+예약 `20260927T125001Z-4f47a30f`. 대응 **A27-ALPHA-INTERPRETATION / A28-G11-RESULT / A28-DIAGNOSTIC-CLAIM / A28-COMPLETION-GATE**, 기존 A25-CHANNEL·A23 잔여 유지. branch `exp/f-lif-pop-v3`, base `329183b94f65090cc6b337f464c5aa4d8e127ad7`, trigger/최초·후기 HEAD `647641e708348934024cea4c079f4c5de25be30e`. 기억·감사54·2P D-BX·canonical 보정/pilot 기록을 읽었다. 감사54 문서 자체를 새 실험 결과로 세지 않았다.
+
+### 확인 범위·보존
+
+21:50:28 KST 재검사 전에 감시파일과 문서1177개를 `f_lif_pop_v3/forecasting/results/assessment/20260927T125001Z-4f47a30f/source_snapshot/`에 별도 복사·SHA256 기록했다. trigger와 차이6개는 진행 중 q1 CSV4개·pool log·raw.txt다. 추가로 본/pilot stdout36개와 snapshot에서 완료된 q1 checkpoint12개를 같은 snapshot에 복사/hash했다. `inventory.json`, `additional_snapshot.json`, `record_audit.py`, `record_checks.json`, `postcheck.json` 참조. raw 감사 stdout은 `f_lif_pop_v3/forecasting/log/assessment/20260927T125001Z-4f47a30f/record_checks.txt`에 있다. 후기 기존 파일 차이는 진행 중 CSV2개·pool/raw뿐이며 source/사전등록/실패 기록은 그대로다. 감사 중 새 완료 결과는 다음 주기 범위다.
+
+주요 SHA256: prereg `a4c3700d2284c1faafbb7b89f57571d1218d44b35f89e052cf5b11977e7994fb`; 진단 py `b46bba7c68b2eadb9fa8f2b63896d7122bbe44efd480d683909c942d010ecfca`; 진단 JSON `0ab17e73139ea4a14c2d1e23ce7aac927efc07315695b465d6921201f8ef0002`; layers `85906858bdc51f90a314c9e6b9a73805e642ebab09dc2acfc1b9502f91a93db0`; train `53e8901517af4eb31136d515d4b31843500bea72865ce4a2dd6711e22f9ddeca`. 모델/학습 소스는 감사54 때와 같다.
+
+### (a) 구현 정확성·실패의 성격
+
+**A28-G11-RESULT — 실제 기록 대조 scoped VERIFIED.** 본 실행의 α=1 Pearson q=.5는 두 데이터셋8seed씩 **16/16건 epoch0/batch0 G11 위반**이다. pilot도 두 데이터셋 seed7에서 같은 종류의 실패다. 기록의 run ID/UUID가 logargs와 맞고, α=1·R-on·q=.5·no-test·scale 및 calibration 파일/한계를 확인했다. stdout의 G11 예외 수치와 일치하며 해당 조건의 완료 결과 JSON은 snapshot에 없다.
+
+| 데이터 | 고정 scale | 고정 G11 한계 | 본8seed max|u| 범위 | 한계 대비 배율 |
+|---|---:|---:|---:|---:|
+| ETTh1 | 8 | 1067.732315 | 1790.704224–2402.108154 | 1.6771–2.2497 |
+| ETTh2 | 6 | 1215.790405273 | 1447.565308–3103.547363 | 1.1906–2.5527 |
+
+위 값은 유한하지만 고정 한계를 넘었다. 따라서 **등록된 안전 실패**이며, NaN/수학적 무한 발산 또는 일반 LIF 전체의 실패를 증명한 것은 아니다. 진단의 최초 GPU 실행에서 발생했다고 고지된 CPU random generator 장치 불일치와도 다르다. 그 명령 실패를 모델 실패 수에 넣지 않는다.
+
+train_one_epoch는 해당 forward의 aux 상태를 보지만 G11 검사는 backward·clip·optimizer.step **이후**다. 따라서 “첫 batch에서 실패”는 맞고 “첫 optimizer update 이전에 차단”이라고 쓰면 틀리다. 여기서 읽는 peak는 update 이전 forward의 상태다. 감사는 학습을 실행하지 않았다.
+
+full(q1) 보정과 sparse-at-init의 정상은 hard Pearson의 안전을 보장하지 않는다. 감사54의 상수/준상수 유한성 검사도 임의 입력의 고정 한계 통과를 뜻하지 않는다. q1에서 α=1은 가지 Euler 재귀로 환원하지만 q=.5에서 일부 과거 증분을 제거하면 그 환원은 성립하지 않는다. 현 실패와 q1 환원 검증은 모순이 아니다. 모델 소스의 새로운 구현 오류로 단정할 근거는 발견하지 않았다.
+
+### (b) 검증 절차·분리·대조·통계
+
+보정 JSON의 grid에서 band [.1,.3] 내 target .2에 가까운 scale은 ETTh1 8/ETTh2 6이며, bound=10×보정 max|I|와 source 지문이 맞았다. 이는 **저장 보정값의 산술·출처 대조**이며 GPU 보정 forward를 재현한 것은 아니다. α=.7 R-on scale10과 다르므로 A27의 “순수 커널” 표현 정정 요청은 **OPEN 유지**한다. D-BS의 결합 효과 제한을 F_q/F_p/J 해석에도 적용해야 한다.
+
+**q1 snapshot 진행 상태:** 16개 중 완료 JSON12개(각 데이터 seed7/13/21/42/123/256), 나머지 seed512/1024 각2건은 완료 증거 미포함이다. 완료12건의 source11개 hash·UUID/config_hash·no-test·checkpoint SHA·CSV epoch 수·best val(차≤1e-6)·최저 val 뒤10epoch 이상 종료를 대조했다. ETTh1 15–28epoch, ETTh2 14–17epoch다. 이것은 완료12건의 기록 정합성 확인이며 전체96관문, 저장 config 객체의 전체 검사, validation forward 재현을 대신하지 않는다. 진행 중 네 건을 실패 또는 누락 오류로 세지 않았다.
+
+**A28-COMPLETION-GATE — PENDING.** D-BX의 “완료(checkpoint+결과) 또는 G11 실패 중 정확히 하나”와 실패 seed 제외/재시도 금지는 적절하다. F_p·S_on(α=1)·J는 두 데이터셋 모두 실패가 포함되므로 보류한다. F_q는 Pearson 실패를 사용하지 않지만, q1 완료·재사용 출처·안전·재현 관문을 통과해야 보고할 수 있다. 완주한 seed만으로 실패 대비 CI를 만들거나 실패를 임의의 큰 MSE로 치환하지 않는다. 평가기의 실제 구현·결함 주입·96칸 검사·채널 오차·val 재현은 이번 **not run / 미검증**이다.
+
+D-BX commit 시각은21:46:34 KST, 본 실패 최초 기록은 ETTh1 21:47:02/ETTh2 21:47:03이다. 이 기록들은 본 실패 결과에 앞선 규칙 고정을 지지한다. canonical의 해당 제목은21:55로 수동 기재돼 실제 commit보다 뒤이므로 제목만으로 순서를 추론하지 않는다. 파일 제목 시각 정정 또는 실제 commit 시각 병기를 권한다. pilot 결과를 보고 추가한 규정이라는 점은 이미 고지돼 있다.
+
+**A28-DIAGNOSTIC-CLAIM — OPEN, 해석 범위 정정.** 진단24행의 within 판정과 per-step 최대값 반올림은 JSON과 일치한다. 코드상 train 첫8 shuffled batch, seed7, 새 embedding, 동일 frozen 입력 처리, 각 α의 자체 scale 및 공통 scale 대조이며, recent/random 분석을 앞선 결과 후 추가한 사후 진단이라고 고지한다. 이번에는 실제 train8batch forward를 재실행하지 않았으므로 원 수치 재현 완료로 닫지 않는다.
+
+- D-BX/canonical의 “내용 무관 규칙은 상태를 키우지 않는다 / 유사도로 고르는 경우에만 커진다”는 절대 표현은 저장값과 맞지 않는다. α=1에서 ETTh1 q1 **28.17358**, random **67.599342(2.3994배)**, recent **29.84**; ETTh2 q1 **31.80659**, random **50.22787(1.5792배)**다. **“이 초기화·표본·예산에서 비교한 규칙 중 Pearson만 해당 G11 한계를 넘었고 가장 큰 증가를 보였다”**로 좁힌다.
+- 공통 scale 비교는 scale 차이만으로 Pearson peak 차이를 설명할 수 없음을 지지한다. 하지만 seed7·표본8batch로 다른 유사도 규칙/seed/길이까지 일반화하거나 분수 커널이 안전성을 보장한다고 해석하지 않는다. common 행의 한계도 각 α의 기존 보정 한계임을 표시한다.
+- per_step_max는 모든 batch·sample·unit·branch의 **최대값을 step별로 모은 값**이다. 서로 다른 셀이 최대일 수 있으므로 단일 뉴런이 그 경로로 단조 증가했다고 부르지 않는다. 상태·증분의 방향 정렬을 측정하지 않은 현재의 양의 되먹임 설명은 가설로 유지한다.
+
+### (c) 새 증거에 따른 개선 방향 — 감사파일로 전달
+
+새로 확인된 것은 α=1 Pearson의 등록 안전 실패와 q1의 부분 완료다. **예측 성능에 대한 F_q·F_p·J 및 α 우위 판단은 보류**한다. 다음 순서를 권한다.
+
+1. 기존2P의 고정 한계와 실패 기록을 보존하고, 정상 q1 조건의 완료 및 전체 관문을 먼저 확인한다. 이번 결과를 구하기 위해 scale·q·한계를 사후 조절하거나 실패 seed를 빼지 않는다. 계획 밖 새 학습은 이번 감사에서 하지 않는다.
+2. 다음 메커니즘 진단은 **train에서 저장한 동일 current tensor·동일 초기화의 소규모 forward**로 제한해 시작한다. q1/Pearson/recent/random의 실제 keep 수·선택 lag·남긴 커널 질량과 함께, 선택/제외한 증분의 합 및 절댓값 합, 현재 상태 방향과 증분 방향의 내적을 기록한다. step별 최대값뿐 아니라 최대가 발생한 sample/unit/branch의 추적값도 남긴다. 이는 “음의 되먹임 항 제거/같은 방향 증분 선택” 가설을 직접 검사하기 위한 제안이며 아직 **not run**이다.
+3. 그 뒤 필요하면 **고정 mask 재생 대조**를 별도 진단으로 추가한다. 한 조건에서 얻은 mask를 같은 입력의 다른 α에 고정 적용한 결과와 상태에 따라 mask를 다시 계산한 결과를 구분하면, 커널 변화와 선택 경로의 되먹임을 나누어 볼 수 있다. 동일 칸수뿐 아니라 lag/커널 질량 차이를 보고하고, random은 여러 mask seed의 변동도 남긴다. 현재 α1의 모든 b=1 조건과 α.7의 거리 감쇠 조건은 q가 같아도 남긴 총 커널 질량이 같지 않다. 정규화·clip·학습 gate 등의 모델 수정을 동시에 도입하기 전에 이 진단을 우선한다.
+4. 발화율을 맞춘 α별 보정 시스템 비교와 공통 scale 커널 비교를 구분하고, 성능 확증은 새로운 미사용 자료에서 별도 사전등록한다. 기존 ETT val은 조기 종료/진단에 사용된 탐색 자료이며 test/future는 다시 열지 않는다. 단순 Linear/GRU 참고선은 유지한다.
+
+기존 확인 문헌인 [RevIN 저자 자료](https://seharanul17.github.io/RevIN/)와 [Zeng et al., AAAI2023 논문 페이지](https://ojs.aaai.org/index.php/AAAI/article/view/26317)를 이번에도 확인했다. 각각 입력 통계 제거·복원과 선형 기준선 설계를 뒷받침한다. 위 증분/고정 mask 제안은 로컬 재귀식과 실패에서 도출한 진단안으로, 이 문헌이 양의 되먹임 원인이나 현 모델 개선을 증명하는 것은 아니다.
+
+실행: `/usr/bin/python3 f_lif_pop_v3/forecasting/results/assessment/20260927T125001Z-4f47a30f/record_audit.py` → PASS. 순수 저장값/지문/CSV 대조로 추가 모델 probe는 필요하지 않아 실행하지 않았다. 실제 데이터 forward·학습/backward·GPU·환경 설치·프로세스 중단·연구소스/Git 변이·다른 세션/메시지·새 예약 모두 하지 않았다. A25의 과거 채널 누락과 A23 잔여 provenance/MC 이슈도 유지한다.
+
+<!-- assessment-watch:20260927T125001Z-4f47a30f -->
