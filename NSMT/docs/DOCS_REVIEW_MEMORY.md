@@ -583,3 +583,8 @@ HEAD `a0535eab3366b5173c97400c1b953a8a67027722`, source/사전등록2R 불변·�
 ### 2026-09-28 05:32 KST — 추적 감사74 (20260927T203002Z-65590e78)
 
 HEAD `a0535eab3366b5173c97400c1b953a8a67027722`, source/사전등록 불변. 대상 snapshot1516파일, 완료 JSON38개 불변. seed1024 q1 CSV α.7/α1 44/41행, prefix·연속·유한 확인. 감지 이후 raw.txt에 α1 q1 seed1024 완료 요약 추가; JSON 대조는 다음 주기, 현재 전체 완료수로38을 단정하지 않는다. 새 판단 근거 없음·성능 보류·기존 A32/A31 판정 유지. 실제 cp/val/전체gate/test not run. 증거 `f_lif_pop_v3/forecasting/results/assessment/20260927T203002Z-65590e78/`, raw 같은 task `log/assessment/20260927T203002Z-65590e78/`. 자체 감사 append 분리, 학습/GPU/연구소스/Git변이 없음.
+
+
+### 2026-09-28 05:44 KST — 추적 감사75 (20260927T204003Z-01c2ede5): Weather test 저장 대조 완료
+
+HEAD `971a817b33a9d7b82fa37679b63c6bfcb72b10c9`. snapshot1563텍스트+80checkpoint/config binary 해시. 모델/학습/평가기/사전등록source불변.40/40 완료, producer gate9/9·val40 최대차1.04129e-7·05:35:28개방·test40 기록. 감사의80binary hash/40CSV/source·보정/주2보조6 통계 독립 재계산 통과; 실제val/test forward·GPU gate 재실행·데이터 재해시·config역직렬화 not run. P1 +.000959719 CI[-.000196151,.002115588], P2 -.002051383 CI[-.003284182,-.000818585]; 둘 다 등록 실용기준 결합 판정은 차이를 보이지 못함(P2 8/8개선이나0.005미달, 자체보정 포함). GRU/Linear 기술비교만. **A34-WEATHER-ROWS-METADATA OPEN**: final JSON rows가 목표구간을 평가행으로 덮음; 소스/사전등록에 구간 잔존·성능오류 증거 아님, 파생 metadata 보충 조건. A32 scoped VERIFIED/A31분모 등 잔여 유지. 열린 Weather test 재사용 금지·후속 가설은 새등록/자료, M8 학습 not run. 상세 docs/ASSESMENT.md 감사75; 증거 `f_lif_pop_v3/forecasting/results/assessment/20260927T204003Z-01c2ede5/`, raw 같은task `log/assessment/20260927T204003Z-01c2ede5/`. 학습/GPU/연구소스/Git변이없음·자체append분리.

@@ -4199,3 +4199,45 @@ Weather 새 완료 JSON7개, snapshot 총14/40개. 아래 기록은 성능 우�
 증거 `f_lif_pop_v3/forecasting/results/assessment/20260927T203002Z-65590e78/`(trigger/inventory/source_snapshot/check_progress.py/checks.json), raw 같은 task `log/assessment/20260927T203002Z-65590e78/checks.txt`(첫 진단), `checks_retry.txt`(재검사 종료0). 명령 `/usr/bin/python3 f_lif_pop_v3/forecasting/results/assessment/20260927T203002Z-65590e78/check_progress.py`. 표준 라이브러리 저장 기록만 검사; 학습/GPU·연구소스·환경·프로세스·Git변이·타 세션/메시지·새 예약 없음. 감지 이후 새 결과는 다음 주기 대상.
 
 <!-- assessment-watch:20260927T203002Z-65590e78 -->
+
+
+## 2026-09-28 05:44 KST — 추적 감사75: Weather test 저장 증거·통계 대조, P1/P2 등록 성공 기준 미충족
+
+예약 `20260927T204003Z-01c2ede5`; 관찰 HEAD `971a817b33a9d7b82fa37679b63c6bfcb72b10c9`(직전 `a0535eab3366b5173c97400c1b953a8a67027722`). 기억·감사74·사전등록2R D-CF~CK·canonical05:34/05:39 기록 확인. `2026-09-28T05:40:44.805720+09:00` 실제1563파일 snapshot/SHA256, missing0/trigger 불일치0. 이후 체크 전 checkpoint/config80파일(18,211,656 bytes)도 별도 snapshot/hash 보존. 모델·학습·평가기·사전등록 source 변화 없음, 자체 감사 append는 연구 변경에서 제외. train.py SHA `53e8901517af4eb31136d515d4b31843500bea72865ce4a2dd6711e22f9ddeca`; weather_test.py SHA `b06a2a0fc4abac66cc0fa25749b8b2e0e0588a29554899ee228b72bbe18425ba`. test record SHA `041c4a717416d8947a2fa5c7d7508df10ade2d0014b29b3cce37cd7cd1fc38b1`.
+
+### (a) 아이디어 구현 — 기존 한정 판정 유지, A34-WEATHER-ROWS-METADATA OPEN
+
+새 뉴런 구현 변경 없음. 기존 A32 finite 수정 scoped VERIFIED와 A31 M9/M9b 분모 등 잔여 판정 유지; 기존 FIXED-PENDING-REVIEW를 일괄 닫지 않는다. 현재 weather_test.py의 gate→모든 완료칸 reproduce→open_once→test 순서, 동일 forward에서 오차·상태·발화율 측정, 두 주 대비의 97.5% paired t 및 ±0.005 결합 판정은 사전등록과 일치한다. API·진단 정의를 확인했고 변경 없는 CPU 모델 probe는 **not run**.
+
+**확정된 기록 결함 A34:** `head['rows']=[42157,52696]`가 최종 dump의 `'rows': rows`로 덮인다. 실제 완료 JSON에는40개 평가 행만 남고 명시적 목표 구간 필드가 없다. 임시 작성 중 파일이 아닌 status=done 기록의 메타데이터 손실이다. 구간은 사전등록·소스에 남아 있으며 이번 test 숫자가 잘못됐다는 증거는 아니다. 앞으로 `target_rows`와 `results` 등 필드를 분리하고 기존 개방 원본은 유지한 채 hash로 연결한 파생 보충 기록을 남길 조건이다. 감사는 소스를 수정하지 않았다.
+
+### (b) 검증 — 저장 수치·지문 대조 통과, 실제 forward는 생산자 증거와 구분
+
+감사74에서 미뤘던 α1 q1 seed1024(41epoch/최저30후10epoch)와 α.7 q1 seed1024(등록50epoch/최저49)가 완료되어40/40. 두 새 학습 JSON의 source·보정·UUID/config_hash·설정·no-test·CSV를 대조했다. 마지막epoch이 최저라는 이유로 등록 예산을 사후 변경하거나 모델 실패로 해석하지 않는다.
+
+생산자 weather_gate_check.txt는9/9(40칸 관문, 결함6종 CLI 거부, finite fixture, seed7 5조건 val 재현). 감사는 해당 source와 결과를 읽었으며 이 GPU 관문 전체 재실행은 **not run**. main stdout은 manifest40/실패0→val40 재현 최대1.04e-7→test40 순서이고, 등록부는05:35:28.071696 KST에 weather-test-H96을 해당 결과 경로로 개방했다. 소스 순서·로그·등록 기록은 일관되지만 시스템 전체에서 다른 비기록 접근이 없었다는 인증으로 확대하지 않는다.
+
+감사가 별도로 실행한 저장 증거 검사는 다음을 통과했다.
+
+- 5조건×등록8seed 정확히40행, status=done, blocked_cells=[], 각10444 test창, 상태/출력 유한·safe 기록, 재현차 유한·≤1e-6. 기록 최대차 `1.0412906764623031e-7`.
+- 각 학습 완료 시각이 개방보다 앞서며 test=null/test_skipped=true.40개 checkpoint 파일 SHA가 학습 provenance와 test record에 일치하고 config40개 SHA도 test record와 일치.80개 binary는 역직렬화/forward 없이 snapshot bytes를 hash 대조했다.
+- 평가/학습 source SHA와 α별 보정파일 SHA 일치. 데이터 SHA는 등록값·결과와 일치하나 이번 감사에서 원 데이터 재해시/행 접근은 **not run**.
+- 각 run final+result.csv에 test행1개, MSE/MAE/21채널 MSE가 JSON과 반올림 이내 일치. double 채널 평균과 전체 float32 MSE 차<1e-6. 피어슨 동점60/71,938,272 및 mask_mismatch0 기록 일치.
+- seed별 차이로 평균·표본SD·t(df7) CI·상대차·방향 개수를 독립 재계산해 주2/보조6 대비 모두 일치. 실 모델 validation/test forward·GPU 관문 재실행·config 내용 역직렬화 검사는 **not run**. 저장된 재현차는 생산자 증거이며 감사 자체 forward 재현으로 부르지 않는다.
+
+| 1차 대비 | 평균 MSE 차 | 97.5% CI | 사전등록 판정 |
+|---|---:|---|---|
+| P1 Pearson−q1, α.7 | +0.000959719 | [−0.000196151, +0.002115588] | 차이를 보이지 못함 |
+| P2 q1 α.7−α1, 각자 보정 | −0.002051383 | [−0.003284182, −0.000818585] | 차이를 보이지 못함: 실용 기준0.005 미달 |
+
+P1은 개선 방향2/8이며 무효과·동등성 증거가 아니다. P2는8/8 개선 방향/CI<0이나 등록된 결합 기준을 충족하지 못한다. 따라서 "확증 실험 수행"과 "핵심 가설 성공"을 구분한다. α와 보정(scale10/6)을 함께 바꾼 효과이며 커널 단독 효과가 아니다. 평균 MSE q1 .162103139, Pearson .163062857, α1 .164154522, GRU .154279729, Linear .175061908. GRU/Linear 차이는 기술 비교에 한정한다. seed CI는 이 단일 자료·시기·예산에 조건부이고 겹치는10444창을 독립 반복으로 세지 않는다.
+
+### (c) 새 결과에 따른 개선 방향 — test 재사용 없이 후속 가설 분리
+
+현재 Weather H96 결과는 피어슨 선택의 실용적 개선을 지지하지 않는다. 선택을 보편적 성능 개선으로 확대하지 말고, 기존 A31 분모·선택 경계/동적 마스크 진단을 먼저 정리해 실패 양상을 설명할 수 있는지 확인하는 편이 타당하다. 채널별 차이와 큰 상태값은 사후 기술 관찰이며 유리한 채널만 새 확증으로 선택하지 않는다. M8 후보는 아직 학습 성능 **not run**, 기존 후속 선택지로만 유지한다.
+
+P2의 작은 일관된 차이는 후속 질문의 근거가 될 수 있지만 임계값을 이번 test를 보고 낮추지 않는다. α별 자체보정 효과와 커널 효과를 분리하려면 별도 사전등록·train에서 안전한 동작점·새 평가자료가 필요하다. 다른 horizon/자료·용량 통제 비교는 **not run**이다. 정규화와 단순 선형 기준선의 필요성은 기존 확인한 [RevIN 원 저자 자료](https://seharanul17.github.io/RevIN/) 및 [Zeng 등 AAAI 원문](https://ojs.aaai.org/index.php/AAAI/article/view/26317)의 제한된 근거를 유지한다. 이 문헌으로 피어슨/분수 기억의 메커니즘 또는 우위를 주장하지 않는다. 현재 열린 Weather test를 다음 튜닝의 미사용 확증으로 재사용하지 않는다.
+
+증거 `f_lif_pop_v3/forecasting/results/assessment/20260927T204003Z-01c2ede5/`: trigger/inventory/source_snapshot/binary_snapshot_inventory/check_results.py/checks.json/audit_test.py/test_checks.json. raw 같은 task `log/assessment/20260927T204003Z-01c2ede5/checks.txt`, `test_checks.txt`. 명령 `/usr/bin/python3 .../20260927T204003Z-01c2ede5/check_results.py`, `CUDA_VISIBLE_DEVICES='' PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 /home/yschoi/.conda/envs/snn_recall/bin/python .../20260927T204003Z-01c2ede5/audit_test.py`, 모두 종료0. CPU 저장 통계·해시만 검사; 학습/GPU·연구소스·환경·프로세스·Git변이·타 세션/메시지·새 예약 없음. 감사 중 새 변화는 다음 주기 대상.
+
+<!-- assessment-watch:20260927T204003Z-01c2ede5 -->

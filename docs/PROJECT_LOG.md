@@ -6917,3 +6917,18 @@ HEAD `a0535eab3366b5173c97400c1b953a8a67027722`, source/사전등록 불변. 대
 ### 주장 범위 (D-CK)
 말할 수 있는 것: weather H96, 이 예산에서 (P1) 통계 선택은 순수 f-LIF보다 test 오차를 낮추는 것을 보이지 못했다. (P2) α=0.7(자체 보정)의 오차가 α=1(자체 보정)보다 8/8 seed에서 낮았지만 사전 실용 기준에는 못 미쳤다.
 말하지 않는 것: 선택의 무효과·동등성, 커널만의 효과, 다른 데이터셋·예측 길이, GRU·Linear 대비 우위의 검정, 메커니즘.
+
+
+### 2026-09-28 05:44 KST — 추적 감사75 (20260927T204003Z-01c2ede5): Weather test 저장 대조 완료
+
+HEAD `971a817b33a9d7b82fa37679b63c6bfcb72b10c9`. snapshot1563텍스트+80checkpoint/config binary 해시. 모델/학습/평가기/사전등록source불변.40/40 완료, producer gate9/9·val40 최대차1.04129e-7·05:35:28개방·test40 기록. 감사의80binary hash/40CSV/source·보정/주2보조6 통계 독립 재계산 통과; 실제val/test forward·GPU gate 재실행·데이터 재해시·config역직렬화 not run. P1 +.000959719 CI[-.000196151,.002115588], P2 -.002051383 CI[-.003284182,-.000818585]; 둘 다 등록 실용기준 결합 판정은 차이를 보이지 못함(P2 8/8개선이나0.005미달, 자체보정 포함). GRU/Linear 기술비교만. **A34-WEATHER-ROWS-METADATA OPEN**: final JSON rows가 목표구간을 평가행으로 덮음; 소스/사전등록에 구간 잔존·성능오류 증거 아님, 파생 metadata 보충 조건. A32 scoped VERIFIED/A31분모 등 잔여 유지. 열린 Weather test 재사용 금지·후속 가설은 새등록/자료, M8 학습 not run. 상세 docs/ASSESMENT.md 감사75; 증거 `f_lif_pop_v3/forecasting/results/assessment/20260927T204003Z-01c2ede5/`, raw 같은task `log/assessment/20260927T204003Z-01c2ede5/`. 학습/GPU/연구소스/Git변이없음·자체append분리.
+
+---
+
+## 2026-09-28 10:58 KST — 감사 75 수용: 평가 기록의 목표 구간 필드가 덮어써짐(2R·2O) / 세 요소 검증 실험 설계 제안 (실행 전)
+
+**감사 75 (05:44) 요약:** 2R weather test의 저장 증거를 독립 대조했다. 40행, 지문, 재현 차이(최대 1.04e-7), 두 1차 대비의 통계가 모두 일치한다. 판정도 "확증 실험은 수행했으나 두 가설 모두 등록 기준 미충족"으로 같다. **A34 (기록 결함):** 평가기의 마지막 기록에서 `head['rows']=[42157, 52696]`(목표 구간)이 평가 행 목록 `'rows': rows`로 덮어써졌다. test 수치가 틀렸다는 증거는 아니다.
+
+**제 확인과 조치:** 사실이다. 같은 결함이 **2O 평가기(`ett_future.py`)의 ETTh1·ETTh2 future 기록에도 있다**(감사가 짚지 않은 곳, 제가 확인). 원 기록은 고치지 않고, 원본 SHA256을 참조하는 보충 기록을 만들었다: `weather_test_record_target_rows.json`(목표 [42157, 52696), 문맥 336, 창 10,444), `etthard-revin-20260927-future-ETTh{1,2}/ett_future_record_target_rows.json`(목표 [14400, 17420), 창 2,925). 저장된 행의 창 수와 일치를 확인했다. 앞으로의 평가기는 `target_rows`와 결과 행을 다른 필드에 둔다.
+
+**세 요소 검증 실험 설계 (사용자 요청 09-28, 실행 전, 사용자 검토 대기):** 요소는 (1) population coding(τ가 다른 가지 4개), (2) 선택적 분수 계수 c = m·b(분수 커널 + 통계 선택), (3) 가지 4개를 통합하는 soma다. 가능성 점검으로, 가지 1개, 같은 τ의 가지 4개(조화평균 8.53), drive readout, random 선택, α=1·긴 τ가 현재 코드에서 모두 돌아간다(CPU 한 번 forward). 새로 필요한 것은 "가지마다 soma"(통합 없음)와 "고정 혼합"(학습 안 함) 둘이다. 설계 본문은 사용자 확인 뒤 사전등록 2S로 commit한다.
