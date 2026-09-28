@@ -4241,3 +4241,16 @@ P2의 작은 일관된 차이는 후속 질문의 근거가 될 수 있지만 �
 증거 `f_lif_pop_v3/forecasting/results/assessment/20260927T204003Z-01c2ede5/`: trigger/inventory/source_snapshot/binary_snapshot_inventory/check_results.py/checks.json/audit_test.py/test_checks.json. raw 같은 task `log/assessment/20260927T204003Z-01c2ede5/checks.txt`, `test_checks.txt`. 명령 `/usr/bin/python3 .../20260927T204003Z-01c2ede5/check_results.py`, `CUDA_VISIBLE_DEVICES='' PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 /home/yschoi/.conda/envs/snn_recall/bin/python .../20260927T204003Z-01c2ede5/audit_test.py`, 모두 종료0. CPU 저장 통계·해시만 검사; 학습/GPU·연구소스·환경·프로세스·Git변이·타 세션/메시지·새 예약 없음. 감사 중 새 변화는 다음 주기 대상.
 
 <!-- assessment-watch:20260927T204003Z-01c2ede5 -->
+
+
+## 2026-09-28 11:02 KST — 추적 감사76: A34 기존 기록 보충 VERIFIED, 평가기 재발 방지 OPEN
+
+예약 `20260928T020003Z-485264d2`; 관찰 HEAD `eb8d163e4bed2e3640102583b62cd9c041965e2c`(직전971a817b33a9d7b82fa37679b63c6bfcb72b10c9). 기억·감사75·사전등록 최신2R 및2O D-BL·canonical10:58 append 확인. `2026-09-28T11:00:48.486074+09:00` 실제1566파일 snapshot/SHA256 보존, missing0/trigger 차0. source·사전등록·기존 결과·등록부는 불변; 문서의 자체 감사 append와 생산자 A34 수용/후속 설계 제안을 구분했다. weather_test.py SHA `b06a2a0fc4abac66cc0fa25749b8b2e0e0588a29554899ee228b72bbe18425ba`, ett_future.py SHA `96694eed36a315afed7792ea8f8267ff2422edabf90e5fd7ff64b5901e8fbcd0`.
+
+- **(a) 구현:** A34-WEATHER-ROWS-METADATA를 **기존 기록 보충 VERIFIED / 평가기 재발 방지 OPEN**으로 분리한다. 새 뉴런 구현 변경 없음. AST로 weather_test.py와 ett_future.py 양쪽 모두 head의 목표구간 rows를 최종 평가 rows로 덮는 코드가 여전히 있음을 확인했다. ETTh1/ETTh2 future에도 같은 결함이 있었다는 생산자 보고와 원본64행씩을 대조했다. 앞으로 target_rows와 평가 행을 분리하겠다는 문장은 계획이며 구현 완료가 아니다. A31 분모 및 다른 잔여 이슈/한정 VERIFIED 유지.
+- **(b) 검증:** 보충3건 모두 원본 SHA256과 실제 snapshot 원본 hash, 감사75 snapshot hash가 일치해 원본 보존 확인. 각 registry_key·원본 결과 경로·등록부 hash도 일치. Weather 목표[42157,52696), 문맥336, H96 →10444창 및 저장40평가행의 모든 windows와 일치. ETTh1/ETTh2 future 목표[14400,17420), 문맥336, H96 →2925창 및 각64평가행의 모든 windows와 일치. 사전등록·평가기 head 상수·로더 경계/창 수 식과 대조했다. 파생 파일별/원본 hash는 checks.json에 보존. CPU 표준 라이브러리 메타데이터 검사는 재시도 종료0. 첫 진단은 CSV header 문자열의 동명 head까지 AST 후보로 세어 실패했으며 dict인 기록 head로 제한 후 통과했다(감사 probe 오류, 모델 실패 아님; 두 raw log 보존). 데이터 로딩·모델 forward·재학습·test 재개방은 **not run**.
+- **(c) 개선:** 새 성능 판단 근거 없음. 감사75의 P1/P2 등록 성공 기준 미충족 및 자체보정/단일자료 해석 유지. 기존 원본을 보존한 보충 방식은 적절하다. A34를 전체 종결하려면 향후 평가기에서 필드를 분리하고 완료 JSON에도 목표구간이 남는 직렬화 검사가 필요하다. canonical10:58의 세 요소 분해/2S 제안은 사전등록·성능 결과가 아닌 실행 전 설계이며, 메커니즘·성능 판단은 **not run**. 새 문헌 제안 없이 감사75의 근거와 열린 test를 미사용 확증으로 재사용하지 않는 조건을 유지한다.
+
+증거 `f_lif_pop_v3/forecasting/results/assessment/20260928T020003Z-485264d2/`(trigger/inventory/source_snapshot/check_metadata.py/checks.json), raw 같은 task `log/assessment/20260928T020003Z-485264d2/checks.txt` 및 `checks_retry.txt`. 명령 `/usr/bin/python3 f_lif_pop_v3/forecasting/results/assessment/20260928T020003Z-485264d2/check_metadata.py`. 감사 문서/진단 증거만 작성; 학습/GPU·모델/학습소스·환경·프로세스·Git변이·타 세션/메시지·새 예약 없음. 감사 중 새 변화는 다음 주기 대상.
+
+<!-- assessment-watch:20260928T020003Z-485264d2 -->

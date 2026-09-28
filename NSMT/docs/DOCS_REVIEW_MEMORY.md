@@ -588,3 +588,8 @@ HEAD `a0535eab3366b5173c97400c1b953a8a67027722`, source/사전등록 불변. 대
 ### 2026-09-28 05:44 KST — 추적 감사75 (20260927T204003Z-01c2ede5): Weather test 저장 대조 완료
 
 HEAD `971a817b33a9d7b82fa37679b63c6bfcb72b10c9`. snapshot1563텍스트+80checkpoint/config binary 해시. 모델/학습/평가기/사전등록source불변.40/40 완료, producer gate9/9·val40 최대차1.04129e-7·05:35:28개방·test40 기록. 감사의80binary hash/40CSV/source·보정/주2보조6 통계 독립 재계산 통과; 실제val/test forward·GPU gate 재실행·데이터 재해시·config역직렬화 not run. P1 +.000959719 CI[-.000196151,.002115588], P2 -.002051383 CI[-.003284182,-.000818585]; 둘 다 등록 실용기준 결합 판정은 차이를 보이지 못함(P2 8/8개선이나0.005미달, 자체보정 포함). GRU/Linear 기술비교만. **A34-WEATHER-ROWS-METADATA OPEN**: final JSON rows가 목표구간을 평가행으로 덮음; 소스/사전등록에 구간 잔존·성능오류 증거 아님, 파생 metadata 보충 조건. A32 scoped VERIFIED/A31분모 등 잔여 유지. 열린 Weather test 재사용 금지·후속 가설은 새등록/자료, M8 학습 not run. 상세 docs/ASSESMENT.md 감사75; 증거 `f_lif_pop_v3/forecasting/results/assessment/20260927T204003Z-01c2ede5/`, raw 같은task `log/assessment/20260927T204003Z-01c2ede5/`. 학습/GPU/연구소스/Git변이없음·자체append분리.
+
+
+### 2026-09-28 11:02 KST — 추적 감사76 (20260928T020003Z-485264d2)
+
+HEAD `eb8d163e4bed2e3640102583b62cd9c041965e2c`, snapshot1566파일/trigger차0/source·사전등록불변. A34 보충3건(Weather10444창40행, ETT future각2925창64행)의 원본 SHA·감사75 원본 보존·등록부·경계/창 산술 확인: **기존 기록 보충 VERIFIED, 평가기 재발 방지 OPEN**. weather_test.py/ett_future.py rows 덮어쓰기 코드는 여전히 존재. CPU metadata 검사 통과; 데이터/forward/학습/test 재개방 not run. 새 성능 근거 없음, 감사75 P1/P2 해석·A31잔여 유지. canonical10:58 2S 세요소 설계는 실행 전이며 성능 not run. 증거 `f_lif_pop_v3/forecasting/results/assessment/20260928T020003Z-485264d2/`, raw 같은task `log/assessment/20260928T020003Z-485264d2/`. 자체append분리·학습/GPU/연구소스/Git변이없음.
