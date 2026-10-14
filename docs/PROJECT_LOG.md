@@ -7081,3 +7081,37 @@ SUITE=neurons-smoke-20261014b-nocal EXTRA='--no-require_calibration --input_scal
 **결론:** (1) v3의 분수 적분은 spikeDE와 같고, 뉴런 전체(리셋·발화 시점·h)는 의도적으로 다르다. (2) 요청한 클래스 계층을 구현했고, 원본 spikeDE·기존 v3·기존 checkpoint와 모두 정확히 맞는다. 학습 파이프라인에서 `--neuron`으로 고를 수 있고 기존 경로는 그대로다. 실험(2S)은 사용자 결정(안정화 후보 포함 여부, 3단계 자료, 위 한계 1–2) 뒤 사전등록부터 한다.
 
 **commit:** 이 기록을 담은 commit (해시는 다음 기록에 적는다), `exp/f-lif-pop-v3`에 push. 실험 완료가 아니므로 태그는 만들지 않는다.
+
+---
+
+## 2026-10-14 21:19 KST — NSMT 논문 정리·코드 대응 확정, `nsmt_base` 생성, ETT 재현 점검 16/16 일치 — 브랜치 `exp/nsmt-base`
+
+**사용자 요청 (10-14):** (1) `papers/NSMT.pdf` 의 동기·가설·방법을 Markdown 으로 정리(실험 제외), (2) 그 내용에 정확히 일치하는 코드·옵션을 저장소에서 찾아 확인받기, (3) 이상 탐지·분류도 같은 방식으로 대조, (4) 해당 코드와 스크립트를 작업 규칙(`<model>/<task>/`)대로 `NSMT/nsmt_base/` 에 복사하고 forecasting ETT 로 논문 값 재현 점검. 사용자 확인(10-14): "정확히 일치하는 코드 = 루트 `forecasting/` (= `origin/main`)" 맞음, 데이터셋별 옵션 표 확정. 이후 이 base 위에서 뉴런 교체 실험 예정(아직 교체하지 않음).
+
+**브랜치·기준:** `exp/nsmt-base`, 기준 commit `cd9b4cfec` (= `exp/f-lif-pop-v3` HEAD; 문서·검증 스크립트가 그 branch 작업과 이어지므로). 기존 로컬 변경 보존.
+
+**문서:** `NSMT/papers/NSMT_method_summary.md` (방법 정리), `NSMT/papers/NSMT_code_mapping.md` (코드·옵션 대응, 근거, 미일치 사항). 근거 출력 `NSMT/papers/code_mapping_evidence/{table13_matches,table13_consistent_configs,ad_cls_matches}.txt`, 생성 스크립트 `NSMT/scripts/nsmt_paper_{match_runs,consistent_configs,match_ad_cls}.py`.
+
+**대조 결과 요약.** forecasting: 루트 `forecasting/` 의 저장 실행 1,096개 중 논문 Table 13 의 32칸 전부가 소수 셋째 자리까지 일치하는 실행이 있고, 데이터셋마다 네 horizon 을 모두 내는 설정이 하나(electricity 둘). 이상 탐지: 저장 실행 122개 중 논문 Table 9 와 일치하는 것 없음(논문 실행이 이 기계에 없음). 분류: 정확도 1자리 일치는 많으나 설정이 제각각(동률); 공개 스크립트와 같은 설정의 일치 실행은 FaceDetection·JapaneseVowels 둘뿐. 논문 본문에 없는 코드 세부(신피질 기울기 5% 제한, α·pred_len/720, 마지막 epoch 가중치로 test, T평균 평가, 50% 겹침 패치, 윈도우 표준화, surrogate alpha=4)는 `NSMT_code_mapping.md` §2.
+
+**`NSMT/nsmt_base/`:** `forecasting/` = `origin/main:forecasting/` 그대로(`model.py` 만 논문 외 모델 import 를 선택적으로; 파일 머리 주석) + 공개본에 빠진 `analysis.py`·`positional.py`·`noise_injector.py` 는 루트 사본; `anomaly_detection/`, `classification/` = `origin/main` 그대로(미검증); 데이터셋은 공유 폴더 symlink(`.gitignore` 예외 추가). 실행기 `forecasting/scripts/run_ett.sh <DS> <PL> <seed> <gpu>` 가 확정 표의 ETT 설정을 담는다. 공개 스크립트 원본은 `scripts/upstream_*.sh`.
+
+**ETT 재현 점검 (suite `ett-paper-check-20261014`, 탐색/점검, 새 split 개방 없음 — 표준 ETT test 를 논문과 같이 사용):**
+- 환경 `snn_recall` (Python 3.10.18, torch 1.12.0+cu113, spikingjelly cupy backend, cupy 13.5.1), RTX A6000 4장, `scripts/gpu_pool2.sh` 로 GPU 당 1개. seed 42. 명령: `bash scripts/gpu_pool2.sh nsmt_base/forecasting/scripts/queues/ett-paper-check-20261014.txt 0,1,2,3` (큐 16줄: `SUITE=ett-paper-check-20261014 bash nsmt_base/forecasting/scripts/run_ett.sh <DS> <PL> 42`). 사전 smoke: `SUITE=smoke-20261014 EPOCHS=1 … ETTh1 96 42 0` (20 s, 정상).
+- 결과 (`nsmt_base/forecasting/results/ett-paper-check-20261014/{raw.txt,summary.md}`; 실패 0; 실행 시간 69–913 s):
+
+| dataset | H | MSE (재현) | MSE (논문) | MAE (재현) | MAE (논문) |
+|---|---|---|---|---|---|
+| ETTh1 | 96 / 192 / 336 / 720 | 0.378303 / 0.425928 / 0.473055 / 0.461295 | 0.378 / 0.426 / 0.473 / 0.461 | 0.386383 / 0.416838 / 0.440682 / 0.454367 | 0.386 / 0.417 / 0.441 / 0.454 |
+| ETTh2 | 96 / 192 / 336 / 720 | 0.287624 / 0.358232 / 0.403478 / 0.408831 | 0.288 / 0.358 / 0.403 / 0.409 | 0.334062 / 0.379529 / 0.412235 / 0.429425 | 0.334 / 0.380 / 0.412 / 0.429 |
+| ETTm1 | 96 / 192 / 336 / 720 | 0.317345 / 0.364242 / 0.390397 / 0.446342 | 0.317 / 0.364 / 0.390 / 0.446 | 0.345270 / 0.370926 / 0.391051 / 0.425499 | 0.345 / 0.371 / 0.391 / 0.425 |
+| ETTm2 | 96 / 192 / 336 / 720 | 0.175206 / 0.241495 / 0.301941 / 0.398896 | 0.175 / 0.241 / 0.302 / 0.399 | 0.251212 / 0.296522 / 0.334965 / 0.392629 | 0.251 / 0.297 / 0.335 / 0.393 |
+
+- 16/16 칸이 반올림 후 논문과 같다(최대 |차이| 0.0005, 반올림 범위). 16칸 중 15칸은 2026-02 의 저장된 논문 실행(`forecasting/final3/…`)과 소수 여섯째 자리까지 같고, ETTm1 H336 만 여섯째 자리에서 1 다르다(0.390397 vs 0.390396).
+- 점검 산출물: 실행별 `log/best_log_0.csv`, `final+result.csv`, `h*_curve.csv`, `logargs.txt` 는 Git; stdout·checkpoint·그림은 로컬.
+
+**한계·not run:** seed 42 하나(논문 본문 수치도 seed 42); 다중 seed 통계는 not run. electricity/traffic/exchange/weather 재현은 not run. 이상 탐지·분류는 코드 복사만 하고 실행 not run. `model_v1` 의 `NeoLayer` 경로와 공개 코드의 비트 동일성은 확인하지 않았다.
+
+**결론:** `nsmt_base/forecasting` 는 논문 Table 13 의 ETT 값을 그대로 낸다. 뉴런 교체 실험의 base 로 쓸 수 있다.
+
+**commit·태그:** 이 기록을 담은 commit 을 `exp/nsmt-base` 에 push 하고 annotated tag `exp/nsmt-base-20261014` 를 붙인다(완료된 재현 점검; 논문 PDF 2개는 Git 에 넣지 않고 로컬에 둔다).
