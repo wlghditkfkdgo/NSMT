@@ -4254,3 +4254,16 @@ P2의 작은 일관된 차이는 후속 질문의 근거가 될 수 있지만 �
 증거 `f_lif_pop_v3/forecasting/results/assessment/20260928T020003Z-485264d2/`(trigger/inventory/source_snapshot/check_metadata.py/checks.json), raw 같은 task `log/assessment/20260928T020003Z-485264d2/checks.txt` 및 `checks_retry.txt`. 명령 `/usr/bin/python3 f_lif_pop_v3/forecasting/results/assessment/20260928T020003Z-485264d2/check_metadata.py`. 감사 문서/진단 증거만 작성; 학습/GPU·모델/학습소스·환경·프로세스·Git변이·타 세션/메시지·새 예약 없음. 감사 중 새 변화는 다음 주기 대상.
 
 <!-- assessment-watch:20260928T020003Z-485264d2 -->
+
+
+## 2026-09-28 21:01 KST — 추적 감사77: HEAD/문서 변경만, 새 판단 근거 없음
+
+예약 `20260928T120003Z-9b468df5`; HEAD `cf21ed68b80e8083bda43f42044ab71ce56d9cd7`(직전eb8d163e4bed2e3640102583b62cd9c041965e2c). 기억·감사76·사전등록 최신2R·canonical20:59 append 확인. `2026-09-28T21:00:48.736966+09:00` 실제1566파일 snapshot/SHA256, missing0/trigger차0. HEAD diff는 감사/기억/canonical 문서3개뿐이며 자체 감사 append를 제외한 새 내용은 실행 전 세 요소 켜기/끄기 설계 수정이다. 관찰 weather_test.py SHA `b06a2a0fc4abac66cc0fa25749b8b2e0e0588a29554899ee228b72bbe18425ba`, 사전등록 SHA `46cb85e57b50e0334d131cba2a7931c3602be28c6062fbee847ff76415de4726`; 코드·사전등록·결과 불변.
+
+- **(a) 구현:** 새 판단 근거 없음. 새 설계는 구현 완료/확정 오류로 간주하지 않는다. A34 기존 기록 보충 VERIFIED/평가기 재발 방지 OPEN, A31 분모 등 기존 판정 유지. 새 VERIFIED 전환 없음.
+- **(b) 검증:** 새 실행 결과 없음. CPU 모델 probe·학습·실 validation/test 재현은 **not run**. canonical의 ETTm/ETTh 기간 중복 설명은 생산자 문서 기록으로 확인했으며 원 데이터 날짜·과거 전체 사용 이력의 독립 검증은 **not run**. 2S는 아직 사전등록 최신본에 없으므로 설계 제안과 확정된 평가 프로토콜을 구분한다.
+- **(c) 개선:** 새 성능 판단 근거 없음. 감사75의 Weather P1/P2 등록 기준 미충족 해석 유지. 후속 조건·비교·자료 추가 규칙은 실행 전 사전등록으로 확정해야 하며, 이미 열린 ETT 기간을 미사용 확증으로 재명명하지 않는 기존 조건을 유지한다. 새 문헌/실험 제안 없음.
+
+증거 `f_lif_pop_v3/forecasting/results/assessment/20260928T120003Z-9b468df5/`(trigger/inventory/source_snapshot/checks.json); raw 같은 task `log/assessment/20260928T120003Z-9b468df5/git_status_before.txt`, `head_diff.txt`. 파일 bytes/SHA 및 read-only git diff만 확인. 학습/GPU·모델/학습소스·환경·프로세스·Git변이·타 세션/메시지·새 예약 없음. 감사 중 새 변화는 다음 주기 대상.
+
+<!-- assessment-watch:20260928T120003Z-9b468df5 -->

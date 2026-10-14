@@ -11,13 +11,13 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from config import Config, parse_arguments, set_random_seed, TASK
+from config import Config, parse_arguments, set_random_seed, TASK, calibration_tag
 from model import LOAD_MODEL
 from data_provider.data_factory import data_provider
 from utils import EpochLog, EarlyStopping, write_json, sha256, parameter_hash
 from test import test, evaluate, selection_diagnostics
 
-SOURCE_FILES = ['config.py', 'model.py', 'ours.py', 'layers.py', 'train.py', 'test.py',
+SOURCE_FILES = ['config.py', 'model.py', 'ours.py', 'layers.py', 'neurons.py', 'train.py', 'test.py',
                 'utils.py', 'calibrate.py', 'data_provider/data_loader.py',
                 'data_provider/data_factory.py', 'data_provider/synthetic.py']
 
@@ -32,8 +32,9 @@ def load_calibration(args):
     stem = f"{args.dataset}_k{args.n_keys}_r2" if args.task == 'recall' else args.dataset
     qk = f'_qknorm-eps{args.qk_eps:g}' if args.qk_norm else ''
     rv = '_revin' if getattr(args, 'revin', False) else ''            # 2O: R 입력의 보정은 따로 둔다
-    pattern = str(TASK / 'results' / 'calibration'
-                  / f'{stem}_a{args.alpha}_norm-{args.input_norm}{qk}{rv}_seed*.json')
+    nt = calibration_tag(args)                                        # neurons.py 클래스: 클래스별 보정
+    pattern = str(TASK / 'results' / getattr(args, 'calibration_dir', 'calibration')
+                  / f'{stem}_a{args.alpha}_norm-{args.input_norm}{qk}{rv}{nt}_seed*.json')
     files = sorted(glob.glob(pattern))
     if not files:
         return None
@@ -60,6 +61,19 @@ def load_calibration(args):
         have = saved.get(field)
         if have is not None and have != getattr(args, field, have):
             mismatch.append(f'{field}: calibration {have} vs requested {getattr(args, field)}')
+    if nt:
+        # 파일 이름이 이미 클래스·tau·soma·solver를 담지만 내용으로 한 번 더 대조한다. 없는 필드도 불일치다.
+        from neurons import NEUTRAL
+        base = NEUTRAL.get(args.neuron, args.neuron)
+        want = {'neuron': base, 'method': args.fde_method, 'step': args.fde_step,
+                'memory': args.fde_memory or None, 'surrogate_scale': args.surrogate_scale}
+        if base == 'pop_flif':
+            want['soma'] = args.soma
+        for field, value in want.items():
+            if neuron.get(field, '<absent>') != value:
+                mismatch.append(f"{field}: calibration {neuron.get(field, '<absent>')} vs requested {value}")
+        if payload.get('requested_neuron') != args.neuron:                # 이 구성 자신의 at-init 확인
+            mismatch.append(f"requested_neuron: calibration {payload.get('requested_neuron')} vs {args.neuron}")
     if mismatch:
         raise ValueError('calibration artifact does not match this configuration, so its '
                          'input_scale/theta/bound describe a different operating point:\n  '
@@ -129,9 +143,10 @@ def train_one_epoch(model, data_loader, optimizer, args):
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         if watch and args.model == 'myModel':                     # clipping 전 원본 크기를 본다
-            sel = model.embedding.neuron.selector
-            for name, tensor in (('grad_WQ', sel.query.weight), ('grad_WK', sel.key.weight),
-                                 ('grad_eta_hat', sel.eta_hat)):
+            sel = getattr(model.embedding.neuron, 'selector', None)  # neurons.py 클래스: 학습되는 선택자 없음
+            for name, tensor in (() if sel is None else
+                                 (('grad_WQ', sel.query.weight), ('grad_WK', sel.key.weight),
+                                  ('grad_eta_hat', sel.eta_hat))):
                 grad = tensor.grad
                 selector_grad[name + '_norm'].append(0. if grad is None else grad.norm().item())
                 if name != 'grad_eta_hat':

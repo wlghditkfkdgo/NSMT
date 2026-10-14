@@ -25,6 +25,12 @@ Usage
 -----
     python calibrate.py --task recall --n_keys 3
     python calibrate.py --task ett --data ETTh1
+
+A neurons.py class (--neuron) is calibrated as itself; a selective one as its q = 1 class,
+which is the same computation (check_neurons.py N3, N5), as the legacy neuron is calibrated
+in mode 'full'. The requested selection is then checked at init against the same rules, as
+the legacy 'sparse' condition is. The file is named after the whole configuration, selection
+included, so each selective configuration stands on its own passing check.
 """
 
 import os
@@ -38,7 +44,8 @@ import numpy as np
 import torch
 
 import layers
-from config import TASK, Config, parse_arguments, set_random_seed, neuron_kwargs
+from config import (TASK, Config, parse_arguments, set_random_seed, neuron_kwargs, check_neuron_args,
+                    calibration_tag)
 from data_provider.data_factory import data_provider
 
 BAND = (0.1, 0.3)                        # 사전등록 D11의 목표 발화율 구간
@@ -137,6 +144,7 @@ def main():
     config.data_path = config.data + '.csv'
     config.num_patches = config.seq_len // config.patch_size
     config.device = torch.device('cpu' if config.cpu else f'cuda:{config.num_device}')
+    check_neuron_args(config)                                        # legacy: 아무것도 하지 않는다
 
     _, loader = data_provider(config, 'train')
     batches = []
@@ -152,8 +160,13 @@ def main():
     print(f"[calib] fixed probe sample: {len(batches)} batches, "
           f"{sum(t.shape[1] for t in batches)} windows, sha256[:16] = {sample_hash}")
 
+    kwargs = neuron_kwargs(config)
+    requested = kwargs.get('neuron', 'legacy')
+    if requested != 'legacy':
+        from neurons import NEUTRAL, build_neuron
+        kwargs['neuron'] = NEUTRAL.get(requested, requested)        # 선택 클래스는 q = 1 클래스로 보정한다
     embedding = layers.Embedding(config.patch_size, config.embed_dim, config.input_scale,
-                                 input_norm=config.input_norm, **neuron_kwargs(config)).to(config.device)
+                                 input_norm=config.input_norm, **kwargs).to(config.device)
     if config.input_norm == 'frozen':
         # 여러 배치를 모아 적합한다. 한 배치로는 추정이 흔들린다.
         embedding.fit_norm(torch.cat(batches, dim=1))
@@ -161,7 +174,8 @@ def main():
               f"[{embedding.norm_mean.min():.3f}, {embedding.norm_mean.max():.3f}], "
               f"std in [{embedding.norm_std.min():.3f}, {embedding.norm_std.max():.3f}]")
 
-    print(f"[calib] band {BAND}, target {TARGET}, mode 'full' (neutral limit)")
+    print(f"[calib] band {BAND}, target {TARGET}, "
+          + ("mode 'full' (neutral limit)" if requested == 'legacy' else f"neuron {kwargs['neuron']}"))
     print(f"[calib] {'scale':>6} {'rate':>7} {'dead':>6} {'sat':>6} "
           f"{'unit min/max':>14} {'max|I|':>8} {'max|u|':>8}  branch |u| by tau")
     rows = []
@@ -187,12 +201,21 @@ def main():
               f"-> {'within' if picked['max_abs_state'] < bound else 'EXCEEDS'}")
 
     # 조건 간 공유를 위해 sparse 초기값에서도 같은 구간에 있는지 확인한다
-    check = None
-    if picked is not None:
+    check, label = None, 'sparse'
+    if picked is not None and requested == 'legacy':
         check = probe(embedding, batches, config.device, picked['input_scale'], mode='sparse')
         print(f"[calib] sparse at init (eta = {torch.sigmoid(embedding.neuron.selector.eta_hat).item():.4f}): "
               f"firing rate {check['firing_rate']:.4f}  "
               f"{'inside band' if BAND[0] <= check['firing_rate'] <= BAND[1] else 'OUTSIDE BAND'}")
+    elif picked is not None and requested != kwargs['neuron'] and config.hard_q < 1.:
+        # 요청한 선택 클래스를 같은 표본·같은 embedding에서 확인한다 (sparse 확인과 같은 역할)
+        label, neutral = requested, embedding.neuron
+        embedding.neuron = build_neuron(requested, config.embed_dim, **kwargs).to(config.device)
+        check = probe(embedding, batches, config.device, picked['input_scale'])
+        embedding.neuron = neutral
+        print(f"[calib] {requested} q = {config.hard_q:g} at init: firing rate {check['firing_rate']:.4f}  "
+              f"{'inside band' if BAND[0] <= check['firing_rate'] <= BAND[1] else 'OUTSIDE BAND'}")
+    if check is not None:
         # sparse가 실제로 학습되는 조건이므로 full과 같은 조건을 전부 적용한다.
         # 발화율만 보면 상한 초과·비유한 sparse 초기값이 그대로 통과한다 (감사 결함 주입).
         failures = []
@@ -206,39 +229,44 @@ def main():
         if not constituents_healthy(check):                  # Full과 같은 정책을 적용한다
             failures.append(f"unhealthy constituents {check['branch_abs_mean']}")
         if failures:
-            picked, reason = None, 'sparse-at-init rejected: ' + '; '.join(failures)
+            picked, reason = None, f'{label}-at-init rejected: ' + '; '.join(failures)
             print(f"[calib] FAILED: {reason}")
 
-    if picked is not None:
+    if picked is not None and requested == 'legacy':
         # theta도 같은 고정 표본에서 정한다. input_scale만 맞추면 점수 척도가 방치된다.
         embedding.input_scale = picked['input_scale']
         theta = embedding.neuron.score_scale(embedding.current(torch.cat(batches, dim=1)))
         picked['theta'] = theta
         print(f"[calib] score temperature theta = mean||W_Q xi_n - W_K xi_j||^2 / d_q = {theta:.3f} "
               f"(the default 1.0 leaves the scores spanning hundreds)")
+    elif picked is not None:
+        picked['theta'] = None                                       # 점수 온도를 쓰는 선택자가 없다
 
-    out = Path(TASK) / 'results' / 'calibration'
+    out = Path(TASK) / 'results' / config.calibration_dir
     os.makedirs(out, exist_ok=True)
     stamp = datetime.now(ZoneInfo('Asia/Seoul')).strftime('%y%m%d-%H%M%S')
     stem = f"{config.dataset}_k{config.n_keys}_r2" if config.task == 'recall' else config.dataset
     qk = f'_qknorm-eps{config.qk_eps:g}' if config.qk_norm else ''
     rv = '_revin' if getattr(config, 'revin', False) else ''
-    name = f"{stem}_a{config.alpha}_norm-{config.input_norm}{qk}{rv}_seed{config.seed}_{stamp}.json"
+    name = (f"{stem}_a{config.alpha}_norm-{config.input_norm}{qk}{rv}{calibration_tag(config)}"
+            f"_seed{config.seed}_{stamp}.json")
     payload = {'band': BAND, 'target': TARGET, 'mode': 'full', 'input_norm': config.input_norm,
                'grid': rows,
                'picked': picked, 'reason': reason,
                'neuron': {k: (list(v) if isinstance(v, tuple) else v)
-                          for k, v in neuron_kwargs(config).items()},
+                          for k, v in kwargs.items()},
                'task': config.task, 'dataset': config.dataset, 'seed': config.seed,
                'task_revision': 'r2' if config.task == 'recall' else None,
                'probe_sample_sha256_16': sample_hash,
                'norm_stats': {'mean': embedding.norm_mean.tolist(),
                               'std': embedding.norm_std.tolist()} if config.input_norm == 'frozen' else None,
                # 실패한 sparse 확인도 남긴다. 지워버리면 원인을 다시 볼 수 없다 (audit §9.3).
-               'sparse_at_init': check,
+               'sparse_at_init': check if requested == 'legacy' else None,
+               **({} if requested == 'legacy' else
+                  {'requested_neuron': requested, 'requested_at_init': check}),
                'g11_factor': G11_FACTOR,
                'source_sha256_16': {f: hashlib.sha256(Path(f).read_bytes()).hexdigest()[:16]
-                                    for f in ('layers.py', 'calibrate.py', 'config.py',
+                                    for f in ('layers.py', 'neurons.py', 'calibrate.py', 'config.py',
                                               'data_provider/synthetic.py')},
                'args': {k: (str(v) if isinstance(v, (Path, torch.device)) else v)
                         for k, v in vars(config).items()}}

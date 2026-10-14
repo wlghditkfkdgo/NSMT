@@ -577,8 +577,12 @@ class Embedding(nn.Module):
     levels are all negative stays silent at any scale. Unlike BatchNorm this never reads
     batch statistics, so a window's output does not depend on who it is batched with
     (gate G9).
+
+    ``neuron`` other than 'legacy' builds one of the neurons.py classes (LIF, f-LIF and the
+    population / selective f-LIF built on it) in place of PopulationNeuron.
     """
-    def __init__(self, patch_size, embed_dim, input_scale=2., input_norm='none', **neuron_args):
+    def __init__(self, patch_size, embed_dim, input_scale=2., input_norm='none', neuron='legacy',
+                 **neuron_args):
         super().__init__()
 
         if input_norm not in ('none', 'frozen'):
@@ -588,7 +592,11 @@ class Embedding(nn.Module):
         self.input_norm = input_norm
         self.register_buffer('norm_mean', torch.zeros(embed_dim))
         self.register_buffer('norm_std', torch.ones(embed_dim))
-        self.neuron = PopulationNeuron(embed_dim, **neuron_args)
+        if neuron == 'legacy':
+            self.neuron = PopulationNeuron(embed_dim, **neuron_args)
+        else:
+            from neurons import build_neuron                         # neurons.py가 layers를 import한다
+            self.neuron = build_neuron(neuron, embed_dim, **neuron_args)
 
     def current(self, x):
         #  x: [T, B, patch_size]  ->  [T, B, D] input current

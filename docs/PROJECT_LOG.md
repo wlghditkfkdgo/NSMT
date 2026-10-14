@@ -6950,3 +6950,134 @@ HEAD `eb8d163e4bed2e3640102583b62cd9c041965e2c`, snapshot1566파일/trigger차0/
 **설계 수정:** 가지 1개 f-LIF(선택 없음)를 바닥으로 한 켜기/끄기 6칸 설계로 바꿨다. 가지 수 {1, 4}, soma 통합 {끔, 켬}(가지 4개일 때만 정의됨), 선택 {끔, 켬}. 요소 내부를 가르는 보조 조건(같은 τ, 혼합 고정, 무작위 선택, α=1, 긴 τ의 α=1, 안정화 선택, drive 읽기)과 여러 측정(오차·변수별·예측 구간별, 기전, 스파이크 수·파라미터, 안정성)을 더한다.
 
 **확인한 사실 (3단계 관련):** ETTm1·ETTm2(각 69,680행, 15분 간격)는 v3가 읽은 적이 없다. 그러나 ETTh1·ETTh2와 **같은 날짜 범위(2016-07-01 – 2018-06-26)의 같은 측정을 15분 간격으로 담은 자료**다. 표준 분할의 ETTm test(15분 행 [46080, 57600) = 16–20개월째)는 2N에서 연 ETTh test(16–20개월째)와 같은 달이다. 그 뒤 구간은 2O에서 연 ETTh future와 같은 달이다. 따라서 **ETT 계열에는 아직 보지 않은 기간이 없다.** ETTm test는 "같은 기간을 다른 해상도로 다시 보는 재현"이지 독립 확증이 아니다. 3단계 자료는 사용자 확인 뒤 사전등록 2S에 확정한다.
+
+
+### 2026-09-28 21:01 KST — 추적 감사77 (20260928T120003Z-9b468df5)
+
+HEAD `cf21ed68b80e8083bda43f42044ab71ce56d9cd7`, snapshot1566/trigger차0. source·사전등록2R·결과 불변; 자체 감사 append 제외 새 내용은 canonical20:59 실행 전 세요소 설계 수정뿐. 새 판단 근거 없음. A34 기록보충 VERIFIED/코드재발방지 OPEN·A31잔여·Weather 판정 유지. 2S 미등록/성능 not run; ETTm 기간 중복은 생산자 기록이며 원데이터/사용이력 독립검증 not run. 증거 `f_lif_pop_v3/forecasting/results/assessment/20260928T120003Z-9b468df5/`, raw 같은task `log/assessment/20260928T120003Z-9b468df5/`. 학습/GPU/연구소스/Git변이없음.
+
+---
+
+## 2026-10-14 19:31 KST — 뉴런 클래스 계층 구현 (LIF → f-LIF → population / selective / selective population f-LIF), spikeDE 원본 대조, 학습 파이프라인 연결과 smoke 시험 (**실험 아님**)
+
+**사용자 요청 (10-14):** (1) 지금 구현된 f-LIF가 논문 저장소(https://github.com/PhysAGI/spikeDE)의 코드를 확인하고 작성된 것인지, 둘을 비교해 정확히 구현되었는지 검토. (2) LIF 기본 뉴런을 class로 구현하고 상속(또는 wrapper)으로 f-LIF를 설계한 뒤, 그 f-LIF를 상속해 population f-LIF, selective f-LIF, selective population f-LIF를 구현 — 실험은 이후 예정.
+
+**브랜치·기준:** `exp/f-lif-pop-v3`, 기준 commit `cf21ed68b` (작업 시작 HEAD, origin과 같음). 사전등록 변경 없음, 새 데이터 구간 개방 없음 (test 분할은 열지 않았다: `--no-test`).
+
+### (1) 검토: 지금의 v3 뉴런과 spikeDE의 f-LIF
+
+기준: spikeDE commit `fcd743befe504b1a471fa81887e6af7d6789da2e` (2026-10-14 기준 upstream HEAD, 이 저장소가 예전에 고정한 commit과 같음, MIT). 원본 `spikeDE/neuron.py`(LIFNeuron), `solver.py`(euler·pred·gl), `surrogate.py`(ArctanSurrogate)를 **그대로 import**해 비교했다 (`f_lif_pop_v3/analysis/spikede_parity.py`, torch 2.11 CPU, float64).
+
+**답:** 저장소는 spikeDE 코드를 확인하고 작성되었다 (IDEA_LOG §3.5–3.8, `NSMT/scripts/audit_spikede_reference.py`). **분수 적분 부분은 spikeDE `pred`와 같다** (아래 P6: 18/18, 최대 오차 8.5e-15; 가중치 b_d = [(d+1)^α − d^α]/Γ(α+1), 1/τ 규약, v0 = 0, h = 1). 그러나 **v3 뉴런 전체는 spikeDE의 f-LIF가 아니다.** 이는 버그가 아니라 IDEA_LOG §3.6에 "논문의 f-LIF가 아님"으로 적어 둔 설계 선택이다.
+
+| 항목 | spikeDE f-LIF | v3 (`layers.PopulationNeuron`) |
+|---|---|---|
+| 리셋 | −θ·s/τ가 우변 F 안에 들어가 분수 커널로 과거까지 전파 | 가지는 리셋 없음. 별도 Euler LIF soma(τ_s = 2)가 발화·리셋 |
+| 발화 판단 시점 | 갱신 **전** v_k의 한 스텝 Euler 예측 v_k + (I−v_k)/τ | soma가 갱신 **후** u(t+1)를 읽음 (D-D) |
+| 적분 간격 h | 논문 스크립트 0.1 (`--time_interval 0.1`) | 1 고정 |
+| solver | euler·pred·gl·trap·l1, memory 절단 | pred만, 절단 없음 |
+| τ | 층마다 하나 (학습 옵션) | 같은 입력에 τ 4개 [4, 8, 16, 32] 고정 |
+| surrogate | arctan, (κ/2)/(1+(πκx/2)²); forward 출력은 float32 | 같은 식 (dtype 유지) |
+
+그래서 **스파이크열이 다르다**: P6에서 v3 스파이크열이 spikeDE f-LIF와 같은 경우는 18개 중 5개. 예: α = 0.7, 입력 1.5 고정, τ = 2에서 v3 17개 vs spikeDE 32개, τ = 8에서 3개 vs 7개.
+
+### (2) 구현: `f_lif_pop_v3/forecasting/neurons.py` (새 파일)
+
+| 클래스 (`--neuron`) | 부모 | 더하는 것 |
+|---|---|---|
+| `LIFNeuron` (`lif`) | `nn.Module` | spikeDE LIF 그대로: drift = (I−v)/τ, 예측 v + drift로 발화, F = drift − θ·s.detach()/τ, Euler v ← v + h·F |
+| `FLIFNeuron` (`flif`) | LIF | 같은 우변, 분수 solver: `pred`(Adams–Bashforth, 논문 스크립트 기본·v3 방식) 또는 `gl`(Grünwald–Letnikov, README 예), spikeDE short memory |
+| `PopulationFLIF` (`pop_flif`) | f-LIF | 같은 입력에 τ가 다른 구성원 K개. `soma='lif'`: 구성원은 발화하지 않고 LIF soma 하나가 혼합 (= v3 배치, `layers.Soma` 재사용). `soma='none'`: 구성원 K개가 각자 발화·리셋하는 f-LIF, 유닛마다 스파이크열 K개 |
+| `SelectiveFLIF` (`sel_flif`) | f-LIF | 과거 증분을 c = m·b로 (m은 ξ = [v, I] 유사도 상위 round(qJ) 칸의 0/1; pearson·cosine, 대조군 recent·random). `select_part='all'`(v3: 증분 전체를 버림) 또는 `'input'`(입력 부분만 버리고 누설·리셋은 유지 = 2Q (A)의 안정화 후보) |
+| `SelectivePopulationFLIF` (`sel_pop_flif`) | selective + population (다중 상속) | 둘 다 |
+
+설계 원칙: 각 클래스는 "한 가지"만 더하고, 그것을 끄면 부모와 **비트 단위로 같다** (q = 1 → f-LIF, K = 1·soma 없음 → f-LIF, α = 1 → LIF). `soma='lif'`인 두 모집단 클래스는 기존 v3 뉴런(mode 'full'·'hard')을 그대로 재현한다. 모든 클래스가 [T, B, D] 전류를 받아 [T, B, out_features] 스파이크와 `layers.PopulationNeuron`과 같은 aux 사전을 낸다.
+
+### 검증 (모두 통과)
+
+**spikeDE 원본 대조 (`analysis/spikede_parity.py` → `spikede_parity.{json,txt}`)** — 입력 3종(1.5 고정, t = 0에 8의 펄스, N(1, 2) 잡음), 40스텝, θ = 1, κ = 5. 상태는 상대오차 |ours − spikeDE| / max(1, max|spikeDE|)로 비교한다 (τ = 0.5, h = 1에서 명시적 기법이 발산해 상태가 1.67e13까지 커지므로 절대오차로는 비교할 수 없다).
+
+| 검사 | 무엇을 | 결과 |
+|---|---|---|
+| P1 | LIFNeuron vs spikeDE euler (τ {0.5, 2, 8} × h {1, 0.1} × 입력 3) | 18/18, 최대 5.2e-15, 스파이크 동일 |
+| P2 | FLIFNeuron pred vs spikeDE pred (α {0.3, 0.5, 0.7, 1} × τ 3 × h 2 × memory {전체, 8} × 입력 3) | 144/144, 최대 2.75e-13 |
+| P3 | FLIFNeuron gl vs spikeDE gl (같은 격자) | 144/144, 0 |
+| P4 | PopulationFLIF(soma 없음, K = 3) vs spikeDE f-LIF 3개 | 9/9, 5.6e-16 |
+| P5 | 입력에 대한 gradient | 3/3; spikeDE의 float32 스파이크 한 곳만 dtype 유지로 바꾼 원본과 1.3e-15 (그대로의 원본과는 float32 정밀도, 상대 1.8e-8 이하) |
+| P6 | v3 가지 상태 vs spikeDE pred(발화 끔, θ = 1e30) | 18/18, 8.5e-15; 스파이크열 동일 5/18 (설계 차이) |
+
+같은 결과가 최종 코드로 다시 돌린 출력과 글자 단위로 같다; JSON에 우리 쪽 `neurons.py`·`layers.py` SHA256을 남긴다 (`bd0bba0a…`, `e3b9f544…`).
+
+**클래스·연결 검사 (`forecasting/check_neurons.py` → `results/neurons-checks-20261014/check_neurons.txt`, 24/24)**
+- N1–N15 (CPU, float32·float64): α = 1 f-LIF(pred·gl) = LIF (오차 0, 스파이크 208개 동일); q = 1 selective = f-LIF, K = 1 모집단 = f-LIF, q = 1 selective 모집단 = 모집단 (soma lif·none), K = 1 selective 모집단 = selective f-LIF — 모두 비트 동일. 모집단·selective 모집단 = `layers.PopulationNeuron` mode 'full'·'hard'·동질 τ·recent·random(같은 seed) — 스파이크·상태·계수·soma 전압 비트 동일. `select_part='input'`의 가지 상태 = 2Q (A) 진단의 누설 유지 재귀(`selection_stability.run(leak_keep=True)`), 3.0e-16. memory ≥ T = 전체 이력. gradient 유한·0 아님. 잘못된 설정 6종 거부. 남기는 칸 수 = round(qJ).
+- W1–W2: `--neuron pop_flif` = 기존 `--mode full`, `--neuron sel_pop_flif --hard_q .5` = 기존 `--mode hard --hard_q .5` — 공유 초기값을 복사한 myModel forward 비트 동일 (spike·analog·drive 읽기, flatten·linear head).
+- W3: AdamW 3스텝(lr 1e-2, clip 1) 뒤 공유 파라미터 전부 비트 동일 (9개 중 7개가 움직임; 안 움직인 2개는 ETT에서 쓰지 않는 recall head).
+- W4: `--soma none`이면 head가 32×4 = 128개 스파이크열을 읽는다. W5: 일관된 설정 12종 수락, 무시될 설정 13종 거부, 이름 12종 모두 다름, 보정 파일 이름이 설정마다 다름(기존 뉴런은 접미사 없음). W6: 기존 `neuron_kwargs` 키 불변.
+- **W7: 기존 checkpoint 3개가 기록된 최적 validation MSE를 그대로 재현** (GPU, 차이 0.0): ETTh1 `seed7_linear_spike_heterogeneous_hard-shared-pearson-q1_revin` 0.751812104330, 같은 q0.5 0.733373691973, weather `seed7_flatten_spike_heterogeneous_hard-shared-pearson-q0.5_revin` 0.407502230817.
+
+**기존 게이트:** `check_model.py` 23/23 (`results/neurons-checks-20261014/check_model.txt`).
+
+**보정 재현:** 새 `pop_flif`(soma lif)의 ETTh1+R 보정이 기존 보정 `results/calibration/ETTh1_a0.7_norm-frozen_revin_seed7_260927-175652.json`과 같다 — 같은 표본(sha `8a9581f67c08fda6`), 같은 정규화 통계, 13개 격자 행의 모든 값, 선택 10.0 (발화율 0.1902). 다른 것은 θ(기존 연속 선택자의 점수 온도)뿐이며 새 클래스에는 그 선택자가 없어 `None`이다.
+
+### 파이프라인 연결 (기존 경로는 바뀌지 않음)
+
+- `config.py`: `--neuron {legacy(기본), lif, flif, pop_flif, sel_flif, sel_pop_flif}`, `--soma {lif, none}`, `--fde_method {pred, gl}`, `--fde_step`(기본 1), `--fde_memory`(0 = 전체), `--select_part {all, input}`, `--calibration_dir`(기본 `calibration`). 선택 클래스는 기존 `--hard_q/--hard_stat/--hard_axis`를 읽는다. `check_neuron_args`가 클래스가 조용히 무시할 설정을 거부한다 (mode는 선택 없음 'full', 선택 'hard'; 한 뉴런 클래스는 τ 1개; lif는 α = 1; oracle·연속 선택자 옵션 거부; analog 읽기는 soma 있는 모집단만). 실행 이름은 `neuron_variant`(예: `sel_pop_flif-tau4-8-16-32-somalif-shared-pearson-q0.5`).
+- `layers.Embedding(neuron=...)`이 `neurons.build_neuron`으로 새 클래스를 만든다; `ours.myModel`의 head 폭은 뉴런의 `out_features`를 따른다; `train.py`는 학습 선택자가 없으면 그 gradient 기록을 건너뛰고 `neurons.py`를 출처 해시에 넣는다; `test.py`는 새 클래스에 개입 평가를 하지 않는다 (mode를 무시하므로 같은 계산의 반복일 뿐; `interventions_note`로 기록).
+- `calibrate.py`: 새 클래스는 자기 자신으로, 선택 클래스는 q = 1 클래스로 보정해 input_scale을 고른 뒤, **요청한 선택 설정을 같은 표본에서 같은 기준(발화율 구간, 유한, 상한 안, 구성원 건강)으로 확인한다** (기존 'sparse at init' 확인과 같은 역할). 보정 파일 이름은 **설정 전체(선택 포함)**를 담는다.
+
+### smoke 시험 (**실험 아님** — 파이프라인 동작 확인)
+
+ETTh1 표준 분할의 train/val만 사용 (`--no-test`), R 켬, seq 336, pred 96, patch 8, embed 32, flatten head, batch 128, AdamW lr 1e-3 wd 1e-2, clip 1, seed 7, **2 epoch × train 20 batch, val 5 batch**. 한 뉴런 클래스는 τ = 8. 환경 `snn_recall` (Python 3.10.18, torch 1.12.0+cu113), NVIDIA RTX A6000 (driver 535.113.01). 스크립트 `forecasting/scripts/neurons_smoke.sh`.
+
+**1차 (suite `neurons-smoke-20261014`)는 중간 버전 코드로 돌렸고 문제를 하나 드러냈다.** 그 버전은 선택 클래스가 q = 1 클래스와 **보정 파일 이름을 공유**했다. 학습은 같은 이름의 가장 최근 파일을 쓰므로, (i) `sel_flif`의 실패한 보정이 `flif`의 통과한 보정을 가리고, (ii) 반대로 실패 뒤 `flif`를 다시 보정하면 `sel_flif`가 자기 확인 없이 `flif`의 파일로 학습할 수 있었다. 그래서 보정 파일 이름에 설정 전체를 넣고 (`config.calibration_tag`), 학습이 파일의 `requested_neuron`까지 대조하게 고쳤다 (`train.load_calibration`). 1차 결과 JSON의 출처 해시는 그 중간 버전(commit되지 않음)의 `config.py`·`train.py`·`calibrate.py`를 가리킨다; 기록으로 남긴다. 1차와 2차의 학습 수치는 같다 (결정적 실행).
+
+**2차 (suite `neurons-smoke-20261014b`, 최종 코드; 결과 JSON의 출처 해시가 commit되는 파일과 모두 일치):**
+
+| 설정 | 보정 (input_scale, 발화율, max\|u\|) | 선택 at-init (발화율, max\|u\|) | smoke val MSE | 학습 발화율 / max\|u\| | 파라미터 |
+|---|---|---|---|---|---|
+| lif τ8 (α = 1) | 6.0, 0.2365, 13.59 | – | 0.710596 | 0.248 / 13.4 | 130,497 |
+| flif τ8 | 6.0, 0.1981, 11.44 | – | 0.739125 | 0.225 / 11.2 | 130,497 |
+| sel_flif τ8 q0.5 | **실패**: at-init 발화율 0.3015 > 0.3 (구간 밖) | 0.3015, 15.53 | 학습 거부 (보정 없음) | – | – |
+| pop_flif soma lif | 10.0, 0.1902, 37.19 (= 기존 보정) | – | 0.751966 | 0.213 / 32.9 | 130,625 |
+| pop_flif soma none | 8.0, 0.2009, 29.84 | – | 0.650832 | 0.200 / 24.7 | 133,665 |
+| sel_pop_flif q0.5 | 10.0 | 0.2427, **180.09** | 0.712709 | 0.244 / **172.4** | 130,625 |
+| sel_pop_flif q0.5 input | 10.0 | 0.2364, 47.72 | 0.722168 | 0.242 / 42.5 | 130,625 |
+
+탐색용 추가 실행 (suite `neurons-smoke-20261014b-nocal`): `sel_flif`를 `--no-require_calibration --input_scale 6`(상태 상한 G11 없음)으로 돌려 학습 경로를 확인했다 — val 0.719128, 학습 발화율 0.296. 보정 조회 확인 (최종 코드): `flif` → 자기 통과 파일, `sel_flif` → 없음(자기 파일 실패), `sel_pop_flif` q0.5 → 자기 파일(척도 10.0), 보정한 적 없는 q0.25 → 없음.
+
+**이 표가 말하지 않는 것:** 20 batch·2 epoch·val 5 batch·seed 1개다. val MSE 차이는 성능 근거가 아니다. 말하는 것은 (a) 7개 설정이 보정·학습·저장·재로드 경로를 끝까지 지난다는 것, (b) 선택 단일 f-LIF(q = 0.5)는 지금 규칙(q = 1 척도를 쓰고 at-init 발화율 [0.1, 0.3])으로는 보정을 통과하지 못한다는 것(D11은 구간 확대를 금한다), (c) 기전 관찰: 증분 전체를 버리는 선택(`all`)은 모집단 상태를 180까지 키웠고(선택 없음 37), 입력 부분만 버리는 선택(`input`)은 48에 머물렀다 — 2Q (A) 진단과 같은 방향이다.
+
+### 명령
+
+```bash
+# spikeDE 원본 (scratchpad에 clone, HEAD = fcd743b)
+git clone https://github.com/PhysAGI/spikeDE.git <scratch>/spikeDE
+CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=4 /home/yschoi/.conda/envs/snn_jelly/bin/python \
+  NSMT/f_lif_pop_v3/analysis/spikede_parity.py <scratch>/spikeDE      # torch 2.11 CPU (spikeDE는 torch.compile 사용)
+# 클래스·연결 검사 (forecasting에서; W7은 기존 run 디렉터리 3개)
+CUDA_VISIBLE_DEVICES=0 LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib OMP_NUM_THREADS=4 \
+  /home/yschoi/.conda/envs/snn_recall/bin/python check_neurons.py <ETTh1 q1 run> <ETTh1 q0.5 run> <weather q0.5 run>
+CUDA_VISIBLE_DEVICES='' LD_LIBRARY_PATH=... /home/yschoi/.conda/envs/snn_recall/bin/python check_model.py
+# smoke (2차); 조건: lif flif sel_flif pop_flif pop_flif_none sel_pop_flif sel_pop_flif_input
+SUITE=neurons-smoke-20261014b scripts/neurons_smoke.sh <cond> <gpu>
+SUITE=neurons-smoke-20261014b-nocal EXTRA='--no-require_calibration --input_scale 6' scripts/neurons_smoke.sh sel_flif 1
+```
+
+**산출물:** 코드 `forecasting/neurons.py`, `forecasting/check_neurons.py`, `forecasting/scripts/neurons_smoke.sh`, `analysis/spikede_parity.py`; 텍스트 결과 `analysis/spikede_parity.{json,txt}`, `forecasting/results/neurons-checks-20261014/`, `forecasting/results/{neurons-smoke-20261014,neurons-smoke-20261014b,neurons-smoke-20261014b-nocal}/`, `forecasting/results/calibration-neurons-smoke-*/`, `forecasting/log/neurons-smoke-*/`(logargs·best_log). checkpoint·TensorBoard event·콘솔 로그는 로컬에만 둔다.
+
+### 한계 · 결정이 필요한 것 (2S 사전등록 전)
+
+1. **soma 끔의 정의.** 지금 `soma='none'`은 구성원 K개가 각자 발화하는 f-LIF이고 head가 4배 넓은 입력(128열, 파라미터 +3,168)을 읽는다. 그러면 "모집단 효과"에 넓은 readout이 섞인다. 다른 정의(구성원 스파이크 평균, 가지마다 soma)와 9-28 설계의 "혼합 고정"(학습 안 하는 soma 가중치)은 아직 구현하지 않았다.
+2. **선택 설정의 보정 규칙.** 지금은 q = 1 척도 + 자기 at-init 확인이며 `sel_flif` q0.5가 0.3015로 통과하지 못한다. 선택 설정을 자기 자신으로 보정(자기 척도)할지, 지금 규칙을 유지하고 그 칸을 "보정 실패"로 둘지 2S에서 정해야 한다.
+3. **적분 간격 h.** 기본은 v3 규약 h = 1이다. 논문 스크립트는 0.1이다 (`--fde_step`으로 바꿀 수 있다; 보정은 h마다 따로).
+4. **평가기.** 끝난 실험의 평가기(`ett_test.py`, `ett_future.py`, `weather_test.py`, `ett_readout.py`, `ett_alpha.py`)는 `neuron.selector`를 읽으며 기존 뉴런 전용이다. 2S 평가기는 새 클래스를 다뤄야 하고, 감사 76 A34(OPEN)에 따라 목표 구간 `target_rows`와 평가 행을 다른 필드에 두고 완료 JSON에 목표 구간이 남는지 검사해야 한다.
+5. 새 코드의 random 대조군 mask는 데이터 장치로 옮긴다 (기존 코드는 CPU에 남겨 GPU에서 장치 불일치가 났다).
+
+### 감사 76·77 (09-28)
+
+- **76:** 2R·2O 기록 보충 3건을 원본 SHA·창 수까지 독립 대조해 **VERIFIED**. 다만 `weather_test.py`·`ett_future.py`에 목표 구간을 평가 행으로 덮어쓰는 코드가 남아 있어 **재발 방지는 OPEN**. → 사실이다. 두 평가기는 이미 열린 구간용이라 다시 돌지 않으므로 소급 수정하지 않고, 다음 평가기(2S)에서 필드를 분리하고 직렬화 검사를 넣는다 (위 한계 4).
+- **77:** HEAD·문서 변화뿐, 새 판단 근거 없음. 2S는 아직 사전등록에 없으므로 설계 제안과 확정 규약을 구분해야 한다는 지적 — 맞다; 이번 작업도 사전등록이 아니다. ETTm 기간 중복은 내 기록이며 감사가 원 데이터로 독립 검증하지는 않았다 (not run).
+
+**결론:** (1) v3의 분수 적분은 spikeDE와 같고, 뉴런 전체(리셋·발화 시점·h)는 의도적으로 다르다. (2) 요청한 클래스 계층을 구현했고, 원본 spikeDE·기존 v3·기존 checkpoint와 모두 정확히 맞는다. 학습 파이프라인에서 `--neuron`으로 고를 수 있고 기존 경로는 그대로다. 실험(2S)은 사용자 결정(안정화 후보 포함 여부, 3단계 자료, 위 한계 1–2) 뒤 사전등록부터 한다.
+
+**commit:** 이 기록을 담은 commit (해시는 다음 기록에 적는다), `exp/f-lif-pop-v3`에 push. 실험 완료가 아니므로 태그는 만들지 않는다.

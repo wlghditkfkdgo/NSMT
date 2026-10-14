@@ -15,6 +15,10 @@ TASK = Path(__file__).resolve().parent
 NSMT = TASK.parents[1]
 sys.path.insert(0, str(NSMT))
 
+NEURON_CLASSES = ['lif', 'flif', 'pop_flif', 'sel_flif', 'sel_pop_flif']   # neurons.NEURONS
+SINGLE = ('lif', 'flif', 'sel_flif')                              # 한 뉴런: tau 하나
+SELECTIVE = ('sel_flif', 'sel_pop_flif')
+
 
 def set_random_seed(seed):
     random.seed(seed)
@@ -95,6 +99,19 @@ def parse_arguments():
     neuron_arg.add_argument('--input_scale', type=float, default=8., help='D11 calibration; 8.0 recall, 6.0 ETTh1')
     neuron_arg.add_argument('--input_norm', choices=['none', 'frozen'], default='frozen',
                             help='frozen: per-unit standardisation estimated once on train, no batch stats')
+    # 뉴런 클래스 (neurons.py). legacy는 layers.PopulationNeuron 그대로이며 지금까지의 실행을 재현한다.
+    neuron_arg.add_argument('--neuron', default='legacy', choices=['legacy'] + NEURON_CLASSES,
+                            help='legacy = layers.PopulationNeuron (every run so far); the others are the '
+                                 'neurons.py classes, checked against spikeDE in analysis/spikede_parity.py')
+    neuron_arg.add_argument('--soma', choices=['lif', 'none'], default='lif',
+                            help="population classes: 'lif' = non-firing members mixed by one LIF soma (v3); "
+                                 "'none' = K firing f-LIF members, D*K spike trains out")
+    neuron_arg.add_argument('--fde_method', choices=['pred', 'gl'], default='pred',
+                            help='fractional solver of the neurons.py classes (spikeDE pred | gl)')
+    neuron_arg.add_argument('--fde_step', type=float, default=1.,
+                            help="integration step h of the neurons.py classes (the paper's scripts use 0.1)")
+    neuron_arg.add_argument('--fde_memory', type=int, default=0,
+                            help='spikeDE short memory: only the last N steps enter; 0 = full history')
 
     # 선택자. mode가 곧 실험 조건이다.
     select_arg = parser.add_argument_group('selector')
@@ -107,6 +124,9 @@ def parse_arguments():
                             help='recent/random: same-budget content-free controls (2K); oracle: answer slots (2M)')
     select_arg.add_argument('--hard_q', type=float, default=1.,
                             help='fraction of past slots kept per query; 1.0 is the neutral limit (== full)')
+    select_arg.add_argument('--select_part', choices=['all', 'input'], default='all',
+                            help="selective neurons.py classes: 'all' drops whole past increments (v3); "
+                                 "'input' drops only their input part and keeps leak and reset (2Q (A) candidate)")
     select_arg.add_argument('--theta', type=float, default=5.5,
                             help='score temperature; Phase B calibrates it (recall r2: 5.5)')
     select_arg.add_argument('--key_norm', choices=['none', 'frozen'], default='none',
@@ -126,6 +146,8 @@ def parse_arguments():
     parser.add_argument('--test', action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument('--require_calibration', action=argparse.BooleanOptionalAction, default=True,
                         help='fail instead of training without a frozen G11 bound')
+    parser.add_argument('--calibration_dir', default='calibration',
+                        help='folder under results/ that calibrate.py writes and train.py reads')
     parser.add_argument('--config', default=None, help='Existing run directory for standalone test')
 
     return parser.parse_args()
@@ -151,15 +173,19 @@ class Config():
         self.dataset = 'recall' if self.task == 'recall' else self.data
         self.data_path = self.data + '.csv'
         self.num_patches = self.seq_len // self.patch_size
-        self.variant = ('heterogeneous' if self.heterogeneous else 'homogeneous') + '_' + self.mode
-        if self.qk_norm:
-            self.variant += '_qknorm'
-        if not self.cap:
-            self.variant += '_nocap'
-        if self.eta_fixed is not None:
-            self.variant += f'_eta{self.eta_fixed:g}'
-        if self.mode == 'hard':
-            self.variant += f'-{self.hard_axis}-{self.hard_stat}-q{self.hard_q:g}'
+        if self.neuron == 'legacy':
+            self.variant = ('heterogeneous' if self.heterogeneous else 'homogeneous') + '_' + self.mode
+            if self.qk_norm:
+                self.variant += '_qknorm'
+            if not self.cap:
+                self.variant += '_nocap'
+            if self.eta_fixed is not None:
+                self.variant += f'_eta{self.eta_fixed:g}'
+            if self.mode == 'hard':
+                self.variant += f'-{self.hard_axis}-{self.hard_stat}-q{self.hard_q:g}'
+        else:
+            check_neuron_args(self)
+            self.variant = neuron_variant(self)
         if self.revin:
             self.variant += '_revin'
         if self.task == 'recall':
@@ -205,8 +231,83 @@ class Config():
                 print(line, file=handle)
 
 
+def check_neuron_args(config):
+    """Refuse the settings a neurons.py class would silently ignore. No-op for the legacy neuron.
+
+    The classes fix their selection when they are built (selective ones read --hard_q,
+    --hard_stat and --hard_axis), so --mode only states which kind of class it is: 'full'
+    without selection, 'hard' with it -- the legacy names of the same two computations.
+    """
+    if getattr(config, 'neuron', 'legacy') == 'legacy':
+        return
+    single, selective = config.neuron in SINGLE, config.neuron in SELECTIVE
+    problems = []
+    if config.model != 'myModel':
+        problems.append('--model myModel')
+    if config.mode != ('hard' if selective else 'full'):
+        problems.append(f"--mode {'hard' if selective else 'full'} (got {config.mode!r})")
+    if single and (len(config.tau) != 1 or config.num_population != 1 or not config.heterogeneous):
+        problems.append('one --tau and --num_population 1 (a single neuron)')
+    if not single and len(config.tau) != config.num_population:
+        problems.append('one --tau per --num_population member')
+    if config.neuron == 'lif' and (config.alpha != 1. or config.fde_method != 'pred' or config.fde_memory):
+        problems.append('--alpha 1 and no fractional solver options for the Euler LIF')
+    if selective and (config.fde_method != 'pred' or config.hard_stat == 'oracle'):
+        problems.append("--fde_method pred and a statistic other than 'oracle' for selection")
+    if not selective and (config.hard_q != 1. or config.select_part != 'all'):
+        problems.append('--hard_q 1 and --select_part all without selection')
+    if config.readout != 'spike' and (single or config.soma != 'lif'):
+        problems.append("--readout spike: analog/drive read the soma of a population class with --soma lif")
+    if config.qk_norm or not config.cap or config.eta_fixed is not None or config.key_norm != 'none':
+        problems.append('no soft-selector options (--qk_norm, --no-cap, --eta_fixed, --key_norm): legacy only')
+    if config.fde_step <= 0. or config.fde_memory < 0:
+        problems.append('--fde_step > 0 and --fde_memory >= 0')
+    if problems:
+        raise ValueError(f'--neuron {config.neuron} needs: ' + '; '.join(problems))
+
+
+def neuron_variant(config):
+    """Name of a neurons.py configuration: class, time constants, soma, solver, selection."""
+    name = config.neuron
+    tag = f"{name}-tau{'-'.join(f'{t:g}' for t in config.tau)}"
+    if name in ('pop_flif', 'sel_pop_flif'):
+        tag += f'-soma{config.soma}' + ('' if config.heterogeneous else '-homog')
+    if config.fde_method != 'pred':
+        tag += f'-{config.fde_method}'
+    if config.fde_step != 1.:
+        tag += f'-h{config.fde_step:g}'
+    if config.fde_memory:
+        tag += f'-mem{config.fde_memory}'
+    if name in SELECTIVE:
+        tag += f'-{config.hard_axis}-{config.hard_stat}-q{config.hard_q:g}'
+        if config.select_part != 'all':
+            tag += f'-part{config.select_part}'
+
+    return tag
+
+
+def calibration_tag(config):
+    """Filename tag of the D11 calibration a run uses. Empty for the legacy neuron, so the
+    existing files keep matching. A neurons.py configuration gets its own file, selection
+    included: a selective one is probed as its q = 1 class but must pass its own at-init check,
+    so it can neither borrow its base's file nor block it (the latest file of a tag is used)."""
+    if getattr(config, 'neuron', 'legacy') == 'legacy':
+        return ''
+
+    return '_n-' + neuron_variant(config)
+
+
 def neuron_kwargs(config):
-    """The subset of Config that PopulationNeuron accepts, so callers do not drift."""
+    """The subset of Config that the neuron accepts, so callers do not drift."""
+    if getattr(config, 'neuron', 'legacy') != 'legacy':
+        # neurons.build_neuron이 받는 이름으로. num_population은 보정 대조용 (K = len(tau)).
+        return dict(neuron=config.neuron, num_population=config.num_population, alpha=config.alpha,
+                    tau=tuple(config.tau), heterogeneous=config.heterogeneous,
+                    max_length=config.num_patches, tau_s=config.tau_s, threshold=config.threshold,
+                    surrogate_scale=config.surrogate_scale, soma=config.soma,
+                    method=config.fde_method, step=config.fde_step, memory=config.fde_memory or None,
+                    q=config.hard_q, stat=config.hard_stat, axis=config.hard_axis,
+                    part=config.select_part, seed=config.seed)
     return dict(num_population=config.num_population, alpha=config.alpha, tau=tuple(config.tau),
                 heterogeneous=config.heterogeneous, max_length=config.num_patches,
                 theta=config.theta, eta_init=config.eta_init,

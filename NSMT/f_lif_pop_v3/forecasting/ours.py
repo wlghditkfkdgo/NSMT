@@ -57,6 +57,10 @@ def window_denorm(y, mu, s):
 class myModel(nn.Module):
     """M1: patch -> population f-LIF -> readout. One backbone, two task heads.
 
+    The neuron is layers.PopulationNeuron unless neuron_args names a neurons.py class
+    ('lif', 'flif', 'pop_flif', 'sel_flif', 'sel_pop_flif'); the heads read whatever spike
+    width that neuron emits.
+
     The heads are deliberately separate. The recall task is supervised per event, so its head
     is a per-event Linear(D, 1): event n is answered from s_n alone, which by gate G6 depends
     only on patches up to n, so the answer cannot be read off a future patch. Forecasting
@@ -88,15 +92,17 @@ class myModel(nn.Module):
         self.num_patches = seq_len // patch_size
 
         self.embedding = Embedding(patch_size, embed_dim, input_scale, input_norm, **neuron_args)
+        # 스파이크 폭. soma='none'인 모집단 클래스(neurons.py)는 유닛마다 K개의 스파이크열을 낸다.
+        width = getattr(self.embedding.neuron, 'out_features', embed_dim)
         # 두 head를 항상 함께 만든다. 그래야 초기화가 task에 따라 달라지지 않는다.
-        self.recall_head = nn.Linear(embed_dim, 1)
-        self.head_compress = nn.Linear(embed_dim, head_dim)
+        self.recall_head = nn.Linear(width, 1)
+        self.head_compress = nn.Linear(width, head_dim)
         # 'linear' (prereg 2Q D-CB): model_v1's readout -- the flattened spikes go through ONE
         # non-spiking nn.Linear(embed_dim * num_patches, pred_len). head_compress is still built
         # first so the random stream, and with it every other initial value, matches the
         # 'flatten' run at the same seed; it is then dropped.
         head_in = {'flatten': head_dim * self.num_patches, 'last': head_dim,
-                   'linear': embed_dim * self.num_patches}[head_mode]
+                   'linear': width * self.num_patches}[head_mode]
         self.head = nn.Linear(head_in, pred_len)
         if head_mode == 'linear':
             self.head_compress = nn.Identity()
@@ -112,12 +118,13 @@ class myModel(nn.Module):
 
         oracle_p = None
         # mode=hard with hard_stat=oracle (2M) needs the same answer sets as mode=oracle.
-        if mode == 'oracle' or (mode == 'hard' and self.embedding.neuron.selector.hard_stat == 'oracle'):
+        selector = getattr(self.embedding.neuron, 'selector', None)  # neurons.py 클래스에는 없다
+        if mode == 'oracle' or (mode == 'hard' and selector is not None and selector.hard_stat == 'oracle'):
             if truth is None or kind is None:
                 raise ValueError('oracle mode needs the generator truth and the event kinds')
             if C != 1:
                 raise ValueError('oracle policy is defined for the single-channel recall task')
-            embed_dim = self.recall_head.in_features
+            embed_dim = self.embedding.emb_linear.out_features
             oracle_p = [truth_to_oracle_p(truth, kind, n, embed_dim)
                         for n in range(self.num_patches)]
 

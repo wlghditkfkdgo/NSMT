@@ -179,7 +179,10 @@ def test(args: Config):
         payload['diagnostics'] = selection_diagnostics(model, test_loader, args)
         # 같은 checkpoint에 정책만 바꿔 넣는 개입. 학습된 표현은 그대로 둔다.
         payload['interventions'] = {}
-        for mode in INTERVENTIONS:
+        if getattr(args, 'neuron', 'legacy') != 'legacy':
+            # neurons.py 클래스는 선택을 생성 시점에 고정한다: mode를 바꿔도 같은 계산이 반복될 뿐이다
+            payload['interventions_note'] = 'not run: the neurons.py classes ignore mode'
+        for mode in INTERVENTIONS if getattr(args, 'neuron', 'legacy') == 'legacy' else ():
             if mode == 'oracle' and args.task != 'recall':
                 continue
             payload['interventions'][mode] = evaluate(model, test_loader, args, mode=mode)[0]

@@ -1,0 +1,25 @@
+[neurons] PASS | N1    f-LIF(alpha=1, pred) vs LIF: rel state err 0.0e+00, spikes equal True (208 spikes)
+[neurons] PASS | N2    f-LIF(alpha=1, gl) vs LIF: rel state err 0.0e+00, spikes equal True (208 spikes)
+[neurons] PASS | N3    SelectiveFLIF(q=1) == FLIF bitwise in float32/float64: [True, True]
+[neurons] PASS | N4    PopulationFLIF(K=1, soma='none') == FLIF bitwise: True
+[neurons] PASS | N5    SelectivePopulationFLIF(q=1) == PopulationFLIF bitwise: {'lif': True, 'none': True}
+[neurons] PASS | N6    SelectivePopulationFLIF(K=1, soma='none', q=.5) == SelectiveFLIF bitwise: True
+[neurons] PASS | N7    == layers.PopulationNeuron(mode='full', {}) bitwise (spikes, states, coefficients, soma voltage) float32/float64: [True, True]
+[neurons] PASS | N8    == layers.PopulationNeuron(mode='hard', {'hard_q': 0.5}) bitwise (spikes, states, coefficients, soma voltage) float32/float64: [True, True]
+[neurons] PASS | N9    == layers.PopulationNeuron(mode='full', {'heterogeneous': False}) bitwise (spikes, states, coefficients, soma voltage) float32/float64: [True, True]
+[neurons] PASS | N10   content-free controls == legacy mode 'hard' with seed 11: {'recent': True, 'random': True}
+[neurons] PASS | N11   part='input': q=1 == FLIF bitwise True; differs from part='all' True; branch states vs the 2Q (A) leak-kept recursion rel err 3.0e-16
+[neurons] PASS | N12   memory >= T is the full history and memory=5 is not: {'pred': True, 'gl': True}
+[neurons] PASS | N14   out_features {'lif': (6, 6), 'flif': (6, 6), 'sel_flif': (6, 6), 'pop_flif': (6, 6), 'pop_flif/none': (24, 24), 'sel_pop_flif': (6, 6), 'sel_pop_flif/none': (24, 24)}; refused configurations [True, True, True, True, True, True]
+[neurons] PASS | N15   kept exactly round(qJ) for 16 cases: True; recent keeps the newest 10/41: True
+[neurons] PASS | N13   finite, nonzero gradients to the input (and soma weights): {'lif': True, 'flif': True, 'sel_flif': True, 'pop_flif': True, 'pop_flif/none': True, 'sel_pop_flif': True, 'sel_pop_flif/input': True}
+[neurons] PASS | W1    {'neuron': 'pop_flif', 'mode': 'full'} == legacy {'mode': 'full'}, forward bitwise: {'flatten/spike': True, 'flatten/analog': True, 'flatten/drive': True, 'linear/spike': True, 'linear/analog': True, 'linear/drive': True} (up to 2227 spikes in the batch)
+[neurons] PASS | W2    {'neuron': 'sel_pop_flif', 'mode': 'hard', 'hard_q': 0.5} == legacy {'mode': 'hard', 'hard_q': 0.5}, forward bitwise: {'flatten/spike': True, 'linear/spike': True} (up to 1567 spikes in the batch)
+[neurons] PASS | W3    after 3 AdamW steps (lr 1e-2, clip 1) every shared parameter bitwise equal: {'W1': (True, '7/9 moved'), 'W2': (True, '7/9 moved')}
+[neurons] PASS | W4    --soma none: heads read 32*4 spike trains, forward finite: {'flatten': True, 'linear': True}
+[neurons] PASS | W5    accepted 12/12, refused 13/13, distinct names 12/12, one calibration tag per configuration and none for legacy True (e.g. '_n-sel_pop_flif-tau4-8-16-32-somalif-shared-pearson-q0.5')
+[neurons] PASS | W6    legacy neuron_kwargs keys unchanged: True
+[neurons] PASS | W7    seed7_linear_spike_heterogeneous_hard-shared-pearson-q1_revin (ETTh1): validation mse 0.751812104330 vs recorded 0.751812104330 (diff 0.0e+00) on cuda:0
+[neurons] PASS | W7    seed7_linear_spike_heterogeneous_hard-shared-pearson-q0.5_revin (ETTh1): validation mse 0.733373691973 vs recorded 0.733373691973 (diff 0.0e+00) on cuda:0
+[neurons] PASS | W7    seed7_flatten_spike_heterogeneous_hard-shared-pearson-q0.5_revin (weather): validation mse 0.407502230817 vs recorded 0.407502230817 (diff 0.0e+00) on cuda:0
+[neurons] 24 passed, 0 failed

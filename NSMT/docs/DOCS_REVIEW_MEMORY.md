@@ -593,3 +593,8 @@ HEAD `971a817b33a9d7b82fa37679b63c6bfcb72b10c9`. snapshot1563텍스트+80checkpo
 ### 2026-09-28 11:02 KST — 추적 감사76 (20260928T020003Z-485264d2)
 
 HEAD `eb8d163e4bed2e3640102583b62cd9c041965e2c`, snapshot1566파일/trigger차0/source·사전등록불변. A34 보충3건(Weather10444창40행, ETT future각2925창64행)의 원본 SHA·감사75 원본 보존·등록부·경계/창 산술 확인: **기존 기록 보충 VERIFIED, 평가기 재발 방지 OPEN**. weather_test.py/ett_future.py rows 덮어쓰기 코드는 여전히 존재. CPU metadata 검사 통과; 데이터/forward/학습/test 재개방 not run. 새 성능 근거 없음, 감사75 P1/P2 해석·A31잔여 유지. canonical10:58 2S 세요소 설계는 실행 전이며 성능 not run. 증거 `f_lif_pop_v3/forecasting/results/assessment/20260928T020003Z-485264d2/`, raw 같은task `log/assessment/20260928T020003Z-485264d2/`. 자체append분리·학습/GPU/연구소스/Git변이없음.
+
+
+### 2026-09-28 21:01 KST — 추적 감사77 (20260928T120003Z-9b468df5)
+
+HEAD `cf21ed68b80e8083bda43f42044ab71ce56d9cd7`, snapshot1566/trigger차0. source·사전등록2R·결과 불변; 자체 감사 append 제외 새 내용은 canonical20:59 실행 전 세요소 설계 수정뿐. 새 판단 근거 없음. A34 기록보충 VERIFIED/코드재발방지 OPEN·A31잔여·Weather 판정 유지. 2S 미등록/성능 not run; ETTm 기간 중복은 생산자 기록이며 원데이터/사용이력 독립검증 not run. 증거 `f_lif_pop_v3/forecasting/results/assessment/20260928T120003Z-9b468df5/`, raw 같은task `log/assessment/20260928T120003Z-9b468df5/`. 학습/GPU/연구소스/Git변이없음.
