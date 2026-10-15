@@ -31,6 +31,25 @@ import numpy as np
 import torch
 
 ROOT = Path(sys.argv[1]).resolve()
+
+
+def spikede_commit(root):
+    """Identify the spikeDE version under `root` without trusting a parent repository (audit 78).
+
+    `git -C root rev-parse HEAD` walks up to the enclosing repository when `root` has no .git of its own and then
+    reports THAT repository's HEAD. Use git only when `root` is itself the top level of a clone; otherwise read the
+    pinned commit from a source_manifest.json written next to a git-less archive; otherwise say 'unknown'.
+    """
+    top = subprocess.run(['git', '-C', str(root), 'rev-parse', '--show-toplevel'], capture_output=True, text=True)
+    if top.returncode == 0 and Path(top.stdout.strip()).resolve() == root:
+        return subprocess.run(['git', '-C', str(root), 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip()
+    manifest = root / 'source_manifest.json'
+    if manifest.exists():
+        import re as _re
+        commits = {m for e in json.loads(manifest.read_text()) for m in _re.findall(r'/([0-9a-f]{40})/', e.get('url', ''))}
+        if len(commits) == 1:
+            return commits.pop() + ' (from source_manifest.json)'
+    return 'unknown (no own .git and no single-commit source_manifest.json)'
 OUT = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(__file__).with_suffix('.json')
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'forecasting'))
@@ -168,7 +187,7 @@ def main():
                                                                        row.get('branch_vs_silent_spikeDE_err', 0.))))
     p6 = [r for r in rows if r['test'] == 'P6']
     summary['P6']['spike_trains_equal'] = sum(r['spike_trains_equal'] for r in p6)
-    head = subprocess.run(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip()
+    head = spikede_commit(ROOT)
     files = {f: hashlib.sha256((ROOT / 'spikeDE' / f).read_bytes()).hexdigest() for f in ('neuron.py', 'solver.py', 'surrogate.py')}
     task = Path(__file__).resolve().parents[1] / 'forecasting'      # 비교한 우리 쪽 코드
     ours_files = {f: hashlib.sha256((task / f).read_bytes()).hexdigest() for f in ('neurons.py', 'layers.py')}

@@ -4267,3 +4267,75 @@ P2의 작은 일관된 차이는 후속 질문의 근거가 될 수 있지만 �
 증거 `f_lif_pop_v3/forecasting/results/assessment/20260928T120003Z-9b468df5/`(trigger/inventory/source_snapshot/checks.json); raw 같은 task `log/assessment/20260928T120003Z-9b468df5/git_status_before.txt`, `head_diff.txt`. 파일 bytes/SHA 및 read-only git diff만 확인. 학습/GPU·모델/학습소스·환경·프로세스·Git변이·타 세션/메시지·새 예약 없음. 감사 중 새 변화는 다음 주기 대상.
 
 <!-- assessment-watch:20260928T120003Z-9b468df5 -->
+
+
+## 2026-10-15 14:31 KST — 추적 감사78: 뉴런 계층·spikeDE 수치 대조, α=1 환원 조건 한정
+
+예약 `20261014T101003Z-68187130`. 관찰 HEAD `2d41bfc7c856e3cebcfcec9b349be95f5269da33`, branch `exp/nsmt-flif-neo`; trigger HEAD는 `cf21ed68b80e8083bda43f42044ab71ce56d9cd7`. 감사77·기억·사전등록 최신2R·canonical 10/14 19:31 뉴런 구현/한계 기록을 복구했다. 뒤의 nsmt_base 기록은 별도 연구이며 이번 뉴런 성능 근거에 합치지 않았다. 사전등록 SHA `46cb85e57b50e0334d131cba2a7931c3602be28c6062fbee847ff76415de4726` 그대로, 2S는 미등록이다.
+
+14:22:36 KST부터 현재 파일 bytes를 별도로 snapshot하고 SHA256을 기록했다. 기본1616개 + 보정/실행스크립트16개 = **1632개**, missing0/읽기 중 변동0. trigger manifest와9개 파일이 다르며 목록은 inventory.json에 있다. 뉴런 본체는 trigger와 같지만 check_neurons/parity JSON·스크립트 및 연결·보정 소스는 이후 바뀌었다. 따라서 감지 해시를 과거 원본 사본으로 사용하지 않았다. 재현은 snapshot 소스만 사용했다. 핵심 SHA:
+
+- neurons.py `bd0bba0a7d335d03c5a3b465a0bce95bf13733838d008668a3caa29ba8edffbc`
+- layers.py `e3b9f5445d49d0d4f66992b1b3ec0d82f2f2aea74eb29142a8025138020ff2e1`
+- check_neurons.py `6f78af1a07c45736f0f29bddf6d68f964519817832eaadf589dbb42288a34285`
+- spikede_parity.py `72d923a90538aa46ad32f4cfb78da03adf5b3b6522afe74f669721343d538de4`
+
+### (a) 아이디어 구현 — 검사 범위 내 일치, A35-NEURON-NEUTRAL-SCOPE OPEN
+
+새 LIF/f-LIF/population/selective/조합 클래스와 legacy 연결을 확인했다. soma='lif'에서는 비발화 분수 가지를 별도 LIF soma가 읽고, soma='none'에서는 각 구성원이 직접 발화·리셋하며 D×K 출력을 낸다. 이 두 구조와 spikeDE 단일 f-LIF를 같은 뉴런으로 부르지 않는다. q=1·K=1 환원, legacy full/hard/동질 τ/recent/random 대조, 입력 부분 선택의 누설 유지, 출력형상/인자검증/gradient 도달을 CPU에서 확인했다. 현재 API를 읽고 check_neurons의 N1–N15와 W1/W2/W4/W5/W6만 AST로 추출: **20/20 통과**. W3 optimizer 스텝과 W7 GPU checkpoint 재현은 추출에서 제외해 **not run**. 미래 입력을 바꿔도 앞20스텝 상태·출력이 같은 인과성8사례도 통과했다. 이는 합성 입력·해당 설정에 한정된 증거다.
+
+**A35 확정 문서 범위 문제:** neurons.py 설명과 canonical의 무조건적인 `α=1 → LIF` 환원 주장은 short-memory까지 포괄할 수 없다. T40/B2/D3, τ2, seed31, float32/64, h1/.1에서 **pred memory=8은 α=1이어도 상태·스파이크가 LIF와 다르다**(최대 상태 절대차 각각5.242982/.700428 및5.046072/.696339). 같은 입력의 full-memory pred와 gl은 일치했다. 이는 원본과 같은 이력 절단 동작으로, 새 모델 구현 실패가 아니다. 남은 조건: 설명/후속 등록에서 무선택·전체이력 조건과 수치 비교 허용오차를 명시하고, short-memory는 별도 조작으로 분리할 것. 코드·옛 문서 본문은 수정하지 않았다. 이번 검사로 A31 분모 등 잔여 이슈나 A34 평가기 재발방지를 VERIFIED로 닫지 않는다.
+
+### (b) 검증 — 독립 CPU 재현 및 저장 증거 통과, 성능 검증은 not run
+
+기존에 보존된 spikeDE `fcd743befe504b1a471fa81887e6af7d6789da2e` 원본9파일을 pinned URL/SHA manifest와 대조한 뒤 별도로 snapshot했다. 원본 eager solver/neuron을 실행한 parity **336/336** 결과 행과 요약은 생산자 JSON과 정확히 같다: P1 Euler18, P2 pred144, P3 gl144, P4 독립 구성원9, P5 입력 gradient3, P6 legacy 비발화 가지18. P2 최대 상대오차2.7539e-13, P3 0, P6 최대 절대오차8.5244e-15. P5는 **변경 없는 원본**의 float32 spike cast 포함 gradient 차이와 **cast만 dtype 유지로 바꾼 비교군**의 차이를 구분했으며 후자 최대1.3323e-15이다. compiled/full SNNWrapper·GPU·학습 재현으로 확대하지 않는다.
+
+두 해석상 제한이 중요하다. (1) 상태 최대1.67e13/절대차.035156 사례도 상대오차 기준으로 통과하므로 parity는 안정성 증명이 아니다. (2) P6은 가지 비교에서 원본 발화를 θ1e30으로 껐다. 실제 reset을 쓰는 spikeDE와 legacy 전체 스파이크열 일치는5/18뿐이다. 이는 문서화된 구조 차이다.
+
+감사 실행의 raw parity JSON에 있는 `spikeDE_commit`은 원본 버전으로 인용하지 않는다. Git 없는 reference archive를 NSMT 내부에 보존했기 때문에 생산자 스크립트의 `git -C`가 부모 저장소 HEAD를 반환했다. **원본 식별은 reference_snapshot/source_manifest.json의 pinned commit URL과 실제9파일 SHA 대조**로 확정했으며 artifact_checks.json에 이 메타데이터 제한을 기록했다. 원본/재현 raw 파일을 덮어쓰지 않았다.
+
+최종 smoke suite b의 보정 필요6완료 + b-nocal의 선택 단일 뉴런1완료에 대해12개 source hash, logargs, 2행 CSV의 최저 val 반올림, seed7, train20batch/epoch·val5batch·2epoch, test=null/test_skipped=true를 대조했다. **7/7 저장 증거 일치**이며 전체 데이터셋 평가가 아니다. checkpoint bytes/역직렬화·실제 validation/test forward·원 데이터 재해시는 **not run**. 첫 suite의 중간 버전 결과와 합치지 않았다. 기존 test/data_loader 등 분리 계약의 전체 재감사는 하지 않았다.
+
+현재 load_calibration 함수를 snapshot 보정7파일에 실행해 통과6/거부1을 확인했고, 미보정 q.25는 None, 다른 requested_neuron·step을 넣은 감사 fixture2종은 ValueError로 거부했다. 생산자가 보고한 파일명 분리 수정은 이 범위에서 재검사됐으나 모든 변조 축에 대한 인증은 아니다. sel_flif q.5는 발화율.3015로 [0.1,.3] 밖이어서 picked=None/조회 거부가 맞다. b-nocal 결과는 보정 요구·G11 상한을 제거한 배선 확인이며 실패 칸의 정상 통과나 공정한 성능 대조로 세지 않는다.
+
+첫 CPU 검사 명령은 GLIBCXX_3.4.29 라이브러리 경로 문제로 import 단계에서 실패했다. 기존 conda lib를 LD_LIBRARY_PATH에 지정한 재시도는 종료0(설치 없음). 저장 증거 검사 초회는 감사가 logargs의 `--no-test`를 `no_test` 필드로 잘못 가정해 KeyError였고, 실제 `test=False` 정의로 교정한 재시도 종료0. 모두 감사 명령/진단 오류이며 모델 실패가 아니다. 두 실패 raw log도 보존했다. torch2.11 import의 CUDA driver 경고가 있었지만 CUDA_VISIBLE_DEVICES=''로 모든 parity tensor는 CPU에서 실행됐다.
+
+### (c) 개선 방향 — 조작 조건을 확정한 뒤 별도 성능 평가
+
+새 **성능 판단 근거 없음**. 한 seed·2epoch·부분 val smoke는 우위·통계적 유의성·메커니즘 증거가 아니다. 반면 보정 표본에서 all 선택 상태180.09, input 선택47.72라는 저장 관찰은 입력 선택/누설 유지의 후속 안전성 질문을 뒷받침한다. 현재 결과로 발화율 허용구간을 넓히거나 열린 ETT/Weather test를 미사용 확증으로 다시 쓰지 않는다.
+
+2S 전에는 soma 없음의 D×K 출력/추가 head 용량(생산자 기록 +3168 params), 혼합 가중치 학습 여부, h·memory·reset 규약, q1 보정 공유 대 자체 보정 및 실패 처리, 비교 수/seed/주평가 기준을 고정해야 한다. 기존 [spikeDE 원본 뉴런](https://github.com/PhysAGI/spikeDE/blob/fcd743befe504b1a471fa81887e6af7d6789da2e/spikeDE/neuron.py)과 [원본 적분기](https://github.com/PhysAGI/spikeDE/blob/fcd743befe504b1a471fa81887e6af7d6789da2e/spikeDE/solver.py)의 reset/solver 분리를 준거로 삼고, 분수 적분 일치와 전체 뉴런 구조·안정성·예측 성능을 각각 평가해야 한다. 이번에는 보존된 1차 소스 bytes를 실제 읽고 실행했으며 새 논문 주장/웹 조사는 추가하지 않았다. 기존 RevIN/선형 기준선 문헌의 제한된 근거와 감사75 Weather 판정은 유지한다. 후속 평가기는 새 클래스 지원 및 A34 target_rows 직렬화 재검사가 필요하다. 이는 아직 미구현/미등록 조건이며 완료된 실험의 확정 오류와 구분한다.
+
+증거: `f_lif_pop_v3/forecasting/results/assessment/20261014T101003Z-68187130/`의 inventory/snapshot/reference_snapshot, cpu_checks.py/json, check_neurons_cpu_extracted.py, parity_reproduced.json, artifact_checks.py/json. raw: 같은 task `log/assessment/20261014T101003Z-68187130/`. CPU 명령은 cpu_checks.py·artifact_checks.py에 snn_recall Python/LD_LIBRARY_PATH, snapshot analysis/spikede_parity.py에는 snn_jelly Python과 reference_snapshot·별도 출력 경로를 사용했다. 모두 CUDA_VISIBLE_DEVICES='', PYTHONDONTWRITEBYTECODE=1, OMP/MKL_NUM_THREADS=2. 마지막 파일 대조에서 snapshot 이후 연구 파일 변화0. 감사 문서·새 진단 증거만 작성했으며 모델/학습 소스·기존 local changes/checkpoint/raw log·환경·진행 프로세스·Git 이력을 보존했다. 자체 감사 append는 다음 연구 변화에서 제외하고, trigger 이후 변화는 다음 주기에 탐지하도록 둔다.
+
+<!-- assessment-watch:20261014T101003Z-68187130 -->
+
+
+## 2026-10-15 14:41 KST — 추적 감사79: 감사78과 동일, 새 판단 근거 없음
+
+예약 `20261015T054003Z-805aa5f0`. 관찰 HEAD `2d41bfc7c856e3cebcfcec9b349be95f5269da33`, branch `exp/nsmt-flif-neo`; trigger HEAD와 감사78 관찰 HEAD도 같다. 기억·감사78·사전등록 최신2R·canonical 최신 append를 확인했다. 현재1632파일 bytes를 별도 snapshot/SHA256으로 보존했고 trigger1627파일과 차이0, missing0/읽기 중 변동0이다. 감지70항목(GIT_HEAD 포함)은 모두 감사78 실제 snapshot/관찰과 같다. 이전 snapshot 대비 차이는 감사·기억·canonical 문서3개뿐이며 감사78 append 후 receipt SHA와 정확히 일치한다. 스케줄러가 직전 trigger manifest까지만 ACK한 결과로 다시 감지된 변경이며, 새 연구 변화나 재검증 결과로 세지 않는다.
+
+관찰 neurons.py SHA `bd0bba0a7d335d03c5a3b465a0bce95bf13733838d008668a3caa29ba8edffbc`, layers.py SHA `e3b9f5445d49d0d4f66992b1b3ec0d82f2f2aea74eb29142a8025138020ff2e1`, 사전등록 SHA `46cb85e57b50e0334d131cba2a7931c3602be28c6062fbee847ff76415de4726` 그대로다.
+
+- **(a) 구현:** 새 판단 근거 없음. 감사78의 제한된 수치 일치 판정 및 A35-NEURON-NEUTRAL-SCOPE OPEN 유지. short-memory pred의 α1 환원을 무조건 주장하지 않는 설명 조건은 아직 남아 있다. A34 평가기 재발방지 OPEN·A31 잔여도 유지하며 새 VERIFIED 전환 없음.
+- **(b) 검증:** 코드·보정·smoke 결과·검사 결과는 감사78과 동일하다. 이번에는 파일 bytes/SHA와 직전 문서 append 지문만 대조했다. CPU 모델 probe·학습·GPU·실 validation/test·checkpoint 검증은 **not run**. 직전 검사336/20/8건을 이번에 재실행한 것으로 기록하지 않는다.
+- **(c) 개선:** 새 성능 판단 근거 없음. 한 seed·부분 val·2epoch smoke의 성능 판단 보류, 2S 미등록, 용량·h/memory·보정/실패 규칙·후속 평가기 확정 조건과 기존 문헌 근거를 유지한다. 새 논문/성능 주장 또는 실험 제안 없음.
+
+증거 `f_lif_pop_v3/forecasting/results/assessment/20261015T054003Z-805aa5f0/`의 trigger/inventory/snapshot/checks.json; raw 같은 task `log/assessment/20261015T054003Z-805aa5f0/checks.txt`, git_status_before.txt. 감사 문서와 증거만 작성, 기존 local changes/checkpoint/raw log·연구소스·환경·진행 프로세스·Git 이력 보존. 자체 감사 append는 다음 연구 변화에서 제외한다.
+
+<!-- assessment-watch:20261015T054003Z-805aa5f0 -->
+
+
+## 2026-10-15 21:22 KST — 추적 감사80: 별도 실험 HEAD 변경, 새 판단 근거 없음
+
+예약 `20261015T122003Z-463893ec`. 관찰 HEAD `4d8d8223ff3efa9eb15840428b4ce979d114e90b`, branch `exp/nsmt-flif-neo`(직전2d41bfc7c856e3cebcfcec9b349be95f5269da33). 기억·감사79·사전등록 최신2R·canonical 최신 append를 확인했다. 현재1632파일을 별도 snapshot/SHA256으로 보존: trigger1627파일 대비 차이0, missing0/읽기 중 변동0. 감사79 snapshot 대비 연구 파일 변화0이며 문서3개 차이는 자체 감사79 append receipt SHA와 정확히 같다. HEAD diff는 별도 `nsmt_flif_v1/forecasting/config.py`의 경로명, `scripts/run_ett.sh`의 실패 처리 순서, 루트 `docs/MODI_PROJECT_LOG.md`뿐이다. 이 별도 실험의 학습/실패 보고를 f_lif_pop_v3 결과로 합치지 않았다.
+
+관찰 neurons.py SHA `bd0bba0a7d335d03c5a3b465a0bce95bf13733838d008668a3caa29ba8edffbc`, 사전등록 SHA `46cb85e57b50e0334d131cba2a7931c3602be28c6062fbee847ff76415de4726` 불변.
+
+- **(a) 구현:** 새 판단 근거 없음. 감사78의 검사 범위 내 판정, A35-NEURON-NEUTRAL-SCOPE OPEN·A34 평가기 재발방지 OPEN·A31 잔여 유지. 새 VERIFIED 전환 없음.
+- **(b) 검증:** 새 대상 결과 없음. bytes/SHA·HEAD diff만 대조했으며 CPU 모델 probe·학습·실 validation/test·checkpoint 검증은 **not run**. 이전 검사를 재실행한 것으로 세지 않는다.
+- **(c) 개선:** 새 성능 판단 근거 없음. smoke 성능 판단 보류·2S 미등록 및 용량/h/memory/보정·실패 규칙/후속 평가기 확정 조건, 기존 문헌 근거 유지. 새 논문 또는 실험 제안 없음.
+
+증거 `f_lif_pop_v3/forecasting/results/assessment/20261015T122003Z-463893ec/`의 trigger/inventory/snapshot/checks.json; raw 같은 task `log/assessment/20261015T122003Z-463893ec/checks.txt`, head_diff.patch, git_status_before.txt. 기존 문서 본문/local changes/checkpoint/raw log·연구소스·환경·진행 프로세스·Git 이력 보존. 학습/GPU점유·새 예약 없음. 자체 append는 다음 연구 변화에서 제외한다.
+
+<!-- assessment-watch:20261015T122003Z-463893ec -->

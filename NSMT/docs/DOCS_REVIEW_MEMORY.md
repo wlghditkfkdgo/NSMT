@@ -598,3 +598,20 @@ HEAD `eb8d163e4bed2e3640102583b62cd9c041965e2c`, snapshot1566파일/trigger차0/
 ### 2026-09-28 21:01 KST — 추적 감사77 (20260928T120003Z-9b468df5)
 
 HEAD `cf21ed68b80e8083bda43f42044ab71ce56d9cd7`, snapshot1566/trigger차0. source·사전등록2R·결과 불변; 자체 감사 append 제외 새 내용은 canonical20:59 실행 전 세요소 설계 수정뿐. 새 판단 근거 없음. A34 기록보충 VERIFIED/코드재발방지 OPEN·A31잔여·Weather 판정 유지. 2S 미등록/성능 not run; ETTm 기간 중복은 생산자 기록이며 원데이터/사용이력 독립검증 not run. 증거 `f_lif_pop_v3/forecasting/results/assessment/20260928T120003Z-9b468df5/`, raw 같은task `log/assessment/20260928T120003Z-9b468df5/`. 학습/GPU/연구소스/Git변이없음.
+
+
+### 2026-10-15 14:31 KST — 추적 감사78 (20261014T101003Z-68187130)
+
+HEAD2d41bfc7c856e3cebcfcec9b349be95f5269da33, branch exp/nsmt-flif-neo. snapshot1632파일+spikeDE pinned원본9파일; trigger와9파일차, 감지해시는 과거원본 아님. neurons.py bd0bba0a…/layers.py e3b9f544…; 사전등록2R 불변·2S 미등록. CPU N1–15/W1,W2,W4–6 20/20, 인과성8/8, spikeDE parity336/336 생산자 행/요약과 정확일치. W3학습/W7GPU/실val·test·checkpoint검증 not run. raw parity upstream commit 필드는 Git없는 archive의 부모HEAD가 들어갔으므로 인용금지; reference_snapshot/source_manifest.json pinned URL+9SHA로 원본식별.
+
+**A35-NEURON-NEUTRAL-SCOPE OPEN:** α1→LIF 주장은 무선택·전체이력 조건 필요. pred memory8에서 α1이어도 상태/스파이크 다름(원본과 일치하는 절단동작; 모델실패 아님). A31 잔여/A34 평가기재발방지 OPEN 유지. 최종smoke b6+b-nocal1 source/CSV/설정/no-test7건 일치·보정조회7건/결함2종 거부 확인. sel_flif .3015 발화율 보정실패 유지, nocal은 G11없는 배선확인. 한seed·부분val·2epoch로 성능판단근거없음. soma없음 head용량/h/memory/보정·실패규칙/평가기 지원을 2S에 확정할 조건. 기존 IDEA_LOG rev1은 개념기준이며 새 클래스의 최신 상세는 canonical PROJECT_LOG 2026-10-14 19:31 항목(2S 등록 아님). 상세 ASSESMENT 감사78, artifacts/results/assessment/동일run, raw/log/assessment/동일run. 최초 GLIBCXX import 실패·logargs 필드명 probe 오류는 각각 교정 재시도 종료0, 모델실패 아님. 학습/GPU점유/연구소스·Git변이 없음, 자체 append 분리.
+
+
+### 2026-10-15 14:41 KST — 추적 감사79 (20261015T054003Z-805aa5f0)
+
+HEAD2d41bfc7c856e3cebcfcec9b349be95f5269da33. snapshot1632/trigger차0. 감지70항목은 감사78 실제 snapshot/관찰과 동일; 문서3개 차이는 감사78 append receipt와 정확히 같아 자체기록으로 제외. 새 판단 근거 없음. A35 OPEN/A34 재발방지 OPEN/A31 잔여·2S 미등록·성능판단 보류 유지. 이번 CPU모델/학습/GPU/실val·test·checkpoint 검증 not run. 증거 f_lif_pop_v3/forecasting/results/assessment/20261015T054003Z-805aa5f0/checks.json 및 snapshot, raw 같은 task log/assessment/동일run. 연구소스·Git변이 없음.
+
+
+### 2026-10-15 21:22 KST — 추적 감사80 (20261015T122003Z-463893ec)
+
+HEAD4d8d8223ff3efa9eb15840428b4ce979d114e90b. snapshot1632/trigger차0/대상 연구파일변화0. HEAD diff는 별도 nsmt_flif_v1 경로명·실패처리와 MODI_PROJECT_LOG뿐; 문서3개 차이는 감사79 자체append 지문과 일치. 새 판단 근거 없음. A35 OPEN/A34 재발방지 OPEN/A31 잔여·2S 미등록·smoke 성능판단 보류 유지. CPU모델/학습/실val·test/checkpoint 검증 not run. 증거 f_lif_pop_v3/forecasting/results/assessment/20261015T122003Z-463893ec/, raw 동일task log/assessment/동일run. 연구소스·Git변이·GPU점유 없음.

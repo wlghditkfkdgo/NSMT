@@ -33,7 +33,9 @@ Each class adds one thing:
                                   similarity of xi = [v, I] (pred only)
     SelectivePopulationFLIF(SelectiveFLIF, PopulationFLIF)    both
 
-Neutral limits hold exactly (check_neurons.py): FLIFNeuron(alpha=1) == LIFNeuron,
+Neutral limits hold exactly (check_neurons.py): FLIFNeuron(alpha=1) == LIFNeuron with the full history
+(memory=None; with a short memory alpha=1 still drops increments older than `memory` steps and is NOT the
+LIF -- audit 78, A35),
 SelectiveFLIF(q=1) == FLIFNeuron, PopulationFLIF(K=1, soma='none') == FLIFNeuron,
 SelectivePopulationFLIF(q=1) == PopulationFLIF, and with soma='lif' the two population classes
 reproduce layers.PopulationNeuron in mode 'full' and mode 'hard'.
@@ -302,7 +304,7 @@ class FLIFNeuron(LIFNeuron):
     Args (in addition to LIFNeuron)
     ----
     alpha : float
-        Fractional order in (0, 1]. alpha = 1 is the Euler LIF.
+        Fractional order in (0, 1]. alpha = 1 is the Euler LIF only with the full history (memory=None).
     method : str
         'pred' (Adams-Bashforth predictor on the increments F, the paper scripts' default and
         v3's scheme) or 'gl' (Grunwald-Letnikov on the states, the README example).
