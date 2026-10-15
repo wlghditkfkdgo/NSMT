@@ -217,10 +217,11 @@ class HighFreqAmp(nn.Module):
 class Block(nn.Module):
     def __init__(self, T, dim, seq_len, num_heads, mlp_ratios=2., max_ratio=2, qkv_bias=False, qk_scale=None, drop=0., attn_drop=0.1,
                 drop_path=0.1, norm_layer=nn.LayerNorm, sr_ratio=1, lif_bias=False, tau=2.0, attn=False,
-                time_num_layers=1, patch_size=16):
+                time_num_layers=1, patch_size=16, neo_grad=0.05):
         super().__init__()
         
         topk_ratio = None
+        self.neo_grad = float(neo_grad)                  # nsmt_flif_v1 (B): share of the task gradient that reaches the neocortex
         
         # self.high_freq = HighFreqAmp(dim) if not attn else SSA_rel_scl(dim=dim, seq_len=seq_len, num_heads=num_heads, pe=True, lif_bias=lif_bias, tau=tau, drop=attn_drop)
         self.mca = MutualCrossAttention(seq_len=seq_len, dim=dim, pe=False, out_seq=False, lif_bias=lif_bias, num_heads=num_heads, tau=tau, drop=drop)
@@ -238,7 +239,8 @@ class Block(nn.Module):
         if mx is None:                                   # nsmt_flif_v1 hippo_only: key/value = the hippocampus itself
             x = x * (1. - self.mca(x, x))
         else:
-            mx = (0.05 * mx + (1 - 0.05) * mx.detach()) # [1 B N D]
+            g = self.neo_grad                            # paper code: 0.05 (same arithmetic as the original line)
+            mx = (g * mx + (1 - g) * mx.detach()) # [1 B N D]
             mx = x * mx.transpose(0, 2).contiguous()
 
             if mx.sum() < 500 : print(f"warning!{mx.sum()}")
@@ -360,6 +362,7 @@ class myModel(nn.Module):
                 spk_encoding=False,
                 neo_neuron='sj_lif', neo_where='both', neo_tau=2.0, neo_alpha=0.5,     # nsmt_flif_v1
                 fde_method='pred', fde_step=1.0, fde_memory=0, hippo_only=False,      # nsmt_flif_v1
+                aux_lead=0, neo_grad=0.05,                                            # nsmt_flif_v1 stage 2 (A), (B)
                 pretrained=False, pretrained_cfg=None, pretrained_cfg_overlay=None,
                 **kwargs,
                 ):
@@ -386,6 +389,9 @@ class myModel(nn.Module):
         # nsmt_flif_v1: neocortex-path neuron. Defaults ('sj_lif', no hippo_only) register exactly the
         # modules of the paper code in the same order, so the default model is bit-identical to nsmt_base.
         self.hippo_only = bool(hippo_only)
+        self.aux_lead = int(aux_lead)                    # (A): the neocortex at step n reconstructs the low-pass of patch n + aux_lead
+        if not 0 <= self.aux_lead < self.num_patches:
+            raise ValueError(f'aux_lead must be in [0, {self.num_patches})')
         self.neo_neuron, self.neo_where = neo_neuron, neo_where
         if neo_where not in ('both', 'mlp'):
             raise ValueError("neo_where must be 'both' or 'mlp'")
@@ -426,7 +432,7 @@ class myModel(nn.Module):
                     T=self.T, dim=embed_dim, seq_len=self.num_patches, num_heads=num_heads, mlp_ratios=mlp_ratios, max_ratio=max_ratio, qkv_bias=qkv_bias,
                     qk_scale=qk_scale, drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[j],
                     norm_layer=norm_layer, sr_ratio=sr_ratios, lif_bias=bias, tau=tau, attn=(self.gating == 'attn'),
-                    time_num_layers=time_num_layers, patch_size=self.patch_size)
+                    time_num_layers=time_num_layers, patch_size=self.patch_size, neo_grad=neo_grad)
                     for j in range(depths)])
         
         if not self.hippo_only:
@@ -539,6 +545,10 @@ class myModel(nn.Module):
     def _training(self, x_hippo, x_neo):
         rec_x = self.weak_decoder(x_neo, x_hippo) #[T B 1 P]]
         rec_x = rec_x.mean(2, keepdim=True)
+        if self.aux_lead > 0:                            # (A): pair step n's output with the target of patch n + lead;
+            L = self.aux_lead                            #      the last `lead` steps have no target inside the window
+            rec_x = rec_x[:-L]
+            self.org_x = self.org_x[L:]
         rec_x = rearrange(rec_x, 't (b c) l p -> b c l t p', b=self.B, c=self.M)
         self.org_x  = rearrange(self.org_x, 't (b c) l p -> b c l t p', b=self.B, c=self.M)
 

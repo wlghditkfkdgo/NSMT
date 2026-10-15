@@ -18,7 +18,13 @@ PASS c2 placement (mlp): ['time_block.Mem.0.spk_neuron.neuron', 'time_block.Mem.
 PASS c3 modules removed: missing=['encoding_neo', 'time_block', 'weak_decoder']
 PASS c3 params: 81664 = 84416 - 2752
 PASS c3 outputs: plain 4-D forecast in both modes
+PASS c6 same init (sj_lif): all equal
+PASS c6 shifted pairs (sj_lif): forecast/neo equal=True, org[n+2] equal=True, rec[n] equal=True, shape (64, 7, 1, 22, 8) vs (64, 7, 1, 24, 8)
+PASS c6 same init (flif): all equal
+PASS c6 shifted pairs (flif): forecast/neo equal=True, org[n+2] equal=True, rec[n] equal=True, shape (64, 7, 1, 22, 8) vs (64, 7, 1, 24, 8)
+PASS c7 gradient share (sj_lif): forecast equal=True, hippocampus grads equal=True (22), neocortex grads x20 (9 tensors, 9 nonzero, worst rel 2.47e-05)
+PASS c7 gradient share (flif): forecast equal=True, hippocampus grads equal=True (22), neocortex grads x20 (9 tensors, 9 nonzero, worst rel 3.81e-05)
 PASS c5 first 13 columns: ['None', '0.386041', '0.378303', '0.386383', '41.47 M Ops', '5.95 M Ops', '2.91 M Ops', '0.0842 M', '0.4150 %', '18.76 uJ', '0.378303', '0.386383', '0.658685']
 PASS c5 new columns: {"neuron_lif_uJ": "13.140770", "neuron_model_fft_uJ": "13.140770", "neuron_model_direct_uJ": "13.140770", "total_fft_uJ": "31.899174", "total_direct_uJ": "31.899174", "rho_neo": "0.231671", "rho_hippo": "0.150743", "n_spiking_layers": "11", "kappa": "5.111111"}
 PASS c4 firing rates: recorder vs syops consumer-Linear rate: {'encoding_neo.emb_lif': 2.050075378318139e-06, 'time_block.Mem.0.spk_neuron': 6.968336467849667e-07, 'data_block.0.mlp.spk_linear1.spk_neuron': 3.124127482004302e-06}
-23/23 passed
+29/29 passed

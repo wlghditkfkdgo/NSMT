@@ -21,7 +21,8 @@ def _neo_kwargs(args):
     return dict(neo_neuron=getattr(args, 'neo_neuron', 'sj_lif'), neo_where=getattr(args, 'neo_where', 'both'),
                 neo_tau=getattr(args, 'neo_tau', 2.0), neo_alpha=getattr(args, 'neo_alpha', 0.5),
                 fde_method=getattr(args, 'fde_method', 'pred'), fde_step=getattr(args, 'fde_step', 1.0),
-                fde_memory=getattr(args, 'fde_memory', 0), hippo_only=getattr(args, 'hippo_only', False))
+                fde_memory=getattr(args, 'fde_memory', 0), hippo_only=getattr(args, 'hippo_only', False),
+                aux_lead=getattr(args, 'aux_lead', 0), neo_grad=getattr(args, 'neo_grad', 0.05))
 
 def load_mymodel(args, train=True):
     if train:

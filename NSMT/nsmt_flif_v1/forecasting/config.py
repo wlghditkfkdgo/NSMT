@@ -104,6 +104,10 @@ def parse_arguments():
     snn_arg.add_argument('--fde_method', choices=['pred', 'gl'], default='pred', help='fractional solver of flif (spikeDE pred | gl)')
     snn_arg.add_argument('--fde_step', type=float, default=1.0, help='integration step h of lif/flif')
     snn_arg.add_argument('--fde_memory', type=int, default=0, help='short-memory length of flif (0 = full history)')
+    snn_arg.add_argument('--aux_lead', type=int, default=0,
+                         help='stage 2 (A): neocortex step n reconstructs the low-pass of patch n + aux_lead (0 = paper)')
+    snn_arg.add_argument('--neo_grad', type=float, default=0.05,
+                         help='stage 2 (B): share of the task gradient passed into the neocortex through memory replay (paper 0.05)')
     snn_arg.add_argument('--hippo_only', action='store_true',
                          help='remove the neocortex path and the auxiliary decoder; cross-attention key/value = hippocampus')
     
@@ -144,6 +148,10 @@ def check_neo_args(config):
         raise ValueError('--neo_tau > 0, --fde_step > 0, --fde_memory >= 0')
     if config.hippo_only and config.neo_neuron != 'sj_lif':
         raise ValueError('--hippo_only removes the neocortex path; do not combine it with --neo_neuron')
+    if config.aux_lead < 0 or not 0. <= config.neo_grad <= 1.:
+        raise ValueError('--aux_lead >= 0 and 0 <= --neo_grad <= 1')
+    if config.hippo_only and (config.aux_lead != 0 or config.neo_grad != 0.05):
+        raise ValueError('--hippo_only has no neocortex: --aux_lead / --neo_grad would be ignored')
 
 
 class Config():
@@ -169,6 +177,8 @@ class Config():
             tag = tag + f"+neo+{args.neo_neuron}-{args.neo_where}-a{args.neo_alpha}-h{args.fde_step}-{args.fde_method}-m{args.fde_memory}"
         if getattr(args, 'hippo_only', False):
             tag = tag + "+hippo_only"
+        if getattr(args, 'aux_lead', 0) != 0 or getattr(args, 'neo_grad', 0.05) != 0.05:
+            tag = tag + f"+lead{args.aux_lead}+ng{args.neo_grad}"
             
         self.save_result_path = os.path.join(os.getcwd(), args.log_dir, args.dataset, self.date, self.date + tag)
         

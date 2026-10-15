@@ -53,7 +53,9 @@ def cond_name(cfg):
     if getattr(cfg, 'hippo_only', False):
         return 'hippo_only'
     nn_ = getattr(cfg, 'neo_neuron', 'sj_lif')
-    return 'base' if nn_ == 'sj_lif' else f"neo_{nn_}_{getattr(cfg, 'neo_where', 'both')}"
+    name = 'base' if nn_ == 'sj_lif' else f"neo_{nn_}_{getattr(cfg, 'neo_where', 'both')}"
+    lead, ng = getattr(cfg, 'aux_lead', 0), getattr(cfg, 'neo_grad', 0.05)
+    return name if (lead == 0 and ng == 0.05) else f'{name}@L{lead}g{ng}'      # stage-2 regime suffix
 
 
 class FutureWindows(Dataset):
@@ -157,7 +159,7 @@ def main():
                'data_sha256': ds.csv_sha if ds is not None else None,
                'source_sha256': {s: sha256(os.path.join(HERE, s)) for s in SOURCES},
                'torch': torch.__version__, 'device': str(cfg.device),
-               'neo': {k: getattr(cfg, k, None) for k in ('neo_neuron', 'neo_where', 'neo_tau', 'neo_alpha', 'fde_method', 'fde_step', 'fde_memory', 'hippo_only')},
+               'neo': {k: getattr(cfg, k, None) for k in ('neo_neuron', 'neo_where', 'neo_tau', 'neo_alpha', 'fde_method', 'fde_step', 'fde_memory', 'hippo_only', 'aux_lead', 'neo_grad')},
                'timestamp': datetime.now(ZoneInfo('Asia/Seoul')).isoformat()}
         if a.split == 'future' and not a.max_windows:
             registry_check(os.path.join(a.registry_dir, f'{cfg.data}-future-H{cfg.pred_len}.json'),

@@ -185,6 +185,39 @@ def main():
     th, eh, gh = forwards(m_h, x)
     rec('c3 outputs', len(th) == 1 and th[0].ndim == 4 and eh.ndim == 4 and torch.equal(th[0], eh), 'plain 4-D forecast in both modes')
 
+    # ---- c6: --aux_lead shifts the auxiliary pairs by exactly `lead` patches (stage 2 A) -----------
+    for nn_ in ('sj_lif', 'flif'):
+        _, m0 = build(a.base_run, a.nd, neo_neuron=nn_)
+        _, mL = build(a.base_run, a.nd, neo_neuron=nn_, aux_lead=2)
+        ok, msg = equal_dicts({k: v.cpu() for k, v in m0.state_dict().items()}, {k: v.cpu() for k, v in mL.state_dict().items()})
+        rec(f'c6 same init ({nn_})', ok, msg)
+        t0, _, _ = forwards(m0, x, backward=False, train_mode=True)
+        tL, _, _ = forwards(mL, x, backward=False, train_mode=True)
+        z_ok = torch.equal(t0[0], tL[0]) and torch.equal(t0[2], tL[2])          # forecast and neocortex output unchanged
+        org_ok = torch.equal(tL[3], t0[3][..., 2:, :])                           # target of patch n + 2 ...
+        rec_ok = torch.equal(tL[4], t0[4][..., :-2, :])                          # ... paired with the output at step n
+        rec(f'c6 shifted pairs ({nn_})', z_ok and org_ok and rec_ok,
+            f'forecast/neo equal={z_ok}, org[n+2] equal={org_ok}, rec[n] equal={rec_ok}, shape {tuple(tL[4].shape)} vs {tuple(t0[4].shape)}')
+
+    # ---- c7: --neo_grad scales only the task gradient reaching the neocortex (stage 2 B) ------------
+    def task_grads(m):
+        m.train(); functional.reset_net(m); m.train_mode = 'training'; m.zero_grad(set_to_none=True)
+        out = m(x); out[0].float().mean().backward()                            # task branch only (no L_aux)
+        return out[0].detach().cpu(), {n: p.grad.detach().cpu().clone() for n, p in m.named_parameters() if p.grad is not None}
+    for nn_ in ('sj_lif', 'flif'):
+        _, ma = build(a.base_run, a.nd, neo_neuron=nn_)
+        _, mb = build(a.base_run, a.nd, neo_neuron=nn_, neo_grad=1.0)
+        za, ga = task_grads(ma); zb, gb = task_grads(mb)
+        neo = [k for k in ga if k.split('.')[0] in ('encoding_neo', 'time_block')]
+        hip = [k for k in ga if k not in neo]
+        hip_ok = all(torch.equal(ga[k], gb[k]) for k in hip)
+        ratio_ok = all(torch.allclose(gb[k], ga[k] / 0.05, rtol=1e-4, atol=1e-9) for k in neo)
+        nz = sum(int(ga[k].abs().sum() > 0) for k in neo)
+        worst = max(((gb[k] - ga[k] / 0.05).abs().max() / ga[k].abs().max().clamp_min(1e-30)).item() for k in neo)
+        rec(f'c7 gradient share ({nn_})', torch.equal(za, zb) and hip_ok and ratio_ok and nz == len(neo),
+            f'forecast equal={torch.equal(za, zb)}, hippocampus grads equal={hip_ok} ({len(hip)}), neocortex grads x20 '
+            f'({len(neo)} tensors, {nz} nonzero, worst rel {worst:.2e})')
+
     # ---- c4 + c5: test() on the nsmt_base checkpoint -------------------------------------------------
     from test import test
     scratch = os.path.join(a.out, 'c5_test_log'); os.makedirs(scratch, exist_ok=True)

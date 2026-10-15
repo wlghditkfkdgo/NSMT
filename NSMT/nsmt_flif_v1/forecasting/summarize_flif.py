@@ -10,7 +10,16 @@ Criteria (cells = data x horizon, each the mean of the seeds; pairs = same seed)
                       plus: f-LIF below the LIF control of the same placement in >= 3/4 cells.
   (1) memory          M1: S(12)/S(1) >= 0.10 and >= 3 x the LIF control's ratio; M2: dMSE(keep 12) >= 1 % and
                       larger than the LIF control's.
-usage: python summarize_flif.py --suite flif-v1-main [--future results/<dir>/future.csv] [--probe_dir DIR]
+Stage 2 (MODI_PROJECT_LOG 2026-10-15, regimes L<lead>g<neo_grad>): conditions are named <cond>@<regime>; for
+each regime R (pre-fixed, exploratory):
+  Q-A neocortex contributes:  <n>@R vs hippo_only, n in {neo_lif_both, neo_flif_both}: mean relative MSE <= -1 %
+                              and >= 8/12 pairs lower
+  Q-B f-LIF helps:            neo_flif_both@R vs neo_lif_both@R: >= 3/4 cells lower and mean <= -0.5 %
+  plus the stage-1 criteria (2) and (1) for neo_flif_both@R (control = neo_lif_both@R).
+  Confirmation candidate: regimes passing (2) [A or B, with the LIF-control condition] and M2; among several, the
+  lowest mean validation MSE of the evaluated (last-epoch) weights.
+usage: python summarize_flif.py --suite flif-v1-main [--suite more ...] [--out_suite NAME]
+                                [--future results/<dir>/future.csv] [--probe_dir DIR ...] [--stage2]
 """
 import os
 import re
@@ -26,13 +35,35 @@ CONDS = ['base', 'neo_lif_both', 'neo_lif_mlp', 'neo_flif_both', 'neo_flif_mlp',
 CONTROL = {'neo_flif_both': 'neo_lif_both', 'neo_flif_mlp': 'neo_lif_mlp'}
 
 
+def control_of(cond):
+    """LIF control of an f-LIF condition, regime suffix kept (neo_flif_both@L2g1.0 -> neo_lif_both@L2g1.0)."""
+    return cond.replace('neo_flif_', 'neo_lif_', 1) if cond.startswith('neo_flif_') else None
+
+
+def ordered(conds):
+    base = [c for c in CONDS if c in conds and c != 'hippo_only']
+    extra = sorted(c for c in conds if c not in CONDS)
+    return base + extra + (['hippo_only'] if 'hippo_only' in conds else [])
+
+
+def last_val_mse(run_dir):
+    """val_mse of the last logged epoch = the weights test() evaluates (train.py saves the final state)."""
+    p = os.path.join(run_dir, 'log', 'best_log_0.csv')
+    try:
+        rows = list(csv.DictReader(open(p)))
+        return float(rows[-1]['val_mse'])
+    except Exception:
+        return float('nan')
+
+
 def parse_raw(path):
     rows = []
     for line in open(path):
         if not line.startswith('RESULT'):
             continue
         kv = dict(re.findall(r'(\w+)=(\S+)', line))
-        r = {'cond': kv['cond'], 'seed': int(kv['seed']), 'dir': kv.get('dir', '')}
+        reg = kv.get('regime', 'L0g0.05')
+        r = {'cond': kv['cond'] if reg == 'L0g0.05' else f"{kv['cond']}@{reg}", 'regime': reg, 'seed': int(kv['seed']), 'dir': kv.get('dir', '')}
         r['data'], pl = kv['dataset'].split('_p'); r['pl'] = int(pl)
         for k in ('mse', 'mae', 'syn_energy', 'neuron_lif_uJ', 'neuron_fft_uJ', 'neuron_direct_uJ', 'total_fft_uJ',
                   'total_direct_uJ', 'rho_neo', 'rho_hippo', 'time_s', 'params', 'epochs_run'):
@@ -40,6 +71,7 @@ def parse_raw(path):
                 r[k] = float(kv[k])
             except (KeyError, ValueError):
                 r[k] = float('nan')
+        r['val_mse'] = last_val_mse(r['dir'])
         rows.append(r)
     return rows
 
@@ -47,7 +79,7 @@ def parse_raw(path):
 def table(rows, metric='mse', fmt='{:.6f}'):
     cells = sorted({(r['data'], r['pl']) for r in rows})
     out = ['| cond | ' + ' | '.join(f'{d} H{p}' for d, p in cells) + ' |', '|---|' + '---|' * len(cells)]
-    for c in CONDS:
+    for c in ordered({r['cond'] for r in rows}):
         vals = []
         for d, p in cells:
             v = [r[metric] for r in rows if r['cond'] == c and r['data'] == d and r['pl'] == p]
@@ -75,8 +107,8 @@ def paired(rows, a, b):
 
 def judge(rows):
     lines = []
-    for f in ('neo_flif_both', 'neo_flif_mlp'):
-        if not any(r['cond'] == f for r in rows) or not any(r['cond'] == 'hippo_only' for r in rows):
+    for f in [c for c in ordered({r['cond'] for r in rows}) if c.startswith('neo_flif_')]:
+        if not any(r['cond'] == 'hippo_only' for r in rows):
             continue
         pc, pairs = paired(rows, f, 'hippo_only')
         if not pc:
@@ -85,7 +117,7 @@ def judge(rows):
         all_lower = all(v['rel'] < 0 for v in pc.values()); same = sum(pairs)
         route_a = all_lower and rel <= -0.02 and same >= 10 and er <= 1.3
         route_b = rel <= 0.01 and er <= 0.7
-        ctrl = CONTROL[f]
+        ctrl = control_of(f)
         pcc, _ = paired(rows, f, ctrl)
         cells_better = sum(v['rel'] < 0 for v in pcc.values())
         plus = cells_better >= 3
@@ -94,17 +126,72 @@ def judge(rows):
         lines.append(f'**{f} vs {ctrl} (same placement):** lower MSE in {cells_better}/{len(pcc)} cells ('
                      + ', '.join(f'{d} H{p}: {v["rel"]*100:+.2f}%' for (d, p), v in pcc.items()) + f') → {"PASS" if plus else "fail"} (need ≥ 3/4)')
         lines.append(f'→ (2) {"**PASS**" if (route_a or route_b) and plus else "**not passed**"} for {f}')
-    for c in ('neo_lif_both', 'neo_lif_mlp', 'neo_flif_both', 'neo_flif_mlp', 'hippo_only'):
+    for c in [c for c in ordered({r['cond'] for r in rows}) if c != 'base']:
         pc, pairs = paired(rows, c, 'base')
         if pc:
             lines.append(f'(report only) {c} vs base: mean {np.mean([v["rel"] for v in pc.values()])*100:+.2f}%, pairs lower {sum(pairs)}/{len(pairs)}')
     return '\n\n'.join(lines)
 
 
+def stage2(rows, probe_rows):
+    """Pre-fixed stage-2 questions per regime (see module docstring). Returns markdown."""
+    regs = sorted({r['regime'] for r in rows if r['regime'] != 'L0g0.05'})
+    out = ['| regime | Q-A lif vs hippo (mean, pairs) | Q-A flif vs hippo | Q-B flif vs lif (cells, mean) | (2) flif | M2 flif (ETTh2 / ETTm2) | val MSE flif / lif |',
+           '|---|---|---|---|---|---|---|']
+    cands = []
+    for R in ['L0g0.05'] + regs:
+        suf = '' if R == 'L0g0.05' else f'@{R}'
+        lif, fl = f'neo_lif_both{suf}', f'neo_flif_both{suf}'
+        if not any(r['cond'] == fl for r in rows):
+            continue
+        res = {}
+        for n in (lif, fl):
+            pc, pairs = paired(rows, n, 'hippo_only')
+            m = np.mean([v['rel'] for v in pc.values()]) if pc else float('nan')
+            res[n] = (m, sum(pairs), len(pairs), m <= -0.01 and sum(pairs) >= 8)
+        pcc, _ = paired(rows, fl, lif)
+        cb = sum(v['rel'] < 0 for v in pcc.values()); mb = np.mean([v['rel'] for v in pcc.values()]) if pcc else float('nan')
+        qb = cb >= 3 and mb <= -0.005
+        pc, pairs = paired(rows, fl, 'hippo_only')
+        rel = np.mean([v['rel'] for v in pc.values()]); er = np.mean([v['energy_ratio'] for v in pc.values()])
+        ra = all(v['rel'] < 0 for v in pc.values()) and rel <= -0.02 and sum(pairs) >= 10 and er <= 1.3
+        rb = rel <= 0.01 and er <= 0.7
+        crit2 = (ra or rb) and cb >= 3
+        m2 = {}
+        for d in ('ETTh2', 'ETTm2'):
+            a = probe_rows.get((d, fl)); c = probe_rows.get((d, lif))
+            m2[d] = None if (a is None or c is None) else (a >= 0.01 and a > c, a, c)
+        m2_ok = all(v is not None and v[0] for v in m2.values())
+        vf = np.nanmean([r['val_mse'] for r in rows if r['cond'] == fl]); vl = np.nanmean([r['val_mse'] for r in rows if r['cond'] == lif])
+        fmt = lambda t: f"{t[0]*100:+.2f}%, {t[1]}/{t[2]} {'**yes**' if t[3] else 'no'}"
+        m2s = ' / '.join('n/a' if v is None else f"{'PASS' if v[0] else 'fail'} ({v[1]*100:+.1f}% vs {v[2]*100:+.1f}%)" for v in m2.values())
+        out.append(f"| {R} | {fmt(res[lif])} | {fmt(res[fl])} | {cb}/4, {mb*100:+.2f}% {'**yes**' if qb else 'no'} | "
+                   f"{'**PASS**' if crit2 else 'fail'} (A {'y' if ra else 'n'}, B {'y' if rb else 'n'}) | {m2s} | {vf:.5f} / {vl:.5f} |")
+        if crit2 and m2_ok:
+            cands.append((vf, R))
+    out.append('')
+    out.append('Confirmation candidate: ' + (f'**{min(cands)[1]}** (lowest validation MSE among {[c[1] for c in cands]})' if cands else '**none** (no regime passes criterion (2) with M2)'))
+    return '\n'.join(out)
+
+
+def probe_dmse(probe_dirs):
+    """(data, cond) -> mean dMSE(keep 12)/clean MSE over the probe CSVs (control none)."""
+    acc = defaultdict(list)
+    for pd_ in probe_dirs:
+        for path in glob.glob(os.path.join(pd_, '*_probe.csv')):
+            rows = list(csv.DictReader(open(path)))
+            if not rows or rows[0]['control'] != 'none':
+                continue
+            keep = {int(r['x']): float(r['dmse']) for r in rows if r['curve'] == 'keep_last'}
+            if 12 in keep:
+                acc[(rows[0]['data'], rows[0]['cond'])].append(keep[12] / float(rows[0]['clean_mse']))
+    return {k: float(np.mean(v)) for k, v in acc.items()}
+
+
 def probe_summary(probe_dir):
     """S(12)/S(1) and dMSE(keep 12) per (data, H, cond), seed-averaged, from neo_memory_probe CSVs."""
     acc = defaultdict(lambda: defaultdict(list))
-    for path in glob.glob(os.path.join(probe_dir, '*_probe.csv')):
+    for path in [p for d in (probe_dir if isinstance(probe_dir, list) else [probe_dir]) for p in glob.glob(os.path.join(d, '*_probe.csv'))]:
         rows = list(csv.DictReader(open(path)))
         if not rows or rows[0]['control'] != 'none':
             continue
@@ -123,8 +210,8 @@ def probe_summary(probe_dir):
                    f"{np.mean(v['dmse12_rel'])*100 if v['dmse12_rel'] else float('nan'):+.2f}% | {len(v['S1'])} |")
     verdict = []
     for (d, n, c), v in sorted(acc.items()):
-        if c in CONTROL and (d, n, CONTROL[c]) in acc:
-            ctl = acc[(d, n, CONTROL[c])]
+        if control_of(c) and (d, n, control_of(c)) in acc:
+            ctl = acc[(d, n, control_of(c))]
             r, rc = np.mean(v['ratio']), np.mean(ctl['ratio']); m, mc = np.mean(v['dmse12_rel']), np.mean(ctl['dmse12_rel'])
             m1 = r >= 0.10 and (rc <= 0 or r >= 3 * rc); m2 = m >= 0.01 and m > mc
             verdict.append(f'{d} {c}: M1 {"PASS" if m1 else "fail"} (ratio {r:.3f} vs control {rc:.3f}); M2 {"PASS" if m2 else "fail"} (ΔMSE(keep12) {m*100:+.2f}% vs control {mc*100:+.2f}%)')
@@ -133,10 +220,15 @@ def probe_summary(probe_dir):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--suite', default='flif-v1-main'); ap.add_argument('--future', default=None); ap.add_argument('--probe_dir', default=None)
+    ap.add_argument('--suite', action='append', default=None); ap.add_argument('--future', default=None)
+    ap.add_argument('--probe_dir', action='append', default=None); ap.add_argument('--out_suite', default=None)
+    ap.add_argument('--stage2', action='store_true')
     a = ap.parse_args()
-    rows = parse_raw(os.path.join(HERE, 'results', a.suite, 'raw.txt'))
-    md = [f'# {a.suite} — summary ({len(rows)} RESULT rows)', '', '## test MSE (mean ± std over seeds)', table(rows, 'mse'), '',
+    suites = a.suite or ['flif-v1-main']
+    rows = [r for s_ in suites for r in parse_raw(os.path.join(HERE, 'results', s_, 'raw.txt'))]
+    name = a.out_suite or suites[0]
+    md = [f'# {name} — summary ({len(rows)} RESULT rows from {suites})', '',
+          '## validation MSE of the evaluated weights (mean over seeds)', table(rows, 'val_mse'), '', '## test MSE (mean ± std over seeds)', table(rows, 'mse'), '',
           '## test MAE', table(rows, 'mae'), '', '## total energy, paper convention (µJ; syops synaptic + neuron eq. 60/64)', table(rows, 'total_fft_uJ', '{:.3f}'), '',
           '## total energy, direct-sum convention (µJ)', table(rows, 'total_direct_uJ', '{:.3f}'), '',
           '## synaptic energy only (µJ, syops)', table(rows, 'syn_energy', '{:.3f}'), '',
@@ -152,9 +244,12 @@ def main():
                           'rho_hippo': float('nan'), 'time_s': float('nan'), 'total_direct_uJ': float('nan')})
         md += ['', f'## future interval ({len(frows)} rows) — MSE', table(frows, 'mse'), '', '## future interval — MAE', table(frows, 'mae'), '',
                '## future interval — direction check (energy columns not available here)', judge(frows)]
-    if a.probe_dir and os.path.isdir(a.probe_dir):
+    if a.probe_dir:
         md += ['', '## criterion (1) — memory probe', probe_summary(a.probe_dir)]
-    out = os.path.join(HERE, 'results', a.suite, 'summary.md')
+    if a.stage2:
+        md += ['', '## stage 2 — pre-fixed questions per regime', stage2(rows, probe_dmse(a.probe_dir or []))]
+    os.makedirs(os.path.join(HERE, 'results', name), exist_ok=True)
+    out = os.path.join(HERE, 'results', name, 'summary.md')
     open(out, 'w').write('\n'.join(md) + '\n'); print('\n'.join(md)); print('->', out)
 
 
