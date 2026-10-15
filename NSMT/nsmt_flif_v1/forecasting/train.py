@@ -211,6 +211,7 @@ def train(args:Config):
     for kids in range(args.n_folds):
         
         logger = EpochLog(args.save_log_path, kids=kids)
+        best_epoch = -1                                              # nsmt_flif_v1: epoch of the best-validation checkpoint
         early_stopping_pre = EarlyStopping(verbose=True, patience=args.patience)
         early_stopping = EarlyStopping(verbose=True, patience=args.patience)
         
@@ -249,6 +250,8 @@ def train(args:Config):
             print(f"Current log saved to `{args.save_log_path}`")
                 
             early_stopping(val_result['ce'], model, args.save_model_state_path)
+            if early_stopping.counter == 0:
+                best_epoch = epoch                                   # checkpoint.pth was just (re)written
             
             if early_stopping.early_stop:
                 print("Early stopping")
@@ -277,6 +280,16 @@ def train(args:Config):
             else:
                 # test(args=args)
                 test(args=args)
+
+            if getattr(args, 'test_best', False):                   # nsmt_flif_v1: best-validation weights, same test
+                last_log = args.save_log_path
+                args.save_log_path = os.path.join(last_log, 'best')
+                os.makedirs(args.save_log_path, exist_ok=True)
+                with open(os.path.join(args.save_log_path, 'best_epoch.txt'), 'w') as f:
+                    f.write(f'{best_epoch}\n')
+                print(f'testing the best-validation checkpoint (epoch {best_epoch}) -> {args.save_log_path}')
+                test(args=args, model=LOAD_MODEL[args.model](args, False, ckpt='checkpoint.pth'))
+                args.save_log_path = last_log
         
         
 if __name__ == '__main__' : 

@@ -46,14 +46,21 @@ def ordered(conds):
     return base + extra + (['hippo_only'] if 'hippo_only' in conds else [])
 
 
-def last_val_mse(run_dir):
-    """val_mse of the last logged epoch = the weights test() evaluates (train.py saves the final state)."""
+def last_val_mse(run_dir, epoch=None):
+    """val_mse of the evaluated weights: the last logged epoch (train.py saves the final state), or `epoch`
+    (the best-validation checkpoint) when given."""
     p = os.path.join(run_dir, 'log', 'best_log_0.csv')
     try:
         rows = list(csv.DictReader(open(p)))
+        if epoch is not None:
+            return float(next(r['val_mse'] for r in rows if int(r['epoch']) == int(epoch)))
         return float(rows[-1]['val_mse'])
     except Exception:
         return float('nan')
+
+
+WEIGHTS = 'last'                                                     # set from --weights in main()
+BEST_FIELDS = ('mse', 'mae', 'syn_energy', 'total_fft_uJ', 'total_direct_uJ', 'rho_neo', 'rho_hippo')
 
 
 def parse_raw(path):
@@ -66,12 +73,22 @@ def parse_raw(path):
         r = {'cond': kv['cond'] if reg == 'L0g0.05' else f"{kv['cond']}@{reg}", 'regime': reg, 'seed': int(kv['seed']), 'dir': kv.get('dir', '')}
         r['data'], pl = kv['dataset'].split('_p'); r['pl'] = int(pl)
         for k in ('mse', 'mae', 'syn_energy', 'neuron_lif_uJ', 'neuron_fft_uJ', 'neuron_direct_uJ', 'total_fft_uJ',
-                  'total_direct_uJ', 'rho_neo', 'rho_hippo', 'time_s', 'params', 'epochs_run'):
+                  'total_direct_uJ', 'rho_neo', 'rho_hippo', 'time_s', 'params', 'epochs_run', 'patience', 'lr_drops', 'best_epoch'):
             try:
                 r[k] = float(kv[k])
             except (KeyError, ValueError):
                 r[k] = float('nan')
-        r['val_mse'] = last_val_mse(r['dir'])
+        if WEIGHTS == 'best':                                        # best-validation checkpoint (run_ett.sh TEST_BEST=1)
+            if 'mse_best' not in kv:
+                raise SystemExit(f'--weights best but no mse_best in a RESULT line of {path}')
+            for k in BEST_FIELDS:
+                try:
+                    r[k] = float(kv[k + '_best'])
+                except (KeyError, ValueError):
+                    r[k] = float('nan')
+            r['val_mse'] = last_val_mse(r['dir'], kv.get('best_epoch'))
+        else:
+            r['val_mse'] = last_val_mse(r['dir'])
         rows.append(r)
     return rows
 
@@ -223,11 +240,17 @@ def main():
     ap.add_argument('--suite', action='append', default=None); ap.add_argument('--future', default=None)
     ap.add_argument('--probe_dir', action='append', default=None); ap.add_argument('--out_suite', default=None)
     ap.add_argument('--stage2', action='store_true')
+    ap.add_argument('--weights', choices=['last', 'best'], default='last', help='which test row: last-epoch or best-validation weights')
+    ap.add_argument('--summary_name', default='summary.md')
     a = ap.parse_args()
+    global WEIGHTS
+    WEIGHTS = a.weights
     suites = a.suite or ['flif-v1-main']
     rows = [r for s_ in suites for r in parse_raw(os.path.join(HERE, 'results', s_, 'raw.txt'))]
     name = a.out_suite or suites[0]
-    md = [f'# {name} — summary ({len(rows)} RESULT rows from {suites})', '',
+    md = [f'# {name} — summary ({len(rows)} RESULT rows from {suites}; test weights: {a.weights})', '',
+          '## epochs run / best-validation epoch / lr reductions (mean over seeds)', table(rows, 'epochs_run', '{:.1f}'), '',
+          table(rows, 'best_epoch', '{:.1f}'), '', table(rows, 'lr_drops', '{:.2f}'), '',
           '## validation MSE of the evaluated weights (mean over seeds)', table(rows, 'val_mse'), '', '## test MSE (mean ± std over seeds)', table(rows, 'mse'), '',
           '## test MAE', table(rows, 'mae'), '', '## total energy, paper convention (µJ; syops synaptic + neuron eq. 60/64)', table(rows, 'total_fft_uJ', '{:.3f}'), '',
           '## total energy, direct-sum convention (µJ)', table(rows, 'total_direct_uJ', '{:.3f}'), '',
@@ -249,7 +272,7 @@ def main():
     if a.stage2:
         md += ['', '## stage 2 — pre-fixed questions per regime', stage2(rows, probe_dmse(a.probe_dir or []))]
     os.makedirs(os.path.join(HERE, 'results', name), exist_ok=True)
-    out = os.path.join(HERE, 'results', name, 'summary.md')
+    out = os.path.join(HERE, 'results', name, a.summary_name)
     open(out, 'w').write('\n'.join(md) + '\n'); print('\n'.join(md)); print('->', out)
 
 

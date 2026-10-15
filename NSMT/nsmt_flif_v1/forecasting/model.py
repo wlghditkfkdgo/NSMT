@@ -24,7 +24,9 @@ def _neo_kwargs(args):
                 fde_memory=getattr(args, 'fde_memory', 0), hippo_only=getattr(args, 'hippo_only', False),
                 aux_lead=getattr(args, 'aux_lead', 0), neo_grad=getattr(args, 'neo_grad', 0.05))
 
-def load_mymodel(args, train=True):
+def load_mymodel(args, train=True, ckpt='best+model.pt'):
+    """ckpt: 'best+model.pt' = the LAST-epoch weights train.py saves (paper naming); 'checkpoint.pth' = the
+    best-validation weights saved by EarlyStopping (nsmt_flif_v1 --test_best)."""
     if train:
         model = create_model(
                 'mymodel',
@@ -56,7 +58,7 @@ def load_mymodel(args, train=True):
                 **_neo_kwargs(args),
             )
     else:
-        saved_model_path = os.path.join(args.save_result_path, "model_state", f"best+model.pt")
+        saved_model_path = os.path.join(args.save_result_path, "model_state", ckpt)
         model = create_model(
             'mymodel',
             pretrained=False,

@@ -61,6 +61,9 @@ def parse_arguments():
     save_arg.add_argument('--save_patience', dest='save_log_patience', nargs='?', type=int, default=2)
     
     save_arg.add_argument('--test', dest='test', action='store_true', help='If true, model is tested after training.')
+    save_arg.add_argument('--test_best', action='store_true',
+                          help='nsmt_flif_v1: after the usual test of the last-epoch weights, also test the best-validation '
+                               'checkpoint (model_state/checkpoint.pth, chosen by validation forecast error) into log/best/')
     save_arg.add_argument('--analysis', dest='analysis', action='store_true')
     save_arg.add_argument('--tsne', dest='tsne', action='store_true', help='If true, the emb of model is visualized.')
     

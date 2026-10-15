@@ -83,11 +83,14 @@ class FutureWindows(Dataset):
                 torch.zeros(1), torch.zeros(1))
 
 
-def load_run(run_dir, gpu):
+WEIGHTS = {'last': 'best+model.pt', 'best': 'checkpoint.pth'}      # paper naming: best+model.pt holds the LAST epoch
+
+
+def load_run(run_dir, gpu, weights='last'):
     cfg = Config()
     cfg.load_args(run_dir, Namespace(saved_epoch=[1], num_device=gpu))
     set_random_seed(cfg.seed)
-    model = LOAD_MODEL['myModel'](cfg, train=False)
+    model = LOAD_MODEL['myModel'](cfg, train=False, ckpt=WEIGHTS[weights])
     model.eval()
     return cfg, model
 
@@ -132,6 +135,7 @@ def main():
     ap.add_argument('--out', default=None)
     ap.add_argument('--max_windows', type=int, default=None)
     ap.add_argument('--force', action='store_true')
+    ap.add_argument('--weights', choices=['last', 'best'], default='last', help='last-epoch or best-validation weights')
     ap.add_argument('--purpose', default='nsmt_flif_v1 second-stage check (decision 10, 2026-10-14)')
     ap.add_argument('--registry_dir', default=os.path.join(HERE, 'results', 'split_openings'), help='tests may point this at a scratch dir')
     a = ap.parse_args()
@@ -139,7 +143,7 @@ def main():
     os.makedirs(out, exist_ok=True)
     for run in a.run:
         run = os.path.abspath(run)
-        cfg, model = load_run(run, a.nd)
+        cfg, model = load_run(run, a.nd, a.weights)
         if a.split == 'test':
             _, loader = data_provider(cfg, flag='test')
             ds = None
@@ -147,11 +151,11 @@ def main():
             ds = FutureWindows(cfg.root_path, cfg.data_path, cfg.data, cfg.seq_len, cfg.pred_len)
             loader = DataLoader(ds, batch_size=cfg.batch_size, shuffle=False, num_workers=0)
         res = evaluate(model, loader, cfg, a.max_windows)
-        ckpt = os.path.join(run, 'model_state', 'best+model.pt')
-        name = f"{cfg.data}_H{cfg.pred_len}_{cond_name(cfg)}_seed{cfg.seed}_{a.split}"
+        ckpt = os.path.join(run, 'model_state', WEIGHTS[a.weights])
+        name = f"{cfg.data}_H{cfg.pred_len}_{cond_name(cfg)}_seed{cfg.seed}_{a.split}" + ('_bestval' if a.weights == 'best' else '')
         rec_path = os.path.join(out, name + '.json')
         rec = {'split': a.split, 'data': cfg.data, 'pred_len': cfg.pred_len, 'seq_len': cfg.seq_len,
-               'cond': cond_name(cfg), 'seed': cfg.seed, 'run_dir': run, **res,
+               'cond': cond_name(cfg), 'seed': cfg.seed, 'run_dir': run, 'weights': a.weights, 'checkpoint_file': WEIGHTS[a.weights], **res,
                'target_rows': None if ds is None else [ds.R0, ds.R1],
                'evaluated_rows': None if ds is None else [ds.R0 - cfg.seq_len, ds.R1],
                'scaler_rows': None if ds is None else [0, ds.border],

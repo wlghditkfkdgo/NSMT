@@ -29,7 +29,7 @@ from config import Config, set_random_seed
 from model import LOAD_MODEL
 from data_provider.data_factory import data_provider
 from analysis import extract_pred_true_for_metrics
-from ett_future import cond_name
+from ett_future import cond_name, WEIGHTS
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -74,10 +74,11 @@ def main():
     ap.add_argument('--replace', choices=['mean', 'zero', 'shuffle'], default='mean')
     ap.add_argument('--step', type=int, default=None, help='probed step n (default N-1)')
     ap.add_argument('--control', choices=['none', 'hippo'], default='none')
+    ap.add_argument('--weights', choices=['last', 'best'], default='last', help='last-epoch or best-validation weights')
     a = ap.parse_args()
     cfg = Config(); cfg.load_args(os.path.abspath(a.run), Namespace(saved_epoch=[1], num_device=a.nd))
     set_random_seed(cfg.seed)
-    model = LOAD_MODEL['myModel'](cfg, train=False); model.eval()
+    model = LOAD_MODEL['myModel'](cfg, train=False, ckpt=WEIGHTS[a.weights]); model.eval()
     if getattr(model, 'hippo_only', False):
         raise SystemExit('hippo_only model has no neocortex path; nothing to probe')
     N = model.T; n = N - 1 if a.step is None else a.step
@@ -123,7 +124,7 @@ def main():
         if seen >= a.windows:
             break
     os.makedirs(a.out, exist_ok=True)
-    tag = f"{cfg.data}_H{cfg.pred_len}_{cond_name(cfg)}_seed{cfg.seed}_{a.replace}" + ('_ctrlhippo' if a.control == 'hippo' else '')
+    tag = f"{cfg.data}_H{cfg.pred_len}_{cond_name(cfg)}_seed{cfg.seed}_{a.replace}" + ('_ctrlhippo' if a.control == 'hippo' else '') + ('_bestval' if a.weights == 'best' else '')
     path = os.path.join(a.out, tag + '_probe.csv')
     with open(path, 'w', newline='') as f:
         w = csv.writer(f)
