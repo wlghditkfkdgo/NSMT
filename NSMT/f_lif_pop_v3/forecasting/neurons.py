@@ -1,9 +1,9 @@
-"""Neuron family: LIF -> f-LIF -> population / selective / selective population f-LIF.
+"""Neuron family: LIF -> f-LIF -> population f-LIF | selective f-LIF -> selective population f-LIF.
 
 Reference implementation: PhysAGI/spikeDE, commit fcd743befe504b1a471fa81887e6af7d6789da2e
 (upstream HEAD on 2026-10-14, MIT licence), the code of "Fractional-order Spiking Neural
 Network" (Ge et al., ICLR 2026, arXiv:2507.16937). analysis/spikede_parity.py runs the
-original spikeDE classes against the ones here.
+original spikeDE classes against the ones here (P1-P5: states to 1e-13 relative, spikes equal).
 
 spikeDE splits a neuron into a right-hand side and a solver (spikeDE/neuron.py, solver.py):
 
@@ -21,17 +21,22 @@ with v_0 = 0, and the spike reported for step k is the one decided from v_k, bef
 update. `pred` is the default of the paper's own training script and the scheme v3 has used
 since v3-A. The surrogate gradient is spikeDE's arctan, (kappa/2) / (1 + (pi/2 kappa x)^2).
 
-Each class adds one thing:
+Class layout (each behaviour lives in exactly one class):
 
-    LIFNeuron                     the spikeDE LIF, Euler-integrated
-    FLIFNeuron(LIFNeuron)         the same right-hand side, fractional solver (pred | gl)
-    PopulationFLIF(FLIFNeuron)    K members with their own tau on the same input current.
-                                  soma='lif': the members do not fire, one LIF soma integrates
-                                  them (the v3 arrangement, layers.Soma); soma='none': the members
-                                  are K independent f-LIF neurons, K spike trains out
-    SelectiveFLIF(FLIFNeuron)     past increments enter with c = m * b, m a 0/1 top-q mask by the
-                                  similarity of xi = [v, I] (pred only)
-    SelectivePopulationFLIF(SelectiveFLIF, PopulationFLIF)    both
+    LIFNeuron                        the spikeDE LIF, Euler-integrated
+    FLIFNeuron(LIFNeuron)            the same right-hand side, fractional solver (pred | gl)
+    PopulationFLIF(FLIFNeuron)       POPULATION behaviour: K members with their own tau on the
+                                     same input current. soma='lif': the members do not fire, one
+                                     LIF soma integrates them (the v3 arrangement, layers.Soma);
+                                     soma='none': K independent f-LIF neurons, K spike trains out
+    SelectiveFLIF(FLIFNeuron)        SELECTIVE behaviour: past increments enter with c = m * b,
+                                     m a 0/1 top-q mask by the similarity of xi = [v, I] (pred only)
+    SelectivePopulationFLIF(FLIFNeuron)
+                                     the final design. It does NOT inherit from the two above: it
+                                     builds one PopulationFLIF instance (`.population`, owns the
+                                     members and the soma) and one SelectiveFLIF instance
+                                     (`.selection`, owns the selection rule) and delegates to them
+                                     from the f-LIF solver loop.
 
 Neutral limits hold exactly (check_neurons.py): FLIFNeuron(alpha=1) == LIFNeuron,
 SelectiveFLIF(q=1) == FLIFNeuron, PopulationFLIF(K=1, soma='none') == FLIFNeuron,
@@ -308,6 +313,10 @@ class FLIFNeuron(LIFNeuron):
         v3's scheme) or 'gl' (Grunwald-Letnikov on the states, the README example).
     memory : int or None
         spikeDE's short-memory option: only the last `memory` steps enter. None = full history.
+
+    Subclasses change the solver through two hooks only: `history_coefficients` (how the
+    stored increments are weighted; the selective behaviour) and `emit` / `initial_soma`
+    (what leaves the neuron; the population behaviour).
     """
     def __init__(self, size, alpha=.7, method='pred', memory=None, **kwargs):
         super().__init__(size, **kwargs)
@@ -370,7 +379,7 @@ class FLIFNeuron(LIFNeuron):
 
 
 class PopulationFLIF(FLIFNeuron):
-    """K f-LIF members with their own time constants on the same input current.
+    """Population behaviour: K f-LIF members with their own time constants on the same input.
 
     soma='lif' (default, the v3 arrangement, DH-SNN style): the members are non-resetting
     fractional branches and do not fire. One LIF soma per unit mixes them,
@@ -381,6 +390,9 @@ class PopulationFLIF(FLIFNeuron):
 
     heterogeneous=False replaces the K time constants by their harmonic mean (the same total
     leak), as layers.PopulationNeuron does.
+
+    `initial_soma` and `emit` are the whole of the behaviour; SelectivePopulationFLIF calls them
+    on an instance of this class.
     """
     def __init__(self, size, tau=(4., 8., 16., 32.), soma='lif', tau_s=2., heterogeneous=True, **kwargs):
         super().__init__(size, tau=tau, **kwargs)
@@ -414,7 +426,7 @@ class PopulationFLIF(FLIFNeuron):
 
 
 class SelectiveFLIF(FLIFNeuron):
-    """f-LIF whose past increments enter with c(t, j) = m(t, j) b(t - j), m in {0, 1}.
+    """Selective behaviour: past increments enter with c(t, j) = m(t, j) b(t - j), m in {0, 1}.
 
     m keeps the round(q J) past slots whose descriptor xi_j = [v_j, I_j] is most similar to the
     present xi_t (stat 'pearson' | 'cosine'), or the same number of slots without looking at
@@ -423,6 +435,13 @@ class SelectiveFLIF(FLIFNeuron):
     part='all' (default, the v3 design) drops whole increments. part='input' drops only their
     input part I_j/tau and keeps the leak and reset parts of every past slot (the stabilised
     candidate of the 2Q (A) diagnostic, not yet trained). q = 1 is exactly FLIFNeuron.
+
+    On its own it is one selective f-LIF (one tau). Given K taus it is K independent, firing
+    selective members that share one selection (no soma; that is PopulationFLIF's job) -- this
+    is the form SelectivePopulationFLIF instantiates.
+
+    The behaviour is the three methods `begin_step`, `select_coefficients`, `end_step`; they
+    take the calling neuron's state and tau explicitly so another neuron can use them.
     """
     def __init__(self, size, q=.5, stat='pearson', axis='shared', part='all', seed=0, **kwargs):
         super().__init__(size, **kwargs)
@@ -435,20 +454,25 @@ class SelectiveFLIF(FLIFNeuron):
         self.seed = int(seed)
         self.generator = torch.Generator().manual_seed(self.seed)
 
+    def _check_members(self):
+        pass                                                         # K >= 1 (members share the selection)
+
     def reseed(self, seed=None):
         """Reset the 'random' control's generator so an evaluation is reproducible."""
         self.generator.manual_seed(self.seed if seed is None else int(seed))
 
-    def integrate(self, t, u, F, x, history, oracle_p=None):
-        self._xi = torch.cat([u, x.unsqueeze(-1)], dim=-1)          # 질의는 갱신 전 상태로 (G6)
+    # ---- the selective behaviour ---------------------------------------------------------------
+    def begin_step(self, u, x, F, history, tau):
+        """Before the solver: the query xi_t = [v_t, I_t] from the PRE-update state (G6) and,
+        for part='input', the input part I_t/tau of this step's increment."""
+        self._xi = torch.cat([u, x.unsqueeze(-1)], dim=-1)
         if self.part == 'input':
-            history['input'].append((x.unsqueeze(-1) / self.tau).expand_as(F))
-        out = super().integrate(t, u, F, x, history, oracle_p)
-        history['keys'].append(self._xi)
+            history['input'].append((x.unsqueeze(-1) / tau).expand_as(F))
 
-        return out
-
-    def history_coefficients(self, t, start, u, x, history, b_hist, past, oracle_p=None):
+    def select_coefficients(self, t, start, history, b_hist, past):
+        #  -> c: [B, D, J], extra term or None, aux statistics
+        """c = m * b over the stored increments past = F_{start..t-1}; the mask m is chosen by
+        the similarity of the stored keys to the present query."""
         keys = torch.stack(history['keys'][start:t], dim=-2)         # [B, D, J, K+1]
         m, sim = select_mask(self._xi, keys, self.q, self.stat, self.axis, self.generator)
         c = b_hist * m                                               # 사전등록 2J: c = m * b
@@ -461,11 +485,100 @@ class SelectiveFLIF(FLIFNeuron):
 
         return c, extra, stats
 
+    def end_step(self, history):
+        """After the solver: this step's query becomes a stored key."""
+        history['keys'].append(self._xi)
 
-class SelectivePopulationFLIF(SelectiveFLIF, PopulationFLIF):
-    """Population f-LIF with the shared selection: xi_j = [v_{j,1..K}, I_j] for every unit.
-    With soma='lif', axis='shared', stat='pearson', part='all' this is layers.PopulationNeuron
-    in mode 'hard'."""
+    # ---- as a neuron of its own ------------------------------------------------------------------
+    def integrate(self, t, u, F, x, history, oracle_p=None):
+        self.begin_step(u, x, F, history, self.tau)
+        out = super().integrate(t, u, F, x, history, oracle_p)
+        self.end_step(history)
+
+        return out
+
+    def history_coefficients(self, t, start, u, x, history, b_hist, past, oracle_p=None):
+        return self.select_coefficients(t, start, history, b_hist, past)
+
+
+class SelectivePopulationFLIF(FLIFNeuron):
+    """The final design: a population f-LIF whose shared selection reads xi_j = [v_{j,1..K}, I_j].
+
+    Composition, not multiple inheritance. The neuron itself is an FLIFNeuron with K time
+    constants (the solver loop, rhs, coefficient table). It owns
+
+        .population : PopulationFLIF   the K members' time constants and the soma (output side)
+        .selection  : SelectiveFLIF    the selection rule and its generator (coefficient side)
+
+    and delegates: `initial_soma` / `emit` go to `.population`, `history_coefficients` goes to
+    `.selection`, with the query recorded around the solver step. With soma='lif',
+    axis='shared', stat='pearson', part='all' this is layers.PopulationNeuron in mode 'hard';
+    with q = 1 it is PopulationFLIF (check_neurons.py N5, N8, N16).
+    """
+    def __init__(self, size, tau=(4., 8., 16., 32.), soma='lif', tau_s=2., heterogeneous=True,
+                 q=.5, stat='pearson', axis='shared', part='all', seed=0, **kwargs):
+        super().__init__(size, tau=tau, **kwargs)
+
+        self.population = PopulationFLIF(size, tau=tau, soma=soma, tau_s=tau_s,
+                                         heterogeneous=heterogeneous, **kwargs)
+        # 선택 규칙은 구성원과 같은 tau 로 만든다 (part='input' 의 I/tau 항이 같은 값을 쓰도록)
+        self.selection = SelectiveFLIF(size, q=q, stat=stat, axis=axis, part=part, seed=seed,
+                                       tau=self.population.tau.tolist(), **kwargs)
+        self.tau = self.population.tau.clone()                       # 동질 모집단이면 조화평균으로 바뀐 값
+        self.members_fire = self.population.members_fire
+        self.soma_mode = self.population.soma_mode
+
+    def _check_members(self):
+        pass                                                         # K >= 1
+
+    # ---- population side (delegated) -------------------------------------------------------
+    @property
+    def has_soma(self):
+        return self.population.has_soma
+
+    @property
+    def soma(self):
+        return self.population.soma
+
+    def initial_soma(self, x):
+        return self.population.initial_soma(x)
+
+    def emit(self, nxt, s, soma):
+        return self.population.emit(nxt, s, soma)
+
+    # ---- selection side (delegated) --------------------------------------------------------
+    @property
+    def q(self):
+        return self.selection.q
+
+    @property
+    def stat(self):
+        return self.selection.stat
+
+    @property
+    def axis(self):
+        return self.selection.axis
+
+    @property
+    def part(self):
+        return self.selection.part
+
+    @property
+    def generator(self):
+        return self.selection.generator
+
+    def reseed(self, seed=None):
+        self.selection.reseed(seed)
+
+    def integrate(self, t, u, F, x, history, oracle_p=None):
+        self.selection.begin_step(u, x, F, history, self.tau)
+        out = super().integrate(t, u, F, x, history, oracle_p)
+        self.selection.end_step(history)
+
+        return out
+
+    def history_coefficients(self, t, start, u, x, history, b_hist, past, oracle_p=None):
+        return self.selection.select_coefficients(t, start, history, b_hist, past)
 
 
 NEURONS = {'lif': LIFNeuron, 'flif': FLIFNeuron, 'pop_flif': PopulationFLIF,

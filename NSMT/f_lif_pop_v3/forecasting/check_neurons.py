@@ -20,6 +20,7 @@ analysis/spikede_parity.py. Here:
   N13  gradients reach the input current and the soma weights, all finite, every class
   N14  shapes, out_features, keyword filtering, refused configurations
   N15  select_mask keeps exactly max(1, round(qJ)) slots; 'recent' keeps the newest
+  N16  SelectivePopulationFLIF is composed of a PopulationFLIF and a SelectiveFLIF instance
 
 and the wiring into the pipeline (config.py -> model.load_mymodel -> ours.myModel):
 
@@ -106,12 +107,15 @@ def model_pair(old_kw, new_kw):
     first's initial values; returns them with their --mode."""
     old, new = (load_mymodel(cli(**kw)) for kw in (old_kw, new_kw))
     state, mine = old.state_dict(), new.state_dict()
-    if [k for k in mine if k not in state]:
-        raise AssertionError(f'parameters without a legacy counterpart: {[k for k in mine if k not in state]}')
-    for name in ('embedding.neuron.tau', 'embedding.neuron.b'):     # 버퍼는 복사하지 않고 같아야 한다
-        if not torch.equal(state[name], mine[name]):
-            raise AssertionError(f'{name} differs before any copy')
-    new.load_state_dict({k: state[k] for k in mine}, strict=True)
+    # SelectivePopulationFLIF 는 .population / .selection 인스턴스를 가진다: 그 키는 legacy 의 같은 이름으로 맞춘다
+    legacy = lambda k: k.replace('embedding.neuron.population.', 'embedding.neuron.') \
+                        .replace('embedding.neuron.selection.', 'embedding.neuron.')
+    if [k for k in mine if legacy(k) not in state]:
+        raise AssertionError(f'parameters without a legacy counterpart: {[k for k in mine if legacy(k) not in state]}')
+    for k in mine:                                                   # 버퍼(tau, b)는 복사하지 않고 같아야 한다
+        if k.endswith(('.tau', '.b')) and not torch.equal(state[legacy(k)], mine[k]):
+            raise AssertionError(f'{k} differs before any copy')
+    new.load_state_dict({k: state[legacy(k)] for k in mine}, strict=True)
 
     return (old, old_kw.get('mode', 'sparse')), (new, new_kw.get('mode', 'sparse'))
 
@@ -246,6 +250,21 @@ def main():
                 all(g is not None and bool(torch.isfinite(g).all()) and float(g.abs().sum()) > 0 for g in grads)
         gate('N13', all(ok13.values()), f"finite, nonzero gradients to the input (and soma weights): {ok13}")
 
+    # N16 ------------------------------------------------------------------------------------
+    n = build('sel_pop_flif', q=.5)
+    comp = (not isinstance(n, (N.SelectiveFLIF, N.PopulationFLIF)) and isinstance(n, N.FLIFNeuron)
+            and isinstance(n.population, N.PopulationFLIF) and isinstance(n.selection, N.SelectiveFLIF)
+            and n.soma is n.population.soma and torch.equal(n.tau, n.population.tau)
+            and torch.equal(n.tau, n.selection.tau) and torch.equal(n.b, n.selection.b)
+            and n.q == .5 and n.generator is n.selection.generator)
+    homog = build('sel_pop_flif', q=.5, heterogeneous=False)
+    comp = comp and torch.equal(homog.tau, homog.population.tau) and torch.equal(homog.tau, homog.selection.tau)
+    members = build('sel_flif', tau=(2., 8.), q=.5)                  # K selective members, no soma
+    out = members(x)
+    comp = comp and out.shape[-1] == 2 * D and members.out_features == 2 * D
+    gate('N16', comp, f"SelectivePopulationFLIF composes PopulationFLIF + SelectiveFLIF (no inheritance), shares "
+                      f"tau/b/soma/generator with them: {comp}; SelectiveFLIF with 2 taus emits {out.shape[-1]} trains")
+
     with torch.enable_grad():                                        # W3가 학습 스텝을 밟는다
         wiring()
     for directory in sys.argv[1:]:
@@ -295,8 +314,9 @@ def wiring():
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1., error_if_nonfinite=True)
                 optimizer.step()
         theirs = dict(old.named_parameters())
+        legacy = lambda k: k.replace('embedding.neuron.population.', 'embedding.neuron.')
         moved = [k for k, p in new.named_parameters() if not torch.equal(p, before[k])]
-        ok3[name] = (all(torch.equal(p, theirs[k]) for k, p in new.named_parameters()) and len(moved) > 0,
+        ok3[name] = (all(torch.equal(p, theirs[legacy(k)]) for k, p in new.named_parameters()) and len(moved) > 0,
                      f'{len(moved)}/{len(before)} moved')
     gate('W3', all(v[0] for v in ok3.values()), f"after 3 AdamW steps (lr 1e-2, clip 1) every shared parameter "
                                                 f"bitwise equal: {ok3}")

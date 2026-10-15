@@ -1,0 +1,50 @@
+[gate] Phase A -- scalar definition and reference parity
+[gate]    PASS | G1a  sum_d b_d == (n+1)^alpha / Gamma(alpha+1)
+[gate]         | max |err| = 1.78e-15 over alpha in 0.3/0.5/0.7/1.0, n <= 24
+[gate]    PASS | G1b  constant forcing integrator U = U0 + c t^alpha / Gamma(alpha+1)
+[gate]         | max relative err = 6.56e-07 (tau = 1e+07, leak suppressed; residual IS the leak)
+[gate]    PASS | G2   alpha=1, eta=0, g=0  ==  Euler leaky integrator
+[gate]         | max |err| = 0.00e+00  (the g=0 condition is exactly what rev.0 omitted)
+[gate]    PASS | G3   loop == (Id + B J/tau)^-1 B/tau   (and != B/tau)
+[gate]         | |loop - H_eff| = 6.66e-16   |loop - naive B@I/tau| = 0.945
+[gate]    PASS | G4   integrator parity against the pinned spikeDE commit fcd743b
+[gate]         | max |err| = 7.77e-16 over 360 steps in 24 conditions (7 of them spike-free, the rest compared before their first spike); golden sha256 2fda1abbb03743e1. Grade: source parity for the fractional integrator. The full v3-A neuron differs by design (D1: branches never reset).
+[gate]    PASS | G15  perturbing I_{T-1} flips s_{T-1} and leaves every earlier spike alone
+[gate]         | changed spikes at T-1 = 8 (rate 0.052), |d v_last| = 2.224; earlier: d spikes = 0, |d v| = 0.00e+00
+[gate] Phase C -- population reduction, causality, selection
+[gate]    PASS | G5a  K=1 == scalar fractional branch (no branch reset, so not the paper neuron)
+[gate]         | max |err| = 0.00e+00
+[gate]    PASS | G5b  homogeneous tau => identical constituents
+[gate]         | max spread = 0.00e+00, tau_hom = K/sum(1/tau_k) = 8.533
+[gate]    PASS | G6   perturbing patches >= t leaves every state/voltage/spike before t intact
+[gate]         | max |err| over state/voltage/spikes = 0.00e+00
+[gate]    PASS | G7   neutral limit: eta=0 sparse == full, bitwise
+[gate]         | torch.equal (atol=0, rtol=0) = True
+[gate]    PASS | G7b  uniform p == full  (why `uniform` is a gate, not a control)
+[gate]         | max |err| = 3.33e-16 at eta=1; bitwise = False. The registered wording said bitwise, but the uniform-p path divides by sum(b*p) while `full` does not, so the two differ in the last ulp by construction. Declared tolerance 1e-12 (prereg amendment 2026-09-21).
+[gate]    PASS | G12  cap is inactive at eta=0 (b_d <= b_0 for d >= 1)
+[gate]         | max cap_rate = 0.0e+00
+[gate]    PASS | G8a  kappa == 1.000 while the cap is inactive
+[gate]         | max |kappa - 1| = 0.00e+00
+[gate]    PASS | G8b  eta=1 sparsemax leaves exact zeros in the final coefficients
+[gate]         | 17/23 steps contain an exact zero; kappa in [0.242, 1.000] -- below 1 wherever the cap binds
+[gate]    PASS | G13  support(p) / support(rho) / support(b*rho) / support(c) over the whole run
+[gate]         | eta = 0.0180   p = 0.924   rho = 1.000   braw = 1.000   c = 1.000   over 23 steps with history   -- the dense residual (1-eta)*b_d survives wherever p = 0
+[gate]    PASS | G10  gradients finite and nonzero for W_Q, W_K, eta_hat, w
+[gate]         | finite = True   nonzero = {'W_Q': True, 'W_K': True, 'eta_hat': True, 'w': True}
+[gate]    PASS | G9   batched == per-window evaluation
+[gate]         | max |err| = 0.00e+00
+[gate]    PASS | G11  state stays bounded at eta=1, recent-only policy, tau=[4,8,16,32]
+[gate]         | max|u| = 2.385 (T=42), 2.385 (T=84); declared bound 67.5
+[gate] Phase C (audit) -- pass conditions for the 2026-09-21 audit issues
+[gate]    PASS | G16  mass_matched matches the POST-cap mass and does not collapse onto full
+[gate]         | kappa sel 0.589396241989 vs control 0.589396241989; |sum c_control - sum c_sel| = 1.78e-15; |control - full| = 0.2957; max c_control <= b_0: True; cap-inactive => full bitwise: True
+[gate]    PASS | G17  --eta_fixed is an exact override and --no-cap actually removes the cap
+[gate]         | eta_fixed 0 -> 0.0, 1 -> 1.0 (exact, not a sigmoid approximation); eta_hat trainable: fixed False, free True; no-cap max c = 7.107 > b_0 = 1.101
+[gate]    PASS | G18  mode='hard': q>=1 is bitwise full; q<1 keeps round(qJ) slots at exact b, matches the screening rule, and differs from full
+[gate]         | q=1 bitwise full (spikes and states): True; q=0.25: kept 10/41 (want 10), c == m*b: True, max c <= b_0: True, rule matches independent top-k: True, differs from full: True
+[gate]    PASS | G19  2K controls: 'recent' keeps the last k slots and ignores content; 'random' keeps k slots, fresh per forward, reproducible after reseed; all stats share the init at a seed
+[gate]         | recent == last 20/41: True, content-blind: True; random keeps k at exact b: True, fresh per forward: True, reseed reproduces: True; same init across pearson/recent/random: True
+[gate]    PASS | G20  2M hard oracle: answer slots on recall events, every slot on copy events, exact b, q ignored, refuses without truth
+[gate]         | recall row keeps slots {0,3,7} at b and copy row keeps all 41 at b for q in (0.25, 1): True; no truth -> ValueError: True
+[gate] 23 passed, 0 failed, 0 not run

@@ -7081,3 +7081,30 @@ SUITE=neurons-smoke-20261014b-nocal EXTRA='--no-require_calibration --input_scal
 **결론:** (1) v3의 분수 적분은 spikeDE와 같고, 뉴런 전체(리셋·발화 시점·h)는 의도적으로 다르다. (2) 요청한 클래스 계층을 구현했고, 원본 spikeDE·기존 v3·기존 checkpoint와 모두 정확히 맞는다. 학습 파이프라인에서 `--neuron`으로 고를 수 있고 기존 경로는 그대로다. 실험(2S)은 사용자 결정(안정화 후보 포함 여부, 3단계 자료, 위 한계 1–2) 뒤 사전등록부터 한다.
 
 **commit:** 이 기록을 담은 commit (해시는 다음 기록에 적는다), `exp/f-lif-pop-v3`에 push. 실험 완료가 아니므로 태그는 만들지 않는다.
+
+---
+
+## 2026-10-15 18:47 KST — 뉴런 클래스 재구성: SelectivePopulationFLIF 를 다중 상속에서 **합성(composition)** 으로 — Population/Selective 는 각자 f-LIF 상속, 최종 클래스는 두 인스턴스를 만들어 위임; 게이트 25/25, spikeDE 대조 불변, smoke 수치 비트 동일
+
+**사용자 요청 (10-15):** NSMT 와 별도로 `f_lif_pop_v3` 아이디어 검증을 이어간다. (1) `f_lif_pop_v3/forecasting/neurons.py` 와 `nsmt_flif_v1/forecasting/neurons.py` 를 비교하고 f-LIF 구현을 점검, (2) f-LIF 를 상속한 `Population f-LIF` 와 `Selective f-LIF` 를 **별도 class** 로, `Population selective f-LIF`(최종 아이디어)는 f-LIF 를 상속하되 **Population·Selective 인스턴스를 만들어 호출**하는 방식으로.
+
+**브랜치·작업 위치:** `exp/f-lif-pop-v3` (기존 실험 branch 계속), 기준 commit `cd9b4cfec`. 주 작업 트리는 `exp/nsmt-flif-neo` 의 stage-2 큐(tmux `flif_s2p10`, GPU 4장)가 돌고 있어 branch 를 바꿀 수 없으므로 **git worktree `/home/yschoi/CLS_spiking_transformer/wt-flif-pop-v3`** 에서 작업했다(데이터셋은 주 트리의 `NSMT/forecasting/dataset` 로 symlink, Git 제외).
+
+**(1) 비교·점검.** 두 파일은 `nsmt_flif_v1` 쪽이 `from layers import arctan_spike, Soma` 한 줄을 v3 `layers.py` 의 `ArcTanSpike`/`Soma` 인라인 복사로 바꾼 것 외에 **바이트 단위로 같다**(`diff` 로 확인; 인라인 블록도 v3 `layers.py:51-76, 347-376` 과 동일). 둘 다 spikeDE 의 코드를 그대로 가져온 것이 아니라 **10-14 에 작성한 클래스 계층**이며, 원본 spikeDE 클래스를 import 해 돌린 대조(`analysis/spikede_parity.py`)로 LIF/f-LIF(pred·gl)/모집단/미분이 1e-13 상대오차 이내·스파이크 동일임을 확인한 것이다(10-14 기록). 이번 재구성 뒤 같은 대조를 다시 돌려 P1 18/18, P2 144/144, P3 144/144, P4 9/9, P5 3/3, P6 18/18 로 **수치 변화 없음**(`spikede_parity.txt` 글자 단위 동일; JSON 은 우리 쪽 `neurons.py` 해시 한 줄만 바뀜).
+
+**(2) 재구성 (`f_lif_pop_v3/forecasting/neurons.py`).**
+| 클래스 | 전 | 후 |
+|---|---|---|
+| `PopulationFLIF(FLIFNeuron)` | 그대로 | 그대로 (구성원 tau·soma; `initial_soma`/`emit` 가 행동 전부) |
+| `SelectiveFLIF(FLIFNeuron)` | `integrate`/`history_coefficients` 안에 선택 로직 | 선택 로직을 `begin_step`(질의 ξ_t·입력항 기록)·`select_coefficients`(c = m·b)·`end_step`(키 저장) 세 메서드로 분리; 자기 자신이 뉴런일 때는 그 셋을 부른다. K 개 tau 도 허용(soma 없이 선택을 공유하는 K 구성원) |
+| `SelectivePopulationFLIF` | `(SelectiveFLIF, PopulationFLIF)` 다중 상속 | **`(FLIFNeuron)` 단일 상속** + `self.population = PopulationFLIF(…)`, `self.selection = SelectiveFLIF(…, tau=population.tau)` 인스턴스. `initial_soma`/`emit`/`has_soma`/`soma` → `.population`, `history_coefficients`/`q`/`generator`/`reseed` → `.selection`, `integrate` 는 `selection.begin_step` → f-LIF 솔버 → `selection.end_step` |
+- 체크포인트 키: `sel_pop_flif` 의 soma 가중치 이름이 `soma.weight` → `population.soma.weight` 로 바뀐다(버퍼 `population.tau/b`, `selection.tau/b` 도 추가; 값은 본체와 같음). 10-14 smoke 외에 이 클래스로 학습한 checkpoint 는 없다. 파이프라인(`train.py` 의 `getattr(neuron, 'selector', None)`)과 이름이 겹치지 않도록 속성명은 `selection` 이다.
+
+**검증 (worktree, env `snn_recall`, 산출물 `f_lif_pop_v3/forecasting/results/neurons-checks-20261015/`):**
+- `check_neurons.py` **25/25** (N1–N16, W1–W7). 새 N16: 최종 클래스가 Selective/Population 을 상속하지 않고 두 인스턴스를 가지며 tau/b/soma/generator 를 공유. N5(q=1 → 모집단 비트 동일), N8/N10(기존 `layers.PopulationNeuron` mode 'hard' 와 비트 동일), N11(part='input' 2Q(A) 재귀 3e-16), W2/W3(myModel forward·AdamW 3스텝 비트 동일), W7(기존 checkpoint 3개 validation MSE 차이 0.0) 모두 유지. `check_neurons.py` 는 합성 인스턴스의 키를 legacy 이름으로 맞추는 매핑만 추가.
+- `check_model.py` 23/23.
+- smoke (`scripts/neurons_smoke.sh`, suite `neurons-smoke-20261015`, GPU 1 공유 사용, 2 epoch×20 batch, 실험 아님): pop_flif 0.751966, sel_pop_flif 0.712709, sel_pop_flif_input 0.722168 — **10-14 의 수치와 소수 여섯째 자리까지 같다**; sel_flif 는 전과 같이 보정 at-init 발화율 0.3015 로 거부(미해결 결정 사항 그대로).
+
+**not run:** 학습 실험 없음. `nsmt_flif_v1/forecasting/neurons.py`(branch `exp/nsmt-flif-neo`) 는 바꾸지 않았다 — stage-2 큐가 그 코드로 돌고 있으며, 재구성은 forward 가 비트 동일하므로 그쪽 결과에 영향이 없다; 동기화는 그 큐가 끝난 뒤 별도로.
+
+**commit:** 이 기록을 담은 commit 을 `exp/f-lif-pop-v3` 에 push (해시는 다음 기록에).
