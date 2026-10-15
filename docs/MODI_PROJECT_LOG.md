@@ -329,3 +329,12 @@ S(d) = 신피질 입력의 d패치 전 패치를 윈도우 평균으로 바꿨�
 - 미래 구간은 이번에도 쓰지 않는다(확증 단계용).
 
 **commit:** 이 항목과 코드를 담은 commit을 push한 뒤 시작한다. 결과는 다음 항목.
+
+---
+
+## 2026-10-15 21:12 KST — 2차(patience 10) 학습 168개 중 166개 완료, 2개 실패(폴더 이름 길이) → 이름 규칙 수정 후 2개 재실행
+
+- `flif-v1-s2p10` 학습 10:50–20:56, 기억 측정 154개 20:56–21:09, 요약 `results/flif-v1-s2p10/summary.md`(최고 검증 가중치)·`summary_lastweights.md`. 결과·판정은 2개 재실행 뒤 다음 항목에 적는다.
+- **실패 2개:** `neo_flif_both` ETTm2 H720 seed 2026의 `L2g0.05`, `L4g0.05`. 원인은 실행 폴더 이름이 256바이트로 파일 시스템 한도(255)를 넘어 `os.makedirs`가 `OSError: [Errno 36] File name too long`으로 학습 시작 전에 실패한 것(0 epoch). 같은 칸의 다른 폴더 이름은 최대 255바이트로 한도에 걸려 있었다(4자리 seed + `flif` + `g0.05` + ETTm2 H720의 heads 16 조합만 넘침).
+- **수정 (`nsmt_flif_v1/forecasting/`):** `config.py` — 폴더 이름의 `+neo+…` 접미사에서 solver 옵션(`-h…-pred-m…`)은 기본값이 아닐 때만 붙인다(기본 경로 이름은 그대로, nsmt_base 동일성 무관). `scripts/run_ett.sh` — 학습 실패(rc≠0)를 최고 검증 test 확인보다 먼저 검사한다. 이번 두 SKIP 줄은 실제 원인(학습 실패)이 아니라 "best-checkpoint test missing"으로 잘못 표시됐다.
+- **재실행:** 같은 두 run을 tmux 세션 `flif_s2p10_fix`에서 GPU 0·1로 다시 돌리고(`PATIENCE=10 TEST_BEST=1 SUITE=flif-v1-s2p10`), 끝나면 두 run의 기억 측정과 요약 재작성까지 이어서 한다. 재실행 run의 폴더 이름만 짧고 설정은 같다.

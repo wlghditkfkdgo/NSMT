@@ -177,7 +177,10 @@ class Config():
             tag = tag + f"+{ktag}+{vtag}"
         # nsmt_flif_v1: non-default conditions get their own directory names; the default name is unchanged
         if getattr(args, 'neo_neuron', 'sj_lif') != 'sj_lif':
-            tag = tag + f"+neo+{args.neo_neuron}-{args.neo_where}-a{args.neo_alpha}-h{args.fde_step}-{args.fde_method}-m{args.fde_memory}"
+            tag = tag + f"+neo+{args.neo_neuron}-{args.neo_where}-a{args.neo_alpha}"
+            # solver options only when non-default: the full name hit the 255-byte file-name limit (2026-10-15)
+            if args.fde_step != 1.0 or args.fde_method != 'pred' or args.fde_memory != 0:
+                tag = tag + f"-h{args.fde_step}-{args.fde_method}-m{args.fde_memory}"
         if getattr(args, 'hippo_only', False):
             tag = tag + "+hippo_only"
         if getattr(args, 'aux_lead', 0) != 0 or getattr(args, 'neo_grad', 0.05) != 0.05:

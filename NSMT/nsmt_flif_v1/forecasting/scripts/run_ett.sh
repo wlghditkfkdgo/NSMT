@@ -58,6 +58,8 @@ D=$(ls -td "$LOG/$DS"/*/*"+${COND}+seed${S}+${REG:+$REG+}model+"*"+pred_len+${PL
 CSV="$D/log/final+result.csv"
 col() { sed -n 2p "$CSV" 2>/dev/null | cut -d, -f$1; }
 MSE=$(col 3); MAE=$(col 4); EN=$(col 10); NLIF=$(col 14); NFFT=$(col 15); NDIR=$(col 16); TFFT=$(col 17); TDIR=$(col 18); RNEO=$(col 19); RHIP=$(col 20)
+# a failed training run is reported with its return code before any best-checkpoint lookup
+if [ $RC -ne 0 ] || [ -z "$MSE" ]; then echo "SKIP(rc=$RC, no result) cond=$COND ds=$DS pl=$PL seed=$S out=$OUT" | tee -a "$RES/raw.txt"; exit 1; fi
 LRS=$(grep -aoE '^epoch +[0-9]+ \(lr=[0-9.e-]+\)' "$OUT" | grep -oE 'lr=[0-9.e-]+' | cut -d= -f2)
 LR_FINAL=$(echo "$LRS" | tail -1); LR_DROPS=$(( $(echo "$LRS" | uniq | wc -l) - 1 ))
 EP=$(echo "$LRS" | grep -c .)                                    # epochs actually trained (the old count also matched the 'epoch---' argument line)
@@ -68,5 +70,4 @@ if [ -n "$TB" ]; then
   [ -z "$(bcol 3)" ] && { echo "SKIP(best-checkpoint test missing) cond=$COND ds=$DS pl=$PL seed=$S out=$OUT" | tee -a "$RES/raw.txt"; exit 1; }
 fi
 PAR=$(grep -a 'number of parameters' "$OUT" | grep -oE '[0-9]+' | tail -1); t1=$(date +%s)
-if [ $RC -ne 0 ] || [ -z "$MSE" ]; then echo "SKIP(rc=$RC, no result) cond=$COND ds=$DS pl=$PL seed=$S out=$OUT" | tee -a "$RES/raw.txt"; exit 1; fi
 echo "RESULT exp=nsmt_flif_v1 cond=$COND regime=${REG:-L0g0.05} dataset=${DS}_p${PL} seed=$S mse=$MSE mae=$MAE syn_energy=$EN neuron_lif_uJ=$NLIF neuron_fft_uJ=$NFFT neuron_direct_uJ=$NDIR total_fft_uJ=$TFFT total_direct_uJ=$TDIR rho_neo=$RNEO rho_hippo=$RHIP epochs=$E epochs_run=$EP patience=$P lr_final=$LR_FINAL lr_drops=$LR_DROPS $BEST params=$PAR time_s=$((t1-t0)) sha=$SHA alpha=$ALPHA dir=$D" | tee -a "$RES/raw.txt"
