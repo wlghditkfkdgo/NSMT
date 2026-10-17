@@ -486,3 +486,21 @@ hippo_only 58.68 / 67.24 / 65.97 / 72.81, base 56.78 / 68.57 / 64.93 / 71.40, f-
 **본 학습 (실행 전 — 사용자 확인 후 시작):** `scripts/make_queue_s3.sh` → 조건 5개(hippo_only T_b=1, serial_lif/serial_flif × T_b ∈ {1, 24}) × ETTh2/ETTm2 × H96/H720 × seed 42/7/2026 = 60 run, patience 10·최고 검증 가중치, suite `flif-v1-s3`. 참조는 같은 학습 규칙의 2차 suite `flif-v1-s2p10`(hippo_only T_b=24, base, 병렬 LIF/f-LIF) — c1·c9로 기본 경로가 변하지 않았음을 확인했으므로 재사용한다. 판정 수치는 확인을 받을 때 사전 고정 항목으로 확정한다.
 
 **commit:** 이 항목과 Phase B 코드·점검·smoke 결과를 담은 commit을 push한다.
+
+---
+
+## 2026-10-17 21:24 KST — Phase B 본 학습 사전 고정 (사용자 승인 "시작"): 직렬 정렬 임베딩 60 run, 판정 Q1–Q4
+
+**사용자 결정 (10-17):** 직전 항목의 설계와 판정 기준으로 시작. 브랜치 `exp/nsmt-flif-neo`, 이전 commit `045a7b5aa`.
+
+**설계 (고정):** suite `flif-v1-s3`, `scripts/make_queue_s3.sh`(60줄, 긴 칸 먼저) — hippo_only@Tb1, serial_lif@Tb1, serial_flif@Tb1, serial_lif(백본 T=24), serial_flif(T=24) × ETTh2/ETTm2 × H96/H720 × seed 42/7/2026. 신피질 = spikeDE LIF / f-LIF(α 0.5, τ 2, pred, h 1, 전체 이력), 직렬은 보조 손실·디코더 없음, 백본 key/value = 백본 자신. 학습 규칙은 2차와 같음(patience 10, 최대 epoch 논문 값, ReduceLROnPlateau 그대로, **판정은 최고 검증 가중치**, 마지막 가중치는 `summary_lastweights.md`로 보고). 참조 = 2차 suite `flif-v1-s2p10`(hippo_only T=24, base, 병렬 LIF/f-LIF; 같은 학습 규칙, c1·c9로 기본 경로 불변 확인). 미래 구간 미사용. 실행: tmux `flif_s3`, `scripts/stage3_driver.sh`(GPU당 2개; 학습 → 직렬 run의 기억 측정(최고 검증 가중치, 512창) → `summarize_flif.py --stage3`).
+
+**판정 (고정; 셀 = 데이터 × H 4칸, seed 3개 평균, 같은 seed끼리 짝; 에너지 = 논문 방식 총합 `total_fft_uJ`):**
+- **Q1 정렬 임베딩의 기여:** serial_flif@Tb1 vs hippo_only@Tb1 — 평균 상대 MSE ≤ −1% 이고 12쌍 중 ≥ 8쌍 낮음.
+- **Q2 사용자 통과 기준 2의 경로 B("적당한 성능 + 크게 개선된 에너지"):** serial_flif@Tb1 vs hippo_only(T=24, 2차) — 평균 상대 MSE ≤ +1% 이고 에너지 ≤ 0.7배.
+- **Q3 f-LIF vs LIF:** 같은 직렬·같은 백본 T(1과 24 각각)에서 4칸 중 ≥ 3칸 낮고 평균 ≤ −0.5%.
+- **Q4 기억(M2):** 직렬 f-LIF에서 마지막 12패치만 남길 때 오차 증가 ≥ 1% 이고 같은 백본 T의 직렬 LIF보다 큼(ETTh2·ETTm2 각각).
+- 보고만: 백본 T=24 vs T=1(반복 축 제거의 정확도 비용), 직렬 vs 병렬(base, neo_flif_both), serial_lif@Tb1 vs hippo_only@Tb1.
+- 탐색 단계이므로 통과는 확증이 아니다. Q1 또는 Q2를 통과하면 seed 8개 + 미래 구간 확증을 따로 사전 고정한다.
+
+**commit:** 이 항목·실행기·집계 코드(`summarize_flif.py --stage3`)를 담은 commit을 push한 뒤 시작한다. 결과는 다음 항목.

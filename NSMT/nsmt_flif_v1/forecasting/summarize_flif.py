@@ -31,7 +31,8 @@ from collections import defaultdict
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-CONDS = ['base', 'neo_lif_both', 'neo_lif_mlp', 'neo_flif_both', 'neo_flif_mlp', 'hippo_only']
+CONDS = ['base', 'neo_lif_both', 'neo_lif_mlp', 'neo_flif_both', 'neo_flif_mlp', 'serial_lif', 'serial_flif',
+         'serial_lif@Tb1', 'serial_flif@Tb1', 'hippo_only@Tb1', 'hippo_only']
 CONTROL = {'neo_flif_both': 'neo_lif_both', 'neo_flif_mlp': 'neo_lif_mlp'}
 
 
@@ -191,6 +192,56 @@ def stage2(rows, probe_rows):
     return '\n'.join(out)
 
 
+def stage3(rows, probe_rows):
+    """Pre-fixed stage-3 questions (MODI_PROJECT_LOG 2026-10-17, serial 'aligned spiking embedding').
+    Conditions: hippo_only@Tb1, serial_{lif,flif}@Tb1, serial_{lif,flif} (backbone T = N); reference hippo_only (T = N,
+    suite flif-v1-s2p10, same training rule)."""
+    out = []
+    def pc_(a, b):
+        pc, pairs = paired(rows, a, b)
+        if not pc:
+            return None
+        return (np.mean([v['rel'] for v in pc.values()]), sum(pairs), len(pairs), pc,
+                np.mean([v['energy_ratio'] for v in pc.values()]))
+    def cells(pc):
+        return ', '.join(f"{d} H{p}: {v['rel']*100:+.2f}%" for (d, p), v in pc.items())
+    q1 = pc_('serial_flif@Tb1', 'hippo_only@Tb1')
+    if q1:
+        ok = q1[0] <= -0.01 and q1[1] >= 8
+        out.append(f"**Q1 aligned embedding vs plain embedding (both backbone T=1):** serial_flif@Tb1 vs hippo_only@Tb1 -- "
+                   f"{cells(q1[3])}; mean {q1[0]*100:+.2f}%, pairs lower {q1[1]}/{q1[2]} -> {'**PASS**' if ok else 'not passed'} "
+                   f"(need mean <= -1 % and >= 8/12)")
+    q2 = pc_('serial_flif@Tb1', 'hippo_only')
+    if q2:
+        ok = q2[0] <= 0.01 and q2[4] <= 0.7
+        out.append(f"**Q2 vs the hippocampus-only model with the paper repetition (T=24):** serial_flif@Tb1 vs hippo_only -- "
+                   f"{cells(q2[3])}; mean {q2[0]*100:+.2f}%, pairs lower {q2[1]}/{q2[2]}, energy x{q2[4]:.3f} -> "
+                   f"{'**PASS**' if ok else 'not passed'} (need mean <= +1 % and energy <= 0.7x)")
+    for tb in ('@Tb1', ''):
+        q3 = pc_(f'serial_flif{tb}', f'serial_lif{tb}')
+        if q3:
+            nb = sum(v['rel'] < 0 for v in q3[3].values())
+            ok = nb >= 3 and q3[0] <= -0.005
+            out.append(f"**Q3 f-LIF vs LIF (serial, backbone {'T=1' if tb else 'T=N'}):** {cells(q3[3])}; lower in {nb}/{len(q3[3])} "
+                       f"cells, mean {q3[0]*100:+.2f}% -> {'**PASS**' if ok else 'not passed'} (need >= 3/4 and mean <= -0.5 %)")
+    for tb in ('@Tb1', ''):
+        res = []
+        for d in ('ETTh2', 'ETTm2'):
+            a = probe_rows.get((d, f'serial_flif{tb}')); c = probe_rows.get((d, f'serial_lif{tb}'))
+            res.append(None if a is None or c is None else (a >= 0.01 and a > c, a, c))
+        txt = ' / '.join('n/a' if r is None else f"{'PASS' if r[0] else 'fail'} ({r[1]*100:+.1f}% vs {r[2]*100:+.1f}%)" for r in res)
+        out.append(f"**Q4 memory M2 (serial f-LIF vs LIF, backbone {'T=1' if tb else 'T=N'}; ETTh2 / ETTm2):** {txt}")
+    out.append('')
+    out.append('Reported only:')
+    for a, b in (('serial_flif', 'serial_flif@Tb1'), ('serial_lif', 'serial_lif@Tb1'), ('hippo_only', 'hippo_only@Tb1'),
+                 ('serial_flif@Tb1', 'base'), ('serial_flif@Tb1', 'neo_flif_both'), ('serial_flif', 'hippo_only'),
+                 ('serial_lif@Tb1', 'hippo_only@Tb1')):
+        r = pc_(a, b)
+        if r:
+            out.append(f"- {a} vs {b}: {cells(r[3])}; mean {r[0]*100:+.2f}%, pairs lower {r[1]}/{r[2]}, energy x{r[4]:.3f}")
+    return '\n'.join(out)
+
+
 def probe_dmse(probe_dirs):
     """(data, cond) -> mean dMSE(keep 12)/clean MSE over the probe CSVs (control none)."""
     acc = defaultdict(list)
@@ -240,6 +291,7 @@ def main():
     ap.add_argument('--suite', action='append', default=None); ap.add_argument('--future', default=None)
     ap.add_argument('--probe_dir', action='append', default=None); ap.add_argument('--out_suite', default=None)
     ap.add_argument('--stage2', action='store_true')
+    ap.add_argument('--stage3', action='store_true')
     ap.add_argument('--weights', choices=['last', 'best'], default='last', help='which test row: last-epoch or best-validation weights')
     ap.add_argument('--summary_name', default='summary.md')
     a = ap.parse_args()
@@ -271,6 +323,8 @@ def main():
         md += ['', '## criterion (1) — memory probe', probe_summary(a.probe_dir)]
     if a.stage2:
         md += ['', '## stage 2 — pre-fixed questions per regime', stage2(rows, probe_dmse(a.probe_dir or []))]
+    if a.stage3:
+        md += ['', '## stage 3 — pre-fixed questions (serial aligned spiking embedding)', stage3(rows, probe_dmse(a.probe_dir or []))]
     os.makedirs(os.path.join(HERE, 'results', name), exist_ok=True)
     out = os.path.join(HERE, 'results', name, a.summary_name)
     open(out, 'w').write('\n'.join(md) + '\n'); print('\n'.join(md)); print('->', out)
