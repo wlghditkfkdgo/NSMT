@@ -625,3 +625,13 @@ HEAD1b3fe7acf0aa05ecc40e6315c7b3470f67125347, branch exp/nsmt-flif-neo. snapshot
 ### 2026-10-17 20:53 KST — 추적 감사82 (20261017T115004Z-94cee59a)
 
 HEAD1b3fe7acf0aa05ecc40e6315c7b3470f67125347 불변, neurons.py 미commit 설명 수정 SHA cc1f438f0e97dd2c196a6eb9dc8bad2a833e2cd003b1b5924017d56dafe258bf. snapshot1632/trigger차0; 문서3개는 직전 자체append와 동일. 실행 AST 불변. **A35-NEURON-NEUTRAL-SCOPE VERIFIED(계산 방식별 설명 범위)**: 감사81 CPUα1 16행 정확재현, GL memoryNone/2/8 환원·memory1 비환원, pred 이력절단 비환원 확인. pred memory40/T40 추가2건도 환원; “전체 이력”은 실제 누락 없음, None만 필요조건 아님. canonical21:48 공통 문구를 새 append로 보충. 총18건은 합성 CPU범위, 성능 보증 아님. A34 재발방지 OPEN/A31 잔여·2S 미등록 유지. 새 성능 근거 없음; 전체parity/학습/GPU/실val·test/checkpoint 검증 not run. 증거 results/assessment/20261017T115004Z-94cee59a/neutral_scope_checks.json·inventory/snapshot, raw 같은task log/assessment/동일run. 연구소스/Git변이 없음·자체append분리.
+
+
+### 2026-10-17 21:21 KST — 추적 감사83 (20261017T122003Z-becd3fa1)
+
+HEAD045a7b5aa58267a4824303ba01b2d48298390fe8. snapshot1632/trigger차0/직전 연구파일변화0. neurons.py cc1f438f… 설명 수정이 commit에 반영됐을 뿐; canonical21:16은 감사81 수용기록이며 새 판단 근거 없음. 감사82 자체append 분리. A35 설명 범위 VERIFIED·A34 재발방지 OPEN·A31 잔여·2S 미등록/성능 보류 유지. CPU모델/학습/GPU/실val·test/checkpoint 검증 not run. 증거 results/assessment/20261017T122003Z-becd3fa1/checks.json·snapshot, raw 같은task log/assessment/동일run. 연구소스·Git변이 없음.
+
+
+### 2026-10-17 21:31 KST — 추적 감사84 (20261017T123003Z-7c115fbc)
+
+HEAD8a4e90c9e8abf80e4e1bc1233dc2543121b5219f. snapshot1632/trigger차0/연구파일변화0, 문서3개는 감사83 자체append와 일치. HEAD는 별도 nsmt_flif_v1 driver·집계기/MODI 기록 변경뿐. 새 판단 근거 없음. A35 설명 범위 VERIFIED·A34 재발방지 OPEN·A31 잔여·2S 미등록/성능 보류 유지. CPU모델/학습/GPU/실val·test/checkpoint 검증 not run. 증거 results/assessment/20261017T123003Z-7c115fbc/checks.json·snapshot, raw 같은task log/assessment/동일run. 연구소스·Git변이 없음.

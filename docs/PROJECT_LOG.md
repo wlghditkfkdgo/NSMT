@@ -7177,3 +7177,18 @@ commit: 이 항목을 담은 commit(태그 `exp/nsmt-flif-neo-20261015-2`, MODI_
 **감사 81 (10-15 22:01):** (b) 감사 78의 parity 원본 commit 기록 수정(`spikede_commit()`)을 부모 저장소 안의 다섯 경우로 재검사해 **점검 범위 내 VERIFIED**. (a) **A35는 GL 범위에서 OPEN** — 10-15에 보충한 설명 "전체 이력일 때만 α=1 = LIF, 이력을 자르면 LIF가 아님"은 pred에는 맞지만 GL로 일반화하면 틀리다: GL은 α=1에서 c₁ = −1, c_j = 0 (j ≥ 2)이므로 memory ≥ 2이면 직전 상태만 남아 LIF와 같고 memory = 1만 다르다.
 → **사실.** 직접 재현(T 40, B 2, D 3, τ 2, seed 31, 입력 randn×3, float64): pred memory None 0 / 1: 4.627307 / 2: 4.790820 / 8: 5.046072 (h 1; 스파이크 다름), gl memory None·2·8: 0(스파이크 동일), gl memory 1: 4.627307(h 1), 0.791109(h 0.1) — 감사의 수치와 같다. **조치:** `f_lif_pop_v3/forecasting/neurons.py`와 사본 `nsmt_flif_v1/forecasting/neurons.py`의 두 설명을 방식별 조건으로 고쳤다("pred: 전체 이력에서만; gl: memory=None 또는 ≥ 2, memory=1은 아님"). 설명 문자열만 변경, 수치 경로 불변, 두 파일은 여전히 import 블록 외 동일. 이 실험 계열의 모든 run은 pred·전체 이력이다.
 commit: 이 항목을 담은 commit(MODI_PROJECT_LOG의 Phase A 결과 항목과 함께).
+
+
+## 2026-10-17 21:21 KST — f_lif_pop_v3 추적 감사83: 새 판단 근거 없음
+
+예약 `20261017T122003Z-becd3fa1`, branch `exp/nsmt-flif-neo`, HEAD `045a7b5aa58267a4824303ba01b2d48298390fe8`(감사82 비교기준1b3fe7acf0aa05ecc40e6315c7b3470f67125347). 현재1632파일 snapshot/SHA에서 trigger차0·직전 연구파일변화0. neurons.py SHA `cc1f438f0e97dd2c196a6eb9dc8bad2a833e2cd003b1b5924017d56dafe258bf`는 이미 검증한 설명 수정의 commit 반영이다. canonical21:16 수용 기록은 감사81 당시 상태를 인용하며 감사82의 A35 설명 범위 VERIFIED를 다시 열 근거가 아니다. A34 재발방지 OPEN·A31 잔여·2S 미등록/새 성능 판단 보류 유지. CPU모델·전체parity·학습·GPU·실데이터/val/test/checkpoint 검증 not run. 새 실험/코드·config·분할 변경/commit·tag·push 없음. 증거 `NSMT/f_lif_pop_v3/forecasting/results/assessment/20261017T122003Z-becd3fa1/`의 inventory/snapshot/checks.json 및 canonical_new_append.txt, raw 동일task log/assessment/동일run. 기존 artifacts/local changes/연구소스/진행 프로세스/Git 보존, 자체append 분리. 상세 NSMT/docs/ASSESMENT.md 감사83.
+
+
+## 2026-10-17 21:31 KST — f_lif_pop_v3 추적 감사84: 새 판단 근거 없음
+
+예약 `20261017T123003Z-7c115fbc`, branch `exp/nsmt-flif-neo`, HEAD `8a4e90c9e8abf80e4e1bc1233dc2543121b5219f`(직전 비교기준045a7b5aa58267a4824303ba01b2d48298390fe8). 현재1632파일 snapshot/SHA에서 trigger차0·연구파일변화0, 문서3개는 감사83 자체append로 확인. neurons.py SHA `cc1f438f0e97dd2c196a6eb9dc8bad2a833e2cd003b1b5924017d56dafe258bf` 불변. HEAD 변경은 별도 nsmt_flif_v1 driver/집계기와 MODI 기록뿐. A35 설명 범위 VERIFIED·A34 재발방지 OPEN·A31 잔여·2S 미등록/성능 보류 유지. CPU모델·학습·GPU·실데이터/val/test/checkpoint 검증 not run. 새 실험/코드·config·분할 변경/commit·tag·push 없음. 증거 `NSMT/f_lif_pop_v3/forecasting/results/assessment/20261017T123003Z-7c115fbc/`의 inventory/snapshot/checks.json, raw 동일task log/assessment/동일run. 기존 artifacts/local changes/연구소스/프로세스/Git 보존·자체append 분리. 상세 ASSESMENT 감사84.
+
+
+## 2026-10-17 23:09 KST — 감사 82–84 확인: A35(α=1 환원의 방식별 설명) VERIFIED, 조치 없음
+
+감사 82(10-17 20:53)는 10-17에 고친 두 `neurons.py`의 방식별 설명(pred: 전체 이력에서만; gl: memory=None 또는 ≥ 2)을 재검사해 **A35 설명 범위 VERIFIED**로 닫았다. 감사 83(21:21)·84(21:31)는 그 수정의 commit 반영과 다른 실험(`nsmt_flif_v1` 3단계)의 HEAD 변경만 확인했고 새 판단 근거는 없다. 유지되는 OPEN: A34(평가기 목표 구간 재발 방지), A31 잔여. 이번 항목에서 코드 변경 없음.

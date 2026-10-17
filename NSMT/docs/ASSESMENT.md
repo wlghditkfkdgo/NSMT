@@ -4404,3 +4404,33 @@ pred memory1·2도 차이가 있었으며 전16사례 상태는 유한했다. �
 증거 `f_lif_pop_v3/forecasting/results/assessment/20261017T115004Z-94cee59a/`의 trigger.json/inventory.json/snapshot, previous_append_checks.json, prior_revision_checks.py/json, check_neutral_scope.py, neutral_scope_checks.json, commands.json. raw 같은 task `log/assessment/20261017T115004Z-94cee59a/neutral_scope_checks.txt`, neurons_diff.patch, git_status_before.txt. 환경 snn_recall Python3.10.18/torch1.12.0+cu113, CPU2thread, CUDA_VISIBLE_DEVICES='', PYTHONDONTWRITEBYTECODE=1, 기존 conda lib 경로 명시. 정확한 argv/env는 commands.json; 검사 종료0. 모델/학습 소스·기존 local changes/checkpoint/raw log·환경·진행 프로세스·Git 이력을 보존했고 감사 문서/진단 증거만 작성했다. 자체 append는 다음 연구 변화에서 제외하며 감사 중 새 변화는 다음 주기에 맡긴다.
 
 <!-- assessment-watch:20261017T115004Z-94cee59a -->
+
+
+## 2026-10-17 21:21 KST — 추적 감사83: 검증된 설명 수정의 commit 반영, 새 판단 근거 없음
+
+예약 `20261017T122003Z-becd3fa1`. 관찰 HEAD `045a7b5aa58267a4824303ba01b2d48298390fe8`, branch `exp/nsmt-flif-neo`(직전 감사82 HEAD `1b3fe7acf0aa05ecc40e6315c7b3470f67125347`). 기억·감사82·사전등록 최신2R·canonical21:16 append를 확인했다. 현재1632파일을 별도 snapshot/SHA256으로 보존: trigger1627파일과 차이0, missing0/읽기 중 변동0/감지목록 밖 새 대상파일0. 감사82 실제 snapshot 대비 연구 파일 변화0. HEAD의 f_lif_pop_v3 변경은 이미 검증한 neurons.py 설명을 commit에 반영한 것뿐이며 HEAD blob도 현재 snapshot과 같다. 별도 nsmt_flif_v1 변경은 이 감사의 새 결과로 합치지 않았다.
+
+neurons.py SHA `cc1f438f0e97dd2c196a6eb9dc8bad2a833e2cd003b1b5924017d56dafe258bf`, 사전등록 SHA `46cb85e57b50e0334d131cba2a7931c3602be28c6062fbee847ff76415de4726` 불변. 기억/감사 문서 차이는 감사82 자체 append receipt와 일치한다. canonical은 감사82 append prefix를 보존한 뒤 생산자21:16 수용 기록1617bytes가 추가됐다. 해당 기록의 감사81 당시 A35 OPEN 인용은 과거 상태이며 감사82의 제한된 VERIFIED 판정을 다시 열 근거가 아니다. 보고된 재현 수치는 이미 감사82에서 확인한 범위와 부합한다.
+
+- **(a) 구현:** 새 판단 근거 없음. A35 계산 방식별 설명 수정 범위 VERIFIED 및 부모 Git 오인 방지의 제한된 VERIFIED 유지. A34 평가기 재발방지 OPEN·A31 잔여 유지; 새 VERIFIED 전환 없음.
+- **(b) 검증:** bytes/SHA·HEAD diff·문서 append 출처만 확인했다. CPU 모델 probe·전체 parity·학습·GPU·실제 데이터/validation/test·checkpoint 검증은 **not run**. 이전18사례를 이번 실행으로 세지 않는다. 새 분할/대조군/통계 자료 없음.
+- **(c) 개선:** 새 성능 판단 근거 없음. 2S 미등록, smoke 성능 판단 보류와 감사82의 후속 통제 조건·기존 문헌 근거 유지. 새 논문/성능 주장 없음.
+
+증거 `f_lif_pop_v3/forecasting/results/assessment/20261017T122003Z-becd3fa1/`의 trigger.json, inventory.json, snapshot/, checks.json, canonical_new_append.txt; raw 같은 task `log/assessment/20261017T122003Z-becd3fa1/checks.txt`, head_changed_paths.txt, head_target_diff.patch, git_status_before.txt. 감사 문서/증거만 작성했으며 기존 본문·local changes/checkpoint/raw log·연구소스·환경·진행 프로세스·Git 이력 보존. 자체 append는 다음 연구 변화에서 제외한다.
+
+<!-- assessment-watch:20261017T122003Z-becd3fa1 -->
+
+
+## 2026-10-17 21:31 KST — 추적 감사84: 별도 실험 HEAD 변경, 새 판단 근거 없음
+
+예약 `20261017T123003Z-7c115fbc`. 관찰 HEAD `8a4e90c9e8abf80e4e1bc1233dc2543121b5219f`, branch `exp/nsmt-flif-neo`(직전045a7b5aa58267a4824303ba01b2d48298390fe8). 기억·감사83·사전등록 최신2R·canonical 최신 append를 확인했다. 현재1632파일을 별도 snapshot/SHA256으로 보존: trigger1627파일 대비 차이0, missing0/읽기 중 변동0/감지목록 밖 새 대상파일0. 직전 연구 파일 변화0이며 문서3개 차이는 모두 감사83 append receipt SHA와 일치한다. HEAD 변경 경로는 별도 nsmt_flif_v1의 stage3_driver.sh·summarize_flif.py 및 루트 MODI_PROJECT_LOG.md뿐이다.
+
+neurons.py SHA `cc1f438f0e97dd2c196a6eb9dc8bad2a833e2cd003b1b5924017d56dafe258bf`, 사전등록 SHA `46cb85e57b50e0334d131cba2a7931c3602be28c6062fbee847ff76415de4726` 불변.
+
+- **(a) 구현:** 새 판단 근거 없음. A35 계산 방식별 설명 범위 VERIFIED·A34 평가기 재발방지 OPEN·A31 잔여 유지. 새 VERIFIED 전환 없음.
+- **(b) 검증:** 파일 bytes/SHA·HEAD 경로·자체 append만 대조했다. CPU 모델 probe·전체 parity·학습·GPU·실데이터/validation/test·checkpoint 검증은 **not run**. 기존 검사를 재실행한 것으로 세지 않는다.
+- **(c) 개선:** 새 성능 판단 근거 없음. 2S 미등록·smoke 성능 판단 보류 및 감사82의 후속 통제 조건·기존 문헌 근거 유지. 별도 실험의 등록·진행을 f_lif_pop_v3 결과로 합치지 않았다. 새 문헌/성능 주장 없음.
+
+증거 `f_lif_pop_v3/forecasting/results/assessment/20261017T123003Z-7c115fbc/`의 trigger.json/inventory.json/snapshot/checks.json; raw 같은 task `log/assessment/20261017T123003Z-7c115fbc/checks.txt`, head_changed_paths.txt, git_status_before.txt. 감사 문서/증거만 작성, 기존 본문·local changes/checkpoint/raw log·연구소스·환경·진행 프로세스·Git 이력 보존. 자체 append는 다음 연구 변화에서 제외한다.
+
+<!-- assessment-watch:20261017T123003Z-7c115fbc -->
