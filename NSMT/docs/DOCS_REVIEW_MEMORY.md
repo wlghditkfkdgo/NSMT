@@ -615,3 +615,13 @@ HEAD2d41bfc7c856e3cebcfcec9b349be95f5269da33. snapshot1632/trigger차0. 감지70
 ### 2026-10-15 21:22 KST — 추적 감사80 (20261015T122003Z-463893ec)
 
 HEAD4d8d8223ff3efa9eb15840428b4ce979d114e90b. snapshot1632/trigger차0/대상 연구파일변화0. HEAD diff는 별도 nsmt_flif_v1 경로명·실패처리와 MODI_PROJECT_LOG뿐; 문서3개 차이는 감사79 자체append 지문과 일치. 새 판단 근거 없음. A35 OPEN/A34 재발방지 OPEN/A31 잔여·2S 미등록·smoke 성능판단 보류 유지. CPU모델/학습/실val·test/checkpoint 검증 not run. 증거 f_lif_pop_v3/forecasting/results/assessment/20261015T122003Z-463893ec/, raw 동일task log/assessment/동일run. 연구소스·Git변이·GPU점유 없음.
+
+
+### 2026-10-15 22:01 KST — 추적 감사81 (20261015T125003Z-83764770)
+
+HEAD1b3fe7acf0aa05ecc40e6315c7b3470f67125347, branch exp/nsmt-flif-neo. snapshot1632/trigger차0+원본9SHA. neurons.py b2a177cc…는 docstring만 변경, parity 5386db6e…는 출처 helper/head 대입만 변경(AST 확인). 부모Git 오인 방지는 실제 archive/일반폴더/혼합·비고정manifest4건+mock 자체repo분기1건의 재검사 범위 내 VERIFIED; 실제clone 재실행·전체336 parity not run. **A35는 pred 설명 보완 확인/GL 문구 범위 OPEN**: CPUα1 T40B2D3τ2seed31float64h1/.1 16건에서 pred memory8 상태차5.046072/.696339, gl memoryNone/2/8은 LIF와 상태·스파이크 동일, gl memory1은 다름. “전체 이력에서만”을 두 solver에 공통 적용하지 말 것(설명문제; 모델실패 아님). canonical21:48에도 방법별 조건 필요. A34 평가기재발방지 OPEN·A31 잔여·2S 미등록 유지. 새 성능 근거 없음; 학습/GPU/실val·test/checkpoint 검증 not run. 증거 results/assessment/20261015T125003Z-83764770/revision_checks.json·checks.json·snapshot, raw 같은task log/assessment/동일run. 연구소스/Git변이 없음·자체append분리.
+
+
+### 2026-10-17 20:53 KST — 추적 감사82 (20261017T115004Z-94cee59a)
+
+HEAD1b3fe7acf0aa05ecc40e6315c7b3470f67125347 불변, neurons.py 미commit 설명 수정 SHA cc1f438f0e97dd2c196a6eb9dc8bad2a833e2cd003b1b5924017d56dafe258bf. snapshot1632/trigger차0; 문서3개는 직전 자체append와 동일. 실행 AST 불변. **A35-NEURON-NEUTRAL-SCOPE VERIFIED(계산 방식별 설명 범위)**: 감사81 CPUα1 16행 정확재현, GL memoryNone/2/8 환원·memory1 비환원, pred 이력절단 비환원 확인. pred memory40/T40 추가2건도 환원; “전체 이력”은 실제 누락 없음, None만 필요조건 아님. canonical21:48 공통 문구를 새 append로 보충. 총18건은 합성 CPU범위, 성능 보증 아님. A34 재발방지 OPEN/A31 잔여·2S 미등록 유지. 새 성능 근거 없음; 전체parity/학습/GPU/실val·test/checkpoint 검증 not run. 증거 results/assessment/20261017T115004Z-94cee59a/neutral_scope_checks.json·inventory/snapshot, raw 같은task log/assessment/동일run. 연구소스/Git변이 없음·자체append분리.

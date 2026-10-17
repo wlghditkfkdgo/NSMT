@@ -4339,3 +4339,68 @@ P2의 작은 일관된 차이는 후속 질문의 근거가 될 수 있지만 �
 증거 `f_lif_pop_v3/forecasting/results/assessment/20261015T122003Z-463893ec/`의 trigger/inventory/snapshot/checks.json; raw 같은 task `log/assessment/20261015T122003Z-463893ec/checks.txt`, head_diff.patch, git_status_before.txt. 기존 문서 본문/local changes/checkpoint/raw log·연구소스·환경·진행 프로세스·Git 이력 보존. 학습/GPU점유·새 예약 없음. 자체 append는 다음 연구 변화에서 제외한다.
 
 <!-- assessment-watch:20261015T122003Z-463893ec -->
+
+
+## 2026-10-15 22:01 KST — 추적 감사81: 원본 commit 표기 수정 확인, A35의 GL 범위는 OPEN
+
+예약 `20261015T125003Z-83764770`. 관찰 branch `exp/nsmt-flif-neo`, HEAD `1b3fe7acf0aa05ecc40e6315c7b3470f67125347`(직전 감사80 `4d8d8223ff3efa9eb15840428b4ce979d114e90b`), trigger HEAD와 일치. 기억·감사80·사전등록 최신2R·canonical21:48 append를 읽었다. 21:51:42 KST에 현재1632파일 bytes/SHA256 및 기존에 확인한 spikeDE 원본9파일을 별도 snapshot했다. trigger1627파일과 차이0, missing0/읽기 중 변동0. 직전 snapshot 대비 연구 변경은 neurons.py 설명과 spikede_parity.py 출처 표기뿐이다. 기억/감사 문서는 직전 자체 append receipt와 같고, canonical은 직전 append prefix를 보존한 생산자21:48 보충2615bytes로 분리했다. 별도 nsmt_flif_v1 결과를 이 감사의 성능 근거로 합치지 않았다.
+
+관찰 source SHA256:
+- neurons.py: `b2a177cc1eea4743d819fdef4227b5d08b9bca8723ddb97403826861f3a47be6`
+- analysis/spikede_parity.py: `5386db6ec56da3764fc0f505a91c14eda20ea09c235a604999b5cb9194c97e6f`
+- layers.py: `e3b9f5445d49d0d4f66992b1b3ec0d82f2f2aea74eb29142a8025138020ff2e1`(불변)
+- 사전등록: `46cb85e57b50e0334d131cba2a7931c3602be28c6062fbee847ff76415de4726`(2R 불변; 2S 미등록).
+
+### (a) 구현 — 수치 계산 변경 없음; A35 설명은 부분 보완, 전체 종결 보류
+
+AST 비교에서 neurons.py는 docstring을 제거하면 직전 snapshot과 정확히 같았다. parity 스크립트도 새 `spikede_commit()`과 main의 head 대입만 제외하면 AST가 같다. 새 수치 구현 오류나 기존 모델 성능 변화의 증거가 아니다.
+
+현재 snapshot API로 T40/B2/D3, CPU float64, seed31의 동일한 `randn*3` 전류, τ2/θ1/κ5, h1·.1을 사용해 α1 무선택 FLIF와 LIF를 비교했다. 상태·스파이크·유한성을 기록한16사례는 다음처럼 나뉜다.
+
+| 계산 방식/이력 | h1 상태 최대 절대차 | h.1 상태 최대 절대차 | 스파이크 |
+|---|---:|---:|---|
+| pred, memory=None | 0 | 0 | 동일 |
+| pred, memory=8 | 5.04607211430997 | 0.696338648897297 | 다름 |
+| gl, memory=None/2/8 | 모두0 | 모두0 | 동일 |
+| gl, memory=1 | 4.62730670245156 | 0.7911088181917517 | 다름 |
+
+pred memory1·2도 차이가 있었으며 전16사례 상태는 유한했다. 이는 성능 시험 통과16건이 아니라 환원/비환원 구분16건이다. full-history의 비트 동일성은 이 합성 입력·설정에서 관찰한 결과로 한정한다.
+
+**A35-NEURON-NEUTRAL-SCOPE: pred 이력 절단에 대한 설명 보완은 재검사 확인, GL을 포함하는 문구 범위는 OPEN 유지.** 새 module/class 설명의 “only with the full history(memory=None)”와 “short memory ... is NOT the LIF”는 gl까지 일반화하면 부정확하다. 현재 GL에서 α1이면 c1=-1, c2 이후0이므로 유한 상태에서 직전 상태만 남아도 Euler 재귀가 유지된다. 현 인덱싱은 memory≥2에서 그 항을 보존하며, memory1은 버린다. pred는 실제 이력이 잘리는 경우 누적 증분을 잃는다. 따라서 방법별 조건을 분리해야 한다. canonical21:48의 공통 “전체 이력일 때만” 설명에도 같은 범위 보충이 필요하다. 이는 확정된 **설명 범위 문제**이며 모델 실패가 아니다. 감사78에서 gl memory8도 LIF와 같았다는 진단 결과와 일치한다. A35 전체를 VERIFIED로 닫지 않는다.
+
+### (b) 검증 — 부모 Git 오인 방지 수정은 점검 범위 내 VERIFIED
+
+감사78에서 확인한 parity 출처 기록 문제를 현재 함수만 AST 추출해 재검사했다. 실제 부모 저장소 안의 (1) pinned archive는 `fcd743befe504b1a471fa81887e6af7d6789da2e (from source_manifest.json)`, (2) 일반 폴더, (3) 서로 다른 commit 두 개를 포함한 manifest, (4) commit이 고정되지 않은 manifest는 모두 unknown을 반환했다. (5) 자체 저장소 최상위 분기는 subprocess 응답을 **mock한 제어 흐름 검사**로 확인했다. 5/5 예상과 일치하나 이번에 실제 clone을 새로 만들거나 실제 clone 경로를 재실행한 것은 아니다. 원본9파일 SHA도 pinned manifest와 일치했다. 그러므로 부모 HEAD를 원본 commit으로 오인하던 수정은 이 범위에서 VERIFIED이며, manifest URL 문자열만으로 모든 파일의 무결성이 보장된다는 뜻은 아니다.
+
+생산자의 기존 parity JSON과 감사78 raw는 그대로 보존했다. 새 전체 parity336 재실행·gradient·optimizer·학습·GPU·실제 dataset/checkpoint/validation/test 검증은 **not run**. 이전336/20/8검사를 이번에 다시 실행한 것으로 세지 않는다. 현재 검사에는 데이터 분할이나 통계 검정을 쓰지 않았으며 기존 분할/대조군/통계 절차의 타당성을 새로 확증하지 않는다. 최종 smoke 한 seed·부분 val·2epoch의 성능 판단 보류, A34 평가기 재발방지 OPEN·A31 잔여를 유지한다.
+
+### (c) 개선 방향 — 방법별 환원 조건 명시; 새 성능 판단 근거 없음
+
+설명과 후속2S 등록에서 `pred/gl`, 실제 이력 절단 여부, h, reset, 선택 여부와 비교 허용오차를 함께 적고, GL memory2·8의 α1 환원과 memory1 비환원을 회귀 사례로 남길 것을 권고한다. 이 권고는 현재 CPU 결과와 기존에 확인한 [spikeDE 원본 적분기](https://github.com/PhysAGI/spikeDE/blob/fcd743befe504b1a471fa81887e6af7d6789da2e/spikeDE/solver.py)의 GL 계수/이력 경계 및 [원본 뉴런](https://github.com/PhysAGI/spikeDE/blob/fcd743befe504b1a471fa81887e6af7d6789da2e/spikeDE/neuron.py)의 reset 분리에 근거한다. 이번에는 보존된 원본 bytes와 SHA를 실제 확인했으며 새 논문/웹 주장 없음. 이 수치 환원 확인은 안정성·예측 성능 우위의 증거가 아니다.
+
+새 학습/성능 결과 없음. 기존 smoke에서 본 구조 차이 및 용량·보정·실패 처리·평가기 조건을 먼저 고정한다는 감사78 방향 유지. 이미 열린 ETT/Weather test를 새로운 미사용 확증 자료로 부르지 않는다. 2S는 여전히 미등록이며 그 미완성을 완료 실험의 새 실패로 판정하지 않는다.
+
+증거: `f_lif_pop_v3/forecasting/results/assessment/20261015T125003Z-83764770/`의 trigger.json, inventory.json, snapshot/, reference_snapshot/, revision_checks.py/json, checks.json, commands.json. raw: 같은 task `log/assessment/20261015T125003Z-83764770/revision_checks.txt`, target_head_diff.patch, git_status_before.txt. 환경 snn_recall Python3.10.18/torch1.12.0+cu113, CPU2thread, CUDA_VISIBLE_DEVICES='', 기존 conda lib 경로 명시; 정확한 argv/env는 commands.json. CPU 검사 종료0. 문서 초안 작성 첫 명령은 system Python의 zoneinfo 미지원으로 import 단계에서 실패했으나 고정 KST offset으로 교정했고 설치/모델 실행과 무관하다(draft_writer_initial_error.txt).
+
+모델/학습 소스·기존 local changes/checkpoint/raw log·환경·진행 프로세스·Git 이력 보존, 감사 문서/진단 증거만 작성. 자체 감사 append는 다음 연구 변화에서 제외하고 감사 중 새 변화는 다음 주기에 맡긴다.
+
+<!-- assessment-watch:20261015T125003Z-83764770 -->
+
+
+## 2026-10-17 20:53 KST — 추적 감사82: A35 계산 방식별 환원 설명 수정 VERIFIED
+
+예약 `20261017T115004Z-94cee59a`. 관찰 branch `exp/nsmt-flif-neo`, HEAD `1b3fe7acf0aa05ecc40e6315c7b3470f67125347`(감사81/trigger와 동일). 이번 변경은 아직 commit되지 않은 neurons.py의 module/class 설명 두 곳이다. 기억·감사81·사전등록 최신2R·canonical 최신 append를 확인했다. 20:51:13 KST에 현재1632파일을 별도 bytes snapshot/SHA256으로 보존했고 trigger1627파일과 차이0, missing0/읽기 중 변동0/감지목록 밖 새 대상파일0이었다. 감사81 대비 연구 파일 변화는 neurons.py 하나이며 문서3개 차이는 모두 감사81 append receipt SHA와 일치해 자체 기록으로 제외했다.
+
+관찰 neurons.py SHA256 `cc1f438f0e97dd2c196a6eb9dc8bad2a833e2cd003b1b5924017d56dafe258bf`(직전 b2a177cc…). layers.py SHA `e3b9f5445d49d0d4f66992b1b3ec0d82f2f2aea74eb29142a8025138020ff2e1`, parity.py SHA `5386db6ec56da3764fc0f505a91c14eda20ea09c235a604999b5cb9194c97e6f`, 사전등록 SHA `46cb85e57b50e0334d131cba2a7931c3602be28c6062fbee847ff76415de4726`는 불변이다.
+
+**(a) 구현 — A35-NEURON-NEUTRAL-SCOPE를 계산 방식별 설명 수정 범위에서 VERIFIED로 종결.** 새 설명은 pred의 실제 이력 절단과 GL의 직전 상태 보존을 구분하고, GL은 memory=None 또는 ≥2에서 α1→LIF, memory1에서는 일반 환원이 안 된다고 명시한다. docstring 제거 AST가 감사81 snapshot과 같아 수치 계산 변경은 없다. 현재 API/진단 정의를 먼저 읽고 감사81의 alpha1_scope 함수만 추출하여 현재 snapshot에 실행했다. T40/B2/D3, seed31 동일 randn×3 전류, CPU float64, τ2/θ1/κ5, h1·.1, pred/gl × memoryNone/1/2/8의 **16행이 직전 결과와 정확히 일치**했다. pred memory8은 상태차5.04607211430997/.696338648897297 및 스파이크 차이, GL memoryNone/2/8은 상태차0·스파이크 동일, GL memory1은 상태차4.62730670245156/.7911088181917517 및 스파이크 차이다. 모든 검사 상태는 유한했다.
+
+설명의 “전체 이력”은 **실제 이력을 버리지 않는 조건**으로 해석한다. memory=None은 무제한 설정이며, 유한 memory가 시퀀스 전체를 덮어도 같은 조건이다. 이를 확인한 pred memory40/T40, h1·.1 추가2사례도 상태차0·스파이크 동일이었다. 따라서 None이라는 설정값만을 필요조건으로 주장하지 않는다. 총18사례는 이 설명 범위의 확인이며 임의 입력/정밀도에서의 비트 동일성·학습 안정성·성능 보증이 아니다. canonical 2026-10-15 21:48의 공통 “전체 이력일 때만” 표현은 이번 canonical append의 방법별 조건으로 보충한다. 과거 본문은 보존한다.
+
+**(b) 검증 — 필요한 CPU 재검사 완료, 성능/분할/통계의 새 확증은 없음.** 변경 없는 다른 검사까지 재실행하지 않았다. 전체 parity336, metadata helper, gradient, optimizer/학습, GPU, 실제 데이터·checkpoint·validation/test 검증은 **not run**. 직전 부모 Git 오인 방지의 제한된 VERIFIED 판정은 유지하며 이번에 다시 검증한 것으로 세지 않는다. 신규 성능 결과·데이터 분할·대조군·통계 자료가 없으므로 한 seed/부분 val/2epoch smoke로 우위나 유의성을 판단하지 않는다. A34 평가기 재발방지 OPEN·A31 잔여는 유지한다. 2S 미등록은 진행 전 조건이며 새 확정 모델 오류로 분류하지 않는다.
+
+**(c) 개선 — 새 성능 판단 근거 없음.** 이번18사례를 후속 변경의 환원 조건 회귀 근거로 보존한다. 기존에 확인한 [spikeDE 원본 적분기](https://github.com/PhysAGI/spikeDE/blob/fcd743befe504b1a471fa81887e6af7d6789da2e/spikeDE/solver.py)의 계수·이력 경계와 [원본 뉴런](https://github.com/PhysAGI/spikeDE/blob/fcd743befe504b1a471fa81887e6af7d6789da2e/spikeDE/neuron.py)의 reset 규약을 준거로 삼는 방향은 유지한다. 새 문헌 주장/웹 조사 없음. 후속2S에서는 방법/h/memory/reset, soma·head 용량, 보정 및 실패 처리, 평가기와 비교 기준을 실행 전에 고정해야 한다. 이미 열린 ETT/Weather test의 미사용 확증 재사용 금지 및 감사78의 성능 판단 보류 조건을 유지한다.
+
+증거 `f_lif_pop_v3/forecasting/results/assessment/20261017T115004Z-94cee59a/`의 trigger.json/inventory.json/snapshot, previous_append_checks.json, prior_revision_checks.py/json, check_neutral_scope.py, neutral_scope_checks.json, commands.json. raw 같은 task `log/assessment/20261017T115004Z-94cee59a/neutral_scope_checks.txt`, neurons_diff.patch, git_status_before.txt. 환경 snn_recall Python3.10.18/torch1.12.0+cu113, CPU2thread, CUDA_VISIBLE_DEVICES='', PYTHONDONTWRITEBYTECODE=1, 기존 conda lib 경로 명시. 정확한 argv/env는 commands.json; 검사 종료0. 모델/학습 소스·기존 local changes/checkpoint/raw log·환경·진행 프로세스·Git 이력을 보존했고 감사 문서/진단 증거만 작성했다. 자체 append는 다음 연구 변화에서 제외하며 감사 중 새 변화는 다음 주기에 맡긴다.
+
+<!-- assessment-watch:20261017T115004Z-94cee59a -->

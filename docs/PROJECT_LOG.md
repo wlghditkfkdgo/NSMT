@@ -7149,3 +7149,31 @@ SUITE=neurons-smoke-20261014b-nocal EXTRA='--no-require_calibration --input_scal
 **감사 79 (14:41):** 감사 78과 같은 상태, 새 판단 근거 없음. 유지되는 OPEN: A34(평가기 목표 구간 재발 방지), A31 잔여. A35는 위 조치로 설명 범위가 보충됐으나 VERIFIED 판단은 감사에 맡긴다.
 
 commit: 이 항목을 담은 commit(태그 `exp/nsmt-flif-neo-20261015-2`, MODI_PROJECT_LOG 같은 시각 항목과 함께).
+
+
+## 2026-10-15 22:01 KST — f_lif_pop_v3 추적 감사81: 출처 표기 수정 확인, α1 환원 설명의 GL 조건 보충 필요
+
+사용자 승인 감사 `20261015T125003Z-83764770`. 관찰 branch `exp/nsmt-flif-neo`, HEAD `1b3fe7acf0aa05ecc40e6315c7b3470f67125347`; 비교 기준 감사80 HEAD4d8d8223ff3efa9eb15840428b4ce979d114e90b. 새 실험이 아니며 branch 생성/commit/tag/push 없음. 코드/config·데이터 분할/전처리 변경 없음. 현재1632파일 snapshot/SHA에서 trigger차0; 원본 spikeDE pinned9파일 SHA 일치. neurons.py b2a177cc1eea4743d819fdef4227b5d08b9bca8723ddb97403826861f3a47be6의 실행 AST는 불변, parity 5386db6ec56da3764fc0f505a91c14eda20ea09c235a604999b5cb9194c97e6f의 수치 검사 AST도 불변.
+
+21:48 수정의 독립 재검사: 원본 commit helper는 실제 archive·일반폴더·혼합/비고정 manifest4건과 mocked 자체repo분기1건 모두 예상대로 동작. 부모Git HEAD 오인 방지 수정은 해당 범위에서 VERIFIED. 실제clone 재실행이나 manifest 인증 전반의 검증은 아니다. 기존 producer/raw JSON 보존.
+
+**A35 전체 종결 보류, GL 설명 범위 OPEN.** α1 T40/B2/D3, 동일 CPU float64 seed31 randn×3, τ2/θ1/κ5, h1/.1, pred/gl × memoryNone/1/2/8의16경우 확인. pred memory8은 LIF와 상태차5.04607211430997/.696338648897297·스파이크 다름. 반면 gl memory2·8은 두 h에서 상태차0·스파이크 동일, memory1은 다름. GL α1 계수는 c1=-1, 이후0이며 현 memory≥2는 직전 상태를 보존한다. 따라서 21:48 “전체 이력일 때만”은 pred 설명 보완으로는 타당하나 gl에 공통 적용하면 부정확하다. 방법별/실제 절단 여부로 조건을 나눠야 한다. 모델 계산 변경/실패가 아니라 설명 범위 문제다.
+
+환경 snn_recall Python3.10.18/torch1.12.0+cu113, CPU2thread/CUDA숨김. 정확한 argv·env·seed·출력: `NSMT/f_lif_pop_v3/forecasting/results/assessment/20261015T125003Z-83764770/commands.json`, revision_checks.py/json, inventory.json, checks.json; raw 같은task `log/assessment/20261015T125003Z-83764770/revision_checks.txt`(종료0). 문서 초안 첫 명령의 zoneinfo 미지원은 고정 KST offset으로 교정, 모델 실패가 아니다. 새 학습/성능 결과 없음. 전체parity336/gradient/optimizer/학습/GPU/실dataset·checkpoint·val/test 검증은 not run. A34 재발방지 OPEN·A31 잔여·2S 미등록 및 감사78의 후속 통제 조건 유지. 기존 1차 원본과 이번 CPU 근거에 따른 개선 조건은 NSMT/docs/ASSESMENT.md 감사81 참조. 기존 artifacts/local changes/연구소스/진행 프로세스/Git 보존, 자체append를 새 연구 변화로 세지 않는다.
+
+
+## 2026-10-17 20:53 KST — f_lif_pop_v3 추적 감사82: A35 환원 설명 수정 검증 및 10-15 21:48 문구 보충
+
+사용자 승인 감사 `20261017T115004Z-94cee59a`, 관찰 branch `exp/nsmt-flif-neo`, HEAD `1b3fe7acf0aa05ecc40e6315c7b3470f67125347`(직전 감사81 비교 기준과 동일). 새 실험이 아니며 branch/commit/tag/push 없음. neurons.py의 미commit 설명 두 곳 변경을 관찰: SHA256 `cc1f438f0e97dd2c196a6eb9dc8bad2a833e2cd003b1b5924017d56dafe258bf`, 실행 AST는 불변. 현재1632파일 snapshot/trigger차0, 문서3개는 직전 감사 자체append로 분리. 감사자는 코드/config·데이터 분할/전처리를 변경하지 않았다.
+
+**A35-NEURON-NEUTRAL-SCOPE VERIFIED, 계산 방식별 설명 수정에 한정.** CPU float64 T40/B2/D3, seed31 randn×3 동일 전류, τ2/θ1/κ5, h1/.1에서 감사81의16행 정확재현. pred memory8 상태차5.04607211430997/.696338648897297·스파이크 다름; GL memoryNone/2/8 상태차0·스파이크 동일, memory1은 다름. pred memory40/T40 추가2건도 상태차0·스파이크 동일. 총18건 유한상태. **2026-10-15 21:48의 공통 “전체 이력일 때만”을 보충한다:** pred에는 실제 이력 누락 없는 조건이 필요하며 None뿐 아니라 전체 시퀀스를 덮는 유한 window도 해당한다. GL α1은 c1=-1, 이후0이라 현 인덱싱에서 memory≥2로 직전 상태를 보존하면 환원된다. 기존 본문을 고치지 않고 이 append를 최신 조건으로 둔다. 일반 수치 안정성·성능 우위의 검증이 아니다.
+
+환경 snn_recall Python3.10.18/torch1.12.0+cu113, CPU2thread/CUDA숨김, 검사 종료0. 정확한 argv/env·probe·결과·SHA는 `NSMT/f_lif_pop_v3/forecasting/results/assessment/20261017T115004Z-94cee59a/commands.json`, check_neutral_scope.py, neutral_scope_checks.json, inventory.json/snapshot; raw 같은 task `log/assessment/20261017T115004Z-94cee59a/neutral_scope_checks.txt`. 새 학습/성능 결과 없음. 전체parity336/metadata helper/gradient/optimizer/학습/GPU/실데이터·checkpoint·val/test 검증 not run. A34 평가기재발방지 OPEN·A31 잔여·2S 미등록 유지; 후속 통제 조건은 ASSESMENT 감사82에 기록. 기존 artifacts/local changes/연구소스/진행 프로세스/Git 보존, 자체append를 새 연구 변화로 세지 않는다.
+
+
+## 2026-10-17 21:16 KST — 감사 80·81 수용: A35의 GL 범위(α=1 환원은 GL에서 memory ≥ 2이면 성립) 사실 확인·설명 재수정; parity 출처 수정 VERIFIED 확인 (브랜치 `exp/nsmt-flif-neo`)
+
+**감사 80 (10-15 21:22):** 다른 실험의 HEAD 변경만, 새 판단 근거 없음.
+**감사 81 (10-15 22:01):** (b) 감사 78의 parity 원본 commit 기록 수정(`spikede_commit()`)을 부모 저장소 안의 다섯 경우로 재검사해 **점검 범위 내 VERIFIED**. (a) **A35는 GL 범위에서 OPEN** — 10-15에 보충한 설명 "전체 이력일 때만 α=1 = LIF, 이력을 자르면 LIF가 아님"은 pred에는 맞지만 GL로 일반화하면 틀리다: GL은 α=1에서 c₁ = −1, c_j = 0 (j ≥ 2)이므로 memory ≥ 2이면 직전 상태만 남아 LIF와 같고 memory = 1만 다르다.
+→ **사실.** 직접 재현(T 40, B 2, D 3, τ 2, seed 31, 입력 randn×3, float64): pred memory None 0 / 1: 4.627307 / 2: 4.790820 / 8: 5.046072 (h 1; 스파이크 다름), gl memory None·2·8: 0(스파이크 동일), gl memory 1: 4.627307(h 1), 0.791109(h 0.1) — 감사의 수치와 같다. **조치:** `f_lif_pop_v3/forecasting/neurons.py`와 사본 `nsmt_flif_v1/forecasting/neurons.py`의 두 설명을 방식별 조건으로 고쳤다("pred: 전체 이력에서만; gl: memory=None 또는 ≥ 2, memory=1은 아님"). 설명 문자열만 변경, 수치 경로 불변, 두 파일은 여전히 import 블록 외 동일. 이 실험 계열의 모든 run은 pred·전체 이력이다.
+commit: 이 항목을 담은 commit(MODI_PROJECT_LOG의 Phase A 결과 항목과 함께).
