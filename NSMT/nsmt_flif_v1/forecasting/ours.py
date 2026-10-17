@@ -363,6 +363,7 @@ class myModel(nn.Module):
                 neo_neuron='sj_lif', neo_where='both', neo_tau=2.0, neo_alpha=0.5,     # nsmt_flif_v1
                 fde_method='pred', fde_step=1.0, fde_memory=0, hippo_only=False,      # nsmt_flif_v1
                 aux_lead=0, neo_grad=0.05,                                            # nsmt_flif_v1 stage 2 (A), (B)
+                arch='parallel', backbone_T=0,                                        # nsmt_flif_v1 stage 3 (serial)
                 pretrained=False, pretrained_cfg=None, pretrained_cfg_overlay=None,
                 **kwargs,
                 ):
@@ -389,6 +390,16 @@ class myModel(nn.Module):
         # nsmt_flif_v1: neocortex-path neuron. Defaults ('sj_lif', no hippo_only) register exactly the
         # modules of the paper code in the same order, so the default model is bit-identical to nsmt_base.
         self.hippo_only = bool(hippo_only)
+        # stage 3: 'serial' feeds the neocortex (T = N aligned) output to the backbone as its spike embedding;
+        # backbone_T = spiking steps of the backbone (0 = N, the paper's repetition count)
+        if arch not in ('parallel', 'serial'):
+            raise ValueError("arch must be 'parallel' or 'serial'")
+        if arch == 'serial' and hippo_only:
+            raise ValueError('serial needs the neocortex path; it cannot be hippo_only')
+        self.arch = arch
+        self.backbone_T = int(backbone_T) if backbone_T else self.T
+        if self.backbone_T < 1:
+            raise ValueError('backbone_T must be >= 1 (0 = number of patches)')
         self.aux_lead = int(aux_lead)                    # (A): the neocortex at step n reconstructs the low-pass of patch n + aux_lead
         if not 0 <= self.aux_lead < self.num_patches:
             raise ValueError(f'aux_lead must be in [0, {self.num_patches})')
@@ -407,14 +418,15 @@ class myModel(nn.Module):
         
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depths)]  # stochastic depth decay rule
 
-        self.encoding = Embedding(num_patches=self.num_patches,
-                                    patch_size=self.patch_size,
-                                    embed_dim=embed_dim,
-                                    stride=self.stride,
-                                    pe=False,
-                                    bias=bias,
-                                    tau=tau
-                                    )
+        if self.arch == 'parallel':                       # serial: the neocortex replaces the hippocampus embedding
+          self.encoding = Embedding(num_patches=self.num_patches,
+                                      patch_size=self.patch_size,
+                                      embed_dim=embed_dim,
+                                      stride=self.stride,
+                                      pe=False,
+                                      bias=bias,
+                                      tau=tau
+                                      )
         if not self.hippo_only:
             self.encoding_neo = Embedding(num_patches=self.num_patches,
                                     patch_size=self.patch_size,
@@ -447,7 +459,7 @@ class myModel(nn.Module):
                                         topk=16,
                                         neuron_fn=mlp_fn)
         
-        if (self.train_mode == 'training') and not self.hippo_only: 
+        if (self.train_mode == 'training') and not self.hippo_only and self.arch == 'parallel': 
             self.weak_decoder = Decoder(embed_dim=embed_dim, d_out=self.patch_size, tau=tau, bias=bias)
             # self.weak_decoder = Decoder(embed_dim=embed_dim, d_out=None, tau=tau, bias=bias)
         
@@ -497,7 +509,7 @@ class myModel(nn.Module):
         if self.spk_encoding:
             x = self.spk_encoder(x)
         else:
-            x = (x.unsqueeze(0)).repeat(self.T, 1, 1, 1) 
+            x = (x.unsqueeze(0)).repeat(self.backbone_T if self.arch == 'parallel' else 1, 1, 1, 1)   # parallel default: T copies
             
         x = rearrange(x, 't b l c -> t b c l')
         x = rearrange(x, 't b c l -> t (b c) l') # [T BC N P] 
@@ -506,14 +518,15 @@ class myModel(nn.Module):
         self.org_x = patched_x.clone().detach().transpose(0, 2).contiguous().mean(2, keepdim=True)
         
             
-        if (self.train_mode == 'training') and (self.keep_ratio > 0) and not self.hippo_only : 
+        if (self.train_mode == 'training') and (self.keep_ratio > 0) and not self.hippo_only and self.arch == 'parallel' : 
             keep_ratio=self.keep_ratio
             low_freq_x, _, _ = lowpass_memory(x, keep_ratio=keep_ratio, time_dim=2, center=True, rebinarize=False) #[T BC D]
             patched_low_freq_x = low_freq_x.unfold(dimension=-1, size=self.patch_size, step=self.stride)
             self.org_x = patched_low_freq_x.clone().detach().transpose(0, 2).contiguous().mean(2, keepdim=True)
             
         # vis(x, low_freq_x, M=self.M, keep_ratio=keep_ratio)
-        x_hippo = self.encoding(patched_x)
+        if self.arch == 'parallel':
+            x_hippo = self.encoding(patched_x)
 
         # x_neo = x_hippo.transpose(0, 2).contiguous().mean(2, keepdim=True)
         # if self.perm and self.training:
@@ -526,17 +539,22 @@ class myModel(nn.Module):
         else:
             x_neo_emb = self.encoding_neo(patched_x.transpose(0, 2).contiguous().mean(2, keepdim=True)) #[T B N D]
             x_neo = self.time_block(x_neo_emb, org_seq)
+        if self.arch == 'serial':                        # [N, BC, 1, D] -> [1, BC, N, D] -> backbone_T copies
+            x_hippo = x_neo.transpose(0, 2).contiguous()
+            if self.backbone_T > 1:
+                x_hippo = x_hippo.repeat(self.backbone_T, 1, 1, 1)
+            x_neo = None                                 # backbone key/value = backbone itself (Block mx=None path)
 
         for dblk in self.data_block:
             # x_hippo = dblk(x_hippo, self.time_block(x_hippo.transpose(0, 2).contiguous().mean(2, keepdim=True).clone().detach()))
             x_hippo = dblk(x_hippo, x_neo)
             # x_hippo = dblk(x_hippo, self.memory_slot(x_neo))
 
-        if self.train_mode == 'training' and not self.hippo_only:
+        if self.train_mode == 'training' and not self.hippo_only and self.arch == 'parallel':
             
             return self._training(x_hippo, x_neo)
             
-        elif self.train_mode == 'testing' or self.hippo_only:   # hippo_only: plain forecast, loss = L_task only
+        elif self.train_mode == 'testing' or self.hippo_only or self.arch == 'serial':   # plain forecast, loss = L_task only
 
             return self._testing(x_hippo)
 
@@ -554,23 +572,23 @@ class myModel(nn.Module):
 
         assert self.org_x.shape == rec_x.shape, f"original x_time' shape is {self.org_x.shape}, and reconstructed x_time' shape is {rec_x.shape}"
 
-        z = self.head(x_hippo.reshape(self.T, self.B * self.M, -1))
+        z = self.head(x_hippo.reshape(x_hippo.shape[0], self.B * self.M, -1))   # steps = backbone_T
         z = rearrange(z, 't (b c) l -> t b l c', b=self.B)
 
         z = z * self.stdev
-        z = z + self.means.repeat(self.T, 1, 1, 1)
+        z = z + self.means.repeat(z.shape[0], 1, 1, 1)
         
         return z, x_hippo.clone().transpose(0, 2).contiguous().mean(2, keepdim=True), x_neo, self.org_x, rec_x
         # return z
     
     def _testing(self, x):
         
-        z = self.head(x.reshape(self.T, self.B * self.M, -1))
+        z = self.head(x.reshape(x.shape[0], self.B * self.M, -1))               # steps = backbone_T
 
         z = rearrange(z, 't (b c) l -> t b l c', b=self.B).contiguous()
 
         z = z * self.stdev
-        z = z + self.means.repeat(self.T, 1, 1, 1)
+        z = z + self.means.repeat(z.shape[0], 1, 1, 1)
         return z
     
 

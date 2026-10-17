@@ -22,7 +22,8 @@ def _neo_kwargs(args):
                 neo_tau=getattr(args, 'neo_tau', 2.0), neo_alpha=getattr(args, 'neo_alpha', 0.5),
                 fde_method=getattr(args, 'fde_method', 'pred'), fde_step=getattr(args, 'fde_step', 1.0),
                 fde_memory=getattr(args, 'fde_memory', 0), hippo_only=getattr(args, 'hippo_only', False),
-                aux_lead=getattr(args, 'aux_lead', 0), neo_grad=getattr(args, 'neo_grad', 0.05))
+                aux_lead=getattr(args, 'aux_lead', 0), neo_grad=getattr(args, 'neo_grad', 0.05),
+                arch=getattr(args, 'arch', 'parallel'), backbone_T=getattr(args, 'backbone_T', 0))
 
 def load_mymodel(args, train=True, ckpt='best+model.pt'):
     """ckpt: 'best+model.pt' = the LAST-epoch weights train.py saves (paper naming); 'checkpoint.pth' = the

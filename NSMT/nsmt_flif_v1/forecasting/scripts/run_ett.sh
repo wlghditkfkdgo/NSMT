@@ -6,6 +6,7 @@
 #   COND: base | neo_lif_both | neo_lif_mlp | neo_flif_both | neo_flif_mlp | hippo_only   (default base)
 #   env:  ALPHA (0.5) NEO_TAU (2.0) FDE (pred) H (1.0) MEM (0) SUITE EPOCHS RES LOG PY THREADS
 #         LEAD (0) NG (0.05): stage-2 regime -- aux target of patch n+LEAD, task-gradient share NG into the neocortex
+#         TB (0 = number of patches): backbone spiking steps (stage 3; COND serial_lif | serial_flif | hippo_only)
 #         PATIENCE (paper value per dataset): early-stopping patience;  TEST_BEST=1: also test the best-validation checkpoint
 set -u
 DS=${1:?}; PL=${2:?}; S=${3:?}; GPU=${4:?}
@@ -21,6 +22,8 @@ case $COND in
   neo_lif_mlp)   CF="--neo_neuron lif  --neo_where mlp  $NEOX" ;;
   neo_flif_both) CF="--neo_neuron flif --neo_where both --neo_alpha $ALPHA $NEOX" ;;
   neo_flif_mlp)  CF="--neo_neuron flif --neo_where mlp  --neo_alpha $ALPHA $NEOX" ;;
+  serial_lif)    CF="--arch serial --neo_neuron lif  --neo_where both $NEOX" ;;               # stage 3
+  serial_flif)   CF="--arch serial --neo_neuron flif --neo_where both --neo_alpha $ALPHA $NEOX" ;;
   hippo_only)    CF="--hippo_only" ;;
   *) echo "bad cond $COND"; exit 1 ;;
 esac
@@ -29,6 +32,8 @@ if [ "$LEAD" != 0 ] || [ "$NG" != 0.05 ]; then
   [ "$COND" = hippo_only ] && { echo "hippo_only has no neocortex regime"; exit 1; }
   REG="L${LEAD}g${NG}"; CF="$CF --aux_lead $LEAD --neo_grad $NG"
 fi
+TB=${TB:-0}
+if [ "$TB" != 0 ]; then REG="${REG}Tb${TB}"; CF="$CF --backbone_T $TB"; fi
 SUITE=${SUITE:-flif-v1-$(date +%Y%m%d)}
 EPOCHS=${EPOCHS:-}                                         # empty = the paper value per dataset
 RES=${RES:-$W/results/$SUITE}; LOG=${LOG:-$W/log/$SUITE}

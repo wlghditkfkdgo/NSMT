@@ -20,6 +20,7 @@ import sys
 import csv
 import json
 import argparse
+import glob
 import subprocess
 from argparse import Namespace
 
@@ -217,6 +218,72 @@ def main():
         rec(f'c7 gradient share ({nn_})', torch.equal(za, zb) and hip_ok and ratio_ok and nz == len(neo),
             f'forecast equal={torch.equal(za, zb)}, hippocampus grads equal={hip_ok} ({len(hip)}), neocortex grads x20 '
             f'({len(neo)} tensors, {nz} nonzero, worst rel {worst:.2e})')
+
+    # ---- c8: serial architecture (stage 3): the neocortex output is the backbone's spike embedding ----
+    for nn_ in ('lif', 'flif'):
+        for tb in (1, 0):
+            _, ms = build(a.base_run, a.nd, arch='serial', neo_neuron=nn_, neo_where='both', backbone_T=tb)
+            top = {n.split('.')[0] for n, _ in ms.named_modules() if n}
+            ms.eval(); functional.reset_net(ms); ms.train_mode = 'training'
+            with torch.no_grad():
+                o = ms(x)
+            steps = 1 if tb == 1 else ms.T
+            rec(f'c8 serial structure ({nn_}, Tb={steps})',
+                'encoding' not in top and 'weak_decoder' not in top and {'encoding_neo', 'time_block'} <= top
+                and not isinstance(o, tuple) and o.ndim == 4 and o.shape[0] == steps,
+                f'no hippocampus embedding / decoder, plain forecast with {tuple(o.shape)}')
+    # causality on a TRAINED f-LIF neocortex (an untrained one barely fires, which would make the test vacuous):
+    # the neocortex module is the same code in the parallel and the serial model.
+    cands = sorted(glob.glob(os.path.join(HERE, 'log', 'flif-v1-s2p10', 'ETTh2', '*',
+                                          '*+neo_flif_both+seed42+model+*pred_len+96+*')))
+    if not cands:
+        rec('c8 aligned embedding is causal', False, 'no trained f-LIF checkpoint found (log/flif-v1-s2p10) -- cannot test')
+    else:
+        from config import Config
+        from model import LOAD_MODEL
+        cfg_t = Config(); cfg_t.load_args(cands[0], Namespace(saved_epoch=[1], num_device=a.nd))
+        mt = LOAD_MODEL['myModel'](cfg_t, False, ckpt='checkpoint.pth').to(cfg_t.device); mt.eval()
+        xt = one_batch(cfg_t)[0]
+        box = {}
+        hk = mt.time_block.register_forward_hook(lambda mod, i, o: box.__setitem__('neo', o.detach()))
+        def neo_out(j=None):
+            h = None
+            if j is not None:
+                h = mt.encoding_neo.register_forward_pre_hook(
+                    lambda mod, inp: (torch.cat([inp[0][:j], torch.randn_like(inp[0][j:]) * 3], 0),))
+            functional.reset_net(mt)
+            with torch.no_grad():
+                mt(xt)
+            if h is not None:
+                h.remove()
+            return box['neo'].clone()
+        n0 = neo_out(); before, at = [], []
+        for j in (5, 12, 20):
+            d = (n0 != neo_out(j)).flatten(1).float().mean(1)
+            before.append(bool(d[:j].sum() > 0)); at.append(float(d[j]))
+        hk.remove()
+        rate = n0.mean().item()
+        rec('c8 aligned embedding is causal', (not any(before)) and rate >= 0.05 and min(at) > 0,
+            f'trained f-LIF neocortex (rate {rate:.3f}): patches >= j never change outputs at tokens < j, and change '
+            f'{["%.2f" % v for v in at]} of the spikes at token j (j = 5, 12, 20); fails if the neocortex is (nearly) silent')
+    ms.train(); functional.reset_net(ms); ms.train_mode = 'training'; ms.zero_grad(set_to_none=True)
+    ms(x).float().mean().backward()
+    g = ms.encoding_neo.emb_linear.weight.grad
+    rec('c8 task gradient reaches the embedding', g is not None and float(g.abs().sum()) > 0, 'serial: no 5 % cap, no decoder')
+
+    # ---- c9: backbone_T equivalences ------------------------------------------------------------------
+    _, h1 = build(a.base_run, a.nd, hippo_only=True, backbone_T=1)
+    _, hd = build(a.base_run, a.nd, hippo_only=True)
+    _, hN = build(a.base_run, a.nd, hippo_only=True, backbone_T=hd.T)
+    ok_init = all(torch.equal(p_, q_) for p_, q_ in zip(h1.state_dict().values(), hd.state_dict().values()))
+    _, z1, _ = forwards(h1, x, backward=False); _, zd, _ = forwards(hd, x, backward=False); _, zN, _ = forwards(hN, x, backward=False)
+    rec('c9 hippo_only Tb=1 == first step of Tb=N', ok_init and torch.equal(z1[0], zd[0]) and z1.shape[0] == 1,
+        'same init; the backbone is causal along its repetition axis')
+    rec('c9 explicit Tb=N == default', torch.equal(zN, zd), 'hippo_only')
+    _, pN = build(a.base_run, a.nd, backbone_T=model.T)
+    tN, eN, _ = forwards(pN, x, backward=False)
+    rec('c9 parallel explicit Tb=N == default', all(torch.equal(p_, q_) for p_, q_ in zip(tN, tr)) and torch.equal(eN, te),
+        'paper model, training and testing outputs')
 
     # ---- c4 + c5: test() on the nsmt_base checkpoint -------------------------------------------------
     from test import test

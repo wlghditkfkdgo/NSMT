@@ -24,7 +24,16 @@ PASS c6 same init (flif): all equal
 PASS c6 shifted pairs (flif): forecast/neo equal=True, org[n+2] equal=True, rec[n] equal=True, shape (64, 7, 1, 22, 8) vs (64, 7, 1, 24, 8)
 PASS c7 gradient share (sj_lif): forecast equal=True, hippocampus grads equal=True (22), neocortex grads x20 (9 tensors, 9 nonzero, worst rel 2.47e-05)
 PASS c7 gradient share (flif): forecast equal=True, hippocampus grads equal=True (22), neocortex grads x20 (9 tensors, 9 nonzero, worst rel 3.81e-05)
+PASS c8 serial structure (lif, Tb=1): no hippocampus embedding / decoder, plain forecast with (1, 64, 96, 7)
+PASS c8 serial structure (lif, Tb=24): no hippocampus embedding / decoder, plain forecast with (24, 64, 96, 7)
+PASS c8 serial structure (flif, Tb=1): no hippocampus embedding / decoder, plain forecast with (1, 64, 96, 7)
+PASS c8 serial structure (flif, Tb=24): no hippocampus embedding / decoder, plain forecast with (24, 64, 96, 7)
+PASS c8 aligned embedding is causal: trained f-LIF neocortex (rate 0.126): patches >= j never change outputs at tokens < j, and change ['0.28', '0.28', '0.29'] of the spikes at token j (j = 5, 12, 20); fails if the neocortex is (nearly) silent
+PASS c8 task gradient reaches the embedding: serial: no 5 % cap, no decoder
+PASS c9 hippo_only Tb=1 == first step of Tb=N: same init; the backbone is causal along its repetition axis
+PASS c9 explicit Tb=N == default: hippo_only
+PASS c9 parallel explicit Tb=N == default: paper model, training and testing outputs
 PASS c5 first 13 columns: ['None', '0.386041', '0.378303', '0.386383', '41.47 M Ops', '5.95 M Ops', '2.91 M Ops', '0.0842 M', '0.4150 %', '18.76 uJ', '0.378303', '0.386383', '0.658685']
 PASS c5 new columns: {"neuron_lif_uJ": "13.140770", "neuron_model_fft_uJ": "13.140770", "neuron_model_direct_uJ": "13.140770", "total_fft_uJ": "31.899174", "total_direct_uJ": "31.899174", "rho_neo": "0.231671", "rho_hippo": "0.150743", "n_spiking_layers": "11", "kappa": "5.111111"}
 PASS c4 firing rates: recorder vs syops consumer-Linear rate: {'encoding_neo.emb_lif': 2.050075378318139e-06, 'time_block.Mem.0.spk_neuron': 6.968336467849667e-07, 'data_block.0.mlp.spk_linear1.spk_neuron': 3.124127482004302e-06}
-29/29 passed
+38/38 passed

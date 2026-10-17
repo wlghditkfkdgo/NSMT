@@ -51,11 +51,15 @@ def sha256(path):
 
 def cond_name(cfg):
     if getattr(cfg, 'hippo_only', False):
-        return 'hippo_only'
+        tb = getattr(cfg, 'backbone_T', 0)
+        return f'hippo_only@Tb{tb}' if tb else 'hippo_only'
     nn_ = getattr(cfg, 'neo_neuron', 'sj_lif')
     name = 'base' if nn_ == 'sj_lif' else f"neo_{nn_}_{getattr(cfg, 'neo_where', 'both')}"
-    lead, ng = getattr(cfg, 'aux_lead', 0), getattr(cfg, 'neo_grad', 0.05)
-    return name if (lead == 0 and ng == 0.05) else f'{name}@L{lead}g{ng}'      # stage-2 regime suffix
+    if getattr(cfg, 'arch', 'parallel') == 'serial':                         # stage 3
+        name = f"serial_{nn_}" + ('' if getattr(cfg, 'neo_where', 'both') == 'both' else '_mlp')
+    lead, ng, tb = getattr(cfg, 'aux_lead', 0), getattr(cfg, 'neo_grad', 0.05), getattr(cfg, 'backbone_T', 0)
+    reg = ('' if (lead == 0 and ng == 0.05) else f'L{lead}g{ng}') + (f'Tb{tb}' if tb else '')
+    return f'{name}@{reg}' if reg else name                                   # regime suffix (stage 2 / 3)
 
 
 class FutureWindows(Dataset):

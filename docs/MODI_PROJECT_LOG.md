@@ -459,3 +459,30 @@ hippo_only 58.68 / 67.24 / 65.97 / 72.81, base 56.78 / 68.57 / 64.93 / 71.40, f-
 **한계·not run:** 미래 구간 미사용. 탐침은 선형(ridge)이며 비선형 판독은 not run. A5는 국소 민감도라 A1(실제 대체 효과)과 다를 수 있다(신피질 몫 0.2–0.7이지만 내용 대체 효과는 ±0.3%). A6의 직렬 환산은 발화율 고정 가정 — 실제 값은 Phase B의 측정으로 대체한다.
 
 **commit:** 이 항목·분석 스크립트·결과, 감사 80·81 수용(`docs/PROJECT_LOG.md` 같은 시각 항목)과 두 `neurons.py` 설명 재수정을 담은 commit을 push한다(분석이므로 태그 없음). Phase B 구현·smoke는 다음 항목.
+
+---
+
+## 2026-10-17 21:19 KST — Phase B 구현: 직렬 "정렬 스파이킹 임베딩"(`--arch serial`, `--backbone_T`), 점검 38/38, smoke 5/5 — 본 학습(60 run)은 사용자 확인 대기
+
+**코드 (`nsmt_flif_v1/forecasting/`; 수정 스크립트를 작업용 사본에서 먼저 시험한 뒤 Phase A가 끝나고 반영):**
+- `config.py`: `--arch {parallel(기본), serial}`, `--backbone_T`(0 = 패치 수 N = 논문의 반복 횟수); serial은 hippo_only·`--aux_lead`·`--neo_grad`와 함께 쓰면 거부; 폴더 이름에 `+serial`, `+Tb<k>`(기본값이면 없음).
+- `ours.py myModel`: serial이면 해마 `encoding`·디코더를 만들지 않고, 신피질(`encoding_neo` + `time_block`, 뉴런은 `--neo_neuron`) 출력 [N, B·C, 1, D]를 [1, B·C, N, D]로 바꿔 `backbone_T`번 반복해 백본(key/value = 백본 자신)에 넣는다. 보조 손실 없음(결정 3). hippo_only·parallel에서도 `backbone_T`가 해마 입력의 반복 횟수를 정한다. head 출력 정리와 `train.py`의 손실 계산은 `model.T` 대신 출력의 스텝 수를 쓴다(기본값에서는 같은 값).
+- `model.py`(옵션 전달), `ett_future.cond_name`(`serial_<neuron>`, `@Tb<k>` 접미사), `scripts/run_ett.sh`(`COND=serial_lif|serial_flif`, `TB=`), `scripts/make_queue_s3.sh`(본 학습 queue 생성, 60줄), `scripts/smoke_s3.sh`.
+
+**점검 (`results/checks/check_flif.txt`, 38/38):** 기존 c1–c7 그대로(기본값 = nsmt_base 비트 동일). **c8** serial 구조(LIF·f-LIF × T_b 1·24: 해마 임베딩·디코더 없음, 출력 스텝 = T_b); **정렬 임베딩의 인과성** — 학습된 f-LIF 신피질(2차 ETTh2 H96 seed 42, 발화율 0.126)에서 패치 j 이후를 바꾸면 토큰 j 이전 출력은 변하지 않고 토큰 j의 스파이크 28–29%가 바뀐다(j = 5, 12, 20; 지연 없음). 처음 버전은 초기화 모델로 시험해 신피질이 거의 발화하지 않아(발화율 0.0000) 사실상 빈 통과였으므로, 학습된 checkpoint를 쓰고 발화율 0.05 미만이면 실패로 고쳤다; 과제 기울기가 임베딩까지 닿음. **c9** hippo_only T_b=1 출력 = T_b=24 모델의 첫 스텝(같은 초기 가중치, 백본은 반복 축 방향으로 인과적), 명시한 T_b=N = 기본값(hippo_only·parallel).
+
+**smoke (`results/smoke-s3-20261017/raw.txt`, ETTh1 H96 seed 42, 1 epoch, patience 10·최고 검증 test 경로 포함; 실험 아님):**
+
+| 조건 | test MSE(1 epoch) | 시냅스 µJ | 총 에너지(논문식) µJ | 신피질 / 백본 발화율 | 파라미터 |
+|---|---|---|---|---|---|
+| hippo_only T_b=1 | 0.435475 | 0.64 | 1.131 | – / 0.047 | 81,664 |
+| serial_lif T_b=1 | 0.424773 | 0.80 | 1.417 | 0.059 / 0.043 | 83,840 |
+| serial_flif T_b=1 | 0.422256 | 0.80 | 1.663 | 0.065 / 0.039 | 83,840 |
+| serial_lif T_b=24 | 0.426328 | 10.68 | 21.316 | 0.060 / 0.056 | 83,840 |
+| serial_flif T_b=24 | 0.425360 | 10.85 | 21.821 | 0.065 / 0.066 | 83,840 |
+
+다섯 조건 모두 학습·저장·최고 검증 test·에너지 열까지 지난다. **측정 에너지:** T_b=1은 1.1–1.7 µJ로, 같은 칸의 학습된 논문 모델(c5, 31.90 µJ)보다 약 95% 적다(Phase A의 환산과 일치하는 크기). 직렬 T_b=24도 21.3–21.8 µJ로 논문 모델보다 적다(반복 입력에 대한 해마 임베딩 Linear가 없어서). 1 epoch의 MSE는 판단 근거가 아니다.
+
+**본 학습 (실행 전 — 사용자 확인 후 시작):** `scripts/make_queue_s3.sh` → 조건 5개(hippo_only T_b=1, serial_lif/serial_flif × T_b ∈ {1, 24}) × ETTh2/ETTm2 × H96/H720 × seed 42/7/2026 = 60 run, patience 10·최고 검증 가중치, suite `flif-v1-s3`. 참조는 같은 학습 규칙의 2차 suite `flif-v1-s2p10`(hippo_only T_b=24, base, 병렬 LIF/f-LIF) — c1·c9로 기본 경로가 변하지 않았음을 확인했으므로 재사용한다. 판정 수치는 확인을 받을 때 사전 고정 항목으로 확정한다.
+
+**commit:** 이 항목과 Phase B 코드·점검·smoke 결과를 담은 commit을 push한다.

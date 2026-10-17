@@ -111,6 +111,10 @@ def parse_arguments():
                          help='stage 2 (A): neocortex step n reconstructs the low-pass of patch n + aux_lead (0 = paper)')
     snn_arg.add_argument('--neo_grad', type=float, default=0.05,
                          help='stage 2 (B): share of the task gradient passed into the neocortex through memory replay (paper 0.05)')
+    snn_arg.add_argument('--arch', choices=['parallel', 'serial'], default='parallel',
+                         help="stage 3: 'serial' = the neocortex (T = N aligned) output is the backbone's spike embedding")
+    snn_arg.add_argument('--backbone_T', type=int, default=0,
+                         help='spiking steps of the backbone (0 = number of patches, the paper repetition count)')
     snn_arg.add_argument('--hippo_only', action='store_true',
                          help='remove the neocortex path and the auxiliary decoder; cross-attention key/value = hippocampus')
     
@@ -153,6 +157,12 @@ def check_neo_args(config):
         raise ValueError('--hippo_only removes the neocortex path; do not combine it with --neo_neuron')
     if config.aux_lead < 0 or not 0. <= config.neo_grad <= 1.:
         raise ValueError('--aux_lead >= 0 and 0 <= --neo_grad <= 1')
+    if config.arch == 'serial' and config.hippo_only:
+        raise ValueError('--arch serial needs the neocortex path; it cannot be --hippo_only')
+    if config.arch == 'serial' and (config.aux_lead != 0 or config.neo_grad != 0.05):
+        raise ValueError('--arch serial has no auxiliary decoder or memory replay: --aux_lead / --neo_grad would be ignored')
+    if config.backbone_T < 0:
+        raise ValueError('--backbone_T >= 0 (0 = number of patches)')
     if config.hippo_only and (config.aux_lead != 0 or config.neo_grad != 0.05):
         raise ValueError('--hippo_only has no neocortex: --aux_lead / --neo_grad would be ignored')
 
@@ -183,6 +193,10 @@ class Config():
                 tag = tag + f"-h{args.fde_step}-{args.fde_method}-m{args.fde_memory}"
         if getattr(args, 'hippo_only', False):
             tag = tag + "+hippo_only"
+        if getattr(args, 'arch', 'parallel') == 'serial':
+            tag = tag + "+serial"
+        if getattr(args, 'backbone_T', 0):
+            tag = tag + f"+Tb{args.backbone_T}"
         if getattr(args, 'aux_lead', 0) != 0 or getattr(args, 'neo_grad', 0.05) != 0.05:
             tag = tag + f"+lead{args.aux_lead}+ng{args.neo_grad}"
             

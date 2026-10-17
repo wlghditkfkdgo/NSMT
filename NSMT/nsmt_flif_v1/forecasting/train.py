@@ -81,7 +81,7 @@ def train_one_epoch(model, data_loader:DataLoader, optimizer, ratio:float, devic
             rec = torch.tensor([0]).to(device)
             
         if out.dim() == 4:
-            y = y.repeat(model.T, 1, 1, 1)
+            y = y.repeat(out.shape[0], 1, 1, 1)          # backbone steps (= model.T for the paper model)
             out = out[:, :, -pred_len:, :]
         if out.dim() == 3:
             out = out[:, -pred_len:, :]
@@ -175,7 +175,7 @@ def val_one_epoch(model, data_loader:DataLoader, ratio:float, device:torch.devic
                 out = output
                 
             if out.dim() == 4:
-                y = y.repeat(model.T, 1, 1, 1)
+                y = y.repeat(out.shape[0], 1, 1, 1)      # backbone steps (= model.T for the paper model)
                 out = out[:, :, -pred_len:, :]
             if out.dim() == 3:
                 out = out[:, -pred_len:, :]
