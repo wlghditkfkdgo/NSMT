@@ -33,7 +33,21 @@ PASS c8 task gradient reaches the embedding: serial: no 5 % cap, no decoder
 PASS c9 hippo_only Tb=1 == first step of Tb=N: same init; the backbone is causal along its repetition axis
 PASS c9 explicit Tb=N == default: hippo_only
 PASS c9 parallel explicit Tb=N == default: paper model, training and testing outputs
+PASS c10 shape (step, on, flat): output (64, 96, 7), modules ['encoding_neo', 'head', 'time_block']
+PASS c10 shape (step, off, flat): output (64, 96, 7), modules ['encoding_neo', 'head', 'time_block']
+PASS c10 shape (step, on, last): output (64, 96, 7), modules ['encoding_neo', 'head', 'time_block']
+PASS c10 shape (patch, on, flat): output (64, 96, 7), modules ['encoding_neo', 'head', 'pad', 'time_block']
+PASS c10 shape (patch, off, flat): output (64, 96, 7), modules ['encoding_neo', 'head', 'pad', 'time_block']
+PASS c10 shape (patch, on, last): output (64, 96, 7), modules ['encoding_neo', 'head', 'pad', 'time_block']
+PASS c10 lif == flif(alpha=1) (step, flat): forecasts bitwise, gradients within 1e-4
+PASS c10 lif == flif(alpha=1) (step, last): spikes bitwise, forecast max |diff| 1.2e-07 (float32 summation order), gradients within 1e-4
+PASS c10 lif == flif(alpha=1) (patch, flat): forecasts bitwise, gradients within 1e-4
+PASS c10 lif == flif(alpha=1) (patch, last): spikes bitwise, forecast max |diff| 1.2e-07 (float32 summation order), gradients within 1e-4
+PASS c10 aligned causality (step): rate 0.049; tokens < j unchanged for j = (10, 48, 80); spikes changed at token j: ['0.16', '0.16', '0.16'] (fails if silent)
+PASS c10 aligned causality (patch): rate 0.097; tokens < j unchanged for j = (5, 12, 20); spikes changed at token j: ['0.22', '0.22', '0.22'] (fails if silent)
+PASS c10 off independence (step): perturbing token 48 changes 0.96 of its rows and none of the other 95 tokens
+PASS c10 off independence (patch): perturbing token 12 changes 1.00 of its rows and none of the other 23 tokens
 PASS c5 first 13 columns: ['None', '0.386041', '0.378303', '0.386383', '41.47 M Ops', '5.95 M Ops', '2.91 M Ops', '0.0842 M', '0.4150 %', '18.76 uJ', '0.378303', '0.386383', '0.658685']
 PASS c5 new columns: {"neuron_lif_uJ": "13.140770", "neuron_model_fft_uJ": "13.140770", "neuron_model_direct_uJ": "13.140770", "total_fft_uJ": "31.899174", "total_direct_uJ": "31.899174", "rho_neo": "0.231671", "rho_hippo": "0.150743", "n_spiking_layers": "11", "kappa": "5.111111"}
 PASS c4 firing rates: recorder vs syops consumer-Linear rate: {'encoding_neo.emb_lif': 2.050075378318139e-06, 'time_block.Mem.0.spk_neuron': 6.968336467849667e-07, 'data_block.0.mlp.spk_linear1.spk_neuron': 3.124127482004302e-06}
-38/38 passed
+52/52 passed

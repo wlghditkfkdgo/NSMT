@@ -285,6 +285,106 @@ def main():
     rec('c9 parallel explicit Tb=N == default', all(torch.equal(p_, q_) for p_, q_ in zip(tN, tr)) and torch.equal(eN, te),
         'paper model, training and testing outputs')
 
+    # ---- c10: stage 4, the neocortex path alone (neo_only.NeoForecaster) ---------------------------------
+    from model import LOAD_MODEL as _LM
+    def neo_build(**over):
+        cfg_n = Config(); cfg_n.load_args(a.base_run, Namespace(saved_epoch=[1], num_device=a.nd))
+        for k_, v_ in dict(model='neoOnly', **over).items():
+            setattr(cfg_n, k_, v_)
+        set_random_seed(42)
+        return cfg_n, _LM['neoOnly'](cfg_n, True).to(cfg_n.device)
+    from config import Config, set_random_seed
+    for u in ('step', 'patch'):
+        for al, ro in (('on', 'flat'), ('off', 'flat'), ('on', 'last')):
+            _, mn = neo_build(neo_unit=u, align=al, neo_readout=ro, neo_neuron='flif', align_Ts=4)
+            top = {n_.split('.')[0] for n_, _ in mn.named_modules() if n_}
+            mn.eval(); functional.reset_net(mn)
+            with torch.no_grad():
+                o = mn(x)
+            want = {'encoding_neo', 'time_block', 'head'} | ({'pad'} if u == 'patch' else set())   # patch: end padding
+            rec(f'c10 shape ({u}, {al}, {ro})', o.shape == (x.shape[0], mn.pred_len, x.shape[2]) and top == want,
+                f'output {tuple(o.shape)}, modules {sorted(top)}')
+    for u in ('step', 'patch'):
+        for ro in ('flat', 'last'):
+            _, ml = neo_build(neo_unit=u, align='on', neo_readout=ro, neo_neuron='lif')
+            _, mf = neo_build(neo_unit=u, align='on', neo_readout=ro, neo_neuron='flif', neo_alpha=1.0)
+            ml.train(); mf.train(); functional.reset_net(ml); functional.reset_net(mf)
+            sp = {}
+            hl = ml.time_block.register_forward_hook(lambda mod, i, o: sp.__setitem__('l', o.detach()))
+            hf = mf.time_block.register_forward_hook(lambda mod, i, o: sp.__setitem__('f', o.detach()))
+            ol, of_ = ml(x), mf(x); hl.remove(); hf.remove()
+            (ol.mean()).backward(); (of_.mean()).backward()
+            grads_ok = all(torch.allclose(p_.grad, q_.grad, rtol=1e-4, atol=1e-6)
+                           for p_, q_ in zip(ml.parameters(), mf.parameters()) if p_.grad is not None)
+            if ro == 'flat':      # spikes in, spikes out: bitwise
+                ok, msg = torch.equal(ol, of_) and grads_ok, 'forecasts bitwise, gradients within 1e-4'
+            else:                 # the membrane read by the head differs only by float summation order (Euler vs predictor sum)
+                d_ = (ol - of_).abs().max().item()
+                ok = torch.equal(sp['l'], sp['f']) and d_ < 1e-5 and grads_ok
+                msg = f'spikes bitwise, forecast max |diff| {d_:.1e} (float32 summation order), gradients within 1e-4'
+            rec(f'c10 lif == flif(alpha=1) ({u}, {ro})', ok, msg)
+    smoke = os.path.join(HERE, 'log', 'smoke-s4-20261018', 'ETTh1')
+    def smoke_model(cond):
+        d = sorted(glob.glob(os.path.join(smoke, '*', f'*+{cond}+seed42+model+*')))
+        if not d:
+            return None, None, None
+        cfg_s = Config(); cfg_s.load_args(d[0], Namespace(saved_epoch=[1], num_device=a.nd))
+        m_ = _LM['neoOnly'](cfg_s, False, ckpt='checkpoint.pth').to(cfg_s.device); m_.eval()
+        return cfg_s, m_, one_batch(cfg_s)[0]
+    for u in ('step', 'patch'):                                       # causality of the aligned neocortex (trained 1 epoch)
+        cfg_s, ms_, xs = smoke_model(f'neo_{u}_on_flat_flif')
+        if ms_ is None:
+            rec(f'c10 aligned causality ({u})', False, 'smoke checkpoint missing -- run scripts/make_queue_s4.sh smoke first'); continue
+        box = {}
+        hk = ms_.time_block.register_forward_hook(lambda mod, i, o: box.__setitem__('o', o.detach()))
+        def run_(j=None):
+            h = None
+            if j is not None:
+                h = ms_.encoding_neo.register_forward_pre_hook(
+                    lambda mod, inp: (torch.cat([inp[0][:j], torch.randn_like(inp[0][j:]) * 3], 0),))
+            functional.reset_net(ms_)
+            with torch.no_grad():
+                ms_(xs)
+            if h is not None:
+                h.remove()
+            return box['o'].clone()
+        o0 = run_(); before, at = [], []
+        js = (10, 48, 80) if u == 'step' else (5, 12, 20)
+        for j in js:
+            dd = (o0 != run_(j)).flatten(1).float().mean(1)
+            before.append(bool(dd[:j].sum() > 0)); at.append(float(dd[j]))
+        hk.remove(); rate = o0.mean().item()
+        rec(f'c10 aligned causality ({u})', (not any(before)) and rate >= 0.02 and min(at) > 0,
+            f'rate {rate:.3f}; tokens < j unchanged for j = {js}; spikes changed at token j: {["%.2f" % v for v in at]} (fails if silent)')
+    for u in ('step', 'patch'):                                       # independence of tokens when not aligned
+        cfg_s, ms_, xs = smoke_model(f'neo_{u}_off_flat_flif')
+        if ms_ is None:
+            rec(f'c10 off independence ({u})', False, 'smoke checkpoint missing'); continue
+        box = {}
+        hk = ms_.time_block.register_forward_hook(lambda mod, i, o: box.__setitem__('o', o.detach()))
+        N_ = ms_.tokens; j = N_ // 2
+        def run_off(perturb):
+            h = None
+            if perturb:
+                def pre(mod, inp):
+                    z = inp[0].clone(); rows = torch.arange(z.shape[1], device=z.device) % N_ == j
+                    z[:, rows] = torch.randn_like(z[:, rows]) * 3
+                    return (z,)
+                h = ms_.encoding_neo.register_forward_pre_hook(pre)
+            functional.reset_net(ms_)
+            with torch.no_grad():
+                ms_(xs)
+            if h is not None:
+                h.remove()
+            o = box['o']
+            return o[:, :, 0, :].mean(0).reshape(-1, N_, o.shape[-1])
+        f0, f1 = run_off(False), run_off(True)
+        dd = (f0 != f1).flatten(2).any(2).float().mean(0)              # per token: fraction of rows changed
+        others = torch.cat([dd[:j], dd[j + 1:]])
+        hk.remove()
+        rec(f'c10 off independence ({u})', float(others.sum()) == 0 and float(dd[j]) > 0,
+            f'perturbing token {j} changes {float(dd[j]):.2f} of its rows and none of the other {N_ - 1} tokens')
+
     # ---- c4 + c5: test() on the nsmt_base checkpoint -------------------------------------------------
     from test import test
     scratch = os.path.join(a.out, 'c5_test_log'); os.makedirs(scratch, exist_ok=True)

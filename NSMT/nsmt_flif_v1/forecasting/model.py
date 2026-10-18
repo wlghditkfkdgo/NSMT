@@ -510,6 +510,37 @@ def load_mymodel_ab4(args, train=True):
     return model
 
 
+def _neo_only_kwargs(args):
+    """Stage 4: the neocortex path alone (neo_only.NeoForecaster)."""
+    return dict(seq_len=args.seq_len, pred_len=args.pred_len, neo_unit=getattr(args, 'neo_unit', 'step'),
+                align=getattr(args, 'align', 'on'), neo_readout=getattr(args, 'neo_readout', 'flat'),
+                align_Ts=getattr(args, 'align_Ts', 4), patch_size=args.patch_size, embed_dim=args.embed_dim,
+                time_num_layers=int(args.time_num_layers), bias=args.bias, tau=args.tau,
+                neo_neuron=getattr(args, 'neo_neuron', 'flif'), neo_tau=getattr(args, 'neo_tau', 2.0),
+                neo_alpha=getattr(args, 'neo_alpha', 0.5), fde_method=getattr(args, 'fde_method', 'pred'),
+                fde_step=getattr(args, 'fde_step', 1.0), fde_memory=getattr(args, 'fde_memory', 0))
+
+
+def _load_plain(model, args, train, ckpt):
+    if not train:
+        path = os.path.join(args.save_result_path, "model_state", ckpt)
+        model.load_state_dict(torch.load(path, map_location='cpu'))
+        model = model.to(args.device)
+        model.train_mode = 'testing'
+        print(f"{args.model} was successfully loaded from {ckpt}.")
+    return model
+
+
+def load_neo_only(args, train=True, ckpt='best+model.pt'):
+    from neo_only import NeoForecaster
+    return _load_plain(NeoForecaster(**_neo_only_kwargs(args)), args, train, ckpt)
+
+
+def load_linear(args, train=True, ckpt='best+model.pt'):
+    from neo_only import LinearForecaster
+    return _load_plain(LinearForecaster(args.seq_len, args.pred_len), args, train, ckpt)
+
+
 def load_spikformer(args, train=True):
     model = Spikformer(
             drop_rate=0.,
@@ -540,6 +571,8 @@ def load_spikformer(args, train=True):
         
 LOAD_MODEL = {
     'myModel' : load_mymodel,
+    'neoOnly' : load_neo_only,      # stage 4
+    'linear' : load_linear,         # stage 4
     'degree' : load_mymodel_degree,
     'Spikformer' : load_spikformer, 
     'ab1' : load_mymodel_ab1,

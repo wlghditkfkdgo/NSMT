@@ -78,7 +78,7 @@ def main():
     a = ap.parse_args()
     cfg = Config(); cfg.load_args(os.path.abspath(a.run), Namespace(saved_epoch=[1], num_device=a.nd))
     set_random_seed(cfg.seed)
-    model = LOAD_MODEL['myModel'](cfg, train=False, ckpt=WEIGHTS[a.weights]); model.eval()
+    model = LOAD_MODEL[getattr(cfg, 'model', 'myModel')](cfg, train=False, ckpt=WEIGHTS[a.weights]); model.eval()
     if getattr(model, 'hippo_only', False):
         raise SystemExit('hippo_only model has no neocortex path; nothing to probe')
     N = model.T; n = N - 1 if a.step is None else a.step

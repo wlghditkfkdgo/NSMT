@@ -50,6 +50,10 @@ def sha256(path):
 
 
 def cond_name(cfg):
+    if getattr(cfg, 'model', 'myModel') == 'linear':                         # stage 4
+        return 'linear'
+    if getattr(cfg, 'model', 'myModel') == 'neoOnly':
+        return f"neo_{cfg.neo_unit}_{cfg.align}_{cfg.neo_readout}_{cfg.neo_neuron}"
     if getattr(cfg, 'hippo_only', False):
         tb = getattr(cfg, 'backbone_T', 0)
         return f'hippo_only@Tb{tb}' if tb else 'hippo_only'
@@ -94,7 +98,7 @@ def load_run(run_dir, gpu, weights='last'):
     cfg = Config()
     cfg.load_args(run_dir, Namespace(saved_epoch=[1], num_device=gpu))
     set_random_seed(cfg.seed)
-    model = LOAD_MODEL['myModel'](cfg, train=False, ckpt=WEIGHTS[weights])
+    model = LOAD_MODEL[getattr(cfg, 'model', 'myModel')](cfg, train=False, ckpt=WEIGHTS[weights])
     model.eval()
     return cfg, model
 

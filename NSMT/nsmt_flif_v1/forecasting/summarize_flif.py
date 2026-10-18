@@ -32,7 +32,7 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CONDS = ['base', 'neo_lif_both', 'neo_lif_mlp', 'neo_flif_both', 'neo_flif_mlp', 'serial_lif', 'serial_flif',
-         'serial_lif@Tb1', 'serial_flif@Tb1', 'hippo_only@Tb1', 'hippo_only']
+         'serial_lif@Tb1', 'serial_flif@Tb1', 'hippo_only@Tb1', 'hippo_only', 'linear']
 CONTROL = {'neo_flif_both': 'neo_lif_both', 'neo_flif_mlp': 'neo_lif_mlp'}
 
 
@@ -242,6 +242,67 @@ def stage3(rows, probe_rows):
     return '\n'.join(out)
 
 
+def stage4(rows, probe_rows):
+    """Pre-fixed stage-4 questions (MODI_PROJECT_LOG 2026-10-18): the neocortex path alone as a forecaster."""
+    out = []
+    def pc_(a, b):
+        pc, pairs = paired(rows, a, b)
+        if not pc:
+            return None
+        return (np.mean([v['rel'] for v in pc.values()]), sum(pairs), len(pairs), pc,
+                np.mean([v['energy_ratio'] for v in pc.values()]))
+    def cells(pc):
+        return ', '.join(f"{d} H{p}: {v['rel']*100:+.2f}%" for (d, p), v in pc.items())
+    def verdict(r, need_mean):
+        nb = sum(v['rel'] < 0 for v in r[3].values())
+        return nb, (nb >= 3 and r[0] <= need_mean)
+    for u in ('step', 'patch'):
+        for n in ('lif', 'flif'):
+            r = pc_(f'neo_{u}_on_flat_{n}', f'neo_{u}_off_flat_{n}')
+            if r:
+                nb, ok = verdict(r, -0.01)
+                out.append(f"**R1 alignment ({u}, {n}, flat head): on vs off** -- {cells(r[3])}; lower in {nb}/{len(r[3])}, mean "
+                           f"{r[0]*100:+.2f}%, pairs {r[1]}/{r[2]}, energy x{r[4]:.2f} -> {'**PASS**' if ok else 'not passed'} (>= 3/4, mean <= -1 %)")
+    for n in ('lif', 'flif'):
+        for ro in ('flat', 'last'):
+            r = pc_(f'neo_step_on_{ro}_{n}', f'neo_patch_on_{ro}_{n}')
+            if r:
+                nb, ok = verdict(r, -0.01)
+                out.append(f"**R2 unit ({n}, {ro}): step (T=96) vs patch (T=24)** -- {cells(r[3])}; lower in {nb}/{len(r[3])}, mean "
+                           f"{r[0]*100:+.2f}%, energy x{r[4]:.2f} -> {'**PASS**' if ok else 'not passed'} (>= 3/4, mean <= -1 %)")
+    for u in ('step', 'patch'):
+        for ro in ('flat', 'last'):
+            r = pc_(f'neo_{u}_on_{ro}_flif', f'neo_{u}_on_{ro}_lif')
+            if r:
+                nb, ok = verdict(r, -0.005)
+                out.append(f"**R3 neuron ({u}, {ro}): f-LIF vs LIF** -- {cells(r[3])}; lower in {nb}/{len(r[3])}, mean "
+                           f"{r[0]*100:+.2f}% -> {'**PASS**' if ok else 'not passed'} (>= 3/4, mean <= -0.5 %)")
+    out += ['', 'R4 (reported only) -- each neocortex-only condition against the references:']
+    conds = sorted({r['cond'] for r in rows if r['cond'].startswith('neo_step_') or r['cond'].startswith('neo_patch_')})
+    for c in conds:
+        parts = []
+        for ref in ('hippo_only', 'base', 'linear'):
+            r = pc_(c, ref)
+            if r:
+                parts.append(f"vs {ref} {r[0]*100:+.2f}% ({r[1]}/{r[2]}, E x{r[4]:.2f})")
+        out.append(f"- {c}: " + '; '.join(parts))
+    for u in ('step', 'patch'):
+        for n in ('lif', 'flif'):
+            r = pc_(f'neo_{u}_on_last_{n}', f'neo_{u}_on_flat_{n}')
+            if r:
+                out.append(f"- last vs flat ({u}, {n}): {cells(r[3])}; mean {r[0]*100:+.2f}%, pairs {r[1]}/{r[2]}")
+    r = pc_('linear', 'hippo_only')
+    if r:
+        out.append(f"- linear vs hippo_only: {cells(r[3])}; mean {r[0]*100:+.2f}%, pairs {r[1]}/{r[2]}")
+    out += ['', 'Memory probe (aligned runs; dMSE when only the last 12 TOKENS are kept -- 12 steps for step, 12 patches for patch):']
+    for c in conds:
+        if '_on_' in c:
+            vals = [f"{d} {probe_rows[(d, c)]*100:+.1f}%" for d in ('ETTh2', 'ETTm2') if (d, c) in probe_rows]
+            if vals:
+                out.append(f"- {c}: " + ', '.join(vals))
+    return '\n'.join(out)
+
+
 def probe_dmse(probe_dirs):
     """(data, cond) -> mean dMSE(keep 12)/clean MSE over the probe CSVs (control none)."""
     acc = defaultdict(list)
@@ -292,6 +353,7 @@ def main():
     ap.add_argument('--probe_dir', action='append', default=None); ap.add_argument('--out_suite', default=None)
     ap.add_argument('--stage2', action='store_true')
     ap.add_argument('--stage3', action='store_true')
+    ap.add_argument('--stage4', action='store_true')
     ap.add_argument('--weights', choices=['last', 'best'], default='last', help='which test row: last-epoch or best-validation weights')
     ap.add_argument('--summary_name', default='summary.md')
     a = ap.parse_args()
@@ -323,6 +385,8 @@ def main():
         md += ['', '## criterion (1) — memory probe', probe_summary(a.probe_dir)]
     if a.stage2:
         md += ['', '## stage 2 — pre-fixed questions per regime', stage2(rows, probe_dmse(a.probe_dir or []))]
+    if a.stage4:
+        md += ['', '## stage 4 — pre-fixed questions (neocortex path alone)', stage4(rows, probe_dmse(a.probe_dir or []))]
     if a.stage3:
         md += ['', '## stage 3 — pre-fixed questions (serial aligned spiking embedding)', stage3(rows, probe_dmse(a.probe_dir or []))]
     os.makedirs(os.path.join(HERE, 'results', name), exist_ok=True)

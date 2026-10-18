@@ -115,6 +115,13 @@ def parse_arguments():
                          help="stage 3: 'serial' = the neocortex (T = N aligned) output is the backbone's spike embedding")
     snn_arg.add_argument('--backbone_T', type=int, default=0,
                          help='spiking steps of the backbone (0 = number of patches, the paper repetition count)')
+    snn_arg.add_argument('--neo_unit', choices=['step', 'patch'], default='step',
+                         help='stage 4 (--model neoOnly): one spiking step = one raw time step (step) or one patch (patch)')
+    snn_arg.add_argument('--align', choices=['on', 'off'], default='on',
+                         help='stage 4: on = token axis is the spiking time axis; off = tokens independent, repeated --align_Ts times')
+    snn_arg.add_argument('--align_Ts', type=int, default=4, help='stage 4: repetitions per token when --align off')
+    snn_arg.add_argument('--neo_readout', choices=['flat', 'last'], default='flat',
+                         help='stage 4: flat = Linear on all per-token spikes; last = Linear on the last membrane (align on only)')
     snn_arg.add_argument('--hippo_only', action='store_true',
                          help='remove the neocortex path and the auxiliary decoder; cross-attention key/value = hippocampus')
     
@@ -161,6 +168,13 @@ def check_neo_args(config):
         raise ValueError('--arch serial needs the neocortex path; it cannot be --hippo_only')
     if config.arch == 'serial' and (config.aux_lead != 0 or config.neo_grad != 0.05):
         raise ValueError('--arch serial has no auxiliary decoder or memory replay: --aux_lead / --neo_grad would be ignored')
+    if config.model == 'neoOnly':
+        if config.neo_neuron not in ('lif', 'flif'):
+            raise ValueError('--model neoOnly needs --neo_neuron lif or flif')
+        if config.align == 'off' and config.neo_readout == 'last':
+            raise ValueError("--neo_readout last needs --align on")
+        if config.hippo_only or config.arch != 'parallel' or config.aux_lead != 0 or config.neo_grad != 0.05:
+            raise ValueError('--model neoOnly ignores --hippo_only / --arch / --aux_lead / --neo_grad')
     if config.backbone_T < 0:
         raise ValueError('--backbone_T >= 0 (0 = number of patches)')
     if config.hippo_only and (config.aux_lead != 0 or config.neo_grad != 0.05):
@@ -186,13 +200,18 @@ class Config():
             vtag = getattr(args, ktag)
             tag = tag + f"+{ktag}+{vtag}"
         # nsmt_flif_v1: non-default conditions get their own directory names; the default name is unchanged
-        if getattr(args, 'neo_neuron', 'sj_lif') != 'sj_lif':
+        if getattr(args, 'neo_neuron', 'sj_lif') != 'sj_lif' and getattr(args, 'model', 'myModel') != 'neoOnly':
             tag = tag + f"+neo+{args.neo_neuron}-{args.neo_where}-a{args.neo_alpha}"
             # solver options only when non-default: the full name hit the 255-byte file-name limit (2026-10-15)
             if args.fde_step != 1.0 or args.fde_method != 'pred' or args.fde_memory != 0:
                 tag = tag + f"-h{args.fde_step}-{args.fde_method}-m{args.fde_memory}"
         if getattr(args, 'hippo_only', False):
             tag = tag + "+hippo_only"
+        if getattr(args, 'model', 'myModel') == 'neoOnly':
+            # compact (the run-dir name must stay under 255 bytes): unit s|p, align 1|0, readout f|l, T_s if off, neuron, alpha
+            tag = tag + (f"+no+{args.neo_unit[0]}{1 if args.align == 'on' else 0}{args.neo_readout[0]}"
+                         + (f"{args.align_Ts}" if args.align == 'off' else '') + f"+{args.neo_neuron}-a{args.neo_alpha}"
+                         + (f"-h{args.fde_step}-{args.fde_method}-m{args.fde_memory}" if (args.fde_step != 1.0 or args.fde_method != 'pred' or args.fde_memory != 0) else ''))
         if getattr(args, 'arch', 'parallel') == 'serial':
             tag = tag + "+serial"
         if getattr(args, 'backbone_T', 0):

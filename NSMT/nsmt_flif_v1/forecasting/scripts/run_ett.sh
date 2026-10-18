@@ -25,6 +25,11 @@ case $COND in
   serial_lif)    CF="--arch serial --neo_neuron lif  --neo_where both $NEOX" ;;               # stage 3
   serial_flif)   CF="--arch serial --neo_neuron flif --neo_where both --neo_alpha $ALPHA $NEOX" ;;
   hippo_only)    CF="--hippo_only" ;;
+  linear)        CF="--model linear" ;;                                          # stage 4
+  neo_step_*|neo_patch_*)                                                        # stage 4: neo_<unit>_<on|off>_<flat|last>_<lif|flif>
+    IFS=_ read -r _ U A RO NN <<< "$COND"
+    CF="--model neoOnly --neo_unit $U --align $A --neo_readout $RO --neo_neuron $NN --neo_where both"
+    [ "$NN" = flif ] && CF="$CF --neo_alpha $ALPHA"; CF="$CF $NEOX" ;;
   *) echo "bad cond $COND"; exit 1 ;;
 esac
 LEAD=${LEAD:-0}; NG=${NG:-0.05}; REG=""

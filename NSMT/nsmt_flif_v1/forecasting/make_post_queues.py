@@ -9,11 +9,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ap = argparse.ArgumentParser(); ap.add_argument('--suite', default='flif-v1-main'); ap.add_argument('--windows', type=int, default=512)
 ap.add_argument('--kinds', default='future,probe', help='comma list of queues to write: future, probe')
 ap.add_argument('--weights', choices=['last', 'best'], default='last')
+ap.add_argument('--only', default=None, help='regular expression on the RESULT cond; probe/future only those runs')
 a = ap.parse_args()
 dirs = []
 for line in open(os.path.join(HERE, 'results', a.suite, 'raw.txt')):
     if line.startswith('RESULT'):
-        kv = dict(re.findall(r'(\w+)=(\S+)', line)); dirs.append((kv['cond'], kv['dir']))
+        kv = dict(re.findall(r'(\w+)=(\S+)', line))
+        if a.only is None or re.search(a.only, kv['cond']):
+            dirs.append((kv['cond'], kv['dir']))
 sfx = '' if a.weights == 'last' else '-bestval'
 fut = os.path.join(HERE, 'scripts', 'queues', f'post-future-{a.suite}{sfx}.txt')
 prb = os.path.join(HERE, 'scripts', 'queues', f'post-probe-{a.suite}{sfx}.txt')

@@ -552,3 +552,52 @@ Q1 평균 +1.30%(0/12), Q2 +4.75%(0/12, 에너지 0.049배), **Q3 T=1 평균 +0.
 **확증 후보 없음**(Q1·Q2 불통과). 다음 선택지(사용자 결정 필요): (a) **백본 T = 2–4의 평범한 임베딩/직렬** — Phase A·B를 합치면 반복 축을 1이 아니라 2–4로 줄일 때 정확도 손실 없이 에너지를 크게 줄일 가능성이 가장 높다(정렬 임베딩과 무관한 기여); (b) 직렬 정렬 임베딩의 조기 과적합 대응(학습률 낮춤·warmup·dropout) 뒤 Q1 재시험; (c) 의도 2(창 너머 장기 기억) 모듈 설계로 이동 — 이번 결과는 "창 안 정렬"만으로는 이점이 없음을 보였다.
 
 **commit·태그:** 이 항목·결과를 담은 commit을 push하고 annotated tag `exp/nsmt-flif-neo-20261017`(3단계 Phase B 탐색 완료)을 붙인다.
+
+---
+
+## 2026-10-18 17:24 KST — 4단계 설계: 신피질 경로 단독 예측기 — 원 시계열 한 스텝 = 스파이킹 한 스텝 정렬의 효과 (실행 전)
+
+**사용자 요청 (10-18):** 우선 신피질 경로만 떼어 추가 검증·실험을 한다. (1) 지금은 패치 단위로 연산하지만 **원 시계열의 진짜 한 스텝을 스파이킹 뉴런의 한 스텝에 대응**시킨다. (2) 신피질 경로에서 T = T′ 정렬의 효과를 순수하게 보기 위해 **보조 손실을 과제 손실로 바꾸고 해마 없이 신피질 경로 단독으로 예측**해, 정렬이 예측 과제에 어떤 효과를 내는지 확인한다. 브랜치 `exp/nsmt-flif-neo`, 이전 commit `519ddff04`(3단계 태그 `exp/nsmt-flif-neo-20261017`).
+
+**사용자 결정 (10-18):** (1) 비정렬 대조군 = **토큰 독립·반복** — 각 스텝(또는 패치)을 독립 표본으로 보고 같은 입력을 T_s = 4번 반복(해마 방식), 뉴런 상태가 시계열 시간을 따라 이어지지 않음; (2) 예측 읽기 = **펼친 head와 마지막 스텝 막전위 둘 다**(마지막 스텝 읽기는 정렬 켜짐에서만); (3) 단위 = **step(T = 96)과 patch(T = 24) 둘 다**; (4) 기준선 = **선형 기준선(창 정규화 + Linear(96 → H)) 추가**, Hippo-only·논문 원본은 2차 결과 재사용.
+
+**모델 `NeoForecaster`(새 파일 `nsmt_flif_v1/forecasting/neo_only.py`):** 창 정규화된 입력 [B, L, C] → 채널 독립 [B·C, L] → 토큰(step: 한 스텝, P = 1, 96개; patch: P = 8·stride 4·끝 패딩, 24개) → 기존 신피질 부품(`ours.Embedding` Linear–BN–뉴런, `ours.TemporalBlock` Spiking MLP × M; 뉴런 spikeDE LIF / f-LIF). **정렬 켜짐:** 토큰 축 = 스파이킹 시간 축(상태가 시계열 시간을 따라 이어짐). **정렬 꺼짐:** 토큰을 배치로 접고 T_s = 4번 반복, 반복 축 평균. **head:** `flat` = 토큰별 스파이크 [토큰 수 × D]를 펼쳐 Linear → H(NSMT head와 같은 방식); `last` = 마지막 층 뉴런의 마지막 스텝 막전위 [D]를 Linear → H(뉴런이 과거를 기억해야만 예측 가능; 막전위는 `neo_only.py`의 얇은 하위 클래스가 `integrate`의 상태를 기울기와 함께 보관, 공유 `neurons.py`는 불변). 창 정규화 되돌림 → [B, H, C]. 손실은 L1 과제 손실만(보조 손실·디코더·해마 없음). 선형 기준선 `LinearForecaster`(같은 파일).
+
+**실험 설계:** 단위 {step, patch} × 뉴런 {LIF, f-LIF(α 0.5, τ 2, pred, h 1, 전체 이력)} × 구성 {정렬 켜짐 + flat, 정렬 꺼짐 + flat, 정렬 켜짐 + last} = 12 조건 × ETTh2/ETTm2 × H96/H720 × seed 42/7/2026 = 144 run + 선형 12 run = **156 run**. 이름 `neo_<unit>_<on|off>_<flat|last>_<lif|flif>`, `linear`. 하이퍼파라미터는 논문 Table 13의 D·M·lr·bs, 학습 규칙은 2차와 같음(patience 10, 최고 검증 가중치로 판정, 마지막 가중치는 보고). suite `flif-v1-s4`. 기억 측정은 정렬 켜짐 조건만(토큰 단위). 미래 구간 미사용.
+
+**판정 (본 학습 전 사전 고정 항목에서 확정; 같은 seed끼리 짝, 셀 = 데이터 × H 4칸):** R1 정렬 효과 — 같은 단위·뉴런·flat에서 켜짐 vs 꺼짐, 4칸 중 ≥ 3칸 낮고 평균 ≤ −1%; R2 단위 효과 — 정렬 켜짐에서 step vs patch, 같은 기준; R3 뉴런 효과 — 정렬 켜짐에서 f-LIF vs LIF, ≥ 3칸·평균 ≤ −0.5%; R4(보고) — 신피질 단독 조건 vs hippo_only(T = 24)·병렬 base·선형 기준선, last vs flat, 에너지.
+
+**점검 계획:** 기존 c1–c9 유지 + c10(출력 모양·모듈 구성, 정렬 켜짐의 인과성과 정렬 꺼짐의 토큰 독립성을 smoke로 학습된 모델에서 — 발화율이 낮으면 실패, LIF = f-LIF(α=1) 비트 동일). smoke 13개(12 조건 + 선형)로 run당 시간을 재서 본 학습 예상 시간을 사전 고정 항목에 적는다.
+
+---
+
+## 2026-10-18 17:33 KST — 4단계 구현·점검 52/52·smoke 13/13, 본 학습 사전 고정 (156 run) — tmux에서 시작
+
+**코드 (`nsmt_flif_v1/forecasting/`):** `neo_only.py`(`NeoForecaster`, `LinearForecaster`; 마지막 막전위는 `LIFKeep`/`FLIFKeep` 하위 클래스가 `integrate`의 상태를 기울기와 함께 보관, `neurons.py` 불변), `model.py`(`LOAD_MODEL['neoOnly']`, `['linear']`, 체크포인트 이름 선택 지원), `config.py`(`--neo_unit {step,patch}`, `--align {on,off}`, `--align_Ts`(기본 4), `--neo_readout {flat,last}`; 부적절한 조합 거부; 실행 폴더 이름에 짧은 접미사 `+no+<s|p><1|0><f|l>[T_s]+<neuron>-a<α>` — 최악 231바이트), `scripts/run_ett.sh`(`COND=neo_<unit>_<on|off>_<flat|last>_<lif|flif>`, `COND=linear`), `ett_future.py`·`neo_memory_probe.py`(실행 설정의 모델로 로드; 이전에는 `myModel` 고정), `make_post_queues.py --only`(정렬 켜짐 run만 기억 측정), `summarize_flif.py --stage4`(R1–R4), `scripts/{make_queue_s4.sh, stage4_driver.sh}`.
+
+**점검 (`results/checks/check_flif.txt`, 52/52):** c1–c9 그대로. **c10** — 12가지 구성의 출력 [B, H, C]와 모듈 구성(신피질·head, patch는 끝 패딩 포함); LIF = f-LIF(α=1): flat은 예측 비트 동일, last는 스파이크 비트 동일·예측 차이 1.2e-7(막전위의 float32 합산 순서 차이; 처음에는 비트 동일을 요구해 실패했고, 측정으로 원인을 확인한 뒤 기준을 고침); smoke로 1 epoch 학습한 모델에서 **정렬 켜짐 인과성**(step: 스텝 j 이후를 바꾸면 j 이전 출력 불변, 토큰 j 스파이크 16% 변화, 발화율 0.049; patch: 22%, 0.097)과 **정렬 꺼짐 토큰 독립성**(토큰 j를 바꾸면 그 토큰만 바뀌고 나머지 95/23개 토큰은 불변). 계획의 발화율 하한 0.05는 0.02로 낮췄다 — step 모델의 1 epoch 발화율이 0.049였고, "토큰 j에서 스파이크가 실제로 바뀜"이 빈 통과를 막는 조건이기 때문이다(판단).
+
+**smoke (`results/smoke-s4-20261018/raw.txt`, ETTh1 H96 seed 42, 1 epoch, GPU당 2개; 실험 아님):**
+
+| 조건 | test MSE | 총 에너지 µJ | 신피질 발화율 | 파라미터 | 시간 s |
+|---|---|---|---|---|---|
+| neo_step_on_flat_flif / lif | 0.443225 / 0.421125 | 3.28 / 1.62 | 0.052 / 0.062 | 297,184 | 99 / 59 |
+| neo_step_on_last_flif / lif | 0.674608 / 0.656838 | 3.30 / 1.64 | 0.065 / 0.079 | 5,344 | 92 / 58 |
+| neo_step_off_flat_flif / lif | 0.433719 / 0.448674 | 15.70 / 15.59 | 0.052 / 0.068 | 297,184 | 27 / 21 |
+| neo_patch_on_flat_flif / lif | 0.423056 / 0.422615 | 0.84 / 0.59 | 0.068 / 0.062 | 76,224 | 34 / 29 |
+| neo_patch_on_last_flif / lif | 0.651695 / 0.654477 | 0.89 / 0.65 | 0.054 / 0.053 | 5,568 | 34 / 31 |
+| neo_patch_off_flat_flif / lif | 0.405105 / 0.405095 | 4.67 / 4.63 | 0.078 / 0.091 | 76,224 | 22 / 20 |
+| linear | 0.429054 | 0.30 | – | 9,312 | 11 |
+
+13개 모두 학습·최고 검증 test·에너지 열까지 지난다. 처음 smoke에서 선형 기준선이 `train.py`가 읽는 `pred_len` 속성이 없어 실패했고(SKIP 줄이 `raw.txt`에 남아 있음), 속성을 추가해 다시 돌렸다. 1 epoch MSE는 판단 근거가 아니다.
+
+**본 학습 (사전 고정):** suite `flif-v1-s4`, `scripts/make_queue_s4.sh`(156줄, 느린 조건 먼저) — 12 조건 + linear × ETTh2/ETTm2 × H96/H720 × seed 42/7/2026. 학습 규칙은 2차와 같음(patience 10, 최대 epoch 논문 값, 판정은 최고 검증 가중치, 마지막 가중치는 `summary_lastweights.md`). 참조는 2차 `flif-v1-s2p10`(hippo_only T = 24, 병렬 base). 실행: tmux `flif_s4`, `scripts/stage4_driver.sh 0,1,2,3,0,1,2,3,0,1,2,3`(**GPU당 3개** — 가장 느린 step·정렬 켜짐·f-LIF가 파이썬 루프 위주라 동시 실행으로 처리량을 늘림; 결과는 결정적이라 동시 실행과 무관), 학습 → 정렬 켜짐 run의 기억 측정(최고 검증 가중치, 512창) → 요약. **예상 10–14시간**(smoke 기준 ETTm2에서 step·f-LIF는 epoch당 약 5분).
+
+**판정 (고정; 같은 seed끼리 짝, 셀 = 데이터 × H 4칸):**
+- **R1 정렬 효과:** 같은 단위·뉴런·flat에서 정렬 켜짐 vs 꺼짐 — 4칸 중 ≥ 3칸 낮고 평균 ≤ −1% (단위·뉴런 4가지 각각).
+- **R2 단위 효과:** 정렬 켜짐에서 step(T = 96) vs patch(T = 24) — 같은 기준(뉴런·head 4가지 각각).
+- **R3 뉴런 효과:** 정렬 켜짐에서 f-LIF vs LIF — 4칸 중 ≥ 3칸 낮고 평균 ≤ −0.5% (단위·head 4가지 각각).
+- **R4 (보고만):** 각 신피질 단독 조건 vs hippo_only(T = 24)·병렬 base·linear; last vs flat; 에너지; 기억 측정(마지막 12토큰만 남길 때 오차 증가).
+- 탐색 단계이므로 통과는 확증이 아니다.
+
+**commit:** 이 항목·코드·점검·smoke 결과를 담은 commit을 push한 뒤 시작한다. 결과는 다음 항목.
