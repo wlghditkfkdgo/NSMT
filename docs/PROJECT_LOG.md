@@ -7202,3 +7202,8 @@ commit: 이 항목을 담은 commit(MODI_PROJECT_LOG의 Phase A 결과 항목과
 ## 2026-10-18 17:41 KST — f_lif_pop_v3 추적 감사86: 새 판단 근거 없음
 
 예약 `20261018T084004Z-eed887ae`, branch `exp/nsmt-flif-neo`, HEAD `51d0196956af57c0c998b448041153353496fcec`(비교기준519ddff0431c2265c658cf6c36f99f123ae84745). 현재1632파일 snapshot/SHA에서 trigger차0·연구파일변화0·문서3개 자체append 일치. neurons.py SHA `cc1f438f0e97dd2c196a6eb9dc8bad2a833e2cd003b1b5924017d56dafe258bf` 불변. 별도 nsmt_flif_v1/MODI HEAD 변경은 이 감사의 새 성능 근거가 아니다. A35 설명 범위 VERIFIED·A34 재발방지 OPEN·A31 잔여·2S 미등록/성능 보류 유지. CPU모델·학습·GPU·실데이터/val/test/checkpoint 검증 not run. 새 실험/코드·config·분할 변경/commit·tag·push 없음. 증거 `NSMT/f_lif_pop_v3/forecasting/results/assessment/20261018T084004Z-eed887ae/`의 inventory/snapshot/checks.json, raw 동일task log/assessment/동일run. 기존 artifacts/local changes/연구소스/프로세스/Git 보존·자체append 분리. 상세 ASSESMENT 감사86.
+
+
+## 2026-10-18 23:21 KST — f_lif_pop_v3 추적 감사87: 새 판단 근거 없음
+
+승인된 예약 `20261018T142003Z-f3167a78`, branch `exp/nsmt-flif-neo`, HEAD `f28772380948e72baf9eba00b343d94b0a1ddac5`(비교기준 `51d0196956af57c0c998b448041153353496fcec`). snapshot1632/trigger차0/연구파일변화0; 문서3개는 감사86 자체append와 동일. HEAD는 별도 nsmt_flif_v1/MODI 및 감사 문서 반영. neurons.py SHA `cc1f438f0e97dd2c196a6eb9dc8bad2a833e2cd003b1b5924017d56dafe258bf` 불변. A35 설명 범위 VERIFIED·A34 재발방지 OPEN·A31 잔여·2S 미등록/성능 보류 유지. CPU 모델·학습·GPU·실데이터/val/test/checkpoint 검증 not run. 새 실험·코드/config·분할 변경·Git 변이 없음. 증거 `NSMT/f_lif_pop_v3/forecasting/results/assessment/20261018T142003Z-f3167a78/` inventory/snapshot/checks.json, raw 동일task log/assessment/동일run. 상세 ASSESMENT 감사87. 기존 artifacts/local changes 보존, 자체append 분리.

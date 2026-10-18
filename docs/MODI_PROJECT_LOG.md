@@ -670,3 +670,102 @@ Q1 평균 +1.30%(0/12), Q2 +4.75%(0/12, 에너지 0.049배), **Q3 T=1 평균 +0.
 | 선형 기준선 | 0.422... ※ | **0.420805** ±0.0015 |
 
 나머지 칸은 모두 최종 값이었다. 재발 방지: 기록 항목을 commit하기 전에 파일 전체에서 임시 표시(※, "...", "?")를 검사한다.
+
+---
+
+## 2026-10-19 02:05 KST — 5단계 설계·구현·사전 고정: MIT-BIH 분류에서 신피질 경로 LIF → f-LIF (원저자 ECG 실험 코드 기준), 점검 10/10, smoke 7/7 — 21 run tmux에서 시작
+
+**요청 (2026-10-19, 사용자):** "분류 과제에 대해서는 정렬+f-LIF 네트워크가 어떤 정보를 학습하는 지 궁금해. MIT-BIH 데이터셋에 대하여 `nsmt_base/classification/model.py`의 구조와 학습 프레임워크에서 Neocortex path의 LIF 뉴런만 f-LIF 뉴런으로 교체하고 분류 성능 변화를 관찰해줘." 작업 중 추가 요청: "`nsmt_base/classification/ECG` 경로를 참고하여 너가 수정한 분류 코드를 검토해." (사용자가 01:46에 원저자의 MIT-BIH 실험 코드 `nsmt_base/classification/ECG/`를 추가함.)
+
+**브랜치·기준:** `exp/nsmt-flif-neo`(계속), 기준 commit `f28772380`.
+
+**코드 검토 결과 → 기준 변경.** 처음 수정본은 `nsmt_base/classification/`(UEA용) 모델·학습 코드를 복사해 만들었다. ECG 코드와 비교하니 MIT-BIH 실험과 다른 점이 많아 **폐기하고 ECG 코드 기준으로 다시 만들었다**(폐기본은 학습에 쓰지 않았고 Git에도 넣지 않았다).
+
+| 항목 | UEA 분류 코드 (처음 수정본) | ECG 코드 (채택) |
+|---|---|---|
+| 패치 임베딩 | 원 신호에 Conv1d(kernel 16, stride 8), 토큰 22개 | 끝을 복제 패딩한 패치(32, stride 16)에 Linear, 토큰 11개 |
+| 신피질 임베딩 뉴런의 시간 축 | 같은 입력을 T번 반복한 축 — **정렬 아님** | 토큰 축 — **정렬** (예측 모델과 같음) |
+| 신피질 층 | `SpikLinearLayer`(다중 스텝 LIF) | `NeoLayer`(Linear → 전체 시퀀스 BN → 한 스텝씩 도는 LIF; 수동형) |
+| 보조 손실의 목표 | 저역 신호의 BN 임베딩 | 원 패치의 저역 성분 (예측 모델과 같음) |
+| 입력 모양 | [B, 187, 1] | [B, 1, 187] (ECG 로더) |
+| 과제 손실 | CE + label smoothing 0.1 | 클래스 가중 CE(CAL, 논문 App. B.4) |
+| 학습 | 내가 임의로 정한 검증 분할·조기 종료·lr 1e-3 | 30 epoch cosine, 마지막 가중치로 test |
+| 신피질 제거 대조군 | 없음 | `--no_neo` (교차 주의도 함께 제거) |
+
+**데이터:** Kachuee 5-class 심박(N/S/V/F/Q, 187 샘플, 125 Hz). 논문 App. B.1의 70:30 무작위 분할 파일을 쓴다.
+- `5class_mitbih_train_7_187.csv`: 76,612개, 클래스별 [63412, 1946, 5065, 562, 5627], md5 `c2009b3556e23974e5294d6e36513289`.
+- `5class_mitbih_test_3_187.csv`: 32,833개, [27176, 833, 2171, 241, 2412], md5 `ccc7248980e020ea127ca8b3d923c309`.
+- 위치: `nsmt_base/classification/ECG/data/`(로컬, 3.8 GB, 이번에 `.gitignore`로 제외). 같은 md5의 사본이 `/home/yschoi/CLS_spiking_transformer/data/`에도 있다.
+- 전처리 없음(원값 [0, 1]), header 없음, 결측 없음. train과 test에 똑같은 심박은 0개(확인). 무작위 심박 분할이라 같은 환자의 심박이 양쪽에 섞인다(논문과 같음; 환자 간 일반화는 재지 않는다).
+
+**학습 (ECG 프레임워크 그대로; `ECG/scripts/_run_mitbih_3seed.sh`의 설정):**
+- 30 epoch, cosine 일정(timm, 6 epoch warmup), bs 512, lr 0.01, AdamW wd 1e-4.
+- emb 384, head 8, mlp_ratio 1, 층 1, 신피질 층 2, patch 32(stride 16, 토큰 11개 = T), keep_ratio 0.15, 보조 손실 비중 0.1, 신피질로 가는 과제 기울기 몫 0.5.
+- 클래스 가중 CE: 가중치 [1.0, 3.4839, 2.5273, 4.7259, 2.4221] (= max(1, log(n_max / n_c))).
+- 매 epoch의 "val" 열은 test 파일로 계산된다(원 코드). cosine 일정이라 조기 종료·가중치 선택이 없어서 test로 고르는 것은 없다. **마지막 epoch 가중치로 test** 하므로 별도 검증 분할은 필요 없다.
+
+**코드 (`nsmt_flif_v1/classification/`; `ECG/`의 model·train·test·config·load_model·dataloader·utils·layers·positional을 복사해 수정):**
+- `layers.py`: `SpikLinearLayer(neuron=)`, `NeoNeuron`, `build_neo_neuron` (예측 코드와 같은 어댑터).
+- `model.py`: `Embedding(neuron=)`로 encoding_neo의 LIF 교체(토큰 축), `NeoLayer(neuron=)`(수동형만, 같은 BN 입력을 spikeDE 뉴런이 토큰 축으로 적분), `TemporalBlock(neuron_fn=)`, `Block(self_kv=)`(hippo_only), myModel 옵션 `neo_neuron/neo_where/neo_alpha/fde_*/hippo_only`(맞지 않는 조합은 거부).
+- `load_model.py`: ECG 코드의 `from ab4 import myModelAB4` 제거(ab4 절제 모델은 복사하지 않음), 옵션 전달.
+- `config.py`: `--neo_neuron --neo_where --neo_alpha --fde_method --fde_step --fde_memory --hippo_only`. 실행 폴더의 seed+조건 단계 이름에 접미사(기본 이름 불변).
+- `train.py`: 디버그 스위치(anomaly detection, `CUDA_LAUNCH_BLOCKING`)를 기본으로 끔(`NSMT_DEBUG=1`이면 켬). 결과가 비트 동일함을 c2로 확인했고, 속도 때문이다.
+- `test.py`: 클래스별 F1, confusion matrix, 뉴런 고유 에너지 열, syops에 spikeDE 뉴런 hook. 원래 열 뒤에 덧붙인다.
+- `energy.py`: 예측 코드 복사 + 한 스텝씩 도는 LIF(ECG `NeoLayer`) 기록. 이것이 없으면 base의 신피질 뉴런 에너지가 빠진다.
+- `neurons.py`: 예측 코드와 바이트 동일(c8).
+- 새 파일: `check_cls.py`, `cls_analysis.py`, `summarize_cls.py`, `scripts/{run_mitbih.sh, make_queue_cls.sh, run_analysis.sh, cls_driver.sh}`.
+- 참조 코드 `nsmt_base/classification/ECG/`(사용자가 추가한 원저자 코드 27개 파일)를 이 commit에 함께 기록한다. 데이터 폴더는 제외.
+
+**점검 10/10 (`nsmt_flif_v1/classification/results/checks/check_cls.txt`):**
+- c1 기본값 = ECG 코드: 초기 파라미터 62개, AdamW 3스텝 뒤 파라미터, 학습·test 출력이 모두 비트 동일.
+- c2 디버그 스위치를 꺼도 base·f-LIF 모두 파라미터와 test 출력이 비트 동일.
+- c3 spikeDE LIF = f-LIF(α = 1): 신피질 스파이크 비트 동일(발화율 0.30 / 0.28), 출력 차이 0.
+- c4 해마 뉴런은 모든 조건에서 spikingjelly LIF. 신피질 뉴런은 조건대로 바뀐다.
+- c5 신피질의 토큰 축 인과성(세 뉴런 모두): 토큰 j를 바꾸면 j 이전 출력은 그대로이고 j 이후는 바뀐다. 초기 가중치에서는 신피질이 발화하지 않아 검사가 성립하지 않으므로, 고정 난수로 입력 가중치를 키워 발화율 0.13–0.24에서 검사했다.
+- c6 no_neo·hippo_only: 신피질 모듈에 기울기 없음. hippo_only만 교차 주의를 쓴다.
+- c7 ECG 로더: 배치 [512, 1, 187], 클래스 수와 CAL 가중치가 파일과 일치.
+- c8 `neurons.py` 바이트 동일. c9 에너지 기록기: 모든 뉴런이 T = 11로 기록됨(신피질 3층, 해마 8층). c10 7개 조건의 실행 폴더가 서로 다르고, base 이름은 ECG 규칙과 같음.
+- 처음 실행에서 c3·c5는 신피질이 발화하지 않아 검사가 성립하지 않았고, c6은 비교 조건(출력이 달라야 함)이 초기 가중치에서 성립하지 않아 실패했다. 발화하도록 가중치를 다시 뽑고, c6은 "교차 주의 파라미터가 기울기를 받는가"로 바꿨다.
+
+**smoke (`results/smoke-cls-20261019/raw.txt`, seed 42, 1 epoch, GPU당 2개; 실험 아님, 1 epoch 값은 판단 근거가 아님):**
+
+| 조건 | 정확도 | macro-F1 | 시냅스 µJ | 총 µJ (FFT / 직접 합) | 신피질 발화율 | 시간 s |
+|---|---|---|---|---|---|---|
+| base (ECG 모델) | 0.879176 | 0.448076 | 16.08 | 20.53 / 20.53 | 0.0862 | 61 |
+| neo_lif_both | 0.932842 | 0.600014 | 16.14 | 20.61 / 20.61 | 0.0839 | 63 |
+| neo_flif_both | 0.923918 | 0.614389 | 15.99 | 20.56 / 20.80 | 0.0756 | 70 |
+| neo_lif_mlp | 0.911857 | 0.543118 | 16.16 | 20.65 / 20.65 | 0.0731 | 41 |
+| neo_flif_mlp | 0.940974 | 0.662233 | 15.95 | 20.50 / 20.65 | 0.0879 | 54 |
+| no_neo | 0.918801 | 0.566698 | 10.87 | 12.52 / 12.52 | – | 33 |
+| hippo_only | 0.871075 | 0.430451 | 18.18 | 22.52 / 22.52 | – | 53 |
+
+7개 모두 학습·test·에너지 열까지 지난다. 분석 스크립트도 smoke 체크포인트 3개(base, neo_flif_both, no_neo)로 시험했다(`results/smoke-cls-20261019/analysis/`). 분석용 forward가 모델의 출력과 같은지 매번 확인하고, 다르면 멈춘다.
+
+**본 학습 (사전 고정):** suite `flif-v1-cls`, 21 run = 7 조건 × seed 42 / 7 / 2026 (`scripts/make_queue_cls.sh`).
+
+| 조건 | 신피질 뉴런 |
+|---|---|
+| base | ECG 모델 그대로: 임베딩은 spikingjelly 다중 스텝 LIF, `NeoLayer` 2개는 한 스텝 LIF |
+| neo_lif_both / neo_flif_both | spikeDE LIF / f-LIF(α 0.5, τ 2, pred, h 1, 전체 이력)를 임베딩과 `NeoLayer` 2개 모두에 |
+| neo_lif_mlp / neo_flif_mlp | `NeoLayer` 2개만 교체 (임베딩은 spikingjelly LIF) — 결정 1의 두 위치 비교 |
+| no_neo | ECG 프레임워크의 신피질 제거 (교차 주의 없음) |
+| hippo_only | 결정 7: 신피질 제거, 교차 주의의 key/value = 해마 |
+
+실행: tmux `flif_cls`, `scripts/cls_driver.sh 0,1,2,3,0,1,2,3`(GPU당 2개). 순서는 학습 → 21개 run 분석(`cls_analysis.py`) → 요약(`summarize_cls.py`). 예상 1–1.5시간.
+
+**판정 (고정; test macro-F1, 마지막 가중치, 같은 seed끼리 짝):** A가 B보다 "좋음"은 평균 차이 ≥ +0.5%p이고 3 seed 중 2개 이상에서 A > B인 경우다. "나쁨"은 평균 ≤ −0.5%p이고 2개 이상에서 A < B인 경우다. 그 밖은 "뚜렷한 차이 없음", seed가 빠지면 "미완"이다.
+- **Q1 (주 질문):** f-LIF vs spikeDE LIF — both, mlp 각각.
+- **Q2:** f-LIF vs ECG 모델(base) — both, mlp 각각.
+- **Q3 신피질 기여:** base vs no_neo, base vs hippo_only.
+- 정확도는 같은 규칙으로 보고만 한다. 에너지(시냅스 + 뉴런 식 60/64, 직접 합)도 보고만 한다.
+- **분석 (보고만, 미리 정의):**
+  - A1 replay: 해마가 읽는 신피질 출력을 다른 심박 / 같은 클래스 심박 / 다른 클래스 심박 / 전부 0 / 전부 1로 바꿨을 때 macro-F1 변화.
+  - A2 선형 probe: 원 심박, 신피질 임베딩 스파이크, 신피질 출력 스파이크, 토큰별 발화율, 해마 head 입력에서 클래스를 얼마나 읽을 수 있나.
+  - A3 토큰 축 기억: 신피질 입력 토큰 하나를 다른 심박의 것으로 바꿨을 때, d 토큰 뒤 신피질 스파이크가 바뀌는 비율과 예측이 바뀌는 비율.
+  - A4 클래스별·토큰별 신피질 발화율.
+- **참고값:** 원저자 스크립트 주석의 수동형 신피질 macro-F1 0.9143(3 seed; 다른 서버의 결과라 로그는 확인하지 못함). 논문 Table 5는 정확도 98.45, F1 91.91, 19.05 µJ.
+- 탐색 단계(3 seed)이므로 통과는 확증이 아니다.
+
+**환경:** `snn_recall`(Python 3.10, torch 1.12.0+cu113, spikingjelly cupy), RTX A6000 4장.
+
+**commit:** 이 항목·코드·점검·smoke 결과·ECG 참조 코드를 담은 commit을 push한 뒤 시작한다. 결과는 다음 항목.
