@@ -110,7 +110,10 @@ UNIT = [('patient/record-wise', r'patient|subject|record|inter'), ('random (samp
 FS = [('300 Hz', r'300'), ('250 Hz', r'250'), ('125/128 Hz', r'12[58]'), ('100 Hz', r'\b100\b'), ('500 Hz', r'500'), ('other', r'\d')]
 LEN = [('30 s', r'\b30\b'), ('10 s', r'\b10\b'), ('60 s', r'\b60\b'), ('9 s', r'\b9\b'), ('variable / full', r'variab|full|whole|entire'), ('5 s', r'\b5\b'), ('other', r'\d')]
 METRIC = [('F1 (mean of classes)', r'f1'), ('accuracy', r'acc'), ('sensitivity/specificity', r'sens|spec'), ('AUROC/AUC', r'au[cr]')]
-LOSS = [('class-weighted / focal', r'weight|focal|cost'), ('resampling', r'over.?sampl|under.?sampl|smote|balanc'), ('plain CE', r'cross.?entropy|\bce\b')]
+LOSS = [('class-weighted / focal', r'weighted|focal|cost-sensitive'),
+        ('resampling / balanced subset', r'over.?sampl|under.?sampl|smote|randomly chosen|random selection|balanced to|adding .* samples|equal numbers'),
+        ('no imbalance handling stated (plain loss)', r'no (?:class-)?imbalance handling|no imbalance|no other imbalance|imbalance acknowledged|cross.?entropy|hinge|square loss|binary classification loss'),
+        ('not applicable (no training)', r'not applicable')]
 
 
 def load_extract(task):
@@ -147,13 +150,18 @@ def main():
     ex = load_extract(a.task)
     screen = {r['key']: r for r in csv.DictReader(open(os.path.join(HERE, f'{a.task}_screen.csv'), encoding='utf-8'))}
     ex = [r for r in ex if r.get('key') in screen]                      # drop papers no longer in the A/B screen (venue re-tiered)
+    ov_path = os.path.join(HERE, f'{a.task}_overrides.json')             # manual exclusions after reading (reason recorded)
+    overrides = json.load(open(ov_path)) if os.path.exists(ov_path) else {}
+    for r in ex:
+        if r.get('key') in overrides:
+            r['manual_exclude'] = overrides[r['key']]
     for r in ex:
         s = screen.get(r.get('key'), {})
         r['tier'] = s.get('tier', r.get('tier', '?')); r['doi'] = s.get('doi'); r['arxiv'] = s.get('arxiv'); r['fulltext_source'] = s.get('fulltext_source')
     if a.task == 'shd':
-        inc = [r for r in ex if str(r.get('uses_shd')).lower() == 'true' or str(r.get('uses_ssc')).lower() == 'true']
+        inc = [r for r in ex if (str(r.get('uses_shd')).lower() == 'true' or str(r.get('uses_ssc')).lower() == 'true') and not r.get('manual_exclude')]
     else:
-        inc = [r for r in ex if str(r.get('uses_cinc2017')).lower() == 'true' or str(r.get('uses_afdb')).lower() == 'true']
+        inc = [r for r in ex if (str(r.get('uses_cinc2017')).lower() == 'true' or str(r.get('uses_afdb')).lower() == 'true') and not r.get('manual_exclude')]
     prisma = json.load(open(os.path.join(HERE, f'{a.task}_prisma.json')))
     sc = list(screen.values())
     n_ab = {t: sum(1 for r in sc if r['tier'] == t) for t in ('A', 'B')}
@@ -210,7 +218,7 @@ def main():
     exc = [r for r in ex if r not in inc]
     L += ['', f'## 4. 추출했으나 제외 (대상 데이터셋에서 자기 모델 결과를 보고하지 않음): {len(exc)}편', '']
     for r in sorted(exc, key=lambda r: str(r.get('title'))):
-        L.append(f"- {r.get('year')} | {str(r.get('venue'))[:40]} | {str(r.get('title'))[:90]}")
+        L.append(f"- {r.get('year')} | {str(r.get('venue'))[:40]} | {str(r.get('title'))[:90]}" + (f" — 수동 제외: {r['manual_exclude']}" if r.get('manual_exclude') else ''))
     # appendix A: abstract-only candidates that name the dataset (paywalled; not extracted)
     ao_path = os.path.join(HERE, 'raw', 'extract', f'{a.task}_abstract_only_hits.csv')
     if os.path.exists(ao_path):

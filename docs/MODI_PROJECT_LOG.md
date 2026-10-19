@@ -1178,3 +1178,41 @@ Q1 평균 +1.30%(0/12), Q2 +4.75%(0/12, 에너지 0.049배), **Q3 T=1 평균 +0.
 - 기억이 **필요해지는** 예측 설정은 (i) 창을 길게 주되 head·attention이 그것을 직접 못 보게 하는 설계(사용자의 의도 2: 긴 저해상 이력을 신피질 축에만), 또는 (ii) 창 밖에 주기가 있는 데이터(Electricity·Traffic의 주 단위 주기 168 h vs 창 96 h; `nsmt_base/forecasting/scripts/upstream_electricity_96.sh`가 그 설정)다. ETT는 하루 주기(24 h / 96 × 15분)가 창 안에 들어 기억 요구가 약하다.
 
 **commit:** 이 항목과 `probe_by_horizon.py`, 재집계 CSV를 commit·push한다(8단계 조사 commit과 함께).
+
+---
+
+## 2026-10-19 20:19 KST — 8단계 조사 결과: ECG 리듬 분류(CinC 2017·AFDB)와 SHD/SSC의 2023–2026 top-tier 선행 연구 프로토콜 조사 (학습 없음) — 공통 프로토콜과 채택안, 승인 대기
+
+**요청 (사용자, 10-19):** 두 과제의 최근 약 3년 선행 연구를 학술 DB에서 전수 조사해 공통 실험 프로토콜을 확인하고 채택하라. 조사는 내가 직접(사용자의 첫 답 "CSV 제공"을 번복), **신뢰도 높은 국제 학회를 놓치지 말 것, top-tier 저널·학회만, MDPI 제외.** 경계 저널(B군: Scientific Reports, Computers in Biology and Medicine, Biomedical Signal Processing and Control, Physiological Measurement, Expert Systems with Applications, IEEE Access)은 **포함하되 분리 집계**(사용자 결정). ECG 범위는 CinC 2017 중심 + AFDB. 순서는 조사 → 프로토콜 확정 보고 → 승인 후 실험.
+
+**방법 (`docs/surveys/`, 모두 Git; API 원본·PDF·전문은 `docs/surveys/raw/` 로컬):**
+- 수집 `collect.py`: (1) 데이터셋 원 논문의 **인용 추적** — Semantic Scholar(`paper/{id}/citations`)와 OpenAlex(`filter=cites:`) 두 색인; 씨앗은 Clifford 2017(CinC 2017 대회 논문, 인용 887)과 Cramer 2020/2022(Heidelberg 데이터셋, 인용 363); (2) **키워드 검색** — OpenAlex 전문 검색, arXiv API, Crossref, PubMed. DBLP와 OpenReview는 이 서버에서 봇 차단(HTTP 202/403)으로 쓰지 못했고, ICLR·NeurIPS는 인용 추적과 arXiv로 잡았다. Semantic Scholar 검색은 키 없이 429라 쓰지 못했다(인용 endpoint는 됨). OpenAlex는 cursor 페이지가 키를 요구해 page 번호 방식으로 바꿨다.
+- 장소 분류: A군 화이트리스트(계획 1.3) + B군 + 제외군(MDPI·Frontiers·Hindawi·CinC 프로시딩·워크숍) + 프리프린트 + 출처 불명. 빈 장소·LNCS 묶음은 Crossref DOI로 풀어 재분류. **내가 임의로 더한 장소(사용자 확인 필요):** A군에 Heart Rhythm·Europace·JAHA·TMLR·TCAD·DATE, B군에 ICASSP·Interspeech·TCAS-II. ASP-DAC가 DAC 규칙에 잘못 걸린 것을 발견해 제외했다(1편).
+- 선별 `screen.py`: A/B군·주제 일치 후보의 공개 전문(arXiv → S2/OpenAlex 공개 PDF → PMC → Europe PMC XML)을 받아 데이터셋 언급을 세고(≥ 2 = 사용 후보), 문장 발췌와 규칙 힌트를 만들었다.
+- 추출: 병렬 작업자(SHD 3, ECG 2)가 발췌·전문에서 항목(계획 1.4)을 채우고 근거 인용문을 적었다. `verify_quotes.py`로 인용문의 원문 존재를 기계 대조했고(SHD 290개 중 227개, ECG 202개 중 169개; 나머지는 PDF 열 배치로 끊긴 문자열이며 표본으로 실존 확인), 표본 2편은 내가 직접 원문과 대조했다. 집계 `report.py`(A군만 / A+B군 두 열), 수동 제외 `ecg_overrides.json`(4편, 이유 기록).
+
+**건수 (PRISMA 식):**
+
+| | SHD/SSC | ECG 리듬 |
+|---|---|---|
+| 수집(중복 제거, 2023–2026) | 2,416 | 5,578 |
+| 주제 일치 A군 / B군 | 165 / 38 | 280 / 207 |
+| 공개 전문 확보 A / B | 86 / 16 | 181 / 108 |
+| 전문에서 데이터셋 실제 사용 A / B | 51 / 8 | 9 / 17 (+ 1회 언급 15편 추가 검토) |
+| **추출 후 포함** A / B | **46 / 3** | **7 / 15** |
+| 제외군(MDPI 등) 주제 일치 | 82 | 305 |
+| 초록에 데이터셋이 보이나 전문 없음 | 11 | 16 |
+
+**결과 1 — SHD/SSC (`docs/surveys/shd_ssc_protocols_2023_2026.md`, 포함 49편):** 시간 구간 폭은 명시한 논문 중 10 ms(6)·4 ms(5)·1 ms(5)가 축이고 절반(23/46)은 적지 않음; 스텝 수 100(10)·250(8); 채널 700 그대로(21)·140(6); **모델 선택 방식은 65%가 미기재**이고 적은 논문은 "test를 검증으로 씀"(6)·"학습 일부 분리"(5)·"화자 단위 교차검증"(2)으로 갈림; 증강 미기재 31, 사용 12(채널 이동·같은 클래스 섞기·사건 드롭); 모델은 재귀 SNN 19·순방향 14·지연 7; 뉴런은 LIF 18·**다중 구획/가지 12**·ALIF 8·이질 τ 5; seed 5개(10)·3개(6)·10개(4)·미기재 21; 보고는 평균±표준편차 24·단일 17. 출처: Nature Communications 9, Neuromorphic Computing and Engineering 7, ICLR 5, Neural Networks 4, NeurIPS 4, AAAI 3, TMLR 3.
+**채택안(승인 전):** 700채널, **10 ms → 100스텝 기본 + 4 ms → 250스텝**, SHD는 **학습 10%를 떼어 검증(test는 마지막 1회)**, 증강 없음 기본 + 증강 조건 별도 행, **seed 5**, 지표 시험 정확도, 7단계 주의 없는 정렬 모델. 상세는 보고서 5절.
+
+**결과 2 — ECG 리듬 (`docs/surveys/ecg_rhythm_protocols_2023_2026.md`, 포함 22편):** **가장 중요한 발견은 top-tier에 이 데이터셋을 쓰는 논문이 거의 없다는 것**이다. A군 전문 181편 중 CinC 2017·AFDB로 자기 모델을 평가한 논문은 7편이고, 나머지는 PTB-XL(19)·MIT-BIH 부정맥(8)·병원 자체 코호트다. CinC 2017 연구의 대부분은 B군(Scientific Reports 12편)과 제외군(305편)에 있다. A+B 22편 기준: 분할은 고정 홀드아웃(9)과 k-fold(8, k=5가 4편)가 반반, 공식 숨은 test 1; 분할 단위는 명시된 쪽에서 환자/기록 단위(11)가 다수(무작위 3은 모두 B군); 표본화율 300(7)·250(4); 입력 길이 10 s(4)·30 s/기록 전체(7+); 불균형은 보통 CE(13), 가중치·focal 0; 주 지표 F1 클래스 평균(12)·정확도(5)·AUROC(3), 잡음 포함 여부 명시 5편뿐; **seed 미기재 19/22**, 단일 값 16.
+**채택안(승인 전):** CinC 2017 4클래스 v3, **기록 단위 층화 5-fold**(탐색은 fold 1 × seed 3, 확증은 5-fold), 125 Hz 재표본·0.5–40 Hz·z-score, **30 s(토큰 233) 기본 + 10 s(토큰 77) 길이 ablation**, CE+CAL 기본 + 보통 CE 조건, 주 지표 **F1(N·AF·Other 평균, 대회 점수)** 과 보조 지표, 기록 단위 평가; AFDB는 기록 단위 분할·10 s 조각으로 흐름 처리 확장 과제. 상세는 보고서 5절.
+
+**판단에 영향을 주는 점:**
+- ECG 쪽은 "관행 채택"의 근거가 약하다(A군 7편). 사용자가 top-tier만을 원한 취지로 보면, **CinC 2017은 top-tier가 쓰는 벤치마크가 아니다.** 대안은 (i) 그래도 CinC 2017을 쓰되 B군 관행을 따르고 그 사실을 명시, (ii) top-tier가 실제로 쓰는 PTB-XL(10 s, 12리드, 리듬 라벨 포함)로 바꾸기 — 단 리듬 라벨의 기억 요구는 CinC 2017보다 약하다(10 s 안 판정), (iii) AFDB 중심의 흐름 처리 과제. 결정은 사용자 몫이다.
+- SHD/SSC 쪽은 표본이 충분하고 관행이 분명하다. 단 "모델 선택에 test를 쓰는" 논문이 있어, 우리가 검증 분할을 쓰면 상위 보고치와 0.5–1%p 정도 불리한 비교가 된다는 점을 표에 표시해야 한다.
+
+**한계:** 유료 전문 미접근(SHD A군 79편, ECG A군 99편 초록만), DBLP·OpenReview 미사용, 자동 추출(인용문 대조 78–84%, 표본 수작업 확인), 장소 분류 일부 내 판단. 모두 보고서 5.4절에 적었다.
+
+**commit:** 이 항목과 `docs/surveys/` 산출물(후보 목록·선별 표·추출 표·보고서·스크립트)을 commit·push한다. 실험은 승인 뒤 별도 사전 고정 항목으로 시작한다.

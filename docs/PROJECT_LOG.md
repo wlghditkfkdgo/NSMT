@@ -7232,3 +7232,18 @@ commit: 이 항목을 담은 commit(MODI_PROJECT_LOG의 Phase A 결과 항목과
 ## 2026-10-19 12:51 KST — f_lif_pop_v3 추적 감사92: 새 판단 근거 없음
 
 예약 `20261019T035005Z-905fdfc2`, branch `exp/nsmt-flif-neo`, HEAD `e05fc1b48d0fc448bef49609b697ede2db272792`(비교기준 `3399fb585ae91fde27fcc2f49f36c5b6a1de7be3`). snapshot1632/trigger차0/연구파일변화0, 문서3개 감사91 자체append 일치. HEAD는 별도 nsmt_flif_v1/기록 반영. neurons.py SHA `cc1f438f0e97dd2c196a6eb9dc8bad2a833e2cd003b1b5924017d56dafe258bf` 불변. A35 설명 범위 VERIFIED·A34 재발방지 OPEN·A31 잔여·2S 미등록/성능 보류 유지. CPU 모델·학습·GPU·실데이터/val/test/checkpoint 검증 not run. 새 실험·소스/config·분할 변경·Git 변이 없음. 증거 `NSMT/f_lif_pop_v3/forecasting/results/assessment/20261019T035005Z-905fdfc2/` inventory/snapshot/checks.json, raw 동일task log/assessment/동일run. 상세 ASSESMENT 감사92. 기존 artifacts/local changes 보존·자체append 분리.
+
+
+## 2026-10-19 13:20 KST — f_lif_pop_v3 추적 감사93: 새 판단 근거 없음
+
+예약 `20261019T042005Z-e618ada5`, branch `exp/nsmt-flif-neo`, HEAD `03af378f2b33eee77c90560d392b3ebc0177d9f3`(비교기준 `e05fc1b48d0fc448bef49609b697ede2db272792`). snapshot1632/trigger차0/연구파일변화0, 문서3개 감사92 자체append 일치. HEAD는 별도 nsmt_flif_v1/기록 반영. neurons.py SHA `cc1f438f0e97dd2c196a6eb9dc8bad2a833e2cd003b1b5924017d56dafe258bf` 불변. A35 설명 범위 VERIFIED·A34 재발방지 OPEN·A31 잔여·2S 미등록/성능 보류 유지. CPU 모델·학습·GPU·실데이터/val/test/checkpoint 검증 not run. 새 실험·소스/config·분할 변경·Git 변이 없음. 증거 `NSMT/f_lif_pop_v3/forecasting/results/assessment/20261019T042005Z-e618ada5/` inventory/snapshot/checks.json, raw 동일task log/assessment/동일run. 상세 ASSESMENT 감사93. 기존 artifacts/local changes 보존·자체append 분리.
+
+
+## 2026-10-19 17:21 KST — f_lif_pop_v3 추적 감사94: 새 판단 근거 없음
+
+예약 `20261019T082004Z-5ce1d2b8`, branch `exp/nsmt-flif-neo`, HEAD `f8c68dcadb6659e7e5a28394fa1073056cfb8875`(비교기준 `03af378f2b33eee77c90560d392b3ebc0177d9f3`). snapshot1632/trigger차0/연구파일변화0, 문서3개는 미commit 감사93 자체append와 일치. HEAD는 별도 nsmt_flif_v1/문헌조사/기록 변경, 이 감사의 새 성능 근거가 아니다. neurons.py SHA `cc1f438f0e97dd2c196a6eb9dc8bad2a833e2cd003b1b5924017d56dafe258bf` 불변. A35 설명 범위 VERIFIED·A34 재발방지 OPEN·A31 잔여·2S 미등록/성능 보류 유지. CPU 모델·학습·GPU·실데이터/val/test/checkpoint 검증 not run. 새 실험·소스/config·분할 변경·Git 변이 없음. 증거 `NSMT/f_lif_pop_v3/forecasting/results/assessment/20261019T082004Z-5ce1d2b8/` inventory/snapshot/checks.json, raw 동일task log/assessment/동일run. 상세 ASSESMENT 감사94. 기존 artifacts/local changes 보존·자체append 분리.
+
+
+## 2026-10-19 19:31 KST — f_lif_pop_v3 추적 감사95: 새 판단 근거 없음
+
+예약 `20261019T103004Z-62f9b564`, branch `exp/nsmt-flif-neo`, HEAD `a8bacef3fc5e90c2e2e347a7894a44523b3327a2`(비교기준 `f8c68dcadb6659e7e5a28394fa1073056cfb8875`). snapshot1632/trigger차0/연구파일변화0, 문서3개는 미commit 감사94 자체append와 일치. HEAD는 루트 docs/surveys 11파일만 변경, 이 감사의 새 근거로 사용하지 않았다. neurons.py SHA `cc1f438f0e97dd2c196a6eb9dc8bad2a833e2cd003b1b5924017d56dafe258bf` 불변. A35 설명 범위 VERIFIED·A34 재발방지 OPEN·A31 잔여·2S 미등록/성능 보류 유지. CPU 모델·학습·GPU·실데이터/val/test/checkpoint 검증 not run. 새 실험·소스/config·분할 변경·Git 변이 없음. 증거 `NSMT/f_lif_pop_v3/forecasting/results/assessment/20261019T103004Z-62f9b564/` inventory/snapshot/checks.json, raw 동일task log/assessment/동일run. 상세 ASSESMENT 감사95. 기존 artifacts/local changes 보존·자체append 분리.
