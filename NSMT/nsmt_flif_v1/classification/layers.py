@@ -13,7 +13,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from utils import RelBias1DDeterministicFn
-from neurons import LIFNeuron, FLIFNeuron          # nsmt_flif_v1: spikeDE LIF / f-LIF for the neocortex path
+from neurons import LIFNeuron, FLIFNeuron, PopulationFLIF   # nsmt_flif_v1: spikeDE LIF / f-LIF / population f-LIF for the neocortex path
 
 
 __all__ = ['spikformer']
@@ -425,10 +425,10 @@ class NeoNeuron(nn.Module):
         return s.reshape(T, B, N1, D)
 
 
-NEO_NEURONS = ('sj_lif', 'lif', 'flif')
+NEO_NEURONS = ('sj_lif', 'lif', 'flif', 'pop_flif')
 
 
-def build_neo_neuron(kind, size, T, layout, tau=2., alpha=.5, method='pred', step=1., memory=0):
+def build_neo_neuron(kind, size, T, layout, tau=2., alpha=.5, method='pred', step=1., memory=0, pop_taus=(4., 8., 16., 32.)):
     """'lif' / 'flif': neurons.py classes wrapped in NeoNeuron; `T` = spiking steps (sizes the kernel table).
     'sj_lif' is handled by the callers (they keep their own spikingjelly LIF, constructed exactly as in nsmt_base)."""
     common = dict(tau=tau, threshold=1., surrogate_scale=5., step=step, max_length=int(T))
@@ -436,6 +436,12 @@ def build_neo_neuron(kind, size, T, layout, tau=2., alpha=.5, method='pred', ste
         n = LIFNeuron(size, **common)
     elif kind == 'flif':
         n = FLIFNeuron(size, alpha=alpha, method=method, memory=(int(memory) if memory else None), **common)
+    elif kind == 'pop_flif':
+        # f_lif_pop_v3 population neuron: K non-resetting f-LIF branches (time constants pop_taus) mixed by learnable
+        # weights into one LIF soma (time constant `tau`); same alpha / solver as 'flif'; output = soma spikes [T, B, D]
+        common.pop('tau')
+        n = PopulationFLIF(size, tau=tuple(float(t) for t in pop_taus), soma='lif', tau_s=tau, heterogeneous=True,
+                           alpha=alpha, method=method, memory=(int(memory) if memory else None), **common)
     else:
-        raise ValueError(f"build_neo_neuron needs 'lif' or 'flif', got {kind!r}")
+        raise ValueError(f"build_neo_neuron needs 'lif', 'flif' or 'pop_flif', got {kind!r}")
     return NeoNeuron(n, layout)

@@ -885,3 +885,57 @@ Q1 평균 +1.30%(0/12), Q2 +4.75%(0/12, 에너지 0.049배), **Q3 T=1 평균 +0.
 - 감사 88(`docs/PROJECT_LOG.md`, 02:11)은 f_lif_pop_v3 추적 감사로 새 판단 근거가 없다. 이 단계와 관련된 지적도 없다.
 
 **commit/tag:** 이 항목·결과·분석·요약을 담은 commit에 태그 `exp/nsmt-flif-neo-20261019`를 붙이고 브랜치와 태그만 push한다.
+
+---
+
+## 2026-10-19 11:12 KST — 6단계 설계·구현·사전 고정: MIT-BIH에서 population f-LIF와 양방향 신피질 (사용자 제안 2가지), 점검 12/12, smoke 4/4 — 12 run tmux에서 시작
+
+**요청 (2026-10-19, 사용자):** "왜 정렬이 효과적이지 못 할까?" 분석 뒤 — "우리가 설계했던 population f-LIF가 도움을 줄 수 있을까? 그리고 양 방향 설계를 더 하는 거야. 지금은 시계열 토큰 원래 순서대로 입력했지만 반대 순서로도 입력하고 두 정보를 합치는 거야." → "두 제안에 대한 실험을 MIT BIH 데이터셋에 대해 시도해주고 결과를 분석해줘."
+
+**브랜치·기준:** `exp/nsmt-flif-neo`(계속), 기준 commit `b842e414a`(5단계 결과).
+
+**배경 (5단계 결과 뒤 사용자 질문에 답한 분석):** 정렬이 효과를 내지 못한 원인을 네 가지로 정리했다. ① 뉴런 기억이 2–3토큰(A3: d=5에서 4.5%, d=10에서 1.8%), ② head·교차 주의가 이미 모든 토큰을 양방향으로 봄(4단계 R1: 정렬 끔이 더 좋음; hippo_only = base), ③ 인과 제약(앞 토큰이 뒤 문맥을 못 씀), ④ 손실이 기억을 요구하지 않음(보조 목표가 같은 토큰). Population f-LIF는 ①을, 양방향은 ③을 건드린다. ②④는 두 제안 모두 그대로 둔다. **예상(사전 기록):** 두 제안 모두 macro-F1 ±0.3%p 안, 즉 판정 기준 미달. 둘 다 기준 미달이면 ①③은 원인이 아니고 ②④가 남는다.
+
+**설계:**
+- **Population f-LIF** (`neurons.py`의 `PopulationFLIF`, f_lif_pop_v3의 v3 배치): 한 유닛에 시간상수 4/8/16/32의 가지 4개(리셋 없음, α 0.5·pred·전체 이력), 학습 가중치(초기 1/4)로 섞어 LIF soma(τ 2, θ 1) 하나가 발화. 신피질 임베딩과 `NeoLayer` 2개 모두에 둔다(both). 파라미터 +4,608(soma 혼합 가중치). 주의: f_lif_pop_v3에서 쓴 입력 크기·임계값 보정은 하지 않는다. 앞단 BN의 affine이 크기를 학습할 수 있다고 보고 ECG 설정 그대로 둔다.
+- **양방향 신피질** (`--neo_bidir`): 역순 토큰 열을 **별도 파라미터**의 임베딩 + `NeoLayer` 2개(`encoding_neo_rev`, `time_block_rev`)에 통과시키고, 다시 뒤집어 정순 출력과 **OR(원소별 최대)** 로 합친다. OR을 고른 이유: 출력이 0/1로 남아 해마의 key/value 선형층이 AC 연산으로 유지되고(합이면 2가 생겨 MAC로 집계됨), 발화율 ~0.1에서 두 방향이 동시에 발화하는 경우는 ~1%라 잃는 정보가 작다. 신피질 파라미터 2배(1,226,112 → 1,535,616). 보조 손실은 합친 출력으로 계산한다(토큰별 목표는 그대로).
+- 둘을 합친 조건과, 양방향의 뉴런 효과를 분리할 spikeDE LIF 양방향 대조군을 둔다.
+
+**조건 (새 suite `flif-v1-cls2`, 4 조건 × seed 42/7/2026 = 12 run; 참조는 5단계 `flif-v1-cls`의 같은 코드 경로·같은 학습 규칙 run):**
+
+| 조건 | 신피질 |
+|---|---|
+| neo_pop_both | population f-LIF, 정순 |
+| bidir_lif_both | spikeDE LIF, 양방향 |
+| bidir_flif_both | f-LIF, 양방향 |
+| bidir_pop_both | population f-LIF, 양방향 |
+| (참조) neo_lif_both, neo_flif_both, base, hippo_only, no_neo | 5단계 run 재사용 (c1: 기본 경로 비트 동일 확인) |
+
+학습은 5단계와 같다(30 epoch cosine, bs 512, lr 0.01, CAL 가중 CE, 마지막 가중치로 test).
+
+**코드 (`nsmt_flif_v1/classification/`):** `layers.build_neo_neuron`에 `pop_flif`(`pop_taus`); `model.py`에 `neo_bidir`, 역방향 모듈, 공통 `neo_forward(neo_in)`(분석 스크립트도 이것을 씀); `config.py`에 `--pop_taus --neo_bidir`와 폴더 접미사 `_neopop_flif-…`, `_bidir`; `load_model.py`; `energy.py`에 population 에너지(우리 규약: 가지 K개의 이력 항(식 64 FFT 또는 직접 합) + 리셋 없는 스텝 항 + soma 혼합 K MAC/스텝 + soma LIF 식 60; 논문에 없는 식이므로 보고용)와 역방향 모듈 접두사; `scripts/run_mitbih.sh`(4 조건), `make_queue_cls.sh`(`CONDS=`), `cls_driver.sh`(`SUITE= CONDS= REF_SUITE=`), `summarize_cls.py --ref_suite`(Q4–Q7); `check_cls.py` c11–c12.
+
+**점검 12/12 (`results/checks/check_cls_stage6.txt`):** c1–c10 그대로 통과(기본 경로·f-LIF 경로 비트 동일 유지). **c11** population: 가지 4개·시간상수 4/8/16/32·soma τ 2, 출력 0/1·[11, 32, 1, 384], 토큰 축 인과성 3/3, 에너지 기록기가 pop_flif로 집계. 초기 가중치를 c5 방식으로 키워도(3배·7배) soma가 발화하지 않아(0.000) smoke 체크포인트(1 epoch 학습)와 실제 심박으로 검사했다 — 발화율 임베딩 0.0045, 출력 0.019. **c12** 양방향: 역방향 모듈이 별도 파라미터, 합친 출력 = max(정순, 뒤집은 역순) 비트 동일, 두 방향이 동시에 발화하는 원소 존재, 토큰 j를 바꾸면 정순 가지는 j 이후만·역순 가지는 j 이전만 바뀜(3/3), 폴더 이름 구분. 처음 c12는 "별도 파라미터" 검사가 BN의 초기값(1, 0)까지 비교해 실패했고, Linear 가중치와 뉴런 객체로 바꿨다.
+
+**smoke (`results/smoke-cls2-20261019/raw.txt`, seed 42, 1 epoch; 실험 아님):**
+
+| 조건 | 정확도 | macro-F1 | 총 µJ (FFT / 직접 합) | 신피질 발화율 | 파라미터 | 시간 s |
+|---|---|---|---|---|---|---|
+| neo_pop_both | 0.942406 | 0.722443 | 21.70 / 22.09 | 0.0098 | 1,230,720 | 50 |
+| bidir_lif_both | 0.926507 | 0.601142 | 21.47 / 21.47 | 0.0541 | 1,535,616 | 76 |
+| bidir_flif_both | 0.885176 | 0.464674 | 21.56 / 22.03 | 0.0593 | 1,535,616 | 54 |
+| bidir_pop_both | 0.912283 | 0.548903 | 24.31 / 25.08 | 0.0081 | 1,544,832 | 88 |
+
+**관찰(사전 기록):** population 조건의 신피질 발화율이 1 epoch 뒤 약 1%로, f-LIF(5단계 1 epoch 7.6%)의 1/8이다. 느린 가지(τ 4–32)와 1/4 혼합이 입력을 크게 줄이기 때문이다. 30 epoch 뒤에도 낮게 남으면 population 조건의 결과는 "보정 없는 설정"의 결과로 읽어야 한다. 분석 스크립트는 bidir_pop_both smoke 체크포인트로 시험했다(forward 일치 비트 동일; 양방향이므로 A3에서 바꾼 토큰 앞쪽 변화 3.3%가 나타남 — 설계대로).
+
+**판정 (고정; 5단계와 같은 규칙 — test macro-F1, 같은 seed끼리 짝, 평균 ≥ +0.5%p이고 3 seed 중 2개 이상):**
+- **Q4 population:** neo_pop_both vs neo_flif_both.
+- **Q5 양방향:** bidir_flif_both vs neo_flif_both; bidir_lif_both vs neo_lif_both(뉴런과 무관한 양방향 효과).
+- **Q6 둘 다:** bidir_pop_both vs neo_flif_both, vs bidir_flif_both.
+- **Q7 (원래 기준 (2), 보고):** 세 조건 각각 vs hippo_only, 에너지 비율과 함께.
+- 분석 A1–A4는 5단계와 같이 보고만 한다. 양방향에서 A3의 "바꾼 토큰 앞쪽 변화"는 역방향 가지의 정상 동작이다.
+- 탐색 단계(3 seed)이므로 통과는 확증이 아니다.
+
+**실행:** tmux `flif_cls2`, `SUITE=flif-v1-cls2 CONDS="bidir_pop_both bidir_flif_both neo_pop_both bidir_lif_both" REF_SUITE=flif-v1-cls scripts/cls_driver.sh 0,1,2,3,0,1,2,3`. 예상 1시간(smoke에서 양방향 population은 epoch당 약 90 s).
+
+**commit:** 이 항목·코드·점검·smoke를 담은 commit을 push한 뒤 시작한다. 결과는 다음 항목.

@@ -14,6 +14,11 @@ cannot run, or whose test is vacuous (no spikes), FAILs.
   c8  neurons.py is byte-identical to nsmt_flif_v1/forecasting/neurons.py
   c9  energy recorder: every neuron recorded with T = 11 (incl. the single-step LIFNode of the ECG NeoLayer)
   c10 run directories: distinct for the 7 conditions; the baseline name equals the ECG naming
+  c11 (stage 6) population f-LIF in the neocortex: K = 4 branches with time constants 4/8/16/32, one LIF soma, output 0/1 of
+      shape [N, B, 1, D], causal along the token axis, fires (rate in [0.02, 0.98]); the energy recorder reports it as pop_flif
+  c12 (stage 6) bidirectional neocortex: fused output == max(forward, flipped reverse) computed from the two branches
+      separately; changing token j changes the forward branch only at tokens >= j and the reverse branch only at <= j;
+      the reverse modules have their own parameters; run-directory names of the 4 stage-6 conditions are distinct
 usage: python check_cls.py [--out results/checks/check_cls.txt]
 """
 import argparse
@@ -39,7 +44,9 @@ HP = dict(keep_ratio=0.15, gating='attn', patch_size=32, embed_dim=384, num_head
           model='myModel')
 CONDS = {'base': {}, 'neo_lif_both': dict(neo_neuron='lif'), 'neo_flif_both': dict(neo_neuron='flif'),
          'neo_lif_mlp': dict(neo_neuron='lif', neo_where='mlp'), 'neo_flif_mlp': dict(neo_neuron='flif', neo_where='mlp'),
-         'no_neo': dict(no_neo=True), 'hippo_only': dict(hippo_only=True)}
+         'no_neo': dict(no_neo=True), 'hippo_only': dict(hippo_only=True),
+         'neo_pop_both': dict(neo_neuron='pop_flif'), 'bidir_lif_both': dict(neo_neuron='lif', neo_bidir=True),            # stage 6
+         'bidir_flif_both': dict(neo_neuron='flif', neo_bidir=True), 'bidir_pop_both': dict(neo_neuron='pop_flif', neo_bidir=True)}
 
 # helper run in a subprocess (own sys.path / cwd): builds the model, runs AdamW steps on a fixed batch, saves tensors
 HELPER = r'''
@@ -146,10 +153,13 @@ def make_fire(m, seed=7, emb_std=2.0, mlp_std=5.0):
     """At init the neocortex is silent (vacuous tests); re-draw its input weights from a fixed generator so it fires."""
     g = torch.Generator().manual_seed(seed)
     with torch.no_grad():
-        w = m.encoding_neo.emb_linear.weight
-        w.copy_(torch.randn(w.shape, generator=g) * emb_std / w.shape[1] ** .5)
-        for l in m.time_block.Mem:
-            l.w_in.weight.copy_(torch.randn(l.w_in.weight.shape, generator=g) * mlp_std / l.w_in.weight.shape[1] ** .5)
+        for emb, tb in ((m.encoding_neo, m.time_block), (getattr(m, 'encoding_neo_rev', None), getattr(m, 'time_block_rev', None))):
+            if emb is None:
+                continue
+            w = emb.emb_linear.weight
+            w.copy_(torch.randn(w.shape, generator=g) * emb_std / w.shape[1] ** .5)
+            for l in tb.Mem:
+                l.w_in.weight.copy_(torch.randn(l.w_in.weight.shape, generator=g) * mlp_std / l.w_in.weight.shape[1] ** .5)
 
 
 def neo_spikes(m, x):
@@ -316,12 +326,104 @@ def c10():
     report('c10', ok, ', '.join(f'{c}={n}' for c, n in names.items()))
 
 
+@check('c11')
+def c11():
+    from spikingjelly.clock_driven import functional
+    from energy import FiringRateRecorder
+    from neurons import PopulationFLIF
+    m = build('neo_pop_both'); m.eval()
+    # the population soma is far less excitable than a single f-LIF (slow branches 4-32, 1/K mix): with re-drawn input
+    # weights it stays silent (out rate 0.000 at 3x and 7x the c5 scale), so the test uses the 1-epoch smoke checkpoint
+    # of neo_pop_both (its neurons fire at ~1%), as stage 4's c10 did for its causality test
+    import glob
+    ck = sorted(glob.glob(os.path.join(HERE, 'log', os.environ.get('SMOKE_SUITE', 'smoke-cls2-*'), 'MITBIH', '*', '*+neo_pop_both+*',
+                                       '*_neopop_flif-both-a0.5', 'model_state', 'best+model.pt')))
+    if not ck:
+        raise FileNotFoundError('no smoke checkpoint of neo_pop_both (run make_queue_cls.sh smoke-cls2-<date> 1 first)')
+    m.load_state_dict(torch.load(ck[-1], map_location='cuda'))
+    mods = [m.encoding_neo.emb_lif.neuron] + [l.lif.neuron for l in m.time_block.Mem]
+    ok_type = all(isinstance(n, PopulationFLIF) and n.num_members == 4 and n.has_soma and n.tau.tolist() == [4., 8., 16., 32.]
+                  and abs(float(n.soma.tau_s) - 2.0) < 1e-9 for n in mods)
+    g = torch.Generator().manual_seed(11)
+    from dataloader import create_loader
+    te, _ = create_loader(train=False, batch_size=64, num_classes=5, data_root=DATA + '/5class_mitbih_test_3_187.csv', data_window_size=187, num_workers=0)
+    xb = next(iter(te))[0].float().cuda()[:32]                          # [32, 1, 187] real beats
+    xp = m.padding_patch_layer(xb[:, 0]).unfold(-1, m.patch_size, m.stride)   # [32, 11, 32]
+    tok = xp.transpose(0, 1).unsqueeze(2).contiguous()                  # [11, 32, 1, 32]
+    def run(t):
+        with torch.no_grad():
+            e, o = m.neo_forward(t)
+        functional.reset_net(m)
+        return e, o
+    e0, o0 = run(tok)
+    binary = bool(((o0 == 0) | (o0 == 1)).all() and ((e0 == 0) | (e0 == 1)).all())
+    rates = [e0.mean().item(), o0.mean().item()]
+    causal = []
+    for j in (2, 5, 8):
+        t2 = tok.clone(); t2[j] = tok[j].roll(1, dims=0)                  # token j of another beat
+        e1, o1 = run(t2)
+        causal.append(torch.equal(o1[:j], o0[:j]) and torch.equal(e1[:j], e0[:j]) and not torch.equal(o1[j:], o0[j:]))
+    rec = FiringRateRecorder(m)
+    with torch.no_grad():
+        m.train_mode = 'testing'; m(torch.rand(16, 1, 187).cuda()); rec.add_samples(16); functional.reset_net(m)
+    rec.detach()
+    kinds = {r['kind'] for r in rec.layers() if r['path'] == 'neo'}
+    # non-vacuous = spikes at tokens >= j actually changed (in `causal`); the rate bounds only reject a dead layer
+    ok = ok_type and binary and all(causal) and 0.001 <= rates[0] <= 0.98 and 0.005 <= rates[1] <= 0.98 and tuple(o0.shape) == (11, 32, 1, 384) and kinds == {'pop_flif'}
+    report('c11', ok, f'smoke ckpt {os.path.relpath(ck[-1], HERE)[:60]}...; types/K/taus/soma ok {ok_type}, binary {binary}, shape {tuple(o0.shape)}, causal {causal}, rates emb {rates[0]:.4f} out {rates[1]:.4f}, energy kinds {sorted(kinds)}')
+
+
+@check('c12')
+def c12():
+    from spikingjelly.clock_driven import functional
+    import config as cfg
+    msgs, oks = [], []
+    for c in ('bidir_lif_both', 'bidir_flif_both'):
+        m = build(c); m.eval(); make_fire(m)
+        own = (m.encoding_neo_rev.emb_linear.weight.data_ptr() != m.encoding_neo.emb_linear.weight.data_ptr()
+               and all(a.lif is not b.lif for a, b in zip(m.time_block.Mem, m.time_block_rev.Mem))
+               and not torch.equal(m.time_block.Mem[0].w_in.weight, m.time_block_rev.Mem[0].w_in.weight))   # BN params are equal at init by design
+        g = torch.Generator().manual_seed(12)
+        tok = torch.randn(11, 32, 1, 32, generator=g).cuda()
+        def branches(t):
+            with torch.no_grad():
+                f = m.time_block(m.encoding_neo(t)); r = m.time_block_rev(m.encoding_neo_rev(t.flip(0))).flip(0)
+                _, o = m.neo_forward(t)
+            functional.reset_net(m)
+            return f, r, o
+        f0, r0, o0 = branches(tok)
+        fused = torch.equal(o0, torch.maximum(f0, r0))
+        both = bool(((f0 == 1) & (r0 == 1)).any())                          # OR differs from sum somewhere
+        causal = []
+        for j in (2, 5, 8):
+            t2 = tok.clone(); t2[j] = torch.randn(32, 1, 32, generator=g).cuda()
+            f1, r1, _ = branches(t2)
+            causal.append(torch.equal(f1[:j], f0[:j]) and not torch.equal(f1[j:], f0[j:])
+                          and torch.equal(r1[j + 1:], r0[j + 1:]) and not torch.equal(r1[:j + 1], r0[:j + 1]))
+        rates = [f0.mean().item(), r0.mean().item()]
+        ok = own and fused and all(causal) and all(0.02 <= x <= 0.98 for x in rates)
+        oks.append(ok); msgs.append(f'{c}: own params {own}, fused==max {fused}, overlap exists {both}, fwd>=j & rev<=j {causal}, rates {rates[0]:.3f}/{rates[1]:.3f}')
+    tmp = tempfile.mkdtemp(dir=os.environ.get('CHECK_TMP'))
+    flags = {'neo_pop_both': ['--neo_neuron', 'pop_flif'], 'bidir_lif_both': ['--neo_bidir', '--neo_neuron', 'lif'],
+             'bidir_flif_both': ['--neo_bidir', '--neo_neuron', 'flif'], 'bidir_pop_both': ['--neo_bidir', '--neo_neuron', 'pop_flif'],
+             'neo_flif_both': ['--neo_neuron', 'flif']}
+    names, argv0 = {}, sys.argv
+    try:
+        for c, f in flags.items():
+            sys.argv = ['train.py', '--log_dir', tmp, '--seed', '42', '-s'] + f
+            a = cfg.Config(); a.set_args(cfg.parse_arguments()); names[c] = os.path.basename(a.save_result_path)
+    finally:
+        sys.argv = argv0
+    distinct = len(set(names.values())) == len(names) and names['neo_flif_both'] == 'seed42_rec0_tau2.0_wmfull_neoflif-both-a0.5'
+    report('c12', all(oks) and distinct, '; '.join(msgs) + f"; dirs distinct {distinct}: " + ', '.join(f'{k}={v}' for k, v in names.items() if k != 'neo_flif_both'))
+
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', default=os.path.join(HERE, 'results', 'checks', 'check_cls.txt'))
     ap.add_argument('--only', nargs='*', default=None)
     a = ap.parse_args()
-    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10):
+    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12):
         if a.only and fn.__name__ not in a.only:
             continue
         fn()

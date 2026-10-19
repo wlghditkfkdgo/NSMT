@@ -655,3 +655,8 @@ HEAD `f28772380948e72baf9eba00b343d94b0a1ddac5`. snapshot1632/trigger차0/연구
 ### 2026-10-19 02:11 KST — 추적 감사88 (20261018T171004Z-13690c7f)
 
 HEAD `da14fc7a832b59523498ded794ef9a1516ee1e5d`. snapshot1632/trigger차0/연구파일변화0; 문서3개는 감사87 자체append와 일치. HEAD는 다른 모델·ECG data Git 제외 규칙·기록 변경. 새 판단 근거 없음. A35 설명 범위 VERIFIED·A34 재발방지 OPEN·A31 잔여·2S 미등록/성능 보류 유지. CPU 모델·학습·GPU·실val/test/checkpoint 검증 not run. 증거 results/assessment/20261018T171004Z-13690c7f/checks.json·snapshot, raw 같은task log/assessment/동일run. 자체append 분리.
+
+
+### 2026-10-19 03:11 KST — 추적 감사89 (20261018T181004Z-ad4f9774)
+
+HEAD `b842e414a5fb4543e62102c38e065ac3254280ce`. snapshot1632/trigger차0/연구변화0. 문서3개는 감사88 자체append, HEAD는 별도 nsmt_flif_v1/기록 반영. 새 판단 근거 없음. A35 설명 범위 VERIFIED·A34 재발방지 OPEN·A31 잔여·2S 미등록 유지. 모델/학습/GPU/실val·test 검증 not run, 성능 보류. 증거 results/assessment/20261018T181004Z-ad4f9774/checks.json·snapshot, raw 같은task log/assessment/동일run. 자체append 분리.

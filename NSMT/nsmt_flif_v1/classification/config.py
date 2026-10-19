@@ -99,7 +99,7 @@ def parse_arguments():
     snn_arg.add_argument('--grad_clip', dest='grad_clip', type=float, default=0.0, help='gradient clipping max_norm (0=off) for recurrent BPTT stability')
     snn_arg.add_argument('--neo_tau', dest='neo_tau', type=float, default=2.0, help='Neocortex memory time-constant (recurrent attractor leak)')
     # nsmt_flif_v1: neocortex-path neuron replacement (defaults = the ECG model)
-    snn_arg.add_argument('--neo_neuron', choices=['sj_lif', 'lif', 'flif'], default='sj_lif',
+    snn_arg.add_argument('--neo_neuron', choices=['sj_lif', 'lif', 'flif', 'pop_flif'], default='sj_lif',
                          help='neocortex neurons: sj_lif = spikingjelly LIF (ECG model); lif = spikeDE LIF (control); flif = spikeDE f-LIF')
     snn_arg.add_argument('--neo_where', choices=['both', 'mlp'], default='both',
                          help='both = encoding_neo LIF + time_block LIFs; mlp = time_block only (all on the token axis)')
@@ -107,6 +107,10 @@ def parse_arguments():
     snn_arg.add_argument('--fde_method', choices=['pred', 'gl'], default='pred')
     snn_arg.add_argument('--fde_step', type=float, default=1.0)
     snn_arg.add_argument('--fde_memory', type=int, default=0, help='0 = full history')
+    # stage 6 (MODI 2026-10-19): population f-LIF branches and the bidirectional neocortex
+    snn_arg.add_argument('--pop_taus', type=str, default='4,8,16,32', help='pop_flif: branch time constants (soma uses --neo_tau)')
+    snn_arg.add_argument('--neo_bidir', action='store_true', default=False,
+                         help='stage 6: second neocortex over the reversed token axis, fused with the forward one by OR')
     snn_arg.add_argument('--hippo_only', action='store_true', default=False,
                          help='MODI decision 7: no neocortex; the cross-attention key/value is the hippocampus itself')
     snn_arg.add_argument('--tau', dest='tau', type=float, default=2.0)
@@ -188,6 +192,10 @@ class Config():
             _iso += "_noneo"
         if getattr(args, 'hippo_only', False):
             _iso += "_hippoonly"
+        if getattr(args, 'neo_bidir', False):
+            _iso += "_bidir"
+        if getattr(args, 'neo_neuron', 'sj_lif') == 'pop_flif' and getattr(args, 'pop_taus', '4,8,16,32') != '4,8,16,32':
+            _iso += "_pt" + args.pop_taus.replace(',', '-')
         self.save_result_path = os.path.join(os.getcwd(), args.log_dir, self.date, self.date + tag, _iso)
         
         self.save_log_path = os.path.join(self.save_result_path, 'log')

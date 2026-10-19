@@ -72,8 +72,7 @@ class Runner:
             neo_in = patched.transpose(0, 2).contiguous().mean(2, keepdim=True)     # [N, B, 1, P]
             if neo_tok_fn is not None:
                 neo_in = neo_tok_fn(neo_in)
-            e = m.encoding_neo(neo_in)
-            o = m.time_block(e)
+            e, o = m.neo_forward(neo_in)                                              # stage 6: bidirectional-aware
             mx = o if mx_fn is None else mx_fn(o)
         else:
             mx = None

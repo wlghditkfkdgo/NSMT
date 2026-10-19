@@ -34,7 +34,7 @@ E_AC, E_MAC = 0.9e-12, 4.6e-12
 KAPPA = E_MAC / E_AC                                                 # 5.111...
 COLUMNS = ('neuron_lif_uJ', 'neuron_model_fft_uJ', 'neuron_model_direct_uJ', 'total_fft_uJ',
            'total_direct_uJ', 'rho_neo', 'rho_hippo', 'n_spiking_layers', 'kappa')
-NEO_PREFIXES = ('encoding_neo', 'time_block')
+NEO_PREFIXES = ('encoding_neo', 'time_block')                     # also matches encoding_neo_rev / time_block_rev (stage 6)
 
 
 def e_lif(T, rho):
@@ -58,8 +58,23 @@ def e_flif_direct(T, rho, memory=None):
 
 def _kind(module):
     if isinstance(module, FLIFNeuron):
+        if getattr(module, 'num_members', 1) > 1 and getattr(module, 'has_soma', False):
+            return 'pop_flif'
         return 'flif' if module.alpha < 1. else 'lif'                # alpha = 1 is the Euler LIF
     return 'lif'
+
+
+def e_pop_flif(T, rho, K, memory=None, direct=False):
+    """Population f-LIF (stage 6; our convention, not in the f-LIF paper): K non-resetting fractional branches, each
+    paying the history term of eq. 64 (FFT) or the direct sum, plus the per-step LIF-like terms without reset
+    (rho-independent part of eq. 60), plus K MACs per step for the learned soma mix, plus one LIF soma (eq. 60)."""
+    if direct:
+        W = T - 1 if not memory else min(int(memory) - 1, T - 1)
+        hist = sum(min(t, W) for t in range(T)) * (KAPPA + 1.)
+    else:
+        hist = T * ((KAPPA + 1.) * math.log2(T) + 1.)
+    branch = hist + T * (2. * KAPPA + 2.)
+    return K * branch + T * K * KAPPA + e_lif(T, rho)
 
 
 class FiringRateRecorder:
@@ -73,7 +88,8 @@ class FiringRateRecorder:
                 single = type(m) is LIFNode                          # one call per time step (ECG NeoLayer)
                 self.stats[name] = dict(kind=_kind(m), path='neo' if name.startswith(NEO_PREFIXES) else 'hippo',
                                         T=0, spikes=0., elems=0, calls=0, rate_sum=0., single=single,
-                                        memory=getattr(m, 'memory', None), alpha=getattr(m, 'alpha', 1.))
+                                        memory=getattr(m, 'memory', None), alpha=getattr(m, 'alpha', 1.),
+                                        members=int(getattr(m, 'num_members', 1)))
                 self.handles.append(m.register_forward_hook(self._hook(name)))
 
     def _hook(self, name):
@@ -113,6 +129,9 @@ class FiringRateRecorder:
             lif, fft, direct = e_lif(T, rho), e_lif(T, rho), e_lif(T, rho)
             if st['kind'] == 'flif':
                 fft, direct = e_flif_fft(T, rho), e_flif_direct(T, rho, st['memory'])
+            elif st['kind'] == 'pop_flif':
+                K = st['members']
+                fft, direct = e_pop_flif(T, rho, K, st['memory']), e_pop_flif(T, rho, K, st['memory'], direct=True)
             rows.append(dict(module=name, kind=st['kind'], path=st['path'], T=T, neurons_per_sample=per_sample,
                              rho=rho, rho_syops=st['rate_sum'] / st['calls'], alpha=st['alpha'],
                              E_lif_J=per_sample * lif * E_AC, E_fft_J=per_sample * fft * E_AC,

@@ -17,10 +17,14 @@ import pandas as pd
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SEEDS = (42, 7, 2026)
-CONDS = ('base', 'neo_lif_both', 'neo_flif_both', 'neo_lif_mlp', 'neo_flif_mlp', 'no_neo', 'hippo_only')
+CONDS = ('base', 'neo_lif_both', 'neo_flif_both', 'neo_lif_mlp', 'neo_flif_mlp', 'no_neo', 'hippo_only',
+         'neo_pop_both', 'bidir_lif_both', 'bidir_flif_both', 'bidir_pop_both')
 LABEL = {'base': 'ECG model (spikingjelly LIF)', 'neo_lif_both': 'spikeDE LIF, both', 'neo_flif_both': 'f-LIF, both',
          'neo_lif_mlp': 'spikeDE LIF, MLP only', 'neo_flif_mlp': 'f-LIF, MLP only', 'no_neo': 'no neocortex (ECG ablation)',
-         'hippo_only': 'hippo-only (decision 7)'}
+         'hippo_only': 'hippo-only (decision 7)',
+         'neo_pop_both': 'population f-LIF, both', 'bidir_lif_both': 'bidirectional spikeDE LIF', 'bidir_flif_both': 'bidirectional f-LIF',
+         'bidir_pop_both': 'bidirectional population f-LIF'}
+NEO_CONDS = ('base', 'neo_lif_both', 'neo_flif_both', 'neo_lif_mlp', 'neo_flif_mlp', 'neo_pop_both', 'bidir_lif_both', 'bidir_flif_both', 'bidir_pop_both')
 CLS = ('N', 'S', 'V', 'F', 'Q')
 
 
@@ -70,11 +74,18 @@ def ms(x, scale=100., nd=2):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--suite', default='flif-v1-cls')
+    ap.add_argument('--ref_suite', default=None, help='stage 6: an earlier suite whose runs (same code path, same training) join the tables')
     a = ap.parse_args()
     R = os.path.join(HERE, 'results', a.suite)
     df = parse_raw(os.path.join(R, 'raw.txt'))
+    suites = {a.suite: R}
+    if a.ref_suite:
+        RR = os.path.join(HERE, 'results', a.ref_suite)
+        ref = parse_raw(os.path.join(RR, 'raw.txt'))
+        ref = ref[~ref.cond.isin(set(df.cond))]                       # this suite's own runs win
+        df = pd.concat([df, ref], ignore_index=True); suites[a.ref_suite] = RR
     df.to_csv(os.path.join(R, 'runs.csv'), index=False)
-    L = [f'# MIT-BIH suite `{a.suite}` — summary', '',
+    L = [f'# MIT-BIH suite `{a.suite}` — summary' + (f' (with reference runs from `{a.ref_suite}`)' if a.ref_suite else ''), '',
          f"Test file: 32,833 beats (30% split). Last-epoch weights after {'/'.join(str(int(e)) for e in sorted(df.epochs.unique()))} epochs (the ECG framework protocol). "
          'Numbers are mean ± standard deviation over seeds 42 / 7 / 2026, in %.', '']
     # condition table
@@ -85,7 +96,7 @@ def main():
     for c in CONDS:
         r = df[df.cond == c]
         if not len(r):
-            L.append(f'| {LABEL[c]} | 0 | not run | | | | | | | | |'); continue
+            continue
         rho = 'n/a' if r['rho_neo'].isna().all() else ms(r['rho_neo'], 1., 4)
         L.append(f"| {LABEL[c]} | {len(r)} | {ms(r.overall_acc)} | {ms(r.f1)} | {ms(r.f1_1)} | {ms(r.f1_2)} | {ms(r.f1_3)} | {ms(r.f1_4)} | "
                  f"{ms(r.syn_energy_uJ, 1.)} | {ms(r.total_fft_uJ, 1.)} / {ms(r.total_direct_uJ, 1.)} | {rho} |")
@@ -98,7 +109,14 @@ def main():
           '| question | A | B | A − B per seed (42 / 7 / 2026) | mean | verdict |', '|---|---|---|---|---|---|']
     Q = [('Q1 f-LIF vs spikeDE LIF', 'neo_flif_both', 'neo_lif_both'), ('Q1 f-LIF vs spikeDE LIF', 'neo_flif_mlp', 'neo_lif_mlp'),
          ('Q2 f-LIF vs ECG model', 'neo_flif_both', 'base'), ('Q2 f-LIF vs ECG model', 'neo_flif_mlp', 'base'),
-         ('Q3 neocortex contribution', 'base', 'no_neo'), ('Q3 neocortex contribution', 'base', 'hippo_only')]
+         ('Q3 neocortex contribution', 'base', 'no_neo'), ('Q3 neocortex contribution', 'base', 'hippo_only'),
+         ('Q4 population f-LIF vs f-LIF', 'neo_pop_both', 'neo_flif_both'),                                 # stage 6
+         ('Q5 bidirectional vs forward (f-LIF)', 'bidir_flif_both', 'neo_flif_both'),
+         ('Q5 bidirectional vs forward (spikeDE LIF)', 'bidir_lif_both', 'neo_lif_both'),
+         ('Q6 both vs f-LIF', 'bidir_pop_both', 'neo_flif_both'), ('Q6 both vs bidirectional f-LIF', 'bidir_pop_both', 'bidir_flif_both'),
+         ('Q7 best stage-6 vs hippo-only', 'bidir_pop_both', 'hippo_only'), ('Q7 vs hippo-only', 'bidir_flif_both', 'hippo_only'),
+         ('Q7 vs hippo-only', 'neo_pop_both', 'hippo_only')]
+    Q = [(q, x, y) for q, x, y in Q if (df.cond == x).any() and (df.cond == y).any()]
     for q, x, y in Q:
         v = verdict(df, x, y)
         L.append(f"| {q} | {LABEL[x]} | {LABEL[y]} | {v['diffs']} | {v['mean']:+.2f} | {v['verdict']} |")
@@ -110,16 +128,19 @@ def main():
     # analysis
     AD = os.path.join(R, 'analysis')
     def load(c, s, f):
-        p = os.path.join(AD, f'{c}_seed{s}', f)
-        return pd.read_csv(p) if os.path.exists(p) else None
+        for sr in suites.values():                                     # this suite first, then the reference suite
+            p = os.path.join(sr, 'analysis', f'{c}_seed{s}', f)
+            if os.path.exists(p):
+                return pd.read_csv(p)
+        return None
     if os.path.isdir(AD):
         L += ['', '## A1 replay tests: macro-F1 change when the neocortex output read by the hippocampus is replaced (%p, mean ± sd over seeds)', '',
               '| condition | normal macro-F1 | another beat | same class | other class | all zero | all one |', '|---|---|---|---|---|---|---|']
-        for c in CONDS[:5]:
+        for c in NEO_CONDS:
             tabs = [load(c, s, 'replay.csv') for s in SEEDS]
             tabs = [t for t in tabs if t is not None]
             if not tabs:
-                L.append(f'| {LABEL[c]} | not run | | | | | |'); continue
+                continue
             base = [t.set_index('test').loc['normal', 'macro_f1'] for t in tabs]
             cells = []
             for mode in ('shift', 'same_class', 'other_class', 'zero', 'ones'):
@@ -132,31 +153,32 @@ def main():
             tabs = [load(c, s, 'probe.csv') for s in SEEDS]
             tabs = [t.set_index('feature') for t in tabs if t is not None]
             if not tabs:
-                L.append(f'| {LABEL[c]} | not run | | | | |'); continue
+                continue
             def cell(f):
                 v = [t.loc[f, 'macro_f1'] for t in tabs if f in t.index]
                 return ms(v) if v else '—'
             L.append(f"| {LABEL[c]} (n={len(tabs)}) | {cell('raw')} | {cell('neo_emb_spikes')} | {cell('neo_out_spikes')} | "
                      f"{cell('neo_out_token_rate')} | {cell('hippo_head_input')} |")
         L += ['', '## A3 token-axis memory: share of neocortex output spikes that change d tokens after the replaced token (%, mean over seeds)', '',
-              '| condition | ' + ' | '.join(f'd={d}' for d in range(11)) + ' | changed predictions, token 0 | max change before the replaced token |',
+              '| condition | ' + ' | '.join(f'd={d}' for d in range(11)) + ' | changed predictions, token 0 | max change before the replaced token (expected > 0 for bidirectional) |',
               '|---|' + '---|' * 13]
-        for c in CONDS[:5]:
+        for c in NEO_CONDS:
             tabs = [load(c, s, 'reach_lag.csv') for s in SEEDS]; preds = [load(c, s, 'reach_pred.csv') for s in SEEDS]
             tabs = [t for t in tabs if t is not None]; preds = [p for p in preds if p is not None]
             if not tabs:
-                L.append(f'| {LABEL[c]} | not run |' + ' |' * 12); continue
+                continue
             lag = np.mean([t['out'].values for t in tabs], axis=0)
             pc = np.mean([p.loc[p.token == 0, 'changed_pred'].iloc[0] for p in preds]) if preds else float('nan')
             ac = []
             for s in SEEDS:
-                p = os.path.join(AD, f'{c}_seed{s}', 'meta.json')
-                if os.path.exists(p):
-                    import json
-                    ac.append(json.load(open(p)).get('acausal_max', float('nan')))
+                for sr in suites.values():
+                    p = os.path.join(sr, 'analysis', f'{c}_seed{s}', 'meta.json')
+                    if os.path.exists(p):
+                        import json
+                        ac.append(json.load(open(p)).get('acausal_max', float('nan'))); break
             L.append(f"| {LABEL[c]} (n={len(tabs)}) | " + ' | '.join(f'{100 * v:.2f}' for v in lag) + f" | {100 * pc:.2f} | {max(ac) if ac else float('nan'):.1e} |")
         L += ['', '## A4 neocortex output firing per token, by class (%, mean over seeds; tokens = 32-sample patches, stride 16)', '']
-        for c in ('base', 'neo_lif_both', 'neo_flif_both'):
+        for c in ('base', 'neo_lif_both', 'neo_flif_both', 'neo_pop_both', 'bidir_flif_both'):
             tabs = [load(c, s, 'firing_by_class.csv') for s in SEEDS]
             tabs = [t for t in tabs if t is not None]
             if not tabs:

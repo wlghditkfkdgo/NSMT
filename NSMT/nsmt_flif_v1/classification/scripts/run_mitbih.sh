@@ -6,7 +6,8 @@
 # Only the condition flags differ.
 # usage: COND=<cond> run_mitbih.sh <seed> <gpu>
 #   COND: base | neo_lif_both | neo_flif_both | neo_lif_mlp | neo_flif_mlp | no_neo | hippo_only   (default base)
-#   env:  ALPHA (0.5) NEO_TAU (2.0) FDE (pred) H (1.0) MEM (0) SUITE EPOCHS (30) RES LOG DATA PY THREADS
+#         stage 6: neo_pop_both | bidir_lif_both | bidir_flif_both | bidir_pop_both  (population f-LIF, bidirectional neocortex)
+#   env:  ALPHA (0.5) NEO_TAU (2.0) FDE (pred) H (1.0) MEM (0) POP_TAUS (4,8,16,32) SUITE EPOCHS (30) RES LOG DATA PY THREADS
 set -u
 S=${1:?}; GPU=${2:?}
 W="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"  # task root (nsmt_flif_v1/classification)
@@ -23,6 +24,10 @@ case $COND in
   neo_flif_mlp)  CF="--neo_neuron flif --neo_where mlp  --neo_alpha $ALPHA $NEOX" ;;
   no_neo)        CF="--no_neo" ;;                                  # ECG framework ablation: no neocortex, no cross-attention
   hippo_only)    CF="--hippo_only" ;;                              # MODI decision 7: no neocortex, key/value = hippocampus
+  neo_pop_both)  CF="--neo_neuron pop_flif --neo_where both --neo_alpha $ALPHA --pop_taus ${POP_TAUS:-4,8,16,32} $NEOX" ;;   # stage 6
+  bidir_lif_both)  CF="--neo_bidir --neo_neuron lif  --neo_where both $NEOX" ;;
+  bidir_flif_both) CF="--neo_bidir --neo_neuron flif --neo_where both --neo_alpha $ALPHA $NEOX" ;;
+  bidir_pop_both)  CF="--neo_bidir --neo_neuron pop_flif --neo_where both --neo_alpha $ALPHA --pop_taus ${POP_TAUS:-4,8,16,32} $NEOX" ;;
   *) echo "bad cond $COND"; exit 1 ;;
 esac
 SUITE=${SUITE:-flif-v1-cls-$(date +%Y%m%d)}

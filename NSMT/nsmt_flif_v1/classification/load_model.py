@@ -10,7 +10,9 @@ def _neo_kwargs(args):
     return dict(neo_neuron=getattr(args, 'neo_neuron', 'sj_lif'), neo_where=getattr(args, 'neo_where', 'both'),
                 neo_alpha=getattr(args, 'neo_alpha', 0.5), fde_method=getattr(args, 'fde_method', 'pred'),
                 fde_step=getattr(args, 'fde_step', 1.0), fde_memory=getattr(args, 'fde_memory', 0),
-                hippo_only=getattr(args, 'hippo_only', False))
+                hippo_only=getattr(args, 'hippo_only', False),
+                neo_bidir=getattr(args, 'neo_bidir', False),                                        # stage 6
+                pop_taus=tuple(float(t) for t in str(getattr(args, 'pop_taus', '4,8,16,32')).split(',')))
 
 
 def load_mymodel(args, train=True):

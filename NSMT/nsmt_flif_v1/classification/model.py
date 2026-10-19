@@ -462,15 +462,21 @@ class myModel(nn.Module):
         # both run over the token axis (T = N). The hippocampus path keeps the spikingjelly LIF in every condition.
         neo_neuron = str(kwargs.get('neo_neuron', 'sj_lif')); neo_where = str(kwargs.get('neo_where', 'both'))
         self.hippo_only = bool(kwargs.get('hippo_only', False))     # MODI decision 7: no neocortex, MCA key/value = hippocampus
-        if neo_neuron not in ('sj_lif', 'lif', 'flif') or neo_where not in ('both', 'mlp'):
-            raise ValueError("neo_neuron in {sj_lif, lif, flif}, neo_where in {both, mlp}")
+        # stage 6: bidirectional neocortex -- a second embedding + time_block run over the REVERSED token axis; the two
+        # spike outputs are fused by OR (max) after flipping the reverse one back, so the fused output stays 0/1
+        self.neo_bidir = bool(kwargs.get('neo_bidir', False))
+        if neo_neuron not in ('sj_lif', 'lif', 'flif', 'pop_flif') or neo_where not in ('both', 'mlp'):
+            raise ValueError("neo_neuron in {sj_lif, lif, flif, pop_flif}, neo_where in {both, mlp}")
+        if self.neo_bidir and (self.no_neo or self.hippo_only):
+            raise ValueError('neo_bidir needs the neocortex path')
         if neo_neuron != 'sj_lif' and (self.no_neo or self.hippo_only):
             raise ValueError('no_neo / hippo_only have no neocortex path; do not combine them with --neo_neuron')
         if self.no_neo and self.hippo_only:
             raise ValueError('choose one of no_neo and hippo_only')
         self.neo_neuron, self.neo_where = neo_neuron, neo_where
         _neo = dict(tau=self.neo_tau, alpha=float(kwargs.get('neo_alpha', 0.5)), method=str(kwargs.get('fde_method', 'pred')),
-                    step=float(kwargs.get('fde_step', 1.0)), memory=int(kwargs.get('fde_memory', 0)))
+                    step=float(kwargs.get('fde_step', 1.0)), memory=int(kwargs.get('fde_memory', 0)),
+                    pop_taus=tuple(kwargs.get('pop_taus', (4., 8., 16., 32.))))
         emb_neuron = (build_neo_neuron(neo_neuron, embed_dim, self.T, 'DN', **_neo)
                       if (neo_neuron != 'sj_lif' and neo_where == 'both') else None)
         mlp_fn = ((lambda: build_neo_neuron(neo_neuron, embed_dim, self.T, 'ND', **_neo))
@@ -508,6 +514,11 @@ class myModel(nn.Module):
                                     tau=tau,
                                     neuron=emb_neuron                  # nsmt_flif_v1
                                     )
+        if self.neo_bidir:                                             # stage 6: its own parameters and neurons
+            emb_neuron_rev = (build_neo_neuron(neo_neuron, embed_dim, self.T, 'DN', **_neo)
+                              if (neo_neuron != 'sj_lif' and neo_where == 'both') else None)
+            self.encoding_neo_rev = Embedding(num_patches=self.num_patches, patch_size=self.patch_size, embed_dim=embed_dim,
+                                              stride=self.stride, pe=False, bias=lif_bias, tau=tau, neuron=emb_neuron_rev)
 
         self.data_block = nn.ModuleList([Block(T=T,
                     dim=embed_dim, seq_len=self.num_patches, num_heads=num_heads, mlp_ratios=mlp_ratios, qkv_bias=qkv_bias,
@@ -527,6 +538,11 @@ class myModel(nn.Module):
                                         exact=self.neo_exact,
                                         mutual=False,
                                         neuron_fn=mlp_fn)              # nsmt_flif_v1
+        if self.neo_bidir:                                             # stage 6
+            self.time_block_rev = TemporalBlock(T=self.T, num_layers=time_num_layers, patch_size=data_patch_size,
+                                                embed_dim=embed_dim, lif_bias=lif_bias, num_heads=num_heads, tau=self.neo_tau,
+                                                recurrent=self.neo_recurrent, rec_gate=self.neo_rec_gate, exact=self.neo_exact,
+                                                mutual=False, neuron_fn=mlp_fn)
             
         # init_weight = torch.Tensor(self.T, embed_dim)
         # self.memory_slot = nn.parameter.Parameter(init_weight)
@@ -644,8 +660,7 @@ class myModel(nn.Module):
         if self.no_neo or self.hippo_only:              # nsmt_flif_v1: hippo_only also has no neocortex path
             x_neo = None                                # ablation: no Neocortex path
         else:
-            x_neo_emb = self.encoding_neo(patched_x.transpose(0, 2).contiguous().mean(2, keepdim=True)) #[T B N D]
-            x_neo = self.time_block(x_neo_emb, org_seq)
+            _, x_neo = self.neo_forward(patched_x.transpose(0, 2).contiguous().mean(2, keepdim=True), org_seq)   # [N B 1 D]
         
         for dblk in self.data_block:
             x_hippo = dblk(x_hippo, x_neo, self_kv=self.hippo_only)
@@ -666,6 +681,18 @@ class myModel(nn.Module):
             raise ValueError
         
         
+    def neo_forward(self, neo_in, org_seq=None):
+        """Neocortex path on neo_in [N, B, 1, P] (token axis first). Returns (embedding spikes, output spikes), both
+        [N, B, 1, D]. stage 6 bidirectional: the reversed token sequence goes through its own embedding + time_block,
+        the result is flipped back and fused with the forward output by OR (torch.maximum)."""
+        e = self.encoding_neo(neo_in)
+        o = self.time_block(e, org_seq)
+        if getattr(self, 'neo_bidir', False):
+            e_r = self.encoding_neo_rev(neo_in.flip(0))
+            o_r = self.time_block_rev(e_r, org_seq).flip(0)
+            o = torch.maximum(o, o_r)
+        return e, o
+
     def _training(self, x_hippo, x_neo):
         x_data = x_hippo.clone().detach().transpose(0, 2).contiguous().mean(2, keepdim=True)
         if x_neo is None:                               # no_neo: no reconstruction aux, no distill
