@@ -222,13 +222,17 @@ class HighFreqAmp(nn.Module):
 class Block(nn.Module):
     def __init__(self, T, dim, seq_len, num_heads, mlp_ratios=2., max_ratio=2, qkv_bias=False, qk_scale=None, drop=0., attn_drop=0.1,
                 drop_path=0.1, norm_layer=nn.LayerNorm, sr_ratio=1, lif_bias=False, tau=2.0, attn=False,
-                time_num_layers=1, patch_size=16):
+                time_num_layers=1, patch_size=16, ssa=False):
         super().__init__()
         
         topk_ratio = None
+        self.use_ssa = bool(ssa)                         # stage 9 Hippo-only: Spikformer-style token self-attention (N x N)
         
         # self.high_freq = HighFreqAmp(dim) if not attn else SSA_rel_scl(dim=dim, seq_len=seq_len, num_heads=num_heads, pe=True, lif_bias=lif_bias, tau=tau, drop=attn_drop)
-        self.mca = MutualCrossAttention(dim=dim, out_seq=False, lif_bias=lif_bias, num_heads=num_heads, tau=tau, drop=drop)
+        if self.use_ssa:
+            self.ssa = SSA_rel_scl(dim=dim, seq_len=seq_len, num_heads=num_heads, pe=True, lif_bias=lif_bias, tau=tau, drop=attn_drop)
+        else:
+            self.mca = MutualCrossAttention(dim=dim, out_seq=False, lif_bias=lif_bias, num_heads=num_heads, tau=tau, drop=drop)
         mlp_hidden_dim = int(dim * mlp_ratios)
         mlp_input_dim = dim
         self.mlp = MLP(in_features=mlp_input_dim, hidden_features=mlp_hidden_dim, out_features=dim, drop=drop, lif_bias=lif_bias, tau=tau)
@@ -238,6 +242,11 @@ class Block(nn.Module):
 
     def forward(self, x: torch.Tensor, mx=None, self_kv=False):
         T, B, N, D = x.shape
+
+        if self.use_ssa:                                # stage 9: x = x (1 - SSA(x)); same IAND structure as the other blocks
+            x = x * (1. - self.ssa(x))
+            x = x * (1. - self.mlp(x))
+            return x
 
         if self_kv:                                     # nsmt_flif_v1 hippo_only (MODI decision 7): key/value = hippocampus
             x = x * (1. - self.mca(x, x))
@@ -449,6 +458,14 @@ class myModel(nn.Module):
         self.padding_patch_layer = nn.ReplicationPad1d((0, self.stride))
         self.num_patches = self.num_patches + 1
         self.T = self.num_patches
+        # stage 9: multichannel tokens (a token = P time steps x C channels, flattened) and a Spikformer-style Hippo-only
+        # with its own number of repetitions T_h (SSA does not need T = N). Defaults keep the ECG model unchanged.
+        self.in_channels = int(kwargs.get('in_channels', 1) or 1)
+        self.tok_dim = self.patch_size * self.in_channels
+        self.hippo_ssa = bool(kwargs.get('hippo_ssa', False))
+        self.T_h = int(kwargs.get('hippo_T', 0) or 0) or self.T
+        if self.T_h != self.T and not self.hippo_ssa:
+            raise ValueError('hippo_T != number of tokens is only allowed with hippo_ssa (the cross-attention needs T = N)')
 
         # sine spike-encoding: roll the Hippocampus patch sequence per spiking step T with a
         # raised-cosine causal shift schedule (APE-like, ported from forecasting ours_roll).
@@ -473,10 +490,12 @@ class myModel(nn.Module):
             raise ValueError('no_neo / hippo_only have no neocortex path; do not combine them with --neo_neuron')
         if self.no_neo and self.hippo_only:
             raise ValueError('choose one of no_neo and hippo_only')
+        if self.hippo_ssa and (self.no_neo or self.hippo_only or self.neo_bidir or neo_neuron != 'sj_lif'):
+            raise ValueError('hippo_ssa has no neocortex path; do not combine it with no_neo / hippo_only / neo options')
         self.neo_neuron, self.neo_where = neo_neuron, neo_where
         _neo = dict(tau=self.neo_tau, alpha=float(kwargs.get('neo_alpha', 0.5)), method=str(kwargs.get('fde_method', 'pred')),
                     step=float(kwargs.get('fde_step', 1.0)), memory=int(kwargs.get('fde_memory', 0)),
-                    pop_taus=tuple(kwargs.get('pop_taus', (4., 8., 16., 32.))))
+                    pop_taus=tuple(kwargs.get('pop_taus', (4., 8., 16., 32.))), pop_soma_init=kwargs.get('pop_soma_init', None))
         emb_neuron = (build_neo_neuron(neo_neuron, embed_dim, self.T, 'DN', **_neo)
                       if (neo_neuron != 'sj_lif' and neo_where == 'both') else None)
         mlp_fn = ((lambda: build_neo_neuron(neo_neuron, embed_dim, self.T, 'ND', **_neo))
@@ -498,15 +517,16 @@ class myModel(nn.Module):
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depths)]  # stochastic depth decay rule
 
         self.encoding = Embedding(num_patches=self.num_patches,
-                                    patch_size=self.patch_size,
+                                    patch_size=self.tok_dim,             # stage 9: P x C (= P for the ECG model)
                                     embed_dim=embed_dim,
                                     stride=self.stride,
                                     pe=False,
                                     bias=lif_bias,
                                     tau=tau
                                     )
-        self.encoding_neo = Embedding(num_patches=self.num_patches,
-                                    patch_size=self.patch_size,
+        if not self.hippo_ssa:                                         # stage 9: Hippo-only (SSA) builds no neocortex
+          self.encoding_neo = Embedding(num_patches=self.num_patches,
+                                    patch_size=self.tok_dim,
                                     embed_dim=embed_dim,
                                     stride=self.stride,
                                     pe=False,
@@ -517,16 +537,18 @@ class myModel(nn.Module):
         if self.neo_bidir:                                             # stage 6: its own parameters and neurons
             emb_neuron_rev = (build_neo_neuron(neo_neuron, embed_dim, self.T, 'DN', **_neo)
                               if (neo_neuron != 'sj_lif' and neo_where == 'both') else None)
-            self.encoding_neo_rev = Embedding(num_patches=self.num_patches, patch_size=self.patch_size, embed_dim=embed_dim,
+            self.encoding_neo_rev = Embedding(num_patches=self.num_patches, patch_size=self.tok_dim, embed_dim=embed_dim,
                                               stride=self.stride, pe=False, bias=lif_bias, tau=tau, neuron=emb_neuron_rev)
 
         self.data_block = nn.ModuleList([Block(T=T,
                     dim=embed_dim, seq_len=self.num_patches, num_heads=num_heads, mlp_ratios=mlp_ratios, qkv_bias=qkv_bias,
                     qk_scale=qk_scale, drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[j],
-                    norm_layer=norm_layer, sr_ratio=sr_ratios, lif_bias=lif_bias, tau=tau, attn=(gating=='original'))
+                    norm_layer=norm_layer, sr_ratio=sr_ratios, lif_bias=lif_bias, tau=tau, attn=(gating=='original'),
+                    ssa=self.hippo_ssa)
                     for j in range(depths)])
 
-        self.time_block = TemporalBlock(T=self.T,
+        if not self.hippo_ssa:
+          self.time_block = TemporalBlock(T=self.T,
                                         num_layers=time_num_layers,
                                         patch_size=data_patch_size,
                                         embed_dim=embed_dim,
@@ -549,8 +571,8 @@ class myModel(nn.Module):
         # stdv = 1. / math.sqrt(self.memory_slot.size(1))
         # self.memory_slot.data.uniform_(-stdv, stdv)
         
-        if ((self.train_mode == 'training') or (self.train_mode == 'pre_training')) : 
-            self.weak_decoder = Decoder(embed_dim=embed_dim, d_out=self.patch_size, tau=tau, bias=lif_bias)
+        if ((self.train_mode == 'training') or (self.train_mode == 'pre_training')) and not self.hippo_ssa : 
+            self.weak_decoder = Decoder(embed_dim=embed_dim, d_out=self.tok_dim, tau=tau, bias=lif_bias)
             
         self.head = nn.Linear(embed_dim, num_classes, bias=lif_bias) if num_classes > 0 else nn.Identity()
         self.dropout = nn.Dropout(drop_rate)
@@ -634,18 +656,22 @@ class myModel(nn.Module):
         # if self.keep_ratio > 0:
         #     low_freq_x, _, _ = lowpass_memory(x, keep_ratio=self.keep_ratio, time_dim=2, center=True, rebinarize=False)
             
-        if self.spk_encoding:
+        if self.in_channels > 1 or self.hippo_ssa:      # stage 9 path (multichannel and/or T_h != N); exact copies, no means
+            patched_x, neo_in = self._tokens_mc(x)
+        else:
+          if self.spk_encoding:
             x = self.spk_encoder(x)
-        else: 
+          else: 
             x = (x.unsqueeze(0)).repeat(self.T, 1, 1, 1) 
             
-        # x = rearrange(x, 't b l c -> t b c l')
-        x = rearrange(x, 't b c l -> t (b c) l', c=1) # [T BC N P] 
-        x = self.padding_patch_layer(x)
-        patched_x = x.unfold(dimension=-1, size=self.patch_size, step=self.stride) 
-        self.org_x = patched_x.clone().detach().transpose(0, 2).contiguous().mean(2, keepdim=True)
+          # x = rearrange(x, 't b l c -> t b c l')
+          x = rearrange(x, 't b c l -> t (b c) l', c=1) # [T BC N P] 
+          x = self.padding_patch_layer(x)
+          patched_x = x.unfold(dimension=-1, size=self.patch_size, step=self.stride) 
+          self.org_x = patched_x.clone().detach().transpose(0, 2).contiguous().mean(2, keepdim=True)
+          neo_in = None
         
-        if (self.train_mode == 'training') and (self.keep_ratio > 0) : 
+          if (self.train_mode == 'training') and (self.keep_ratio > 0) : 
             keep_ratio=self.keep_ratio
             low_freq_x, _, _ = lowpass_memory(x, keep_ratio=keep_ratio, time_dim=2, center=True, rebinarize=False) #[T BC D]
             patched_low_freq_x = low_freq_x.unfold(dimension=-1, size=self.patch_size, step=self.stride)
@@ -657,10 +683,12 @@ class myModel(nn.Module):
         else:
             x_hippo = self.encoding(patched_x)
 
-        if self.no_neo or self.hippo_only:              # nsmt_flif_v1: hippo_only also has no neocortex path
+        if self.no_neo or self.hippo_only or self.hippo_ssa:   # nsmt_flif_v1: hippo_only / hippo_ssa have no neocortex path
             x_neo = None                                # ablation: no Neocortex path
         else:
-            _, x_neo = self.neo_forward(patched_x.transpose(0, 2).contiguous().mean(2, keepdim=True), org_seq)   # [N B 1 D]
+            if neo_in is None:
+                neo_in = patched_x.transpose(0, 2).contiguous().mean(2, keepdim=True)
+            _, x_neo = self.neo_forward(neo_in, org_seq)   # [N B 1 D]
         
         for dblk in self.data_block:
             x_hippo = dblk(x_hippo, x_neo, self_kv=self.hippo_only)
@@ -681,6 +709,25 @@ class myModel(nn.Module):
             raise ValueError
         
         
+    def _tokens_mc(self, x):
+        """stage 9: x [B, C, L] -> hippocampus input [T_h, B, N, P*C] (exact repeats), neocortex input [N, B, 1, P*C] and the
+        auxiliary target self.org_x [N, B, 1, P*C] (low-pass of each channel, patched the same way)."""
+        B, C, L = x.shape
+        xp = self.padding_patch_layer(x)                                       # [B, C, L + S]
+        def patch(z):
+            p = z.unfold(dimension=-1, size=self.patch_size, step=self.stride)    # [B, C, N, P]
+            return p.permute(0, 2, 1, 3).reshape(B, p.shape[2], C * self.patch_size)   # [B, N, C*P] (channel-major)
+        tok = patch(xp)
+        if tok.shape[1] != self.num_patches:
+            raise RuntimeError(f'{tok.shape[1]} tokens but the model was built for {self.num_patches}')
+        self.org_x = tok.detach().transpose(0, 1).unsqueeze(2).contiguous()
+        if (self.train_mode == 'training') and (self.keep_ratio > 0) and not self.hippo_ssa:
+            low, _, _ = lowpass_memory(xp, keep_ratio=self.keep_ratio, time_dim=2, center=True, rebinarize=False)
+            self.org_x = patch(low).detach().transpose(0, 1).unsqueeze(2).contiguous()
+        hippo = tok.unsqueeze(0).expand(self.T_h, -1, -1, -1).contiguous()     # [T_h, B, N, C*P]
+        neo = tok.transpose(0, 1).unsqueeze(2).contiguous()                    # [N, B, 1, C*P]
+        return hippo, neo
+
     def neo_forward(self, neo_in, org_seq=None):
         """Neocortex path on neo_in [N, B, 1, P] (token axis first). Returns (embedding spikes, output spikes), both
         [N, B, 1, D]. stage 6 bidirectional: the reversed token sequence goes through its own embedding + time_block,

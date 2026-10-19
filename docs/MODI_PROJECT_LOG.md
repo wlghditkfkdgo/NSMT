@@ -1216,3 +1216,65 @@ Q1 평균 +1.30%(0/12), Q2 +4.75%(0/12, 에너지 0.049배), **Q3 T=1 평균 +0.
 **한계:** 유료 전문 미접근(SHD A군 79편, ECG A군 99편 초록만), DBLP·OpenReview 미사용, 자동 추출(인용문 대조 78–84%, 표본 수작업 확인), 장소 분류 일부 내 판단. 모두 보고서 5.4절에 적었다.
 
 **commit:** 이 항목과 `docs/surveys/` 산출물(후보 목록·선별 표·추출 표·보고서·스크립트)을 commit·push한다. 실험은 승인 뒤 별도 사전 고정 항목으로 시작한다.
+
+---
+
+## 2026-10-19 21:50 KST — 9단계 설계·구현·사전 고정: 기억이 필요한 두 과제(CinC 2017 ECG 리듬, SHD)에서 NSMT · Hippo-only(Spikformer) · Neo-mixer 비교 — 점검 18/18, smoke 18/18, tmux에서 시작
+
+**요청 (사용자, 10-19):** "1. 우선 CinC 혹은 MIT-BIH를 사용해서 보고하는 것으로 하자. PTB-XL은 10s 데이터이므로 memory 기능을 요구하지 않아. 2. 두 채택안의 승인. 하지만, 모델은 여러 구성으로 비교했으면 좋겠어. (1) 기본 NSMT (LIF/f-LIF/Population f-LIF) with T=N (2) Hippo-only (Spikformer와 유사한 Self-attention module 포함 트랜스포머 구조) (3) self-attention 대신 Neo network를 사용하는 NSMT 모델 (f-LIF/Population f-LIF) with T=N + bidirectional. 3. 확인" (3 = 8단계 보고서의 장소 분류 확인.)
+**질문 답(AskUserQuestion):** Hippo-only = Spikformer식 SSA, T = 4; 추가 대조군 = 양방향 LIF mixer, 섞기 없음 하한; ECG 토큰 = 패치 64·보폭 32(N ≈ 117); population f-LIF = 보정 추가. 사용자 질문 "토큰 섞기 모듈이 뭐야?"에는 보고에서 답한다(토큰 사이에서 정보를 주고받게 하는 부분 — 트랜스포머의 자기주의, 7단계의 양방향 신피질망; 하한은 그것을 빼고 토큰을 따로 처리해 평균만 내는 모델).
+**계획 승인:** 첫 승인 화면에는 계획 파일 쓰기 실패로 예전(8단계) 계획이 표시되었다. 이를 알리고 9단계 계획을 다시 써서 승인받았다(`/home/yschoi/.claude/plans/1-snuggly-galaxy.md`).
+
+**브랜치·기준:** `exp/nsmt-flif-neo`, 기준 commit `6cb8cdc27`.
+
+**데이터 (로컬, Git 제외):**
+- CinC 2017: `training2017.zip`(99,226,822 B, md5 `7a220c80e10881bad86045e8ce97b49d`, sha256 `25fdbab3…cd1255`) + `REFERENCE-v3.csv`(md5 `238a81b4dc5572428a247bd485c00c12`). physionet.org 직접 받기가 초당 약 5 KB로 느려 PhysioNet 공식 AWS 공개 미러(`physionet-open.s3.amazonaws.com/challenge-2017/1.0.0/`)에서 받았다(크기가 원본과 같음; 미러에는 SHA256SUMS가 없음). 8,528기록, v3 라벨 N 5,076 / AF 758 / Other 2,415 / 잡음 279. 전처리 캐시 `cinc2017_v3_125hz.npz`(md5 `e6d4c804…`): 125 Hz(polyphase 5/12), 0.5–40 Hz 4차 Butterworth 양방향, 기록 z-score; 길이 9.0–61.0 s(중앙값 30 s).
+- SHD: `shd_train.h5.gz`(md5 `d47c9825…`), `shd_test.h5.gz`(md5 `3062a80e…`), Zenke lab. snn_recall에 h5py가 없어 시스템 `/usr/bin/python3`(h5py 2.10)로 `shd_convert.py`를 한 번 실행 → `shd_bin10ms_1s.npz`(md5 `c5c09f6b…`): 10 ms·처음 1 s·100 × 700 스파이크 수(구간 최대 6), 학습 8,156 / 시험 2,264, 20클래스.
+- 분할: CinC 기록 단위 층화 5-fold(random_state 0) → fold 0 = 학습 6,139 / 검증 683 / 시험 1,706기록(시험 라벨 1,016 / 151 / 483 / 56); SHD 학습의 10%(816)를 seed마다 층화로 검증에 뗌.
+
+**코드 (`nsmt_flif_v1/classification/`; MIT-BIH 경로 불변 — c1·c2 비트 동일):**
+- `model.py`: 다채널 토큰(`in_channels`, 토큰 = P 스텝 × C 채널, 채널 우선 펼침; C = 1·hippo_ssa 아님이면 기존 경로), `hippo_ssa`·`hippo_T`(해마 반복 수를 N과 분리, Block이 `layers.SSA_rel_scl`을 쓰고 교차 주의·신피질·디코더를 만들지 않음).
+- `neo_mixer.py`: `tokens()` 다채널, `in_channels`·`pop_soma_init`. `layers.py`: `build_neo_neuron(..., pop_soma_init)` — 생성 직후 soma 혼합 가중치를 지정 값으로(9단계 1.0, 기본은 1/K로 6–7단계 재현 유지). `neurons.py` 불변(c8).
+- 새 파일: `rhythm_data.py`(전처리·fold·학습 무작위 30 s 자르기·평가 30 s/15 s 창·SHD 로더·사전 검사용 k토큰 자르기), `rhythm_eval.py`(기록 단위 softmax 평균, CinC 점수 = F1_N·F1_AF·F1_Other 평균, SHD 정확도, 에너지·syops), `train_rhythm.py`, `shd_convert.py`, `summarize_rhythm.py`(관문·학습률 결정과 판정), `rhythm_analysis.py`(토큰 축 기억 측정, 보고만), `scripts/{run_rhythm.sh, make_queue_rhythm.sh, rhythm_driver.sh}`, `check_cls.py` c14–c18.
+- **계획과 다른 점:** 학습 진입점을 `train.py` 분기가 아니라 새 파일 `train_rhythm.py`로 만들었다(MIT-BIH 경로를 확실히 그대로 두기 위해). 같은 손실 형태(신피질이 있으면 CE·0.9 + 보조 MSE·0.1, 없으면 CE)와 AdamW·timm cosine을 쓰고, 다른 점은 (i) 검증·시험 분리와 최고 검증 epoch의 test 1회(마지막 epoch는 `log/last/`에 보고용), (ii) RNG를 한 번만 고정하고 epoch마다 셔플·자르기가 달라짐(`train.py`는 매 epoch 다시 고정해 같은 순서를 반복). ECG 설정 파일의 `--weight_decay`가 정수형이라 `1e-4`를 받지 못해 첫 smoke가 모두 실패했고(`log/smoke-rhythm-20261019/failed_argparse/`), 실수형으로 고쳤다(기본값 그대로).
+
+**점검 18/18 (`results/checks/check_cls_stage9.txt`):** c1–c13 그대로 통과. c14 다채널 토큰(C = 1에서 원래 경로와 입력 동일·출력 차이 0, C = 7에서 모든 토큰이 수동 조각과 일치, NSMT·mixer). c15 Hippo-only SSA(신피질·교차 주의·디코더 없음, SSA 입력 [4, B, 117, 384], 상대 위치 표 [233, 8]). c16 population 보정(soma 가중치 1.0 / 기본 0.25; **학습 모드 정규화에서 실제 심박 첫 발화율: 보정 없음 0.0% / 보정 3.7–3.8% / LIF 4.5–8.0%** — 처음에는 평가 모드로 재서 모든 뉴런이 0이라 검사가 성립하지 않았고, 학습과 같은 배치 통계 정규화로 고쳤다; 6–7단계 population의 낮은 발화율이 이 초기 침묵 때문이었음을 보여 준다). c17 CinC(8,528기록, v3 개수 일치, fold 서로소·전체 덮음, 창 평균 집계 = 수동 계산). c18 SHD(표본 수·20클래스, 구간 합 = 변환기가 남긴 스파이크 수, 검증 서로소·모든 클래스 포함).
+
+**smoke (`results/smoke-rhythm-20261019/raw.txt`, 1 epoch, seed 42, lr 1e-3; 실험 아님 — 1 epoch에서는 어느 모델도 AF를 맞히지 못함):**
+
+| 조건 | CinC 점수 | CinC 총 µJ (FFT) | CinC 시간 s | SHD 정확도 | SHD 총 µJ (FFT) | SHD 시간 s | 파라미터 (CinC / SHD) |
+|---|---|---|---|---|---|---|---|
+| nsmt_lif | 0.325715 | 2,900.9 | 259 | 0.447438 | 26,032.2 | 228 | 1,262,592 / 2,807,808 |
+| nsmt_flif | 0.328383 | 2,907.5 | 305 | 0.454947 | 26,034.2 | 281 | 〃 |
+| nsmt_pop | 0.312098 | 2,857.9 | 318 | 0.447438 | 26,095.8 | 288 | 1,267,200 / 2,812,416 |
+| nsmt_lif_ce | 0.350622 | 2,858.1 | 258 | – | – | – | 1,262,592 |
+| spk_ssa | 0.378778 | 107.6 | 34 | 0.459806 | 1,048.3 | 40 | 918,088 / 1,436,984 |
+| mix_flif_bidir | 0.289900 | 29.5 | 151 | 0.441696 | 263.0 | 150 | 916,224 / 1,435,392 |
+| mix_pop_bidir | 0.325180 | 63.1 | 171 | 0.529152 | 292.3 | 168 | 922,368 / 1,441,536 |
+| mix_lif_bidir | 0.283584 | 24.4 | 87 | 0.453622 | 259.2 | 81 | 916,224 / 1,435,392 |
+| mix_lif_bidir_ce | 0.315720 | 24.7 | 88 | – | – | – | 916,224 |
+| mix_none | 0.281345 | 17.6 | 22 | 0.453622 | 251.6 | 27 | 323,328 / 842,496 |
+
+- **에너지 규모(사전 기록):** T = N인 NSMT 해마가 에너지를 지배한다(CinC 2.9 mJ, SHD 26 mJ — SHD는 토큰 차원 1,400의 실수 입력이 반복 축 100번 곱해짐). Spikformer(T = 4)는 그 1/25, Neo-mixer는 1/100 수준이다.
+- **비용:** NSMT는 배치 32에서 GPU 메모리 34–35 GB(CinC)·26–27 GB(SHD), epoch당 약 140 s / 130 s. 그래서 NSMT는 GPU당 1개, 가벼운 조건은 두 번째 pool로 같은 GPU에 함께 돌린다.
+
+**실행 (사전 고정):** tmux `flif_rhythm`, `scripts/rhythm_driver.sh 0,1,2,3`.
+- A. 병렬로 (i) **학습률 선택**: `nsmt_lif`, seed 42, lr ∈ {1e-3, 3e-3}, 두 데이터(suite `flif-v1-rhythm-lr`), (ii) **기억 필요 사전 검사(정지 관문)**: `mix_lif_bidir`·`mix_none`을 입력 8토큰·32토큰·전체로 학습(lr 1e-3, seed 42, suite `flif-v1-rhythm-crop`; CinC는 학습 무작위 자르기·평가 기록당 가운데 창 1개, SHD는 스파이크 무게중심을 가운데로 한 k구간).
+- B. `summarize_rhythm.py --decide`: 학습률 = 최고 검증 점수가 높은 쪽(동률·누락이면 1e-3). **관문 = `mix_lif_bidir`의 최고 검증 점수가 전체 입력에서 8토큰보다 1%p 이상 높아야 통과; 실패하거나 run이 없으면 그 데이터의 본 학습을 하지 않고 보고한다.**
+- C. 관문 통과 데이터만 본 학습: CinC 10조건 × seed 42/7/2026(fold 0, suite `flif-v1-rhythm-cinc`) = 30 run, SHD 8조건 × seed 42/7/2026/123/1024(suite `flif-v1-rhythm-shd`) = 40 run.
+- D. 요약 `results/<suite>/summary.md`. 분석 `rhythm_analysis.py`(토큰 축 기억)는 본 학습 뒤 별도로 돌린다.
+- **예상 시간(smoke로 갱신):** A 약 2시간, C 약 12시간(NSMT 27 run × 1.6–1.8 h를 GPU 4장에서 하나씩, 가벼운 43 run을 함께). 계획의 추정(2.5 h + 4 h)보다 2–3배 길다 — T = N = 100–117 해마의 비용.
+
+**판정 (계획 7절 그대로; 같은 seed끼리 짝):** "좋음" = 평균 ≥ +0.5%p이고 A > B인 seed가 CinC 3개 중 2개 이상, SHD 5개 중 4개 이상.
+- R1 기억 요구: 각 모델 vs `mix_none`.
+- R2 NSMT 안의 뉴런: `nsmt_flif`·`nsmt_pop` vs `nsmt_lif`.
+- R3 Neo-mixer 안의 뉴런: `mix_flif_bidir`·`mix_pop_bidir` vs `mix_lif_bidir`.
+- R4 원래 기준 (2): Neo-mixer·NSMT vs `spk_ssa` — "좋음" 또는 "−0.5%p 이내이고 총 에너지 ≤ 0.5배"면 충족.
+- R5(보고만): CAL vs 보통 CE, 토큰 축 기억, 발화율, 에너지.
+- **예상:** 두 데이터 모두 하한이 무너진다. Neo-mixer는 Spikformer(T = 4)보다 에너지가 1/4–1/2이고, 성능은 불확실하다. NSMT는 에너지가 Spikformer의 25배라 R4 에너지 조건을 만족하지 못한다.
+
+**8단계 장소 분류 확인(사용자 3번):** 사용자가 "확인"했다 — A군에 Heart Rhythm·Europace·JAHA·TMLR·TCAD·DATE, B군에 ICASSP·Interspeech·TCAS-II를 넣은 분류를 그대로 쓴다.
+
+**감사:** 96(`docs/PROJECT_LOG.md` 20:31)은 f_lif_pop_v3 추적 감사로 새 판단 근거가 없다.
+
+**commit:** 이 항목·코드·점검·smoke를 commit·push한 뒤 시작한다. 결과는 다음 항목.

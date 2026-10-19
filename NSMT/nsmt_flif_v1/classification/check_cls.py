@@ -25,6 +25,19 @@ cannot run, or whose test is vacuous (no spikes), FAILs.
       bidirectional mixer fed a changed embedding token j: forward stack changes >= j only, reverse stack <= j only,
       fused = max; training forward returns plain logits so
       train.py uses CE only; testing forward returns (logits, token spikes); run-directory names distinct
+  c14 (stage 9) multichannel tokens: forcing the stage-9 token path with C = 1 reproduces the original path (inputs equal,
+      logits allclose); with C = 700 every token equals a manual slice x[b, :, nS : nS+P] flattened channel-major (myModel
+      and NeoMixer), including the replicated end padding
+  c15 (stage 9) Hippo-only SSA: no neocortex / cross-attention / decoder modules, T_h = 4, the SSA sees [4, B, N, D] and
+      its relative-bias table is [2N-1, heads]; the training loss path is plain CE (no time_block attribute)
+  c16 (stage 9) population calibration: every pop_flif soma weight = 1.0 with --pop_soma_init 1.0 (0.25 without);
+      on real CinC beats, with batch-statistics normalisation as in training (eval-mode BN at init passes ~0.02-scale
+      currents and silences every neuron, first run), the calibrated neocortex fires at init and fires more than the
+      uncalibrated one; the spikeDE LIF rate is reported as reference
+  c17 (stage 9) CinC 2017 data: 8,528 records, label counts = REFERENCE-v3, 5 folds disjoint and covering all records,
+      train / val / test disjoint; record-level aggregation of predict() = manual mean of window softmaxes
+  c18 (stage 9) SHD data: 8,156 / 2,264 samples, 20 classes, binned counts = spikes kept by the converter, validation
+      split disjoint from training and containing every class
 usage: python check_cls.py [--out results/checks/check_cls.txt]
 """
 import argparse
@@ -519,12 +532,163 @@ def c13():
     report('c13', all(oks), '; '.join(msgs))
 
 
+def _rd_args(**kw):
+    base = dict(data='CINC2017', crop_tokens=0, patch_size=64, fs_target=125., fold=0, val_frac=0.1, win_s=30., hop_s=15.)
+    base.update(kw)
+    return NS(**base)
+
+
+@check('c14')
+def c14():
+    from load_model import LOAD_MODEL
+    from config import set_random_seed
+    msgs, oks = [], []
+    # (a) C = 1: stage-9 token path vs original path
+    set_random_seed(0)
+    a = NS(**dict(HP, patch_size=32, seq_len=187, num_channels=1))
+    m = LOAD_MODEL['myModel'](a, True).cuda().eval(); m.train_mode = 'testing'
+    g = torch.Generator().manual_seed(14)
+    x = torch.rand(8, 1, 187, generator=g).cuda()
+    from spikingjelly.clock_driven import functional
+    with torch.no_grad():
+        z0 = m(x)[0]; functional.reset_net(m)
+        hip, neo = m._tokens_mc(x)
+        xr = m.padding_patch_layer(x.unsqueeze(0).repeat(m.T, 1, 1, 1).flatten(0, 1).reshape(m.T, 8, -1)).unfold(-1, m.patch_size, m.stride)
+        m.in_channels_force = True
+        orig_forward_flag = m.in_channels; m.in_channels = 2                     # route through _tokens_mc (C is still 1 in x)
+        z1 = m(x)[0]; functional.reset_net(m); m.in_channels = orig_forward_flag
+    same_inputs = torch.equal(hip, xr)
+    ok_a = same_inputs and torch.allclose(z0, z1, atol=1e-5)
+    oks.append(ok_a); msgs.append(f'C=1: token tensors equal {same_inputs}, logits max diff {(z0 - z1).abs().max().item():.1e}')
+    # (b) C = 700, myModel and NeoMixer
+    for name in ('myModel', 'neoMixer'):
+        set_random_seed(0)
+        kw = dict(HP, patch_size=4, seq_len=50, num_channels=7, model=name, mixer='lif', mixer_bidir=True, neo_alpha=0.5, pop_taus='4,8,16,32')
+        mm = LOAD_MODEL[name](NS(**kw), True).cuda()
+        xb = torch.rand(3, 7, 50, generator=g).cuda()
+        tok = (mm._tokens_mc(xb)[1] if name == 'myModel' else mm.tokens(xb))[:, :, 0]      # [N, B, C*P]
+        P, S = mm.patch_size, mm.stride
+        xpad = torch.cat([xb, xb[:, :, -1:].repeat(1, 1, S)], dim=2)
+        good = True
+        for n in range(tok.shape[0]):
+            manual = xpad[:, :, n * S:n * S + P].reshape(3, -1)                          # channel-major
+            good &= torch.equal(tok[n], manual)
+        oks.append(good and tok.shape[0] == mm.num_patches)
+        msgs.append(f'{name} C=7: {tok.shape[0]} tokens, all equal manual slices {bool(good)}')
+    report('c14', all(oks), '; '.join(msgs))
+
+
+@check('c15')
+def c15():
+    from load_model import LOAD_MODEL
+    from config import set_random_seed
+    set_random_seed(0)
+    m = LOAD_MODEL['myModel'](NS(**dict(HP, patch_size=64, seq_len=3750, num_channels=1, hippo_ssa=True, hippo_T=4)), True).cuda()
+    seen = {}
+    h = m.data_block[0].ssa.register_forward_hook(lambda mod, i, o: seen.__setitem__('in', tuple(i[0].shape)))
+    from spikingjelly.clock_driven import functional
+    with torch.no_grad():
+        out = m(torch.rand(2, 1, 3750).cuda()); functional.reset_net(m)
+    h.remove()
+    N = m.num_patches
+    absent = not any(hasattr(m, a) for a in ('encoding_neo', 'time_block', 'weak_decoder')) and not hasattr(m.data_block[0], 'mca')
+    ok = absent and m.T_h == 4 and seen.get('in') == (4, 2, N, 384) and tuple(m.data_block[0].ssa.relative_bias_table.shape) == (2 * N - 1, 8) \
+        and isinstance(out, tuple) and not hasattr(m, 'time_block')
+    report('c15', ok, f'no neocortex/mca/decoder {absent}, T_h {m.T_h}, SSA input {seen.get("in")}, rel-bias {tuple(m.data_block[0].ssa.relative_bias_table.shape)}, N {N}')
+
+
+@check('c16')
+def c16():
+    from load_model import LOAD_MODEL
+    from config import set_random_seed
+    from layers import NeoNeuron
+    from neurons import PopulationFLIF
+    import rhythm_data as rd
+    from spikingjelly.clock_driven import functional
+    d = rd.build(_rd_args(), 42)
+    xb = torch.stack([d['train'][i][0] for i in range(16)]).cuda()
+    rates, wts = {}, {}
+    for cal in (None, 1.0, 'lif'):
+        for name in ('myModel', 'neoMixer'):
+            set_random_seed(0)
+            kind = 'lif' if cal == 'lif' else 'pop_flif'
+            kw = dict(HP, patch_size=64, seq_len=3750, num_channels=1, model=name, neo_neuron=kind, neo_alpha=0.5, pop_taus='4,8,16,32',
+                      mixer=kind, mixer_bidir=True, pop_soma_init=(None if cal == 'lif' else cal))
+            if name == 'neoMixer':
+                kw.pop('neo_neuron')
+            m = LOAD_MODEL[name](NS(**kw), True).cuda().train(); m.train_mode = 'training'   # BN with batch statistics
+            pops = [mod.neuron for mod in m.modules() if isinstance(mod, NeoNeuron) and isinstance(mod.neuron, PopulationFLIF)]
+            wts[(cal, name)] = sorted({round(float(v), 4) for p in pops for v in p.soma.weight.flatten().unique().tolist()})
+            with torch.no_grad():
+                if name == 'myModel':
+                    _, neo = m._tokens_mc(xb) if False else (None, m.padding_patch_layer(xb[:, 0]).unfold(-1, 64, 32).transpose(0, 1).unsqueeze(2))
+                    _, o = m.neo_forward(neo)
+                else:
+                    e = m.encoding(m.tokens(xb)); o = m.blocks[0].mix(e)
+            functional.reset_net(m)
+            rates[(cal, name)] = o.float().mean().item()
+    ok = all(wts[(1.0, n)] == [1.0] for n in ('myModel', 'neoMixer')) and all(wts[(None, n)] == [0.25] for n in ('myModel', 'neoMixer')) \
+        and all(rates[(1.0, n)] > 0 and rates[(1.0, n)] > rates[(None, n)] for n in ('myModel', 'neoMixer'))
+    report('c16', ok, 'soma weights ' + ', '.join(f'{k}={v}' for k, v in wts.items()) + '; init firing on real beats ' +
+           ', '.join(f'{k}={v:.4f}' for k, v in rates.items()))
+
+
+@check('c17')
+def c17():
+    import numpy as np
+    import rhythm_data as rd
+    import rhythm_eval as rev
+    sig, off, lab, names = rd.cinc_cache(125.)
+    ref = [l.strip().split(',') for l in open(os.path.join(rd.CINC_DIR, 'REFERENCE-v3.csv')) if l.strip()]
+    ref_counts = np.bincount([rd.CINC_LABELS[r[1]] for r in ref], minlength=4)
+    tests, ok_split = [], True
+    for f in range(5):
+        tr, va, te = rd.cinc_split(lab, f)
+        ok_split &= not (set(tr) & set(va) or set(tr) & set(te) or set(va) & set(te)) and len(tr) + len(va) + len(te) == len(lab)
+        tests.append(set(te))
+    cover = set().union(*tests) == set(range(len(lab))) and sum(len(t) for t in tests) == len(lab)
+    # aggregation: dummy model, logits = [mean, std, max, min] of the window
+    class Dummy(torch.nn.Module):
+        def forward(self, x):
+            v = x[:, 0]
+            return torch.stack([v.mean(1), v.std(1), v.max(1).values, v.min(1).values], 1)
+    d = rd.build(_rd_args(), 42)
+    sub = torch.utils.data.Subset(d['test'], list(range(40)))
+    P, Y, U = rev.predict(Dummy().cuda(), sub, 'cuda', bs=7)
+    man = {}
+    for i in range(40):
+        x, y, r = d['test'][i]
+        man.setdefault(r, []).append(torch.softmax(Dummy()(x.unsqueeze(0).float()), 1)[0].numpy())
+    agg_ok = all(np.allclose(P[k], np.mean(man[u], 0), atol=1e-6) for k, u in enumerate(U)) and len(U) == len(man)
+    ok = len(lab) == 8528 and (np.bincount(lab, minlength=4) == ref_counts).all() and ok_split and cover and agg_ok
+    report('c17', ok, f'records {len(lab)}, counts {np.bincount(lab, minlength=4).tolist()} = v3 {ref_counts.tolist()}, folds disjoint {ok_split}, '
+           f'test folds cover all {cover}, window aggregation matches manual {agg_ok} ({len(U)} records from 40 windows)')
+
+
+@check('c18')
+def c18():
+    import numpy as np
+    import rhythm_data as rd
+    z = np.load(rd.SHD_NPZ)
+    sums_tr = z['x_train'].reshape(len(z['y_train']), -1).sum(1, dtype=np.int64)
+    sums_te = z['x_test'].reshape(len(z['y_test']), -1).sum(1, dtype=np.int64)
+    counts_ok = (sums_tr == z['n_spikes_train']).all() and (sums_te == z['n_spikes_test']).all()
+    oks = []
+    for seed in (42, 7):
+        d = rd.build(_rd_args(data='SHD', patch_size=2), seed)
+        tr, va = set(d['train'].idx.tolist()), set(d['val'].idx.tolist())
+        oks.append(not (tr & va) and len(tr) + len(va) == 8156 and len(np.unique(z['y_train'][list(va)])) == 20)
+    ok = len(z['y_train']) == 8156 and len(z['y_test']) == 2264 and len(np.unique(z['y_train'])) == 20 and counts_ok and all(oks)
+    report('c18', ok, f'train {len(z["y_train"])}, test {len(z["y_test"])}, classes {len(np.unique(z["y_train"]))}, binned sums = kept spikes {bool(counts_ok)}, '
+           f'val disjoint & all classes (seeds 42, 7) {oks}')
+
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', default=os.path.join(HERE, 'results', 'checks', 'check_cls.txt'))
     ap.add_argument('--only', nargs='*', default=None)
     a = ap.parse_args()
-    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13):
+    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18):
         if a.only and fn.__name__ not in a.only:
             continue
         fn()

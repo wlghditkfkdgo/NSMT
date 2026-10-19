@@ -428,7 +428,8 @@ class NeoNeuron(nn.Module):
 NEO_NEURONS = ('sj_lif', 'lif', 'flif', 'pop_flif')
 
 
-def build_neo_neuron(kind, size, T, layout, tau=2., alpha=.5, method='pred', step=1., memory=0, pop_taus=(4., 8., 16., 32.)):
+def build_neo_neuron(kind, size, T, layout, tau=2., alpha=.5, method='pred', step=1., memory=0, pop_taus=(4., 8., 16., 32.),
+                     pop_soma_init=None):
     """'lif' / 'flif': neurons.py classes wrapped in NeoNeuron; `T` = spiking steps (sizes the kernel table).
     'sj_lif' is handled by the callers (they keep their own spikingjelly LIF, constructed exactly as in nsmt_base)."""
     common = dict(tau=tau, threshold=1., surrogate_scale=5., step=step, max_length=int(T))
@@ -442,6 +443,9 @@ def build_neo_neuron(kind, size, T, layout, tau=2., alpha=.5, method='pred', ste
         common.pop('tau')
         n = PopulationFLIF(size, tau=tuple(float(t) for t in pop_taus), soma='lif', tau_s=tau, heterogeneous=True,
                            alpha=alpha, method=method, memory=(int(memory) if memory else None), **common)
+        if pop_soma_init is not None:                                 # stage 9 calibration: soma mix weights 1/K -> value
+            with torch.no_grad():
+                n.soma.weight.fill_(float(pop_soma_init))
     else:
         raise ValueError(f"build_neo_neuron needs 'lif', 'flif' or 'pop_flif', got {kind!r}")
     return NeoNeuron(n, layout)

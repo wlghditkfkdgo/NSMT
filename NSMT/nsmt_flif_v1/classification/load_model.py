@@ -12,6 +12,8 @@ def _neo_kwargs(args):
                 fde_step=getattr(args, 'fde_step', 1.0), fde_memory=getattr(args, 'fde_memory', 0),
                 hippo_only=getattr(args, 'hippo_only', False),
                 neo_bidir=getattr(args, 'neo_bidir', False),                                        # stage 6
+                in_channels=getattr(args, 'num_channels', 1), hippo_ssa=getattr(args, 'hippo_ssa', False),   # stage 9
+                hippo_T=getattr(args, 'hippo_T', 0), pop_soma_init=getattr(args, 'pop_soma_init', None),
                 pop_taus=tuple(float(t) for t in str(getattr(args, 'pop_taus', '4,8,16,32')).split(',')))
 
 
@@ -138,7 +140,8 @@ def load_neo_mixer(args, train=True):
                      fde_method=getattr(args, 'fde_method', 'pred'), fde_step=getattr(args, 'fde_step', 1.0),
                      fde_memory=getattr(args, 'fde_memory', 0),
                      pop_taus=tuple(float(t) for t in str(getattr(args, 'pop_taus', '4,8,16,32')).split(',')),
-                     bias=args.bias, tau=args.tau, train_mode='training')
+                     bias=args.bias, tau=args.tau, train_mode='training',
+                     in_channels=getattr(args, 'num_channels', 1), pop_soma_init=getattr(args, 'pop_soma_init', None))   # stage 9
     if not train:
         saved_model_path = os.path.join(args.save_result_path, "model_state", "best+model.pt")
         model.load_state_dict(torch.load(saved_model_path, map_location='cpu'))

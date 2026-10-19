@@ -73,7 +73,8 @@ class Block(nn.Module):
 class NeoMixer(nn.Module):
     def __init__(self, seq_len=187, data_patch_size=32, embed_dim=384, num_classes=5, depths=1, mlp_ratios=1.0,
                  mixer='pop_flif', mixer_bidir=True, mixer_layers=2, neo_tau=2.0, neo_alpha=0.5, fde_method='pred',
-                 fde_step=1.0, fde_memory=0, pop_taus=(4., 8., 16., 32.), bias=False, tau=2.0, train_mode='training', **kwargs):
+                 fde_step=1.0, fde_memory=0, pop_taus=(4., 8., 16., 32.), bias=False, tau=2.0, train_mode='training',
+                 in_channels=1, pop_soma_init=None, **kwargs):
         super().__init__()
         if mixer not in MIXERS:
             raise ValueError(f'mixer must be one of {MIXERS}')
@@ -86,8 +87,10 @@ class NeoMixer(nn.Module):
         self.padding_patch_layer = nn.ReplicationPad1d((0, self.stride))
         self.mixer_kind, self.mixer_bidir, self.mixer_layers, self.depths = mixer, bool(mixer_bidir), int(mixer_layers), int(depths)
         self.no_neo = self.hippo_only = False                              # for the shared evaluators
-        neo_kw = dict(tau=neo_tau, alpha=neo_alpha, method=fde_method, step=fde_step, memory=fde_memory, pop_taus=tuple(pop_taus))
-        self.encoding = Embedding(num_patches=self.num_patches, patch_size=data_patch_size, embed_dim=embed_dim, stride=self.stride,
+        neo_kw = dict(tau=neo_tau, alpha=neo_alpha, method=fde_method, step=fde_step, memory=fde_memory, pop_taus=tuple(pop_taus),
+                      pop_soma_init=pop_soma_init)
+        self.in_channels = int(in_channels or 1)                           # stage 9: a token = P steps x C channels
+        self.encoding = Embedding(num_patches=self.num_patches, patch_size=data_patch_size * self.in_channels, embed_dim=embed_dim, stride=self.stride,
                                   pe=False, bias=bias, tau=tau)            # spikingjelly LIF over the token axis
         self.blocks = nn.ModuleList([Block(embed_dim, mixer, mixer_bidir, mixer_layers, mlp_ratios, neo_kw, self.T, bias, tau)
                                      for _ in range(self.depths)])
@@ -104,8 +107,13 @@ class NeoMixer(nn.Module):
         if x.dim() != 3:
             x = x.unsqueeze(1)
         B = x.shape[0]
-        xp = self.padding_patch_layer(x[:, 0]).unfold(-1, self.patch_size, self.stride)   # [B, N, P]
-        return xp.transpose(0, 1).unsqueeze(2).contiguous()                              # [N, B, 1, P]
+        if self.in_channels == 1:                                          # unchanged single-channel path (stage 7)
+            xp = self.padding_patch_layer(x[:, 0]).unfold(-1, self.patch_size, self.stride)   # [B, N, P]
+            return xp.transpose(0, 1).unsqueeze(2).contiguous()                              # [N, B, 1, P]
+        C = x.shape[1]                                                     # stage 9: [B, C, L] -> [N, B, 1, C*P]
+        p = self.padding_patch_layer(x).unfold(-1, self.patch_size, self.stride)              # [B, C, N, P]
+        p = p.permute(0, 2, 1, 3).reshape(B, p.shape[2], C * self.patch_size)
+        return p.transpose(0, 1).unsqueeze(2).contiguous()
 
     def forward_parts(self, x, tok_fn=None, mix_fns=None):
         """Returns logits, embedding spikes [N, B, 1, D], first block's mixer output (None for 'none'), head input [B, D],

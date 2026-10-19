@@ -69,7 +69,7 @@ def parse_arguments():
     train_arg.add_argument('-lr', '--learning_rate', dest='lr', nargs='?', type=float, default=1e-4, help='Learning rate')
     train_arg.add_argument('--max_lr', dest='max_lr', nargs='?', type=float, default=0.001, help='maximum learning rate in cosine lr scheduler')
     train_arg.add_argument('--scheduler', dest='scheduler', nargs='?', type=str, choices=['step', 'lambda', 'exponential', 'cosine', 'reduce'], default='reduce', help='scheduler (default: %(default)s)')
-    train_arg.add_argument('--weight_decay', dest='weight_decay', nargs='?', type=int, default=1e-4)
+    train_arg.add_argument('--weight_decay', dest='weight_decay', nargs='?', type=float, default=1e-4)   # stage 9: was type=int (a CLI value could not be parsed); default unchanged
     train_arg.add_argument('--num_workers', dest='num_workers', nargs='?', type=int, default=8)
 
     model_arg = parser.add_argument_group("Transformer parameters")
@@ -114,6 +114,18 @@ def parse_arguments():
     # stage 7: --model neoMixer (attention replaced by the neocortex network; --layers = blocks, --time_layers = mixer layers)
     snn_arg.add_argument('--mixer', choices=['none', 'lif', 'flif', 'pop_flif'], default='pop_flif')
     snn_arg.add_argument('--mixer_bidir', action='store_true', default=False)
+    # stage 9 (MODI 2026-10-19): CinC 2017 / SHD, Spikformer-style Hippo-only, population calibration (see train_rhythm.py)
+    snn_arg.add_argument('--hippo_ssa', action='store_true', default=False, help='Hippo-only with Spikformer-style token self-attention')
+    snn_arg.add_argument('--hippo_T', type=int, default=0, help='hippocampus repetitions (0 = number of tokens; only hippo_ssa may differ)')
+    snn_arg.add_argument('--pop_soma_init', type=float, default=None, help='pop_flif soma mixing weight init (None = 1/K)')
+    snn_arg.add_argument('--fold', type=int, default=0, help='CinC 2017: test fold 0..4 of the record-wise stratified 5-fold split')
+    snn_arg.add_argument('--val_frac', type=float, default=0.1, help='share of the training part held out for validation')
+    snn_arg.add_argument('--win_s', type=float, default=30.0, help='CinC 2017 window length (s)')
+    snn_arg.add_argument('--hop_s', type=float, default=15.0, help='CinC 2017 evaluation window hop (s)')
+    snn_arg.add_argument('--fs_target', type=float, default=125.0, help='CinC 2017 resampling rate (Hz)')
+    snn_arg.add_argument('--loss_kind', choices=['cal', 'ce'], default='cal', help='CinC 2017: CAL class-weighted CE or plain CE')
+    snn_arg.add_argument('--crop_tokens', type=int, default=0, help='memory pre-check: input limited to k tokens (0 = full)')
+    snn_arg.add_argument('--eval_bs', type=int, default=32)
     snn_arg.add_argument('--hippo_only', action='store_true', default=False,
                          help='MODI decision 7: no neocortex; the cross-attention key/value is the hippocampus itself')
     snn_arg.add_argument('--tau', dest='tau', type=float, default=2.0)
@@ -201,6 +213,15 @@ class Config():
             _iso += f"_mix-{args.mixer}" + ("-bidir" if getattr(args, 'mixer_bidir', False) else "") + f"-L{args.num_layers}-a{args.neo_alpha}"
         if getattr(args, 'neo_neuron', 'sj_lif') == 'pop_flif' and getattr(args, 'pop_taus', '4,8,16,32') != '4,8,16,32':
             _iso += "_pt" + args.pop_taus.replace(',', '-')
+        # stage 9 suffixes (absent for every earlier configuration)
+        if getattr(args, 'hippo_ssa', False):
+            _iso += f"_ssaT{args.hippo_T}"
+        if getattr(args, 'pop_soma_init', None) is not None:
+            _iso += f"_psi{args.pop_soma_init:g}"
+        if str(getattr(args, 'data', '')).upper() in ('CINC2017', 'SHD'):
+            _iso += f"_f{args.fold}" + ("_ce" if getattr(args, 'loss_kind', 'cal') == 'ce' and str(args.data).upper() == 'CINC2017' else '')
+            if getattr(args, 'crop_tokens', 0):
+                _iso += f"_crop{args.crop_tokens}"
         self.save_result_path = os.path.join(os.getcwd(), args.log_dir, self.date, self.date + tag, _iso)
         
         self.save_log_path = os.path.join(self.save_result_path, 'log')

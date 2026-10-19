@@ -4599,3 +4599,18 @@ neurons.py SHA `cc1f438f0e97dd2c196a6eb9dc8bad2a833e2cd003b1b5924017d56dafe258bf
 증거 `f_lif_pop_v3/forecasting/results/assessment/20261019T103004Z-62f9b564/` trigger.json/inventory.json/checks.json/snapshot, raw 같은 task `log/assessment/20261019T103004Z-62f9b564/` checks.txt/head_changed_paths.txt/head_audit_scope_diff.patch/git_status_before.txt. 감사 문서/증거만 작성, 기존 본문·local changes·checkpoint/raw log·연구소스·환경·프로세스·Git 이력 보존. 자체append는 다음 연구 변화에서 제외.
 
 <!-- assessment-watch:20261019T103004Z-62f9b564 -->
+
+
+## 2026-10-19 20:31 KST — 추적 감사96: 새 판단 근거 없음
+
+예약 `20261019T113004Z-90be607b`, branch `exp/nsmt-flif-neo`, HEAD `6cb8cdc27369dc6f1f4c06346c4ce3f01e241783`(직전 `a8bacef3fc5e90c2e2e347a7894a44523b3327a2`). 기억·감사95·사전등록 최신2R·canonical append 확인. 실제1632파일 snapshot/SHA256 보존; trigger1627파일 차이0, 누락/읽기 중 변동/새 대상파일0. 연구파일 변화0; 문서3개는 감사95 자체append receipt 및 HEAD blob과 동일하다. HEAD 변경13경로는 루트 docs/surveys 9파일·MODI 기록·기존 감사 문서3개 반영이며 f_lif_pop_v3 diff는 없다. 조사 자료를 새 성능/문헌 근거로 사용하지 않았다.
+
+neurons.py SHA `cc1f438f0e97dd2c196a6eb9dc8bad2a833e2cd003b1b5924017d56dafe258bf`, 사전등록 SHA `46cb85e57b50e0334d131cba2a7931c3602be28c6062fbee847ff76415de4726` 불변.
+
+- **(a) 구현:** 새 판단 근거 없음. A35 계산 방식별 설명 범위 VERIFIED·A34 재발방지 OPEN·A31 잔여 유지, 새 종결 없음.
+- **(b) 검증:** 파일/해시·HEAD·자체append 대조 수행. CPU 모델 probe·전체 parity·학습·GPU·실데이터/val/test·checkpoint 검증 **not run**. 이전 검사를 이번 실행으로 세지 않는다.
+- **(c) 개선:** 새 실행 결과가 없어 성능 판단 보류. 2S 미등록 및 감사82 후속 통제 조건·기존 1차 원본 근거 유지. 새 문헌 주장 없음.
+
+증거 `f_lif_pop_v3/forecasting/results/assessment/20261019T113004Z-90be607b/` trigger.json/inventory.json/checks.json/snapshot, raw 같은 task `log/assessment/20261019T113004Z-90be607b/` checks.txt/head_changed_paths.txt/head_audit_scope_diff.patch/git_status_before.txt. 감사 문서/증거만 작성, 기존 본문·local changes·checkpoint/raw log·연구소스·환경·프로세스·Git 이력 보존. 자체append는 다음 연구 변화에서 제외.
+
+<!-- assessment-watch:20261019T113004Z-90be607b -->

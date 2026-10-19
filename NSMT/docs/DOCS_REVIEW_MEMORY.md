@@ -690,3 +690,8 @@ HEAD `f8c68dcadb6659e7e5a28394fa1073056cfb8875`. snapshot1632/trigger차0/연구
 ### 2026-10-19 19:31 KST — 추적 감사95 (20261019T103004Z-62f9b564)
 
 HEAD `a8bacef3fc5e90c2e2e347a7894a44523b3327a2`. snapshot1632/trigger차0/연구변화0; 문서3개는 미commit 감사94 자체append. HEAD는 루트 docs/surveys 11파일만 변경. 새 판단 근거 없음. A35 설명 범위 VERIFIED·A34 재발방지 OPEN·A31 잔여·2S 미등록 유지. 모델/학습/GPU/실val·test 검증 not run, 성능 보류. 증거 results/assessment/20261019T103004Z-62f9b564/checks.json·snapshot, raw 같은task log/assessment/동일run. 자체append 분리.
+
+
+### 2026-10-19 20:31 KST — 추적 감사96 (20261019T113004Z-90be607b)
+
+HEAD `6cb8cdc27369dc6f1f4c06346c4ce3f01e241783`. snapshot1632/trigger차0/연구변화0; 문서3개는 감사95 자체append 및 HEAD blob과 동일. HEAD는 루트 문헌조사/관련 기록과 기존 감사 문서 반영. 새 판단 근거 없음. A35 설명 범위 VERIFIED·A34 재발방지 OPEN·A31 잔여·2S 미등록 유지. 모델/학습/GPU/실val·test 검증 not run, 성능 보류. 증거 results/assessment/20261019T113004Z-90be607b/checks.json·snapshot, raw 같은task log/assessment/동일run. 자체append 분리.
