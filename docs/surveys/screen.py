@@ -30,8 +30,8 @@ UA = 'nsmt-survey/0.1 (research; eeailabseoultech@gmail.com)'
 MENTIONS = {
     'shd': {'SHD': r'\bSHD\b|Spiking Heidelberg Digits|Heidelberg Digits', 'SSC': r'\bSSC\b|Spiking Speech Commands?',
             'GSC': r'\bGSC\b|Google Speech Commands'},
-    'ecg': {'CINC2017': r'CinC\s*2017|PhysioNet/CinC Challenge 2017|2017 PhysioNet|AF Classification Challenge|Computing in Cardiology Challenge 2017',
-            'AFDB': r'MIT-BIH Atrial Fibrillation|\bAFDB\b|Atrial Fibrillation Database', 'PTBXL': r'PTB-XL', 'CINC2020': r'CinC\s*20(?:20|21)|PhysioNet/CinC Challenge 20(?:20|21)',
+    'ecg': {'CINC2017': r'(?:CinC|PhysioNet|Computing in Cardiology)[^.\n]{0,40}?2017|2017[^.\n]{0,40}?(?:CinC|PhysioNet|Computing in Cardiology)|AF Classification Challenge|AliveCor',
+            'AFDB': r'MIT-BIH Atrial Fibrillation|MIT-BIH AF\b|\bAFDB\b|Atrial Fibrillation Database|\bAF database', 'PTBXL': r'PTB-XL', 'CINC2020': r'(?:CinC|PhysioNet)[^.\n]{0,40}?20(?:20|21)\b',
             'MITBIH_ARR': r'MIT-BIH Arrhythmia'},
 }
 HINTS = {
@@ -102,6 +102,22 @@ def get_fulltext(row, key):
         u = f'https://www.ncbi.nlm.nih.gov/pmc/articles/pmid/{row["pmid"]}/pdf/'
         if fetch(u, pdf):
             src = 'pmc'
+    if src is None and (row.get('doi') or row.get('pmid')):                  # Europe PMC open-access full text XML (medical journals)
+        q = f'DOI:"{row["doi"]}"' if row.get('doi') else f'EXT_ID:{row["pmid"]} AND SRC:MED'
+        try:
+            u = 'https://www.ebi.ac.uk/europepmc/webservices/rest/search?format=json&resultType=lite&query=' + urllib.parse.quote(q)
+            d = json.loads(urllib.request.urlopen(urllib.request.Request(u, headers={'User-Agent': UA}), timeout=60).read().decode())
+            hit = next((h for h in d.get('resultList', {}).get('result', []) if h.get('pmcid') and h.get('isOpenAccess') == 'Y'), None)
+            if hit:
+                x = urllib.request.urlopen(urllib.request.Request(f'https://www.ebi.ac.uk/europepmc/webservices/rest/{hit["pmcid"]}/fullTextXML', headers={'User-Agent': UA}), timeout=90).read().decode('utf-8', 'replace')
+                body = re.sub(r'<[^>]+>', ' ', x)
+                if len(body) > 5000:
+                    open(txt, 'w', encoding='utf-8').write(body); json.dump('europepmc:' + hit['pmcid'], open(txt + '.src', 'w'))
+                    time.sleep(1)
+                    return body, 'europepmc:' + hit['pmcid']
+            time.sleep(1)
+        except Exception:
+            pass
     if src is None:
         return None, None
     r = subprocess.run(['pdftotext', '-layout', pdf, txt], capture_output=True)

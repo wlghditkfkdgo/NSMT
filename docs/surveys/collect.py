@@ -85,7 +85,7 @@ TIER_A = [
 TIER_B = [r'scientific reports|^sci\. rep', r'computers in biology and medicine|comput\. biol\. med', r'biomedical signal processing and control|biomed\. signal process',
           r'physiological measurement|physiol\. meas', r'expert systems with applications|expert syst\. appl', r'ieee access',
           # added during screening (flagged): top signal-processing conferences and TCAS-II, where SHD/SSC and ECG-SNN papers appear
-          r'\bicassp\b|acoustics, speech,? and signal processing', r'interspeech', r'circuits and systems ii|tcas-ii|tcas ii\b']
+          r'\bicassp\b|acoustics,? speech,? and signal processing', r'interspeech', r'circuits and systems ii|tcas-ii|tcas ii\b']
 EXCL = [r'\bmdpi\b', r'^sensors', r'^electronics', r'applied sciences', r'bioengineering', r'^mathematics$', r'^entropy$', r'^diagnostics',
         r'^information$', r'^algorithms$', r'frontiers', r'hindawi', r'computing in cardiology|\bcinc\b', r'workshop']
 
@@ -99,6 +99,8 @@ def classify_venue(v):
     for pat in EXCL:
         if re.search(pat, s):
             return 'EXCL'
+    if re.search(r'asia and south pacific|asp-dac|great lakes symposium|midwest symposium', s):   # regional DAC/ISCAS spin-offs: not top-tier
+        return 'UNKNOWN'
     for pat in TIER_A:
         if re.search(pat, s):
             return 'A'
