@@ -1025,3 +1025,65 @@ Q1 평균 +1.30%(0/12), Q2 +4.75%(0/12, 에너지 0.049배), **Q3 T=1 평균 +0.
 - 감사 90(`docs/PROJECT_LOG.md`, 11:21)은 f_lif_pop_v3 추적 감사로 새 판단 근거가 없고 이 단계와 무관하다.
 
 **commit/tag:** 이 항목·결과·분석·요약을 담은 commit에 태그 `exp/nsmt-flif-neo-20261019-2`를 붙이고 브랜치와 태그만 push한다.
+
+---
+
+## 2026-10-19 12:45 KST — 7단계 설계·구현·사전 고정: 교차 주의 모듈을 신피질망(양방향 population f-LIF)으로 교체, 패치 기반 T = N 정렬, 보조 손실 없음 — 점검 13/13, smoke 6/6, 18 run tmux에서 시작
+
+**요청 (2026-10-19, 사용자):** "self attention 모듈을 현재 neo network로 교체하는 실험에 대해서는 어떻게 생각해? 양방향 population f-LIF 뉴런이 사용되고 당연히 보조 손실은 제거되겠지" → (내 설계 제안 뒤) "해당 설정에서는 패치 기반 연산이고 T=N 정렬이 적용되어야해."
+
+**브랜치·기준:** `exp/nsmt-flif-neo`(계속), 기준 commit `3399fb585`(6단계 결과).
+
+**이 실험이 묻는 것:** 6단계까지 남은 원인은 ②(교차 주의·head가 이미 모든 토큰을 봄)와 ④(손실이 토큰 사이 기억을 요구하지 않음)였다. 교차 주의를 없애고 보조 손실을 빼면, 정렬된 뉴런 상태가 **토큰 사이 정보를 나르는 유일한 통로**가 되고 과제 손실이 그 뉴런에 100% 닿는다. 5단계 수치로 쓰면: 교차 주의는 no_neo(90.40) 대비 **+1.4%p(hippo_only 91.83)와 약 13 µJ**를 차지한다. 신피질망이 그 +1.4%p를 얼마나 되찾고 에너지는 얼마나 쓰는지가 질문이다. 이는 원래 통과 기준 (2)의 형태다. 주의할 점: 이 모델은 더 이상 "f-LIF 신피질을 단 NSMT"가 아니라 **주의 없는 정렬 스파이킹 재귀망**이다(두 경로 서사 없음).
+
+**모델 (`nsmt_flif_v1/classification/neo_mixer.py`, `--model neoMixer`):**
+- 패치: 187샘플 → 길이 32·보폭 16·끝 복제 패딩 → 토큰 N = 11 (ECG 모델과 같음). **T = N = 11**: 모든 스파이킹 뉴런이 토큰 축을 시간 축으로 쓴다. 해마의 반복 축(같은 입력 11번)은 없다.
+- 임베딩: Linear(32→384) → BN → spikingjelly LIF(토큰 축). 조건 간 고정.
+- 블록 × L: `x = x·(1 − mixer(x))`, `x = x·(1 − MLP(x))` (논문의 IAND 결합). **mixer = 신피질망** = `NeoLayer`(Linear → BN → 뉴런) 2층, 양방향이면 역순 토큰 열에 별도 2층을 두고 뒤집어 OR로 합침(6단계와 같음). MLP는 SpikLinearLayer 2개(spikingjelly LIF, 토큰 축), 조건 간 고정.
+- head: 토큰 평균 → Linear(384→5). 손실은 CAL 가중 CE만 (`train.py`가 `time_block` 속성이 없는 모델에 CE만 적용; 디코더·보조 손실 없음).
+- 설계상 주의: T = N에서는 임베딩·MLP의 LIF도 토큰 축 상태를 가지므로, mixer가 없는 조건(`none`)도 "토큰 독립"이 아니라 "**정렬만 있고 섞기 모듈이 없음**"이다(τ = 2 LIF의 2–3토큰 기억). 이것이 하한 대조군이다. 토큰 독립 하한은 5단계 no_neo(90.40)를 참조한다.
+- 파라미터: none 311,424 / 양방향 mixer 904,320(pop 910,464) / 정순 pop 610,944 / 2블록 양방향 pop 1,805,952. 비교: hippo_only 1,226,112(교차 주의 D×D 선형 4개 포함).
+
+**조건 (suite `flif-v1-cls3`, 6 조건 × seed 42/7/2026 = 18 run; 학습 규칙은 5단계와 같음 — 30 epoch cosine, bs 512, lr 0.01, CAL CE, 마지막 가중치로 test):**
+
+| 조건 | mixer | 방향 | 블록 |
+|---|---|---|---|
+| mix_none_fwd | 없음 (하한: 정렬만) | – | 1 |
+| mix_lif_bidir | spikeDE LIF | 양방향 | 1 |
+| mix_flif_bidir | f-LIF | 양방향 | 1 |
+| **mix_pop_bidir** (제안) | population f-LIF (가지 4/8/16/32 + LIF soma) | 양방향 | 1 |
+| mix_pop_fwd | population f-LIF | 정순 | 1 |
+| mix_pop_bidir_L2 | population f-LIF | 양방향 | 2 |
+| (참조) hippo_only, no_neo, base, f-LIF both | 5단계 run 재사용 | | |
+
+**코드:** `neo_mixer.py`(NeoMixer, `forward_parts`로 분석 훅), `load_model.py`(`LOAD_MODEL['neoMixer']`), `config.py`(`--mixer {none,lif,flif,pop_flif} --mixer_bidir`; `--layers` = 블록 수, `--time_layers` = mixer 층 수; 폴더 접미사 `_mix-<kind>[-bidir]-L<블록>-a<α>`), `energy.py`(mixer 스택을 신피질 경로로 집계), `scripts/run_mitbih.sh`(`COND=mix_<none|lif|flif|pop>_<fwd|bidir>[_L2]`), `cls_analysis.py`(NeoMixer 지원: "신피질 출력" = 첫 블록 mixer 출력, replay 교체도 그 자리), `summarize_cls.py`(Q8–Q10), `check_cls.py` c13.
+
+**점검 13/13 (`results/checks/check_cls_stage7.txt`):** c1–c12 그대로 통과(기존 경로 비트 동일 유지). **c13**: 주의 모듈 없음, N = T = 11이고 스파이킹 층 7개(임베딩 + mixer 2×2 + MLP 2) 모두 T = 11로 집계, 학습 forward는 로짓만(CE만 적용되는 경로), test forward는 (로짓, 토큰 스파이크); `none`에서 토큰 j를 바꾸면 j 이후만 바뀜(앞은 불변; 3/3); 양방향 f-LIF mixer에 임베딩 토큰 j를 바꿔 넣으면 정순 스택은 j 이후만, 역순 스택은 j 이전만 바뀌고 합은 max와 비트 동일(3/3); 폴더 이름 6개 구분. 처음 c13은 `none`을 "토큰 독립"으로 기대해 실패했고(T = N에서는 임베딩 LIF도 상태를 가짐), 기대를 "정렬만, 인과"로 고쳤다. 역순 스택 검사도 토큰 대신 임베딩을 바꾸는 방식으로 고쳤다(임베딩 LIF의 인과 상태가 j 이후 임베딩을 바꿔 역순 검사를 오염시켰음).
+
+**smoke (`results/smoke-cls3-20261019/raw.txt`, seed 42, 1 epoch; 실험 아님):**
+
+| 조건 | 정확도 | macro-F1 | 시냅스 µJ | 총 µJ (FFT / 직접 합) | mixer 발화율 | 시간 s |
+|---|---|---|---|---|---|---|
+| mix_none_fwd | 0.936345 | 0.690148 | 0.99 | 1.14 / 1.14 | – | 18 |
+| mix_lif_bidir | 0.946030 | 0.724317 | 1.64 | 1.99 / 1.99 | 0.057 | 37 |
+| mix_flif_bidir | 0.946670 | 0.711909 | 1.60 | 2.10 / 2.41 | 0.050 | 34 |
+| mix_pop_bidir | 0.913563 | 0.665180 | 1.48 | 4.21 / 4.73 | 0.008 | 42 |
+| mix_pop_fwd | 0.924832 | 0.569331 | 1.25 | 2.69 / 2.95 | 0.027 | 36 |
+| mix_pop_bidir_L2 | 0.922152 | 0.562941 | 2.24 | 7.67 / 8.69 | 0.012 | 55 |
+
+**smoke에서 이미 보이는 것 (사전 기록):** 반복 축을 없앤 결과 **에너지가 한 자릿수 µJ**다(hippo_only 26.0, ECG 모델 23.9 대비 1/3–1/20). 시냅스 연산이 11배 줄기 때문이다. 따라서 기준 (2)의 "에너지가 훨씬 적음"은 거의 확실히 성립하고, 질문은 성능 쪽으로 좁혀진다. population mixer의 발화율은 6단계처럼 낮다(0.8–2.7%; 보정 없음). 분석 스크립트는 mix_pop_bidir·mix_none_fwd smoke 체크포인트로 시험했다(forward 일치 비트 동일).
+
+**판정 (고정; test macro-F1, 같은 seed끼리 짝, 평균 ≥ +0.5%p이고 3 seed 중 2개 이상 = "좋음"; 반대면 "나쁨"):**
+- **Q8 mixer 효과:** 각 mixer 조건 vs mix_none_fwd. mixer가 no_neo 수준의 하한보다 나아야 "정렬된 재귀 상태가 토큰을 섞는 장치로 쓸모 있다".
+- **Q9 주의 대체 (주 질문):** mix_pop_bidir, mix_flif_bidir, mix_lif_bidir, mix_pop_bidir_L2 각각 vs hippo_only. 해석 틀: hippo_only보다 "나쁨"이 아니면(−0.5%p 이내) 에너지와 함께 기준 (2) 충족으로 본다; "나쁨"이지만 mix_none_fwd보다 "좋음"이면 "일부 대체"; mix_none_fwd와도 차이 없으면 재귀 섞기는 효과 없음.
+- **Q10 (보고):** population vs f-LIF(mixer), 양방향 vs 정순, 2블록 vs 1블록, mix_none_fwd vs no_neo(정렬만의 효과).
+- 에너지: 시냅스 + 뉴런 고유(population은 우리 규약), hippo_only 대비 비율.
+- 분석 A1–A4는 같은 스크립트로 보고만 한다(A1은 첫 블록 mixer 출력 교체).
+- **예상(사전 기록):** 양방향 mixer들은 mix_none_fwd보다 좋고(Q8 통과), hippo_only에는 못 미치되(−0.3 ~ −1.0%p) 에너지 0.1배 수준. population이 f-LIF보다 나을 근거는 없다(6단계 A2).
+- 탐색 단계(3 seed)이므로 통과는 확증이 아니다.
+
+**실행:** tmux `flif_cls3`, `SUITE=flif-v1-cls3 CONDS="mix_pop_bidir_L2 mix_pop_bidir mix_flif_bidir mix_lif_bidir mix_pop_fwd mix_none_fwd" REF_SUITE=flif-v1-cls scripts/cls_driver.sh 0,1,2,3,0,1,2,3`. 예상 40분(epoch당 18–55 s).
+
+**감사:** 91(`docs/PROJECT_LOG.md` 12:11)은 f_lif_pop_v3 추적 감사로 새 판단 근거가 없다.
+
+**commit:** 이 항목·코드·점검·smoke를 담은 commit을 push한 뒤 시작한다. 결과는 다음 항목.

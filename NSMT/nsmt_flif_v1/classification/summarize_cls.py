@@ -18,13 +18,18 @@ import pandas as pd
 HERE = os.path.dirname(os.path.abspath(__file__))
 SEEDS = (42, 7, 2026)
 CONDS = ('base', 'neo_lif_both', 'neo_flif_both', 'neo_lif_mlp', 'neo_flif_mlp', 'no_neo', 'hippo_only',
-         'neo_pop_both', 'bidir_lif_both', 'bidir_flif_both', 'bidir_pop_both')
+         'neo_pop_both', 'bidir_lif_both', 'bidir_flif_both', 'bidir_pop_both',
+         'mix_none_fwd', 'mix_lif_bidir', 'mix_flif_bidir', 'mix_pop_bidir', 'mix_pop_fwd', 'mix_pop_bidir_L2')
 LABEL = {'base': 'ECG model (spikingjelly LIF)', 'neo_lif_both': 'spikeDE LIF, both', 'neo_flif_both': 'f-LIF, both',
          'neo_lif_mlp': 'spikeDE LIF, MLP only', 'neo_flif_mlp': 'f-LIF, MLP only', 'no_neo': 'no neocortex (ECG ablation)',
          'hippo_only': 'hippo-only (decision 7)',
          'neo_pop_both': 'population f-LIF, both', 'bidir_lif_both': 'bidirectional spikeDE LIF', 'bidir_flif_both': 'bidirectional f-LIF',
-         'bidir_pop_both': 'bidirectional population f-LIF'}
-NEO_CONDS = ('base', 'neo_lif_both', 'neo_flif_both', 'neo_lif_mlp', 'neo_flif_mlp', 'neo_pop_both', 'bidir_lif_both', 'bidir_flif_both', 'bidir_pop_both')
+         'bidir_pop_both': 'bidirectional population f-LIF',
+         'mix_none_fwd': 'mixer none (aligned, no mixing)', 'mix_lif_bidir': 'mixer bidirectional spikeDE LIF',
+         'mix_flif_bidir': 'mixer bidirectional f-LIF', 'mix_pop_bidir': 'mixer bidirectional population f-LIF',
+         'mix_pop_fwd': 'mixer forward population f-LIF', 'mix_pop_bidir_L2': 'mixer bidirectional population f-LIF, 2 blocks'}
+NEO_CONDS = ('base', 'neo_lif_both', 'neo_flif_both', 'neo_lif_mlp', 'neo_flif_mlp', 'neo_pop_both', 'bidir_lif_both', 'bidir_flif_both', 'bidir_pop_both',
+             'mix_lif_bidir', 'mix_flif_bidir', 'mix_pop_bidir', 'mix_pop_fwd', 'mix_pop_bidir_L2')
 CLS = ('N', 'S', 'V', 'F', 'Q')
 
 
@@ -115,7 +120,13 @@ def main():
          ('Q5 bidirectional vs forward (spikeDE LIF)', 'bidir_lif_both', 'neo_lif_both'),
          ('Q6 both vs f-LIF', 'bidir_pop_both', 'neo_flif_both'), ('Q6 both vs bidirectional f-LIF', 'bidir_pop_both', 'bidir_flif_both'),
          ('Q7 best stage-6 vs hippo-only', 'bidir_pop_both', 'hippo_only'), ('Q7 vs hippo-only', 'bidir_flif_both', 'hippo_only'),
-         ('Q7 vs hippo-only', 'neo_pop_both', 'hippo_only')]
+         ('Q7 vs hippo-only', 'neo_pop_both', 'hippo_only'),
+         ('Q8 mixer vs no mixing', 'mix_pop_bidir', 'mix_none_fwd'), ('Q8 mixer vs no mixing', 'mix_flif_bidir', 'mix_none_fwd'),   # stage 7
+         ('Q8 mixer vs no mixing', 'mix_lif_bidir', 'mix_none_fwd'), ('Q8 mixer vs no mixing', 'mix_pop_fwd', 'mix_none_fwd'),
+         ('Q9 mixer vs attention (hippo-only)', 'mix_pop_bidir', 'hippo_only'), ('Q9 mixer vs attention', 'mix_flif_bidir', 'hippo_only'),
+         ('Q9 mixer vs attention', 'mix_lif_bidir', 'hippo_only'), ('Q9 mixer vs attention', 'mix_pop_bidir_L2', 'hippo_only'),
+         ('Q10 population vs f-LIF (mixer)', 'mix_pop_bidir', 'mix_flif_bidir'), ('Q10 bidirectional vs forward (mixer)', 'mix_pop_bidir', 'mix_pop_fwd'),
+         ('Q10 2 blocks vs 1', 'mix_pop_bidir_L2', 'mix_pop_bidir'), ('ref: no mixing vs no_neo', 'mix_none_fwd', 'no_neo')]
     Q = [(q, x, y) for q, x, y in Q if (df.cond == x).any() and (df.cond == y).any()]
     for q, x, y in Q:
         v = verdict(df, x, y)
@@ -178,7 +189,7 @@ def main():
                         ac.append(json.load(open(p)).get('acausal_max', float('nan'))); break
             L.append(f"| {LABEL[c]} (n={len(tabs)}) | " + ' | '.join(f'{100 * v:.2f}' for v in lag) + f" | {100 * pc:.2f} | {max(ac) if ac else float('nan'):.1e} |")
         L += ['', '## A4 neocortex output firing per token, by class (%, mean over seeds; tokens = 32-sample patches, stride 16)', '']
-        for c in ('base', 'neo_lif_both', 'neo_flif_both', 'neo_pop_both', 'bidir_flif_both'):
+        for c in ('base', 'neo_lif_both', 'neo_flif_both', 'neo_pop_both', 'bidir_flif_both', 'mix_pop_bidir', 'mix_flif_bidir'):
             tabs = [load(c, s, 'firing_by_class.csv') for s in SEEDS]
             tabs = [t for t in tabs if t is not None]
             if not tabs:

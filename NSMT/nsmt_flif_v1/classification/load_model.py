@@ -128,7 +128,28 @@ def load_mymodel(args, train=True):
         
 #     return model
         
+def load_neo_mixer(args, train=True):
+    """stage 7: the attention-free, T = N aligned model (neo_mixer.NeoMixer)."""
+    from neo_mixer import NeoMixer
+    model = NeoMixer(seq_len=args.seq_len, data_patch_size=args.patch_size, embed_dim=args.embed_dim, num_classes=args.num_classes,
+                     depths=args.num_layers, mlp_ratios=args.mlp_ratios, mixer=getattr(args, 'mixer', 'pop_flif'),
+                     mixer_bidir=getattr(args, 'mixer_bidir', False), mixer_layers=args.time_num_layers,
+                     neo_tau=getattr(args, 'neo_tau', 2.0), neo_alpha=getattr(args, 'neo_alpha', 0.5),
+                     fde_method=getattr(args, 'fde_method', 'pred'), fde_step=getattr(args, 'fde_step', 1.0),
+                     fde_memory=getattr(args, 'fde_memory', 0),
+                     pop_taus=tuple(float(t) for t in str(getattr(args, 'pop_taus', '4,8,16,32')).split(',')),
+                     bias=args.bias, tau=args.tau, train_mode='training')
+    if not train:
+        saved_model_path = os.path.join(args.save_result_path, "model_state", "best+model.pt")
+        model.load_state_dict(torch.load(saved_model_path, map_location='cpu'))
+        model = model.to(args.device)
+        model.train_mode = 'testing'
+        print(f"{args.model} was successfully loaded. (epoch = {args.saved_epoch[-1]:03d})")
+    return model
+
+
 LOAD_MODEL = {
     'myModel' : load_mymodel,
+    'neoMixer' : load_neo_mixer,                                       # stage 7
     # 'Spikformer' : load_spikformer, 
 }

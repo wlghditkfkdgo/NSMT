@@ -19,6 +19,12 @@ cannot run, or whose test is vacuous (no spikes), FAILs.
   c12 (stage 6) bidirectional neocortex: fused output == max(forward, flipped reverse) computed from the two branches
       separately; changing token j changes the forward branch only at tokens >= j and the reverse branch only at <= j;
       the reverse modules have their own parameters; run-directory names of the 4 stage-6 conditions are distinct
+  c13 (stage 7) NeoMixer: patch tokens N = 11 and every spiking neuron runs T = 11 steps (energy recorder), no attention
+      module; 'none' mixer: with T = N every neuron state is causal along tokens, so token j changes tokens >= j only
+      (the embedding / MLP LIFs carry state too -- the control is 'aligned without a mixer', not 'token-independent');
+      bidirectional mixer fed a changed embedding token j: forward stack changes >= j only, reverse stack <= j only,
+      fused = max; training forward returns plain logits so
+      train.py uses CE only; testing forward returns (logits, token spikes); run-directory names distinct
 usage: python check_cls.py [--out results/checks/check_cls.txt]
 """
 import argparse
@@ -418,12 +424,107 @@ def c12():
     report('c12', all(oks) and distinct, '; '.join(msgs) + f"; dirs distinct {distinct}: " + ', '.join(f'{k}={v}' for k, v in names.items() if k != 'neo_flif_both'))
 
 
+@check('c13')
+def c13():
+    from spikingjelly.clock_driven import functional
+    from energy import FiringRateRecorder
+    from load_model import LOAD_MODEL
+    from config import set_random_seed
+    import config as cfg
+    HPm = dict(HP, model='neoMixer')
+    def bm(**kw):
+        set_random_seed(0)
+        return LOAD_MODEL['neoMixer'](NS(**{**HPm, **kw}), True).cuda()
+    g = torch.Generator().manual_seed(13)
+    msgs, oks = [], []
+    # (a) structure and axes
+    m = bm(mixer='pop_flif', mixer_bidir=True); m.eval()
+    no_attn = not any('attn' in type(mod).__name__.lower() or 'attention' in type(mod).__name__.lower() for mod in m.modules())
+    rec = FiringRateRecorder(m)
+    with torch.no_grad():
+        m.train_mode = 'testing'; out = m(torch.rand(16, 1, 187).cuda()); rec.add_samples(16); functional.reset_net(m)
+    rec.detach()
+    rows = rec.layers()
+    axes_ok = m.num_patches == 11 and m.T == 11 and all(r['T'] == 11 for r in rows) and len(rows) == 7     # emb + 2x2 mixer + fc1 + fc2
+    test_tuple = isinstance(out, tuple) and len(out) == 2 and tuple(out[1].shape) == (11, 16, 1, 384)
+    m.train_mode = 'training'
+    with torch.no_grad():
+        tr = m(torch.rand(4, 1, 187).cuda()); functional.reset_net(m)
+    train_plain = torch.is_tensor(tr) and tuple(tr.shape) == (4, 5)
+    oks.append(no_attn and axes_ok and test_tuple and train_plain and not hasattr(m, 'time_block'))
+    msgs.append(f'no attention {no_attn}, N=T=11 & 7 spiking layers at T=11 {axes_ok}, test (z, h) {test_tuple}, train plain logits {train_plain}')
+    # (b) 'none' mixer: tokens independent before the mean
+    m0 = bm(mixer='none'); m0.eval()
+    with torch.no_grad():                                                  # make the embedding fire in eval (BN running stats = identity)
+        w = m0.encoding.emb_linear.weight; w.copy_(torch.randn(w.shape, generator=g) * 2.0 / w.shape[1] ** .5)
+        for blk in m0.blocks:
+            for l in (blk.fc1, blk.fc2):
+                l.linear.weight.copy_(torch.randn(l.linear.weight.shape, generator=g) * 3.0 / l.linear.weight.shape[1] ** .5)
+    x = torch.rand(32, 1, 187, generator=g).cuda()
+    def parts(mm, t_fn=None):
+        with torch.no_grad():
+            z, e, mo, f, h = mm.forward_parts(x, tok_fn=t_fn)
+        functional.reset_net(mm)
+        return z, e, mo, f, h
+    _, e0, _, _, h0 = parts(m0)
+    indep = []
+    for j in (2, 5, 8):
+        def tf(t, j=j):
+            t = t.clone(); t[j] = t[j].roll(1, dims=0); return t
+        _, e1, _, _, h1 = parts(m0, tf)
+        indep.append(torch.equal(h1[:j], h0[:j]) and not torch.equal(h1[j], h0[j]) and not torch.equal(h1[j + 1:], h0[j + 1:]))
+    rate0 = h0.mean().item()
+    oks.append(all(indep) and 0.02 <= rate0 <= 0.98)
+    msgs.append(f"'none' (aligned, no mixer): token j changes tokens >= j only, incl. later ones via the LIF state {indep} (rate {rate0:.3f})")
+    # (c) bidirectional mixer causality per stack, fused = max
+    m2 = bm(mixer='flif', mixer_bidir=True); m2.eval()
+    with torch.no_grad():
+        w = m2.encoding.emb_linear.weight; w.copy_(torch.randn(w.shape, generator=g) * 2.0 / w.shape[1] ** .5)
+        for l in m2.blocks[0].mixer.Mem + m2.blocks[0].mixer_rev.Mem:
+            l.w_in.weight.copy_(torch.randn(l.w_in.weight.shape, generator=g) * 5.0 / l.w_in.weight.shape[1] ** .5)
+    blk = m2.blocks[0]
+    with torch.no_grad():
+        e0 = m2.encoding(m2.tokens(x))
+    functional.reset_net(m2)
+    def stacks(e):                                                         # the mixer stacks on a given embedding
+        with torch.no_grad():
+            f = blk.mixer(e); r = blk.mixer_rev(e.flip(0)).flip(0); fused = blk.mix(e)
+        functional.reset_net(m2)
+        return f, r, fused
+    f0, r0, fu0 = stacks(e0)
+    fused_ok = torch.equal(fu0, torch.maximum(f0, r0))
+    caus = []
+    for j in (2, 5, 8):
+        e1 = e0.clone(); e1[j] = e0[j].roll(1, dims=0)                      # embedding token j of another beat
+        f1, r1, _ = stacks(e1)
+        caus.append(torch.equal(f1[:j], f0[:j]) and not torch.equal(f1[j:], f0[j:])
+                    and torch.equal(r1[j + 1:], r0[j + 1:]) and not torch.equal(r1[:j + 1], r0[:j + 1]))
+    rates = [f0.mean().item(), r0.mean().item()]
+    oks.append(fused_ok and all(caus) and all(0.02 <= v <= 0.98 for v in rates))
+    msgs.append(f'bidir f-LIF mixer: fused==max {fused_ok}, fwd>=j & rev<=j {caus}, rates {rates[0]:.3f}/{rates[1]:.3f}')
+    # (d) run-directory names
+    tmp = tempfile.mkdtemp(dir=os.environ.get('CHECK_TMP'))
+    flags = {'mix_none_fwd': ['--mixer', 'none'], 'mix_pop_bidir': ['--mixer', 'pop_flif', '--mixer_bidir'], 'mix_pop_fwd': ['--mixer', 'pop_flif'],
+             'mix_flif_bidir': ['--mixer', 'flif', '--mixer_bidir'], 'mix_lif_bidir': ['--mixer', 'lif', '--mixer_bidir'],
+             'mix_pop_bidir_L2': ['--mixer', 'pop_flif', '--mixer_bidir', '--layers', '2']}
+    names, argv0 = {}, sys.argv
+    try:
+        for c, f in flags.items():
+            sys.argv = ['train.py', '--model', 'neoMixer', '--log_dir', tmp, '--seed', '42', '-s'] + f
+            a = cfg.Config(); a.set_args(cfg.parse_arguments()); names[c] = os.path.basename(a.save_result_path)
+    finally:
+        sys.argv = argv0
+    oks.append(len(set(names.values())) == len(names))
+    msgs.append('dirs ' + ', '.join(f'{k}={v}' for k, v in names.items()))
+    report('c13', all(oks), '; '.join(msgs))
+
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', default=os.path.join(HERE, 'results', 'checks', 'check_cls.txt'))
     ap.add_argument('--only', nargs='*', default=None)
     a = ap.parse_args()
-    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12):
+    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13):
         if a.only and fn.__name__ not in a.only:
             continue
         fn()

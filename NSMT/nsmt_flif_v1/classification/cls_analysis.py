@@ -56,12 +56,19 @@ class Runner:
     def __init__(self, m):
         self.m = m
         self.has_neo = not (getattr(m, 'no_neo', False) or getattr(m, 'hippo_only', False))
+        self.is_mixer = hasattr(m, 'forward_parts')                      # stage 7 NeoMixer
+        if self.is_mixer and m.mixer_kind == 'none':
+            self.has_neo = False
 
     @torch.no_grad()
     def forward(self, x, neo_tok_fn=None, mx_fn=None):
         """The ECG model's testing forward (roll_mode none), split open. Returns logits, neocortex embedding spikes
         e [N, B, 1, D], neocortex output o [N, B, 1, D] (None without a neocortex), head input h [B, D]."""
         m = self.m
+        if self.is_mixer:                                                 # stage 7: 'neocortex' = the first block's mixer
+            z, e, m0, feat, _ = m.forward_parts(x, tok_fn=neo_tok_fn, mix_fns=([mx_fn] + [None] * (len(m.blocks) - 1)) if mx_fn else None)
+            functional.reset_net(m)
+            return z, e, m0, feat
         xx = x.unsqueeze(0).repeat(m.T, 1, 1, 1)
         xx = rearrange(xx, 't b c l -> t (b c) l', c=1)
         xx = m.padding_patch_layer(xx)
@@ -140,7 +147,7 @@ def main():
 
     cfg = torch.load(os.path.join(a.run_dir, 'model_state', 'config.pt'), map_location='cpu')
     args = argparse.Namespace(**cfg)
-    m = LOAD_MODEL['myModel'](args, True)
+    m = LOAD_MODEL[getattr(args, 'model', 'myModel')](args, True)
     state = torch.load(os.path.join(a.run_dir, 'model_state', 'best+model.pt'), map_location='cpu')
     m.load_state_dict(state)                                                           # strict
     m = m.cuda().eval(); m.train_mode = 'testing'
@@ -159,7 +166,7 @@ def main():
     if not torch.allclose(z_ref, z_new, atol=1e-5):
         raise RuntimeError(f'split forward differs from model forward: {parity}')
 
-    meta = dict(name=a.name, run_dir=a.run_dir, has_neo=R.has_neo, parity=parity, n_test=n,
+    meta = dict(name=a.name, run_dir=a.run_dir, has_neo=R.has_neo, parity=parity, n_test=n, model=getattr(args, 'model', 'myModel'),
                 neo_neuron=getattr(args, 'neo_neuron', 'sj_lif'), neo_where=getattr(args, 'neo_where', 'both'),
                 no_neo=getattr(args, 'no_neo', False), hippo_only=getattr(args, 'hippo_only', False))
 

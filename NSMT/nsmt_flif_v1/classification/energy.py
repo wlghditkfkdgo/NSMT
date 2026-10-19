@@ -34,7 +34,7 @@ E_AC, E_MAC = 0.9e-12, 4.6e-12
 KAPPA = E_MAC / E_AC                                                 # 5.111...
 COLUMNS = ('neuron_lif_uJ', 'neuron_model_fft_uJ', 'neuron_model_direct_uJ', 'total_fft_uJ',
            'total_direct_uJ', 'rho_neo', 'rho_hippo', 'n_spiking_layers', 'kappa')
-NEO_PREFIXES = ('encoding_neo', 'time_block')                     # also matches encoding_neo_rev / time_block_rev (stage 6)
+NEO_PREFIXES = ('encoding_neo', 'time_block', 'blocks.0.mixer', 'blocks.1.mixer')   # also *_rev (stage 6); stage 7 mixer stacks
 
 
 def e_lif(T, rho):

@@ -111,6 +111,9 @@ def parse_arguments():
     snn_arg.add_argument('--pop_taus', type=str, default='4,8,16,32', help='pop_flif: branch time constants (soma uses --neo_tau)')
     snn_arg.add_argument('--neo_bidir', action='store_true', default=False,
                          help='stage 6: second neocortex over the reversed token axis, fused with the forward one by OR')
+    # stage 7: --model neoMixer (attention replaced by the neocortex network; --layers = blocks, --time_layers = mixer layers)
+    snn_arg.add_argument('--mixer', choices=['none', 'lif', 'flif', 'pop_flif'], default='pop_flif')
+    snn_arg.add_argument('--mixer_bidir', action='store_true', default=False)
     snn_arg.add_argument('--hippo_only', action='store_true', default=False,
                          help='MODI decision 7: no neocortex; the cross-attention key/value is the hippocampus itself')
     snn_arg.add_argument('--tau', dest='tau', type=float, default=2.0)
@@ -194,6 +197,8 @@ class Config():
             _iso += "_hippoonly"
         if getattr(args, 'neo_bidir', False):
             _iso += "_bidir"
+        if getattr(args, 'model', 'myModel') == 'neoMixer':
+            _iso += f"_mix-{args.mixer}" + ("-bidir" if getattr(args, 'mixer_bidir', False) else "") + f"-L{args.num_layers}-a{args.neo_alpha}"
         if getattr(args, 'neo_neuron', 'sj_lif') == 'pop_flif' and getattr(args, 'pop_taus', '4,8,16,32') != '4,8,16,32':
             _iso += "_pt" + args.pop_taus.replace(',', '-')
         self.save_result_path = os.path.join(os.getcwd(), args.log_dir, self.date, self.date + tag, _iso)

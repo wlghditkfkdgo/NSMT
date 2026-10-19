@@ -28,8 +28,14 @@ case $COND in
   bidir_lif_both)  CF="--neo_bidir --neo_neuron lif  --neo_where both $NEOX" ;;
   bidir_flif_both) CF="--neo_bidir --neo_neuron flif --neo_where both --neo_alpha $ALPHA $NEOX" ;;
   bidir_pop_both)  CF="--neo_bidir --neo_neuron pop_flif --neo_where both --neo_alpha $ALPHA --pop_taus ${POP_TAUS:-4,8,16,32} $NEOX" ;;
+  mix_*)                                                              # stage 7: mix_<none|lif|flif|pop>_<fwd|bidir>[_L<blocks>]
+    IFS=_ read -r _ MK MD ML <<< "$COND"; [ "$MK" = pop ] && MK=pop_flif
+    CF="--model neoMixer --mixer $MK --neo_alpha $ALPHA --pop_taus ${POP_TAUS:-4,8,16,32} $NEOX"
+    [ "$MD" = bidir ] && CF="$CF --mixer_bidir"
+    [ -n "${ML:-}" ] && LAYERS=${ML#L} ;;
   *) echo "bad cond $COND"; exit 1 ;;
 esac
+LAYERS=${LAYERS:-1}
 SUITE=${SUITE:-flif-v1-cls-$(date +%Y%m%d)}
 EPOCHS=${EPOCHS:-30}
 RES=${RES:-$W/results/$SUITE}; LOG=${LOG:-$W/log/$SUITE}
@@ -41,10 +47,10 @@ OUT=$LOG/mitbih_${COND}_seed${S}_${TS}_${SHA}.stdout; t0=$(date +%s)
 (cd "$W" && CUDA_VISIBLE_DEVICES=$GPU OMP_NUM_THREADS=${THREADS:-4} $PY ./train.py \
   --model myModel --seed $S --log_dir "$LOG/MITBIH" --gating attn --attn SSA -s --test --print_epoch 1 -nd 0 \
   -e $EPOCHS --warm_up_epoch 0 --num_channels 1 -bs 512 -lr 0.01 --max_lr 0.005 -emb 384 -nh 8 --mlp_ratios 1 \
-  --layers 1 --keep_ratio 0.15 --time_layers 2 --alpha 0.1 --patch_size 32 --no-bias --scheduler cosine \
+  --layers $LAYERS --keep_ratio 0.15 --time_layers 2 --alpha 0.1 --patch_size 32 --no-bias --scheduler cosine \
   --data UEA --data_path ECG --seq_len 187 --root_path "$DATA" $CF --tag $COND seed$S > "$OUT" 2>&1)
 RC=$?
-D=$(ls -td "$LOG/MITBIH"/*/*"+${COND}+seed${S}+model+"*/seed${S}_* 2>/dev/null | head -1)
+D=$(ls -td "$LOG/MITBIH"/*/*"+${COND}+seed${S}+model+"*/seed${S}_* 2>/dev/null | head -1)   # the mixer's rho_neo column covers its mixer stacks
 CSV="$D/log/final+result.csv"
 if [ $RC -ne 0 ] || [ ! -s "$CSV" ]; then echo "SKIP(rc=$RC, no result) cond=$COND seed=$S out=$OUT" | tee -a "$RES/raw.txt"; exit 1; fi
 VALS=$($PY - "$CSV" <<'EOF'
