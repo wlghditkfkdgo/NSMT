@@ -26,6 +26,9 @@ case $C in
   pop_flif_none)      MF="--neuron pop_flif --soma none --mode full" ;;
   sel_pop_flif)       MF="--neuron sel_pop_flif --mode hard --hard_axis shared --hard_stat pearson --hard_q 0.5" ;;
   sel_pop_flif_input) MF="--neuron sel_pop_flif --mode hard --hard_axis shared --hard_stat pearson --hard_q 0.5 --select_part input" ;;
+  flif_soma)          MF="--neuron flif --soma lif $ONE --mode full" ;;                     # f-LIF with soma
+  sel_flif_soma)      MF="--neuron sel_flif --soma lif $ONE --mode hard --hard_axis shared --hard_stat pearson --hard_q 0.5" ;;
+  sel_pop_flif_none)  MF="--neuron sel_pop_flif --soma none --mode hard --hard_axis shared --hard_stat pearson --hard_q 0.5" ;;
   *) echo "bad cond $C"; exit 1 ;;
 esac
 COMMON="--task ett --data ETTh1 --pred_len 96 --revin --seed 7 -nd 0 --calibration_dir $CAL"

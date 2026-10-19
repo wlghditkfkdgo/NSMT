@@ -9,10 +9,11 @@ P1  LIFNeuron        == spikeDE LIFNeuron + euler_integrate_tuple
 P2  FLIFNeuron pred  == spikeDE LIFNeuron + pred_integrate_tuple   (memory None and 8)
 P3  FLIFNeuron gl    == spikeDE LIFNeuron + gl_integrate_tuple     (memory None and 8)
 P4  PopulationFLIF(soma='none', K=3) == three independent spikeDE f-LIF neurons
-P5  gradient of a weighted spike sum w.r.t. the input current, ours vs spikeDE (pred). spikeDE's
-    surrogate returns float32 spikes even in float64 runs, so the original agrees to float32
-    precision only; a second reference with that one cast removed (patched forward returning
-    the input's dtype) must agree to float64 precision
+P5  gradient of a weighted spike sum w.r.t. the input current, ours vs spikeDE (pred). Since
+    2026-10-19 neurons.py calls the verbatim spikeDE copy (spikede.py), so the gradient must equal
+    the ORIGINAL spikeDE exactly (its surrogate returns float32 spikes even in float64 runs). The
+    reference with that one cast removed (the pass rule before 10-19, when neurons.py had its own
+    dtype-preserving surrogate) is still reported, for information
 States are compared by the relative error |ours - spikeDE| / max(1, max|spikeDE|): with tau=0.5
 and h=1 the explicit schemes are unstable and the states reach 1e10 and more.
 P6  the current v3 neuron (layers.PopulationNeuron, K=1, mode 'full'):
@@ -112,7 +113,9 @@ def main():
                         for inp, current in INPUTS.items():
                             r_state, r_spike, _, h_used = reference(current, solver, tau, h, alpha, memory)
                             cls = 'lif' if solver == 'euler' else 'flif'
-                            o_state, o_spike, _ = ours(cls, current, tau, h_used, alpha,
+                            # 같은 h 를 넘긴다: 10-19 부터 양쪽이 같은 spikeDE 코드라 시간 격자도 같아야 한다
+                            # (그 전에는 고정 h 를 쓰는 자체 구현이라 격자 간격 h_used 를 넘겼다)
+                            o_state, o_spike, _ = ours(cls, current, tau, h, alpha,
                                                        'gl' if solver == 'gl' else 'pred', memory)
                             rows.append({'test': {'euler': 'P1', 'pred': 'P2', 'gl': 'P3'}[solver],
                                          'solver': solver, 'alpha': alpha, 'tau': tau, 'h': h, 'memory': memory,
@@ -142,7 +145,7 @@ def main():
                      'case': inp, 'grad_norm': norm, 'grad_max_abs_err': err_f64,
                      'grad_max_abs_err_vs_original_float32_spikes': err_orig,
                      'grad_rel_err_vs_original': err_orig / max(norm, 1e-12),
-                     'ok': err_f64 < 1e-12 * max(1., norm) and err_orig < 1e-6 * max(1., norm)})
+                     'ok': err_orig == 0.})                                   # 원본 spikeDE 와 정확히 같아야 한다
     # ---- P6 ---------------------------------------------------------------------------------
     for alpha in (.5, .7, 1.):
         for tau in (2., 8.):
@@ -178,7 +181,8 @@ def main():
     print(f"[parity] spikeDE {head}  torch {torch.__version__}")
     for test, s in summary.items():
         extra = f", v3 spike trains equal to spikeDE f-LIF: {s['spike_trains_equal']}/{s['cases']}" if test == 'P6' else ''
-        kind = {'P5': 'gradient |err| vs dtype-preserving spikeDE', 'P6': 'branch |err|'}.get(test, 'relative state err')
+        kind = {'P5': 'gradient |err| vs dtype-preserving spikeDE (info; pass = equal to the original)',
+                'P6': 'branch |err|'}.get(test, 'relative state err')
         print(f"[parity] {test}: {s['ok']}/{s['cases']} pass, worst {kind} {s['worst']:.2e}{extra}")
     p2 = [r for r in rows if r['test'] in ('P2', 'P3')]
     print(f"[parity] P2/P3 largest state magnitude {max(r['state_max_abs'] for r in p2):.3e} "

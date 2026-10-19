@@ -7108,3 +7108,56 @@ SUITE=neurons-smoke-20261014b-nocal EXTRA='--no-require_calibration --input_scal
 **not run:** 학습 실험 없음. `nsmt_flif_v1/forecasting/neurons.py`(branch `exp/nsmt-flif-neo`) 는 바꾸지 않았다 — stage-2 큐가 그 코드로 돌고 있으며, 재구성은 forward 가 비트 동일하므로 그쪽 결과에 영향이 없다; 동기화는 그 큐가 끝난 뒤 별도로.
 
 **commit:** 이 기록을 담은 commit 을 `exp/f-lif-pop-v3` 에 push (해시는 다음 기록에).
+
+---
+
+## 2026-10-19 09:10 KST — 뉴런 계층을 **spikeDE 원본 코드 위에** 다시 구성: spikeDE 를 글자 그대로 복사(`spikede.py`), Population/Selective/Soma 를 부품 클래스로, 모든 뉴런은 f-LIF 상속 + 부품 인스턴스; 원본 spikeDE 와 차이 **정확히 0** (학습 크기 GPU float32 포함); smoke 10 조건 (실험 아님)
+
+**직전 commit:** 10-15 기록의 commit 은 `51678ab17` (`exp/f-lif-pop-v3`).
+
+**사용자 지적과 결정 (10-15 ~ 10-17):**
+- 지적: "spikeDE 코드를 그대로 가져온 것이 아니면 안 되는 것 아닌가? 결과가 같다고 동작이 '완벽하게' 같다고 할 수 있나?" → **맞다.** 10-14/10-15 의 클래스는 spikeDE 를 시험으로 맞춘 자체 구현이었고, "완벽히 같다"고 말할 근거가 없었다. 실제 학습 크기(B 896, D 32, T 42)에서 다시 재 보니 float32 막전위 차이가 최대 8.4e-6 이었다(스파이크 차이는 그 시험에서 0) — 비트 동일이 아니다. 앞선 보고의 "원본과 같은 계산으로 보증된다"는 과장이었다.
+- 결정: (1) spikeDE 원본 코드를 사용자의 코드 관행 안으로 가져온다 — 모델 폴더의 파일 하나(`spikede.py`)에 원본 정의를 **본문 그대로** 복사 (선택지 A). (2) soma 가 붙으면 f-LIF 구성원은 발화하지 않는다 (임계값 1e30; 코드 수정 없이 값만) (선택지 a). (3) soma 는 solver 밖에서 solver 가 낸 **갱신 후 막전위 u_{k+1}** 을 읽는다 (v3 시점). (4) soma 도 Population·Selective 처럼 **부품 클래스**로 만들고, "f-LIF with soma" 는 f-LIF 를 상속해 `__init__` 에서 soma 인스턴스를 만들어 f-LIF → soma 로 forward. (5) soma 의 리셋은 **spikeDE 그대로 θ/τ_s** (v3 는 θ).
+- 사용자 질문 "soma 는 learnable weight matrix 로 여러 시간상수 LIF 의 발화 전 막전위를 가중합하나?" → 대체로 그렇다; 단 가중치는 유닛마다 따로인 `[D, K]` (유닛 사이 섞임 없음, 초기 1/K, 부호 제약 없음), 구성원은 f-LIF(α), 구성원이 발화하지 않으므로 리셋된 적 없는 막전위를, 입력 I_k 가 반영된 갱신 후 값 u_{k+1} 로 읽는다.
+
+**브랜치·작업 위치:** `exp/f-lif-pop-v3`, 기준 `51678ab17`. worktree `/home/yschoi/CLS_spiking_transformer/wt-flif-pop-v3` (주 작업 트리는 다른 작업 흐름 `exp/nsmt-flif-neo` 이고 감사 문서의 미commit 변경이 있어 건드리지 않음).
+
+### 코드
+- **`forecasting/spikede.py` (새, 생성물):** spikeDE `fcd743b` 의 19개 최상위 정의를 원본 파일에서 **글자 단위로 그대로** 복사 — surrogate.py (Sigmoid/Arctan/PiecewiseLinear/Gaussian surrogate 클래스·함수), neuron.py (`surrogate_f`, `BaseNeuron`, `LIFNeuron`), solver.py (`euler_integrate_tuple`, `PerLayerAlphaInfo`, `SNNSolverConfig`, `get_memory_bounds`, `SNNFractionalMethod`, `GrunwaldLetnikovSNN`, `AdamsBashforthSNN`, `snn_solve`). 우리가 쓴 부분은 파일 머리의 출처·MIT 고지와 import 줄뿐. 복사한 정의에는 `torch.compile` 이 없어서 torch 1.12 에서 수정 없이 import 된다. 공개 함수 `pred_integrate_tuple` 은 단일 α 에서 `snn_solve(…, AdamsBashforthSNN())` 그 자체이므로 복사하지 않고 후자를 직접 호출한다(복사하면 쓰지 않는 다항 solver 들이 딸려 온다).
+- **`forecasting/spikede_copy.py` (새):** `build <spikeDE root>` 로 위 파일을 만들고, `check <root>` 로 각 정의가 upstream 과 글자 단위로 같은지·빠지거나 더해진 정의가 없는지 확인(fail-closed). 한 글자 변경(`dt = 1.0` → `1.00`)을 잡는 것도 확인.
+- **`forecasting/neurons.py` (다시 씀):** 스파이킹 계산은 모두 spikede 호출. 부품(한 동작씩) `Population`(τ 가 다른 spikede.LIFNeuron K 개), `Selective`(spikede.AdamsBashforthSNN 상속, `compute_convolution` 만 덮어써 Σ m_j b_j f_j; part='input' 은 Σ b_j f_j − Σ_{버린 칸} b_j I_j/τ), `Soma`(구성원 갱신 후 막전위를 `[D,K]` 가중치로 섞어 spikede.LIFNeuron + spikede.euler_integrate_tuple 로 발화). 뉴런: `LIFNeuron`(spikeDE LIF + Euler), `FLIFNeuron(LIFNeuron)`(spikeDE pred | gl), 그리고 모두 `FLIFNeuron` 을 바로 상속해 `__init__` 에서 부품 인스턴스를 만드는 `PopulationFLIF`, `SelectiveFLIF`, `PopulationSelectiveFLIF`, `FLIFSoma`, `PopulationFLIFSoma`, `SelectiveFLIFSoma`, `PopulationSelectiveFLIFSoma`(v3 최종 아이디어). 막전위는 solver 가 우변 함수에 넘기는 값을 기록해 얻는다(pred 는 상태 기록을 반환하지 않음; 입력 0 인 마지막 스텝 하나를 덧붙여 u_T 를 얻고 그 이전 스텝은 바뀌지 않음). `neuron.b`(pred 커널 표)는 진단용으로 유지.
+- **파이프라인:** 이름은 그대로(`--neuron lif|flif|pop_flif|sel_flif|sel_pop_flif`), `--soma` 기본값이 클래스 기본(단일 뉴런 none, 모집단 lif)이 되고 단일 뉴런도 `--soma lif` 로 "f-LIF with soma" 를 고를 수 있다; 이름에 `-somalif` 가 붙는다. LIF+soma 는 거부. analog/drive 읽기는 soma 가 있을 때만. 보정 대조는 모든 클래스에서 soma 를 비교. `train.py`·`calibrate.py` 의 출처 해시에 `spikede.py` 추가. 기존 뉴런(`layers.PopulationNeuron`)과 그 경로는 그대로.
+
+### 검증 (산출물 `forecasting/results/neurons-checks-20261019/`, `analysis/spikede_*.txt`)
+| 검사 | 결과 |
+|---|---|
+| spikede 복사본 = upstream (`spikede_copy.py check`) | 19/19 정의 동일, 추가 정의 0 |
+| 원본 spikeDE 패키지 vs 새 클래스 (`analysis/spikede_parity.py`, torch 2.11 CPU f64): P1 LIF 18, P2 pred 144, P3 gl 144, P4 모집단 9, P5 미분 3 | **모두 차이 0.0** (10-14 판: 최대 2.75e-13) |
+| 학습 크기 (`analysis/spikede_realistic.py`: B 896, D 32, T 42; CPU·GPU, f32·f64; α 0.5/0.7/1, τ 2/8) | 16 경우 모두 막전위 차이 **0.0**, 스파이크 차이 0 (10-17 측정: f32 최대 8.4e-6) |
+| `check_neurons.py` 26/26 | N3·N4·N5 중립 극한 비트 동일; N6 우리 FLIF = spikede.snn_solve 직접 호출 비트 동일; N7 Soma = v3 soma 식에 리셋 θ/τ_s (스파이크 비트 동일), v3 리셋 θ 와는 다름 (411 vs 363 스파이크); N8–N10 구성원 막전위가 기존 v3 뉴런과 f64 에서 ≤1.2e-15, 계수·남긴 칸 동일; N11 part='input' 이 2Q(A) 재귀와 6e-16; N16 합성 구조; W2 myModel 수준에서 기존과 f32 6e-7; W7 기존 checkpoint 3개 validation MSE 차이 0 |
+| `check_model.py` | 23/23 |
+
+- **검사가 찾은 내 오류 하나:** 처음 쓴 `Selective` 의 part='input' 은 버린 칸의 증분 전체를 빼고 입력 부분을 또 빼서 입력을 두 번 제거했다(N11 이 4.2 상대오차로 실패). "모든 칸을 원래 무게로 더하고 버린 칸의 입력 부분만 뺀다"로 고친 뒤 6e-16.
+- **parity 스크립트 수정 두 가지:** P5 통과 기준을 "원본 spikeDE 와 정확히 같음"으로 바꿈(전에는 float32 변환을 뺀 변형 spikeDE 기준 — 자체 구현일 때의 기준; 그 수치 7.3e-8 은 정보로 남김). h=0.1 에서 우리 쪽에 격자 간격 h_used(0.1000000000000014) 대신 같은 h 를 넘김 — 자체 구현 때 필요했던 처리로, 남은 5e-15 의 원인이었다.
+
+### smoke (실험 아님; `scripts/neurons_smoke.sh`, ETTh1 train/val, 2 epoch × 20 batch, val 5 batch, seed 7, `--no-test`)
+2차 suite `neurons-smoke-20261019b` (기록된 출처 해시가 commit 되는 파일과 모두 일치; 1차 `neurons-smoke-20261019` 는 `spikede.py` 를 해시에 넣기 전이라 train.py·calibrate.py 해시만 다르고 수치는 2차와 모두 같음):
+
+| 조건 | 보정 input_scale (발화율) | 선택 at-init 발화율 | smoke val MSE |
+|---|---|---|---|
+| lif τ8 | 6.0 (0.2365) | – | 0.710574 |
+| flif τ8 | 6.0 (0.1981) | – | 0.739141 |
+| flif τ8 + soma | 8.0 (0.2042) | – | 0.725844 |
+| sel_flif τ8 q0.5 | 실패 | 0.3015 > 0.3 | 학습 거부 |
+| sel_flif τ8 + soma | 8.0 | 0.2581 | 0.707612 |
+| pop_flif + soma | 10.0 (0.2186) | – | 0.728809 |
+| pop_flif, soma 없음 | 8.0 (0.2009) | – | 0.650843 |
+| sel_pop_flif + soma (v3 아이디어) | 10.0 | 0.2634 | 0.707114 |
+| sel_pop_flif + soma, part input | 10.0 | 0.2562 | 0.713261 |
+| sel_pop_flif, soma 없음 | 8.0 | 0.2640 | 0.707317 |
+
+10-15 판 대비: soma 없는 조건은 거의 같고(flif 0.739125 → 0.739141; f32 반올림 차이), soma 조건은 리셋 크기 변경 때문에 달라졌다(pop_flif+soma 0.751966 → 0.728809, 보정 발화율 0.1902 → 0.2186). 20 batch·2 epoch·seed 1개라 성능 근거가 아니다.
+
+**한계 · not run:** 학습 실험 없음. 지금까지의 v3 실험은 모두 자체 구현 `layers.PopulationNeuron`(soma 리셋 θ)으로 돌았다 — "spikeDE f-LIF" 주장이 필요하면 이 기반으로 다시 돌려야 한다. 속도: spikeDE solver 는 과거 합을 Python 반복으로 계산해 smoke 기준 조건당 11–45 s (10-15 판 12–14 s). `nsmt_flif_v1/forecasting/neurons.py`(branch `exp/nsmt-flif-neo`) 는 여전히 10-14 판 복사본이며 바꾸지 않았다. 비교 스크립트 `analysis/{spikede_realistic,soma_reset_compare}.py` 는 원본 spikeDE clone(scratchpad, fcd743b) 경로를 인자로 받는다.
+
+**commit:** 이 기록을 담은 commit 을 `exp/f-lif-pop-v3` 에 push (해시는 다음 기록에).

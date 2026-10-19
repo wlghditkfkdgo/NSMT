@@ -17,7 +17,7 @@ from data_provider.data_factory import data_provider
 from utils import EpochLog, EarlyStopping, write_json, sha256, parameter_hash
 from test import test, evaluate, selection_diagnostics
 
-SOURCE_FILES = ['config.py', 'model.py', 'ours.py', 'layers.py', 'neurons.py', 'train.py', 'test.py',
+SOURCE_FILES = ['config.py', 'model.py', 'ours.py', 'layers.py', 'neurons.py', 'spikede.py', 'train.py', 'test.py',
                 'utils.py', 'calibrate.py', 'data_provider/data_loader.py',
                 'data_provider/data_factory.py', 'data_provider/synthetic.py']
 
@@ -67,8 +67,7 @@ def load_calibration(args):
         base = NEUTRAL.get(args.neuron, args.neuron)
         want = {'neuron': base, 'method': args.fde_method, 'step': args.fde_step,
                 'memory': args.fde_memory or None, 'surrogate_scale': args.surrogate_scale}
-        if base == 'pop_flif':
-            want['soma'] = args.soma
+        want['soma'] = args.soma                                     # 모든 클래스: soma 유무가 동작점을 바꾼다
         for field, value in want.items():
             if neuron.get(field, '<absent>') != value:
                 mismatch.append(f"{field}: calibration {neuron.get(field, '<absent>')} vs requested {value}")

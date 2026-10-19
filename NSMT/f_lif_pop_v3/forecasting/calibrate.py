@@ -266,7 +266,7 @@ def main():
                   {'requested_neuron': requested, 'requested_at_init': check}),
                'g11_factor': G11_FACTOR,
                'source_sha256_16': {f: hashlib.sha256(Path(f).read_bytes()).hexdigest()[:16]
-                                    for f in ('layers.py', 'neurons.py', 'calibrate.py', 'config.py',
+                                    for f in ('layers.py', 'neurons.py', 'spikede.py', 'calibrate.py', 'config.py',
                                               'data_provider/synthetic.py')},
                'args': {k: (str(v) if isinstance(v, (Path, torch.device)) else v)
                         for k, v in vars(config).items()}}

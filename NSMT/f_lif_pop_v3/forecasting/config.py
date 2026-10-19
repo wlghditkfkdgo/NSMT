@@ -18,6 +18,13 @@ sys.path.insert(0, str(NSMT))
 NEURON_CLASSES = ['lif', 'flif', 'pop_flif', 'sel_flif', 'sel_pop_flif']   # neurons.NEURONS
 SINGLE = ('lif', 'flif', 'sel_flif')                              # 한 뉴런: tau 하나
 SELECTIVE = ('sel_flif', 'sel_pop_flif')
+POPULATION = ('pop_flif', 'sel_pop_flif')                          # --soma 의 기본값이 lif 인 클래스
+
+
+def soma_of(config):
+    """--soma with the class default filled in (neurons.DEFAULT_SOMA)."""
+    soma = getattr(config, 'soma', None)
+    return soma if soma is not None else ('lif' if config.neuron in POPULATION else 'none')
 
 
 def set_random_seed(seed):
@@ -103,9 +110,10 @@ def parse_arguments():
     neuron_arg.add_argument('--neuron', default='legacy', choices=['legacy'] + NEURON_CLASSES,
                             help='legacy = layers.PopulationNeuron (every run so far); the others are the '
                                  'neurons.py classes, checked against spikeDE in analysis/spikede_parity.py')
-    neuron_arg.add_argument('--soma', choices=['lif', 'none'], default='lif',
-                            help="population classes: 'lif' = non-firing members mixed by one LIF soma (v3); "
-                                 "'none' = K firing f-LIF members, D*K spike trains out")
+    neuron_arg.add_argument('--soma', choices=['lif', 'none'], default=None,
+                            help="'lif' = silent f-LIF member(s) read by a spikeDE LIF soma (v3 arrangement); "
+                                 "'none' = the f-LIF member(s) fire themselves (K trains). Default: lif for the "
+                                 "population classes, none for the single-neuron classes")
     neuron_arg.add_argument('--fde_method', choices=['pred', 'gl'], default='pred',
                             help='fractional solver of the neurons.py classes (spikeDE pred | gl)')
     neuron_arg.add_argument('--fde_step', type=float, default=1.,
@@ -240,6 +248,7 @@ def check_neuron_args(config):
     """
     if getattr(config, 'neuron', 'legacy') == 'legacy':
         return
+    config.soma = soma_of(config)                                    # 클래스 기본값을 채운다
     single, selective = config.neuron in SINGLE, config.neuron in SELECTIVE
     problems = []
     if config.model != 'myModel':
@@ -256,8 +265,10 @@ def check_neuron_args(config):
         problems.append("--fde_method pred and a statistic other than 'oracle' for selection")
     if not selective and (config.hard_q != 1. or config.select_part != 'all'):
         problems.append('--hard_q 1 and --select_part all without selection')
-    if config.readout != 'spike' and (single or config.soma != 'lif'):
-        problems.append("--readout spike: analog/drive read the soma of a population class with --soma lif")
+    if config.neuron == 'lif' and config.soma == 'lif':
+        problems.append('--soma none for the Euler LIF (there is no LIF-with-soma class)')
+    if config.readout != 'spike' and config.soma != 'lif':
+        problems.append("--readout spike: analog/drive read the soma, which needs --soma lif")
     if config.qk_norm or not config.cap or config.eta_fixed is not None or config.key_norm != 'none':
         problems.append('no soft-selector options (--qk_norm, --no-cap, --eta_fixed, --key_norm): legacy only')
     if config.fde_step <= 0. or config.fde_memory < 0:
@@ -270,8 +281,10 @@ def neuron_variant(config):
     """Name of a neurons.py configuration: class, time constants, soma, solver, selection."""
     name = config.neuron
     tag = f"{name}-tau{'-'.join(f'{t:g}' for t in config.tau)}"
-    if name in ('pop_flif', 'sel_pop_flif'):
-        tag += f'-soma{config.soma}' + ('' if config.heterogeneous else '-homog')
+    if name in POPULATION:
+        tag += f'-soma{soma_of(config)}' + ('' if config.heterogeneous else '-homog')
+    elif soma_of(config) == 'lif':
+        tag += '-somalif'                                            # f-LIF with soma (한 뉴런)
     if config.fde_method != 'pred':
         tag += f'-{config.fde_method}'
     if config.fde_step != 1.:
@@ -304,7 +317,7 @@ def neuron_kwargs(config):
         return dict(neuron=config.neuron, num_population=config.num_population, alpha=config.alpha,
                     tau=tuple(config.tau), heterogeneous=config.heterogeneous,
                     max_length=config.num_patches, tau_s=config.tau_s, threshold=config.threshold,
-                    surrogate_scale=config.surrogate_scale, soma=config.soma,
+                    surrogate_scale=config.surrogate_scale, soma=soma_of(config),
                     method=config.fde_method, step=config.fde_step, memory=config.fde_memory or None,
                     q=config.hard_q, stat=config.hard_stat, axis=config.hard_axis,
                     part=config.select_part, seed=config.seed)

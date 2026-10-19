@@ -595,7 +595,7 @@ class Embedding(nn.Module):
         if neuron == 'legacy':
             self.neuron = PopulationNeuron(embed_dim, **neuron_args)
         else:
-            from neurons import build_neuron                         # neurons.py가 layers를 import한다
+            from neurons import build_neuron                         # spikeDE 기반 클래스 (neurons.py, spikede.py)
             self.neuron = build_neuron(neuron, embed_dim, **neuron_args)
 
     def current(self, x):
