@@ -464,7 +464,7 @@ def legacy_record(exp, data=None):
 
 def legacy_values(exp, data=None):
     """(cond, seed) -> error of the earlier record, and the set of withheld cells."""
-    record, _, _ = legacy_record(exp, data)
+    record, _, _ = legacy_record(exp, None if exp == '2Q' else data)   # 2Q: one record for both datasets
     values, withheld = {}, set()
     if exp in ('2N', '2O', '2P', '2Q'):
         for r in record['rows']:
