@@ -48,3 +48,24 @@ def open_once(split, purpose, record):
         raise SystemExit(f'[registry] {split} is already opened ({path}); '
                          f'a new question needs a new appendix and a new split.') from None
     return path
+
+
+def reopen(split, purpose, record, appendix='2T'):
+    """A second look at an ALREADY opened split, recorded as exploratory (prereg 2T; D-BP allows a
+    second look only as exploratory). Refuses a split that was never opened -- a first look goes
+    through open_once -- and refuses a second reopening under the same appendix. The original
+    <split>.json is never touched. Call BEFORE the split is read."""
+    register_history()
+    first = REGISTRY / f'{split}.json'
+    if not first.exists():
+        raise SystemExit(f'[registry] {split} was never opened; a first opening goes through open_once')
+    path = REGISTRY / f'{split}.reopen-{appendix}.json'
+    entry = {'split': split, 'historical': False, 'exploratory': True, 'appendix': appendix,
+             'first_opening': json.loads(first.read_text()), 'purpose': purpose, 'record': str(record),
+             'opened_at': datetime.datetime.now().astimezone().isoformat(), 'user': getpass.getuser()}
+    try:
+        with open(path, 'x') as handle:
+            json.dump(entry, handle, indent=2)
+    except FileExistsError:
+        raise SystemExit(f'[registry] {split} was already reopened under {appendix} ({path})') from None
+    return path

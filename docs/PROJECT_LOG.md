@@ -7161,3 +7161,70 @@ SUITE=neurons-smoke-20261014b-nocal EXTRA='--no-require_calibration --input_scal
 **한계 · not run:** 학습 실험 없음. 지금까지의 v3 실험은 모두 자체 구현 `layers.PopulationNeuron`(soma 리셋 θ)으로 돌았다 — "spikeDE f-LIF" 주장이 필요하면 이 기반으로 다시 돌려야 한다. 속도: spikeDE solver 는 과거 합을 Python 반복으로 계산해 smoke 기준 조건당 11–45 s (10-15 판 12–14 s). `nsmt_flif_v1/forecasting/neurons.py`(branch `exp/nsmt-flif-neo`) 는 여전히 10-14 판 복사본이며 바꾸지 않았다. 비교 스크립트 `analysis/{spikede_realistic,soma_reset_compare}.py` 는 원본 spikeDE clone(scratchpad, fcd743b) 경로를 인자로 받는다.
 
 **commit:** 이 기록을 담은 commit 을 `exp/f-lif-pop-v3` 에 push (해시는 다음 기록에).
+
+## 2026-10-21 00:17 KST — 사전등록 2T: spikeDE 기반 뉴런으로 2J–2Q 재현 (**탐색**) — 준비 코드·관문·smoke, 보정·학습 전
+
+**직전 commit:** 10-19 09:10 기록의 commit 은 `0e57c9bf4` (`exp/f-lif-pop-v3`).
+
+**사용자 요청 (10-20):** "이제 이 바뀐 neuron 코드를 사용해서 우리가 이전에 했던 실험들을 다시 수행해보자." 계획을 보이고 결정을 받았다.
+1. 범위: 합성 회상 과제(2J, 2K, 2L, 2M의 GRU 비교)와 ETT(2N, 2O, 2P, 2Q-B). weather(2R)와 2Q(A)는 하지 않는다.
+2. 실험 성격: 모든 test, future, confirm 분할이 이미 열렸으므로 **같은 분할에서 재현만** 하고 탐색으로 기록한다.
+3. 2I(η 부드러운 선택기)와 2M의 oracle·시험 시 oracle은 새 클래스로 표현할 수 없어 뺀다. 뉴런 코드는 바꾸지 않는다.
+4. GPU: 다른 작업(nsmt_flif_v1 SHD, 대기열 80개, 개당 약 1시간 45분)이 4장을 모두 쓰고 있어 **GPU당 1개씩 같이** 돌린다.
+- 사용자 질문 "지금 실험하려는 아키텍처는 어떤 구조인가?"에는 이전 실험과 같은 v3 M1(패치 8 → Linear 8→32 → 뉴런 32단위 × 구성원 4 → soma → 출력층, 파라미터 130,625개 가운데 129,120개가 마지막 출력 Linear)이라고 답했다. NSMT transformer가 아니다.
+
+**브랜치·작업 위치:** `exp/f-lif-pop-v3`(기존 실험 계열을 이어 감), 기준 `0e57c9bf4`, worktree `/home/yschoi/CLS_spiking_transformer/wt-flif-pop-v3`. 환경 `snn_recall`(torch 1.12.0+cu113).
+
+### 사전등록
+`NSMT/docs/Population_fLIF_v3_prereg_KO.md` 부록 **2T**(D-CL ~ D-CR)를 학습·보정 전에 commit한다. 핵심은 다음과 같다.
+- 조건 대응: q1 → `--neuron pop_flif --soma lif --mode full`, pearson → `--neuron sel_pop_flif --soma lif --mode hard --hard_axis shared --hard_stat pearson --hard_q q`.
+- 학습량: 회상 과제 36 run(CPU), ETT 128 run(GPU). GRU·Linear는 다시 학습하지 않고 이전 기록(SHA256 고정)의 seed별 값을 쓴다.
+- 회상 과제의 q는 2J 규칙으로 다시 고르고, ETT는 등록값 0.5로 고정한다.
+- 보정은 설정마다 하나씩 18개다. 거부된 설정은 학습하지 않고 판정을 보류한다.
+- 두 번째 열람은 `split_registry.reopen`으로 기록한다(`<split>.reopen-2T.json`, exploratory).
+- 각 대비를 원래 규칙으로 판정해 "같은 판정 / 다른 판정"을 적는다.
+
+### 코드 (모두 `NSMT/f_lif_pop_v3/`)
+- **`forecasting/neurons.py`:** FLIFNeuron 설명에 A35 범위를 적었다. α=1이 LIF와 같은 것은 기록 전체를 쓸 때뿐이다(pred: memory None 또는 ≥ T, gl: memory None 또는 ≥ 2).
+- **`forecasting/check_neurons.py`:** N17(A35 범위: 위 조건에서 LIF와 rel < 1e-12, pred memory 1/2/5/39와 gl memory 1에서는 상태 상대오차 0.96–0.97로 다름)과 N18(같은 seed면 pop_flif와 sel_pop_flif pearson q0.5/q0.25, recent, random의 초기 모델이 ETT와 회상 과제 모두에서 완전히 같음, 다른 seed면 다름)을 추가했다.
+- **`analysis/split_registry.py`:** `reopen(split, purpose, record, appendix='2T')`를 추가했다. 원래 열람이 있어야 하고, 부록마다 한 번만 허용하며, 원래 기록은 건드리지 않는다. `open_once`는 그대로다.
+- **`forecasting/train.py`:** G11 기록에 neuron, soma, variant, alpha, revin, hard_stat, hard_q를 넣었다.
+- **새 스크립트:** `forecasting/scripts/rerun_calibrate.sh`, `rerun_ett.sh`, `rerun_recall.sh`, `rerun_smoke.sh`. 이전 스크립트(`run_ett.sh`, `hard_*.sh`)는 실행 당시 그대로 둔다.
+- **새 평가기:** 이전 평가기는 옛 뉴런 내부(`neuron.selector`, `reseed_hard`, 옛 run 이름)에 묶여 있어 고치지 않고 새로 썼다.
+  - `forecasting/rerun_common.py`: 조건 표, 정확한 run_id로 run 찾기, fail-closed manifest, 한 번의 forward로 오차·상태·발화율·남긴 계수 비중·M_eff·경계 동점을 모두 얻는 `one_pass`, 이전 기록 읽기와 지문 확인, NaN을 거부하는 `paired`, 원래 규칙의 판정 범주.
+  - `forecasting/ett_rerun.py --exp 2N|2O|2P|2Q`: 이전 기록의 통계를 seed별 값으로 다시 계산해 저장값과 1e-12 이내인지 대조한 뒤 비교한다. 대상 구간은 `target_rows` 필드에 따로 둔다(A34).
+  - `analysis/recall_rerun.py --stage select|confirm2|confirm3|confirm4`: 2L 안전 검사(한 forward, 두 번 지나가 1e-12 일치, 상태 유한·한계 이내)를 처음부터 넣었다.
+  - `analysis/rerun_gate_check.py`: 아래 관문.
+
+### 검증 (`forecasting/results/rerun-checks-20261021/`)
+| 검사 | 결과 |
+|---|---|
+| `check_neurons.py --spikede <spikeDE fcd743b> <이전 run 3개>` | 28/28 (S1, N1–N18, W1–W7) |
+| `check_model.py` | 23/23 |
+| `spikede_copy.py check` | 19/19 정의 동일 |
+| `rerun_gate_check.py` | 13/13 |
+
+- **관문 내용:**
+  - E1: 이전 ETT checkpoint 32개(2O의 q1_R, pearson_R)를 새 평가기로 val에서 재면 2P 기록과 비교해 MSE, 발화율, 최대 상태값 차이가 0.0이고 동점 수가 같으며 마스크 불일치가 0이다.
+  - E2: 이전 회상 과제 checkpoint 4개(2J 선택)는 회상 오차 차이 0.0, 최대 상태값 차이 0.0이다.
+  - E3: 아래 차이의 원인 확인.
+  - F1–F9: 오류 주입이 모두 거부된다.
+  - N1: 새 클래스에서 다시 만든 pearson 마스크가 모델의 것과 같고(불일치 0), q1은 커널 전체를 남기며, val이 재현된다(ETT 4e-8~9e-8, 회상 과제 0).
+- **관문 첫 실행은 실패했다 (2/12).** 남긴 계수 비중(E1, 상대 9.8e-9)과 M_eff(E2, 1.8e-9)가 내가 정한 1e-9을 조금 넘었다. 원인을 확인했다.
+  - 이전 ETT 평가기는 커널 합을 float32로 했고, `test.selection_diagnostics`는 M_eff 비율을 float32로 계산했다. 새 `one_pass`는 둘 다 float64다. M_eff는 2M 평가기도 float64였다.
+  - 이전 float32 식을 그대로 쓰면 두 값 모두 차이가 **정확히 0**이다. 이를 E3 검사로 넣었다.
+  - 두 값의 허용치만 float32 반올림 수준(남긴 계수 비중 상대 1e-7, M_eff 1e-8)으로 나누고, 오차·발화율·최대 상태값은 1e-9을 유지했다. 첫 실행 출력은 `rerun_gate_check_run1_failed.txt`로 남겼다.
+  - 이 두 값은 기술 통계이며 O7-1(M_eff)은 2M 평가기와 같은 float64 식이다.
+
+### smoke (실험 아님, 보고하지 않음; `scripts/rerun_smoke.sh 20261021 0`)
+- 보정 7개는 별도 폴더 `results/calibration-rerun-smoke-20261021/`에 썼고 모두 통과했다. 입력 배율은 회상 과제 5개 모두 8.0, ETTh1 R 켬 2개 모두 10.0(발화율 0.2186)이다. 이전 뉴런 보정과 배율이 같다.
+- 1 epoch 학습 6개(`results/rerun-smoke-20261021/raw.txt`)의 시간이다.
+  - ETTh1 q1_R와 pearson_R는 GPU 0에서 SHD 학습과 같이 돌아 각각 32 s, 35 s(시작·val 포함)였다.
+  - 회상 과제 4개는 CPU에서 병렬로 각각 6–10 s였다.
+  - 이 시간으로 ETT 1 run(조기 종료까지 15–25 epoch)을 약 8–14분으로 본다. 회상 과제 1 run(12 epoch)은 약 1–2분으로 본다.
+
+**한계 · not run:** 보정·학습·평가는 아직 하지 않았다. 열람 등록부도 아직 바뀌지 않았다. 감사 에이전트는 주 작업 트리 브랜치를 보고 있어 이 브랜치의 `51678ab17` 이후 commit을 아직 보지 않았다. `nsmt_flif_v1/forecasting/neurons.py`는 옛 판 그대로다.
+
+**다음:** 보정 18개를 만들고 고정해 commit한다. 그다음 회상 과제를 CPU에서 학습하고, ETT 128 run을 GPU당 1개씩 대기열로 돌린다.
+
+**commit:** 이 기록을 담은 commit 을 `exp/f-lif-pop-v3` 에 push (해시는 다음 기록에).

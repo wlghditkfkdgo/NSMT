@@ -1557,3 +1557,113 @@ AdamW lr 1e-3, wd 1e-2, batch 128, grad clip 1, 최대 50 epoch, early stop pati
 
 말할 수 있는 것: weather H96, 이 예산에서 (P1) 통계 선택과 (P2) α=0.7 대 α=1(각자 보정)의 test 오차 차이에 대한 확증 판정. 비스파이킹 참고선과의 거리(기술).
 말하지 않는 것: 다른 데이터셋·예측 길이, 용량 통제 비교, GRU·Linear 대비 우위의 검정, 메커니즘, readout 선택(ETT validation에서 정함)의 확증.
+
+## 2T. 부록 (2026-10-21) — spikeDE 기반 뉴런으로 2J–2Q 재현 (**탐색**)
+
+사용자 지시(2026-10-20): "이제 이 바뀐 neuron 코드를 사용해서 우리가 이전에 했던 실험들을 다시 수행해보자." 사용자 결정은 네 가지다.
+1. 범위는 합성 회상 과제(2J, 2K, 2L, 2M의 GRU 비교)와 ETT(2N, 2O, 2P, 2Q-B)다. weather(2R)와 2Q(A)는 하지 않는다.
+2. 같은 분할에서 **재현만** 한다.
+3. 2I(부드러운 선택기 η)와 2M의 oracle 조건은 뺀다.
+4. GPU는 다른 작업 옆에서 GPU당 1개씩 같이 돌린다.
+
+이 부록은 보정·학습보다 먼저 commit한다. 2S(세 요소 설계)는 등록되지 않은 채로 남는다.
+
+### D-CL. 바뀌는 것과 같은 것
+
+- **바뀌는 것은 뉴런 하나다.** `layers.PopulationNeuron`을 `forecasting/neurons.py`의 클래스로 바꾼다. 적분은 spikeDE 원본 코드(`spikede.py`, PhysAGI/spikeDE `fcd743b`, MIT)가 한다.
+  - soma 리셋은 θ/τ_s다(spikeDE). 이전에는 θ였다. 사용자 결정이며 `check_neurons` N7이 확인한다.
+  - 같은 입력에서 구성원 상태는 옛 뉴런과 1e-12 이내로 같고, 선택 마스크도 같다(N8–N10). 학습 결과까지 같다는 뜻은 아니다. soma 리셋이 다르기 때문이다.
+- **같은 것:** 모델 구조(M1: 패치 8 → Linear 8→32 → 고정 표준화·보정 배율 → 뉴런 32단위 × 구성원 4(τ 4/8/16/32, α 0.7, 발화 없음) → soma → 출력층), 데이터, 분할, seed {7, 13, 21, 42, 123, 256, 512, 1024}, 학습 예산, 선택 규칙, 판정 규칙.
+
+### D-CM. 조건과 범위
+
+| 이전 조건 | 새 설정 |
+|---|---|
+| q1 (선택 없음, `--mode hard --hard_q 1`) | `--neuron pop_flif --soma lif --mode full` |
+| pearson (`--mode hard --hard_axis shared --hard_stat pearson --hard_q q`) | `--neuron sel_pop_flif --soma lif --mode hard --hard_axis shared --hard_stat pearson --hard_q q` |
+| recent / random | 위와 같고 `--hard_stat recent|random` |
+| `_R`, `_a1`, `_lin` | `--revin`, `--alpha 1`, `--head_mode linear` (그대로) |
+
+- **회상 과제 (CPU, 36 run):**
+  - 2J 선택: seed 7 × q {1, 0.1, 0.25, 0.5} = 4 run.
+  - 2J 확인: 8 seed × {q1, 고른 q} = 16 run.
+  - 2K: 8 seed × {recent, random}(고른 q) = 16 run.
+  - 2J 선택 단계는 새 뉴런으로 다시 한다(D-AM 규칙). 2K는 같은 예산 원칙에 따라 새로 고른 q를 쓴다. 고른 q가 0.5가 아니면 이전 판정(q=0.5)과의 비교에 그 사실을 적는다.
+  - 2L의 안전 검사는 평가기에 처음부터 넣는다(D-CP).
+  - 2M은 oracle 없이 O7-1(정답 위치 비중 ≥ 0.5), O7-3(pearson − q1 ≤ −20%, CI 상한 < 0), pearson − GRU, GRU − q1만 계산한다. G14, O7-2, O7-4와 시험 시 oracle은 새 클래스로 표현할 수 없어 **실행하지 않는다**.
+- **ETT (GPU, 128 run):** 2 데이터셋 × 8 seed마다 다음 조건을 학습한다.
+  - 2N: {q1, pearson}
+  - 2O: {q1_R, pearson_R}
+  - 2P: {q1_R_a1, pearson_R_a1}
+  - 2Q-B: {q1_R_lin, pearson_R_lin}
+  - ETT의 q는 등록값 0.5로 고정한다. 회상 과제에서 다른 q가 골라져도 바꾸지 않는다.
+  - 2O는 2N의 q1·pearson을, 2P와 2Q는 2O의 q1_R·pearson_R을 이전처럼 재사용한다.
+- **기준선은 다시 학습하지 않는다.** GRU와 Linear는 뉴런과 무관하다. seed별 오차는 같은 창에서 잰 이전 기록에서 읽는다. 이전 기록은 SHA256으로 고정한다(`rerun_common.LEGACY`).
+- **실행하지 않는 것:** 2I, 2M oracle 조건, weather(2R), 2Q(A).
+
+### D-CN. 보정
+
+- 보정 규칙은 D11 그대로다(train 분할, seed 7, 발화율 [0.1, 0.3]에서 0.2에 가장 가까운 배율, G11 한계 10 × max|I|).
+- 설정마다 파일이 하나다. 선택 클래스는 q=1 클래스로 배율을 정하고, 자기 at-init 검사를 따로 통과해야 한다. 모두 18개다.
+  - 회상 과제 6개: pop_flif, pearson q {0.1, 0.25, 0.5}, recent q0.5, random q0.5.
+  - ETT 12개: {ETTh1, ETTh2} × {R 끔 α0.7, R 켬 α0.7, R 켬 α1} × {pop_flif, pearson q0.5}.
+  - 2J에서 0.5가 아닌 q가 골라지면 recent와 random을 그 q로 보정한다.
+- 거부된 설정은 학습하지 않는다. 그 설정이 들어간 비교는 보류한다. 구간이나 한계를 넓히지 않고, 다른 설정으로 다시 보정하지 않는다.
+- 보정 파일은 이름과 SHA256을 `calibration_manifest.json`에 고정하고 학습 전에 commit한다.
+- 같은 seed의 조건들은 같은 초기 모델에서 출발한다(`check_neurons` N18). 2J와 2K의 "같은 초기값" 전제가 새 클래스에서도 성립한다.
+
+### D-CO. 분할과 열람
+
+- 회상 과제 confirm2·confirm3·confirm4와 ETTh1·ETTh2의 test H96·future H96은 모두 이미 열렸다. 이 부록의 평가는 **같은 기간을 두 번째로 보는 것**이다. 결과는 모두 탐색이며 확증이 아니다(D-BP).
+- 두 번째 열람은 등록부에 `split_registry.reopen`으로 기록한다(`<split>.reopen-2T.json`, `exploratory: true`). 원래 열람 기록은 건드리지 않는다. 처음 여는 분할은 이 경로로 열 수 없고, 같은 분할을 2T에서 두 번 열 수 없다.
+- validation(2J 선택, 2P, 2Q)은 등록하지 않는다.
+
+### D-CP. 판정과 보류
+
+- 각 대비는 **원래 실험의 규칙 그대로** 판정한다.
+  - 2J: 1차는 95% CI 상한 < 0이다. 2차는 1차 통과와 개선 ≥ 20%를 함께 요구한다(D-AN).
+  - 2K: 두 1차 비교(pearson − recent, pearson − random)는 각각 95% CI 상한 < 0이다(D-AR).
+  - 2M: O7-1은 M_eff ≥ 0.5, O7-3은 상한 < 0이고 상대 변화 ≤ −20%다. GRU 비교는 95% CI 방향이다.
+  - 2N: 95% CI 방향이다(D-BG).
+  - 2O: 1차는 97.5% 상한 < 0이고 평균 ≤ −0.005다(D-BN). 보조는 95% 방향이다.
+  - 2P: F_q와 F_p는 D-BV/D-BY 표지를 따르고, 나머지는 95% 방향이다.
+  - 2Q: H_q와 H_p는 D-CB 출력층 규칙(하한 > 0이고 평균 ≥ +0.005)을 따른다.
+- 이전 기록도 그 기록의 seed별 값으로 같은 함수가 다시 계산한다. 저장된 통계와 1e-12 이내로 같아야 하며, 다르면 평가를 멈춘다.
+  - 두 판정의 범주가 같으면 "**같은 판정**", 다르면 "**다른 판정**"으로 쓴다.
+- **보류 규칙:** 보류된 칸이 들어간 비교는 판정하지 않는다. seed는 빼지 않는다. 다음 칸이 보류된다.
+  - 학습 중 G11 정지.
+  - 평가에서 상태가 비유한이거나 한계를 넘음(unsafe).
+  - 저장된 최저 val 오차가 1e-6 안에서 재현되지 않음.
+  - 회상 과제에서 같은 분할을 두 번 지나간 값이 1e-12 넘게 다름. random은 매번 seed로 다시 맞춘다.
+- **열기 전 관문:** 다음이 모두 통과해야 val이 아닌 분할을 읽는다. 하나라도 어긋나면 아무것도 열지 않는다.
+  - 실험에 쓰이는 모든 칸이 완료 run이면 manifest를 통과하고, 기록된 G11 정지이면 그 기록이 맞아야 한다.
+  - 보정·데이터·이전 기록의 지문이 맞아야 한다.
+  - 2N, 2O와 회상 과제 확인 단계에서는 여는 데이터의 모든 완료 run이 자기 val 오차를 재현해야 한다.
+- **기술 통계만:** 조건별 새 평균 오차와 이전 평균 오차를 나란히 쓴다. 검정하지 않는다. 발화율, 최대 상태값, 남긴 계수 비중, 경계 동점, epoch 수, 학습 시간도 함께 쓴다.
+- **학습이 G11이 아닌 이유로 끊긴 경우:** 프로세스 강제 종료나 메모리 부족 같은 기반 문제는 같은 설정·같은 seed로 한 번 다시 돌리고 그 사실을 기록한다. G11 정지는 다시 돌리지 않는다.
+
+### D-CQ. 절차
+
+- **준비 검사(보정·학습 전):** 모두 통과한 뒤에만 이 부록을 commit한다.
+  - `check_neurons.py --spikede <root> <legacy run dirs>` 28/28(N17 A35 범위, N18 같은 초기값 포함).
+  - `check_model.py` 23/23, `spikede_copy.py check` PASS.
+  - `analysis/rerun_gate_check.py` 전부 통과.
+    - E1, E2: 새 평가기가 이전 checkpoint에서 이전 기록의 val 값을 재현한다.
+    - F1–F9: 오류 주입이 모두 거부된다.
+    - N1: 새 클래스에서 마스크가 일치하고 val이 재현된다.
+  - 1 epoch smoke(`scripts/rerun_smoke.sh`)는 결과로 보고하지 않는다.
+- **보정:** `scripts/rerun_calibrate.sh recall <suite>`, `... ett <suite> ETTh1|ETTh2 <gpu>`를 돌린 뒤 `rerun_common.py freeze-calibration <suite>`로 고정하고 commit한다.
+- **회상 과제:**
+  1. `scripts/rerun_recall.sh select <suite>`를 돌리고 `analysis/recall_rerun.py --stage select`로 q를 고른다.
+  2. `rerun_recall.sh confirm <suite> <q>`와 `rerun_recall.sh control <suite> <q>`를 돌린다.
+  3. `recall_rerun.py --stage confirm2 | confirm3 | confirm4`로 평가한다.
+- **ETT:**
+  - 128 run을 `scripts/rerun_ett.sh`로 대기열(`forecasting/scripts/queues/`)에 넣고, `NSMT/scripts/gpu_pool2.sh <queue> 0,1,2,3`로 GPU당 1개씩 돌린다. 순서는 2N → 2O → 2P → 2Q다.
+  - 실험별 학습이 끝나면 `ett_rerun.py --exp 2N|2O --data ETTh1|ETTh2`, `--exp 2P|2Q --data both`로 평가한다.
+  - 실패는 `raw.txt`의 SKIP 줄로 판단한다. pool 로그의 rc는 늘 0이다.
+- 평가 기록은 대상 구간을 `target_rows` 필드에 따로 둔다(A34 재발 방지).
+
+### D-CR. 주장 범위
+
+말할 수 있는 것: spikeDE 기반 뉴런에서 이전 실험 판정이 같은 범주로 다시 나오는지(같은 기간을 두 번째로 본 탐색), 조건별 오차·발화·상태 크기가 이전 뉴런과 어떻게 다른지(기술).
+말하지 않는 것: 어떤 확증, 아직 보지 않은 자료로의 일반화, oracle이 필요한 판정(G14, O7-2, O7-4), weather, 새 뉴런과 옛 뉴런의 오차 차이에 대한 검정.

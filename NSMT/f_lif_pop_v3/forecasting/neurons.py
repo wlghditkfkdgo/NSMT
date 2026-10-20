@@ -418,7 +418,9 @@ class LIFNeuron(nn.Module):
 class FLIFNeuron(LIFNeuron):
     """f-LIF: the same spikeDE LIFNeuron right-hand side under spikeDE's fractional solver.
 
-    alpha : fractional order in (0, 1]; 1 is the Euler LIF.
+    alpha : fractional order in (0, 1]. alpha = 1 equals the Euler LIF only when the whole history
+            enters: pred needs memory None or memory >= T, gl needs memory None or memory >= 2
+            (audit A35; check_neurons N17). A shorter memory at alpha = 1 is not the LIF.
     method : 'pred' (AdamsBashforthSNN, the paper scripts' default) or 'gl' (GrunwaldLetnikovSNN).
     memory : spikeDE's short memory, only the last `memory` steps enter; None = full history.
     """

@@ -25,6 +25,10 @@
   N15  select_mask keeps exactly max(1, round(qJ)) slots; 'recent' keeps the newest
   N16  composition: every class inherits FLIFNeuron (LIF: LIFNeuron) and owns Population / Selective / Soma
        INSTANCES; members and soma are spikede.LIFNeuron; Selective is a spikede.AdamsBashforthSNN
+  N17  (audit A35) alpha = 1 equals the LIF exactly where the whole history enters -- pred with memory None
+       or >= T, gl with memory None or >= 2 -- and differs for pred memory 1/2/5/T-3 and gl memory 1
+  N18  (prereg 2T) one seed, one initial model: pop_flif and sel_pop_flif (pearson q .5 / .25, recent,
+       random) build identical parameters and buffers through myModel, ETT and recall
   W1   every (neuron, soma) builds through config -> model.load_mymodel -> ours.myModel and runs
   W2   myModel pop_flif (soma) vs legacy --mode full with shared initial values: member states to float32
        rounding (rel 1e-5); spikes == the soma reference on its own states
@@ -215,6 +219,19 @@ def classes(spikede_root):
         short = run(build('flif', tau=2., method=method, memory=5), x)
         ok12[method] = same(full, long) and not torch.equal(full[1], short[1])
     gate('N12', all(ok12.values()), f"memory >= T is bitwise the full history and memory=5 is not: {ok12}")
+
+    # N17 (audit A35) ------------------------------------------------------------------------
+    lif = run(build('lif', tau=2.), x)
+    equal17, differ17 = {}, {}
+    for method, memory in (('pred', None), ('pred', T), ('pred', T + 5), ('gl', None), ('gl', 2), ('gl', 5), ('gl', T)):
+        f = run(build('flif', tau=2., alpha=1., method=method, memory=memory), x)
+        equal17[f'{method}/{memory}'] = rel(f[1], lif[1]) < 1e-12 and torch.equal(f[0], lif[0])
+    for method, memory in (('pred', 1), ('pred', 2), ('pred', 5), ('pred', T - 3), ('gl', 1)):
+        f = run(build('flif', tau=2., alpha=1., method=method, memory=memory), x)
+        differ17[f'{method}/{memory}'] = round(rel(f[1], lif[1]), 4)
+    gate('N17', all(equal17.values()) and all(v > 1e-6 for v in differ17.values()),
+         f"alpha=1 == LIF (rel 1e-12, spikes equal) with the whole history {equal17}; "
+         f"differs with a shorter memory (rel state err) {differ17}")
 
     # N14, N15 -------------------------------------------------------------------------------
     shapes = {}
@@ -435,6 +452,30 @@ def wiring():
     # W6 -------------------------------------------------------------------------------------
     keys = list(neuron_kwargs(cli()).keys())
     gate('W6', keys == LEGACY_KEYS, f"legacy neuron_kwargs keys unchanged: {keys == LEGACY_KEYS}")
+
+    # N18 (prereg 2T) ------------------------------------------------------------------------
+    conds = {'pop_flif': dict(neuron='pop_flif', soma='lif', mode='full'),
+             'pearson .5': dict(neuron='sel_pop_flif', soma='lif', mode='hard', hard_q=.5, hard_stat='pearson'),
+             'pearson .25': dict(neuron='sel_pop_flif', soma='lif', mode='hard', hard_q=.25, hard_stat='pearson'),
+             'recent .5': dict(neuron='sel_pop_flif', soma='lif', mode='hard', hard_q=.5, hard_stat='recent'),
+             'random .5': dict(neuron='sel_pop_flif', soma='lif', mode='hard', hard_q=.5, hard_stat='random')}
+    ok18, refs = {}, {}
+    for task in ('ett', 'recall'):
+        for seed in (7, 1024):
+            states = {}
+            for name, kw in conds.items():
+                ns = cli(task=task, revin=task == 'ett', **kw)
+                check_neuron_args(ns)
+                torch.manual_seed(seed)                                  # train.py: set_random_seed, then the model
+                states[name] = load_mymodel(ns).state_dict()
+            ref = refs[(task, seed)] = states['pop_flif']
+            ok18[f'{task}/{seed}'] = all(list(st) == list(ref) and all(torch.equal(st[k], ref[k]) for k in ref)
+                                         for st in states.values())
+    torch.manual_seed(8)
+    other, ref = load_mymodel(cli(task='ett', **conds['pearson .5'])).state_dict(), refs[('ett', 7)]
+    differs = not all(torch.equal(other[k], ref[k]) for k in ref)
+    gate('N18', all(ok18.values()) and differs,
+         f"same seed -> identical initial model across {list(conds)}: {ok18}; another seed differs {differs}")
 
 
 def reproduce(run_dir):

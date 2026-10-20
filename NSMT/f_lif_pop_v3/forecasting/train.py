@@ -11,7 +11,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from config import Config, parse_arguments, set_random_seed, TASK, calibration_tag
+from config import Config, parse_arguments, set_random_seed, TASK, calibration_tag, neuron_variant, soma_of
 from model import LOAD_MODEL
 from data_provider.data_factory import data_provider
 from utils import EpochLog, EarlyStopping, write_json, sha256, parameter_hash
@@ -180,6 +180,12 @@ def train_one_epoch(model, data_loader, optimizer, args):
                           'calibration_file': args.calibration_file,
                           'mode': args.mode, 'eta_fixed': args.eta_fixed,
                           'qk_norm': args.qk_norm, 'qk_eps': args.qk_eps,
+                          # 2T: which neuron failed -- the legacy record named only legacy fields
+                          'neuron': getattr(args, 'neuron', 'legacy'),
+                          'soma': soma_of(args) if getattr(args, 'neuron', 'legacy') != 'legacy' else None,
+                          'variant': neuron_variant(args) if getattr(args, 'neuron', 'legacy') != 'legacy' else None,
+                          'alpha': args.alpha, 'revin': getattr(args, 'revin', False),
+                          'hard_stat': args.hard_stat, 'hard_q': args.hard_q,
                           'utc': datetime.now(timezone.utc).isoformat()}
                 write_json(os.path.join(args.save_result_path, 'G11_violation.json'), record)
                 raise FloatingPointError(
