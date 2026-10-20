@@ -7315,3 +7315,28 @@ SUITE=neurons-smoke-20261014b-nocal EXTRA='--no-require_calibration --input_scal
 **한계:** 같은 분할을 두 번째로 본 탐색이다. 확증이 아니다. M_eff가 q1에서 모든 seed 0.1295로 같은 것은 선택이 없으면 커널 b만으로 정해지기 때문이다.
 
 **commit:** 이 기록을 담은 commit 을 `exp/f-lif-pop-v3` 에 push (해시는 다음 기록에).
+
+## 2026-10-21 01:48 KST — 2T ETT 2N 결과 (test H96 두 번째 열람, **탐색**): 세 대비 × 두 데이터셋 **모두 같은 판정**
+
+**직전 commit:** 00:38 기록(회상 과제 결과)의 commit 은 `97ca8678d` (`exp/f-lif-pop-v3`).
+
+**학습:** 대기열 `rerun-ett-20261021`(pool 00:25 시작, GPU당 1개, 다른 작업의 SHD 학습과 같이 돌림)에서 2N의 q1·pearson × ETTh1·ETTh2 × 8 seed, 32 run이 모두 끝났다(SKIP 0). run당 6–9분이다(`results/etthard-spikede-20261021/raw.txt`).
+
+**평가:** `ett_rerun.py --exp 2N --data ETTh1|ETTh2 --suite etthard-spikede-20261021 --calibration rerun-cal-20261021`(GPU 0과 1). 두 데이터셋 32칸이 manifest를 통과했다. 여는 데이터 16칸의 val 재현 최대 차이는 ETTh1 1.3e-7, ETTh2 2.4e-8이었다. 그 뒤 `ETTh{1,2}-test-H96.reopen-2T.json`을 기록하고 test 목표 [11520, 14400)를 읽었다. GRU 값은 2N 기록에서 읽었다.
+
+| 데이터 | 대비 | 새 뉴런 (95% CI, 상대, a<b) | 이전 뉴런 | 판정 |
+|---|---|---|---|---|
+| ETTh1 | pearson − q1 | −0.016044 [−0.019723, −0.012365], −3.57%, 8/8 | −0.015425 [−0.018828, −0.012022], −3.47%, 8/8 | 같음 (pearson이 낮춤) |
+| ETTh1 | pearson − GRU | +0.053581 [+0.048648, +0.058514], +14.12% | 높임 | 같음 |
+| ETTh1 | q1 − GRU | +0.069625 [+0.063905, +0.075345], +18.35% | 높임 | 같음 |
+| ETTh2 | pearson − q1 | +0.031216 [+0.008653, +0.053779], +8.73%, 0/8 | +0.029087 [+0.014535, +0.043639], +8.15% | 같음 (pearson이 높임) |
+| ETTh2 | pearson − GRU | +0.081534 [+0.056437, +0.106630], +26.52% | 높임 | 같음 |
+| ETTh2 | q1 − GRU | +0.050318 [+0.033308, +0.067327], +16.37% | 높임 | 같음 |
+
+- 평균 test MSE를 이전 뉴런 값과 나란히 적는다(기술 통계).
+  - ETTh1: q1 0.449097(이전 0.444222), pearson 0.433053(0.428797), GRU 0.379472.
+  - ETTh2: q1 0.357766(0.356840), pearson 0.388981(0.385927), GRU 0.307448.
+- 모든 모델이 safe였다. 보류된 칸은 없다. pearson의 경계 동점은 ETTh1 20/6,394,360, ETTh2 23/6,394,360이고 마스크 불일치는 0이다.
+- 산출물: `results/etthard-spikede-20261021-2N-test-ETTh{1,2}/ett_rerun_record.json`, 출력 `results/etthard-spikede-20261021-eval/2N_ETTh{1,2}.txt`.
+
+**commit:** 이 기록을 담은 commit 을 `exp/f-lif-pop-v3` 에 push (해시는 다음 기록에).
