@@ -7262,3 +7262,56 @@ SUITE=neurons-smoke-20261014b-nocal EXTRA='--no-require_calibration --input_scal
 **다음:** 이 commit 뒤에 ETT pool(`NSMT/scripts/gpu_pool2.sh <queue> 0,1,2,3`, GPU당 1개)과 회상 과제 선택 단계(`rerun_recall.sh select recall-spikede-sel-20261021`, CPU)를 시작한다.
 
 **commit:** 이 기록을 담은 commit 을 `exp/f-lif-pop-v3` 에 push (해시는 다음 기록에).
+
+## 2026-10-21 00:36 KST — 2T 회상 과제 결과 (**탐색**, 같은 분할을 두 번째로 봄): 2J·2M(oracle 제외) **모두 같은 판정**; 2K는 관문에서 멈춤 (내 사전등록 결함: random 대조의 val 재현 요구는 원리상 통과 불가) — confirm3 미개방
+
+**직전 commit:** 00:23 기록(보정 고정)의 commit 은 `72cb1fa5a` (`exp/f-lif-pop-v3`).
+
+**학습 (CPU, `rerun_recall.sh`, 모두 12 epoch, SKIP 0):**
+- 선택: `select recall-spikede-sel-20261021`, seed 7 × q {1, 0.1, 0.25, 0.5}, run당 57–90 s.
+- 확인: `confirm recall-spikede-conf-20261021 0.5`, 8 seed × {q1, pearson q0.5}.
+- 대조: `control recall-spikede-ctrl-20261021 0.5`, 8 seed × {recent, random} q0.5.
+- 확인과 대조 32 run을 동시에 돌렸고 run당 평균 96 s였다.
+
+**2J 선택 (validation, seed 7, `recall_rerun.py --stage select`):** 선택 규칙은 **q = 0.5를 골랐다. 이전과 같은 선택이다.**
+
+| q | 새 뉴런 val 회상 오차 | 이전 뉴런 |
+|---|---:|---:|
+| 1 | 0.260598 | 0.2625 |
+| 0.1 | 0.323569 | – |
+| 0.25 | 0.207544 | – |
+| 0.5 | 0.130937 | 0.1332 |
+
+**2J 확인 (confirm2 두 번째 열람, `confirm2.reopen-2T.json`, `--stage confirm2`):**
+- 열기 전 관문: 16칸이 manifest를 통과했고, val 재현의 최대 차이는 0.0이었다.
+- 모든 모델이 safe였다. 최대 상태값은 18.9–32.5로 한계 305.0보다 작았다. 두 번 평가한 값의 차이는 0.0, 경계 동점은 0/41,000이었다.
+
+| 대비 | 새 뉴런 | 이전 뉴런 | 판정 |
+|---|---|---|---|
+| pearson q0.5 − q1 | −0.137418, 95% CI [−0.146105, −0.128730], −52.69%, 8/8 | −0.136026 [−0.141831, −0.130221], −51.73%, 8/8 | 1차 통과, 2차(≥20%) 통과: **같은 판정** |
+
+**2M (oracle 제외; confirm4 두 번째 열람, `confirm4.reopen-2T.json`, `--stage confirm4`):** GRU 값은 2M 기록에서 읽었다(다시 학습하지 않음, 같은 confirm4 시퀀스). 16칸 모두 safe였다.
+
+| 판정 | 새 뉴런 | 이전 뉴런 | 일치 |
+|---|---|---|---|
+| O7-1 정답 위치 비중(M_eff) ≥ 0.5 | 0.2490 → 불통 | 0.2473 → 불통 | 같은 판정 |
+| O7-3 pearson − q1 ≤ −20%, 상한 < 0 | −0.139830 [−0.148131, −0.131529], −54.07% → 통과 | −53.22% → 통과 | 같은 판정 |
+| pearson − GRU | −0.117155 [−0.127035, −0.107276], −49.66% | −0.1142, −48.4% | 같은 판정 (pearson이 낮음) |
+| GRU − q1 | −0.022675 [−0.024863, −0.020486], −8.77% | – | 같은 판정 (GRU가 낮음) |
+| G14, O7-2, O7-4 | not run (oracle 필요) | | |
+
+**2K: 열기 전 관문이 confirm3를 거부했다 (`--stage confirm3`). confirm3는 읽지 않았고 등록부에도 두 번째 열람 기록이 없다.**
+- 거부 이유: random 대조 8개가 자기 val 오차를 재현하지 못했다(차이 5.0e-4 ~ 4.9e-3). q1, pearson, recent 24개는 재현했다.
+- 원인을 확인했다. random은 남길 칸을 난수로 고른다. 학습 중 val은 학습 동안 계속 진행된 난수 상태로 측정되었다. 평가에서는 seed로 다시 맞추므로 같은 값이 나올 수 없다.
+  - 같은 모델(random seed 7)의 val 오차는 난수 seed 7, 7, 8, 9에서 0.237525, 0.237525, 0.238042, 0.235894였다(학습 기록 0.235283).
+  - 같은 seed로 두 번 재면 같다. recent는 학습 기록과 정확히 같다(0.290720).
+- **사전등록 2T D-CP의 결함(내 실수):** random 대조에 학습 기록과 같은 val 오차를 요구한 것은 원리상 통과할 수 없는 조건이었다. 이전 2K·2L 절차(D-AP)는 random을 seed로 다시 맞춘 뒤 평가했을 뿐, 학습 중 val 재현을 요구하지 않았다.
+- **처리:** 열기 전 관문을 바꾸는 것은 사용자 결정 사항이다. 그래서 고치지 않고 confirm3를 열지 않은 채 둔다.
+  - 정정안은 random 칸에 한해 "학습 기록 재현" 대신 "같은 seed로 다시 맞춘 val 두 번이 1e-12 안에서 같다"를 요구하는 것이다. checkpoint SHA 대조는 그대로 둔다.
+  - 사용자가 승인하면 사전등록에 정정 항목을 덧붙이고 confirm3를 연다.
+
+**산출물:** `results/recall-spikede-{sel,conf,ctrl}-20261021/` (raw.txt, `recall_rerun_{select,confirm2,confirm4}.json`, 출력 `.txt`, 2K 관문 거부 출력 `recall_rerun_confirm3.txt`), `results/split_openings/confirm{2,4}.reopen-2T.json`. checkpoint는 로컬에만 있다.
+
+**한계:** 같은 분할을 두 번째로 본 탐색이다. 확증이 아니다. M_eff가 q1에서 모든 seed 0.1295로 같은 것은 선택이 없으면 커널 b만으로 정해지기 때문이다.
+
+**commit:** 이 기록을 담은 commit 을 `exp/f-lif-pop-v3` 에 push (해시는 다음 기록에).
