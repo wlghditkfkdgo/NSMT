@@ -7372,3 +7372,30 @@ SUITE=neurons-smoke-20261014b-nocal EXTRA='--no-require_calibration --input_scal
 - 산출물: `results/etthard-spikede-20261021-2O-future-ETTh{1,2}/ett_rerun_record.json`, `results/etthard-spikede-20261021-eval/2O_ETTh{1,2}.txt`.
 
 **commit:** 이 기록을 담은 commit 을 `exp/f-lif-pop-v3` 에 push (해시는 다음 기록에).
+
+## 2026-10-21 03:16 KST — 2T ETT 2P 결과 (validation, **탐색**): 계산된 대비 12개 **모두 같은 판정**; α=1 pearson이 필요한 6개는 이전처럼 보류 (이번에는 보정 거부, 이전에는 학습 중 G11)
+
+**직전 commit:** 02:38 기록(2O)의 commit 은 `3ba7724ba` (`exp/f-lif-pop-v3`).
+
+**학습:** q1_R_a1 × 2 데이터셋 × 8 seed, 16 run이 같은 대기열에서 끝났다(SKIP 0). q1_R·pearson_R는 2O run을 재사용한다. pearson_R_a1은 보정 거부로 학습하지 않았다(D-CN, 00:23 기록).
+
+**평가:** `ett_rerun.py --exp 2P --data both`. 등록하지 않는 validation이다. 48칸이 완료 run이고 16칸이 보정 거부였다. 완료 run 48개는 모두 safe였고, 저장된 최저 val을 재현했다(최대 차이 1.3e-7, 기준 1e-6). GRU_R·Linear_R는 2P 기록에서 읽었다.
+
+| 데이터 | 대비 (규칙) | 새 뉴런 | 이전 뉴런 | 판정 |
+|---|---|---|---|---|
+| ETTh1 | **F_q = q1_R(α0.7) − q1_R(α1)** (D-BV 표지) | −0.019625 [−0.028973, −0.010277], −2.62%, 7/8 → α0.7 쪽이 낮음 | −0.018975, −2.55%, 8/8 → 같음 | 같음 |
+| ETTh2 | **F_q** | −0.008997 [−0.010420, −0.007574], −3.71%, 8/8 → α0.7 쪽이 낮음 | −0.007158, −3.04%, 8/8 | 같음 |
+| 둘 다 | F_p, S_on(1), J | 보류 (보정 거부) | 보류 (G11) | 같음 (보류) |
+| ETTh1 | q1_R(1) − GRU_R / − Linear_R | +0.086263 (+13.00%) / +0.082217 (+12.31%) | 높음 | 같음 |
+| ETTh1 | q1_R(0.7) − GRU_R / − Linear_R | +0.066638 (+10.04%) / +0.062592 (+9.37%) | 높음 | 같음 |
+| ETTh2 | q1_R(1) − GRU_R / − Linear_R | +0.032076 (+15.26%) / +0.038852 (+19.10%) | 높음 | 같음 |
+| ETTh2 | q1_R(0.7) − GRU_R / − Linear_R | +0.023079 (+10.98%) / +0.029855 (+14.68%) | 높음 | 같음 |
+
+- 평균 val MSE를 이전 뉴런 값과 나란히 적는다(기술 통계).
+  - ETTh1: q1_R 0.730360(이전 0.725107), pearson_R 0.734014(0.732199), q1_R_a1 0.749985(0.744082).
+  - ETTh2: q1_R 0.233224(0.228185), pearson_R 0.229493(0.227354), q1_R_a1 0.242222(0.235343).
+  - 새 뉴런의 val 오차가 세 조건 모두 조금씩 높다. 검정하지 않은 기술 값이다.
+- α마다 자기 보정을 쓰므로 F_q는 "α와 그 보정을 함께 바꾼 효과"다(D-BY). 이번에는 ETTh1 α=1 배율이 이전 8.0에서 6.0으로 바뀌었다.
+- 산출물: `results/etthard-spikede-20261021-2P-val-both/ett_rerun_record.json`, `results/etthard-spikede-20261021-eval/2P_both.txt`.
+
+**commit:** 이 기록을 담은 commit 을 `exp/f-lif-pop-v3` 에 push (해시는 다음 기록에).
