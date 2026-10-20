@@ -7445,3 +7445,7 @@ SUITE=neurons-smoke-20261014b-nocal EXTRA='--no-require_calibration --input_scal
 - **완료 태그는 아직 만들지 않는다.** 2K가 남아 있어 2T가 끝나지 않았다.
 
 **commit:** 이 기록을 담은 commit 을 `exp/f-lif-pop-v3` 에 push (해시는 다음 기록에).
+
+## 2026-10-21 04:17 KST — 정정: 2T 요약의 합계 (commit `6aba75f87`의 메시지)
+
+`6aba75f87`의 commit 메시지에 "50 verdicts compared, 46 same"이라고 적었다. **틀렸다.** 같은 기록의 요약 표 줄을 더하면 판정한 대비는 **52개**이고, **같은 판정 48개, 다른 판정 4개**다(2J 3, 2M 4, 2N 6, 2O 14, 2P 16, 2Q 9). 표 자체의 줄별 값은 맞다. push한 commit은 고쳐 쓰지 않고 이 정정을 덧붙인다.
