@@ -48,6 +48,9 @@ def cell(suite, stat, q, seed, calibration):
     """(status, model, args, run, result, manifest errors, G11 record) of one recall run."""
     spec = {**rc.recall_spec(stat, q), 'head_mode': 'flatten', 'alpha': .7}
     cal = calibration[rc.calibration_label('recall', stat=stat, q=q)]
+    if cal['refused']:                                         # D-CN: not trained, its comparisons withheld
+        bad, info = rc.refused_cell(suite, 'recall', 'recall', spec, seed, cal)
+        return {**info, 'errors': bad}
     status, run, result = rc.find_cell(suite, 'recall', 'recall', spec, seed)
     if status == 'g11':
         bad, record = rc.check_failure(run, 'recall', rc.recall_spec(stat, q), seed, cal)
@@ -120,7 +123,8 @@ def gate_cells(cells, split):
             print(f'[recall_rerun] gate {e}')
         raise SystemExit(f'[recall_rerun] {len(errors)} gate error(s); {split} was NOT read')
     print(f'[recall_rerun] gate OK: {len(cells)} cells, validation reproduced (worst |diff| '
-          f'{max(repro.values()) if repro else float("nan"):.2e}), {sum(c["status"] == "g11" for c in cells.values())} G11 stops')
+          f'{max(repro.values()) if repro else float("nan"):.2e}), {sum(c["status"] != "done" for c in cells.values())} '
+          f'G11 stops / refused calibrations')
     return repro
 
 
@@ -146,8 +150,9 @@ def select(cli, calibration):
     for q in (1.,) + CANDIDATES:
         key = (rc.recall_label('pearson', q), SELECTION_SEED)
         c = cells[key]
-        if c['status'] == 'g11':
-            rows.append({'q': q, 'label': key[0], 'status': 'g11_failure_in_training', 'g11': c['g11'], 'eligible': False})
+        if c['status'] != 'done':
+            rows.append({'q': q, 'label': key[0], 'status': 'g11_failure_in_training' if c['status'] == 'g11' else c['status'],
+                         'detail': c.get('g11') or c.get('reason'), 'eligible': False})
             continue
         r = evaluate(c, 'val', SELECTION_SEED)
         r.update(q=q, label=key[0], status='evaluated',
@@ -199,9 +204,12 @@ def run_split(cells, split, out_path, purpose, cli, calibration, extra_head):
         json.dump({**base, 'status': f'opening {split}'}, handle, indent=2, allow_nan=False)
     rows, values, blocked = [], {}, {}
     for (cond, seed), c in sorted(cells.items(), key=lambda kv: (rc.SEEDS.index(kv[0][1]), kv[0][0])):
-        if c['status'] == 'g11':
-            rows.append({'condition': cond, 'seed': seed, 'status': 'g11_failure_in_training', 'g11': c['g11'], 'safe': False})
-            blocked[(cond, seed)] = 'G11 failure in training'
+        if c['status'] != 'done':
+            status = 'g11_failure_in_training' if c['status'] == 'g11' else c['status']
+            rows.append({'condition': cond, 'seed': seed, 'status': status, 'detail': c.get('g11') or c.get('reason'),
+                         'safe': False})
+            blocked[(cond, seed)] = {'g11_failure_in_training': 'G11 failure in training',
+                                     'calibration_refused': 'calibration refused (not trained)'}[status]
             continue
         r = evaluate(c, split, seed)
         r.update(condition=cond, status='evaluated')

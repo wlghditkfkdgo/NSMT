@@ -7228,3 +7228,37 @@ SUITE=neurons-smoke-20261014b-nocal EXTRA='--no-require_calibration --input_scal
 **다음:** 보정 18개를 만들고 고정해 commit한다. 그다음 회상 과제를 CPU에서 학습하고, ETT 128 run을 GPU당 1개씩 대기열로 돌린다.
 
 **commit:** 이 기록을 담은 commit 을 `exp/f-lif-pop-v3` 에 push (해시는 다음 기록에).
+
+## 2026-10-21 00:25 KST — 2T 보정 18개 고정 (train 분할, seed 7): 16개 통과, **α=1 pearson 2개 거부** → 그 조건은 학습하지 않음; ETT 대기열 112 run
+
+**직전 commit:** 00:17 기록(사전등록 2T)의 commit 은 `544fe30f7` (`exp/f-lif-pop-v3`).
+
+**명령:** `scripts/rerun_calibrate.sh recall rerun-cal-20261021`(CPU), `... ett rerun-cal-20261021 ETTh1 0`, `... ett rerun-cal-20261021 ETTh2 1`(GPU, 다른 작업의 SHD 학습과 같이 돌림)을 동시에 실행했다. 이어서 `python rerun_common.py freeze-calibration rerun-cal-20261021`로 `results/rerun-cal-20261021/calibration_manifest.json`에 고정했다. 보정 파일은 `results/calibration/*_n-*_261021-*.json`이다.
+
+| 설정 | 새 뉴런: 배율 (발화율, G11 한계) | 이전 뉴런: 배율 (발화율, 한계) |
+|---|---|---|
+| 회상 과제 q1 / pearson q0.1·0.25·0.5 / recent·random q0.5 | 8.0 (0.2165, 305.038), 6개 모두 통과 | 8.0 (305.038) |
+| ETTh1 R 끔 q1 / pearson | 6.0 (0.2161, 507.556) | 6.0 (0.1896, 507.556) |
+| ETTh2 R 끔 q1 / pearson | 6.0 (0.2146, 975.165) | 6.0 (0.1873, 975.165) |
+| ETTh1 R 켬 q1 / pearson | 10.0 (0.2186, 1334.665) | 10.0 (0.1902, 1334.665) |
+| ETTh2 R 켬 q1 / pearson | **8.0** (0.1828, 1621.054) | 10.0 (0.1989, 2026.317) |
+| ETTh1 R 켬 α=1 q1 | **6.0** (0.1905, 800.799) | 8.0 (0.2188, 1067.732) |
+| ETTh2 R 켬 α=1 q1 | 6.0 (0.2037, 1215.790) | 6.0 (0.1751, 1215.790) |
+| ETTh1 R 켬 α=1 pearson | **거부**: 학습 전 상태 최대값 1886.2 ≥ 한계 800.8 | (보정은 q1과 공유) 학습 첫 batch에서 16/16 G11 정지 |
+| ETTh2 R 켬 α=1 pearson | **거부**: 2602.0 ≥ 1215.8 | 같음 |
+
+- soma 리셋이 θ/τ_s로 바뀌어 같은 배율에서도 발화율이 달라졌다. 그래서 ETTh2 R 켬과 ETTh1 α=1에서는 다른 배율이 골라졌다. 규칙은 D11 그대로다.
+- α=1 pearson은 이전 뉴런에서는 학습 중(G11)에 멈췄고, 새 뉴런에서는 보정의 at-init 검사에서 미리 걸렸다. 2Q(A)에서 본 α=1 선택의 불안정(빠른 가지의 증폭)과 같은 현상이다.
+  - D-CN대로 다시 보정하지 않고 학습하지 않는다. 2P의 F_p, S_on(1), J는 보류된다. 이전 기록에서도 이 세 비교는 보류였다.
+
+**평가기 보완 (학습 전):** 보정이 거부된 칸을 "학습하지 않은 칸"으로 다루는 경로를 `rerun_common.refused_cell`, `ett_rerun.gate`, `recall_rerun.cell`에 넣었다.
+- 그 칸은 보류로 처리하고, 그 칸의 run 디렉터리가 있으면 오류다(fail closed).
+- 관문에 F10을 추가해 다시 돌렸다. 결과는 14/14 통과다(`results/rerun-checks-20261021/rerun_gate_check_run3.txt`).
+
+**ETT 대기열:** `scripts/rerun_ett_queue.sh etthard-spikede-20261021 rerun-cal-20261021`로 만들었다.
+- 112 run이다. pearson_R_a1 16 run은 넣지 않았다. 순서는 2N → 2O → 2P → 2Q(B)다.
+- 대기열 파일은 git에서 제외되므로, 같은 내용을 `results/etthard-spikede-20261021/run_commands.txt`에 남겼다.
+
+**다음:** 이 commit 뒤에 ETT pool(`NSMT/scripts/gpu_pool2.sh <queue> 0,1,2,3`, GPU당 1개)과 회상 과제 선택 단계(`rerun_recall.sh select recall-spikede-sel-20261021`, CPU)를 시작한다.
+
+**commit:** 이 기록을 담은 commit 을 `exp/f-lif-pop-v3` 에 push (해시는 다음 기록에).

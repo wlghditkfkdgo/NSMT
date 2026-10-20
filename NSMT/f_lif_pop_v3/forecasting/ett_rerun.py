@@ -135,10 +135,14 @@ def gate(plan, suite, calibration, opening, device):
             spec = rc.ETT_CONDITIONS[cond]
             cal = calibration[rc.calibration_label('ett', cond, data)]
             for seed in rc.SEEDS:
+                if cal['refused']:                               # D-CN: not trained, its comparisons withheld
+                    bad, failures[(data, cond, seed)] = rc.refused_cell(suite, 'ett', data, spec, seed, cal)
+                    errors += [f'{data} {cond}/{seed}: {b}' for b in bad]
+                    continue
                 status, run, result = rc.find_cell(suite, 'ett', data, spec, seed)
                 if status == 'g11':
                     bad, record = rc.check_failure(run, 'ett', spec, seed, cal)
-                    failures[(data, cond, seed)] = {'run': run, 'record': record,
+                    failures[(data, cond, seed)] = {'status': 'g11_failure_in_training', 'run': run, 'record': record,
                                                     'config_sha256': rc.sha256(Path(run) / 'model_state' / 'config.pt')}
                 else:
                     if data in opening:
@@ -188,7 +192,7 @@ def main():
         for e in errors:
             print(f'[ett_rerun] manifest {e}')
         raise SystemExit(f'[ett_rerun] {len(errors)} manifest error(s); nothing was evaluated')
-    print(f"[ett_rerun] {cli.exp}: manifest OK for {len(runs)} finished runs and {len(failures)} recorded G11 stops "
+    print(f"[ett_rerun] {cli.exp}: manifest OK for {len(runs)} finished runs and {len(failures)} recorded G11 stops / refused calibrations "
           f"({', '.join(DATASETS)}); earlier records verified; torch {torch.__version__}")
 
     repro = {}
@@ -236,9 +240,11 @@ def main():
         for cond in plan['conds']:
             for seed in rc.SEEDS:
                 if (data, cond, seed) in failures:
-                    cells.append({'data': data, 'cond': cond, 'seed': seed, 'status': 'g11_failure_in_training',
-                                  'g11': failures[(data, cond, seed)]['record'], 'safe': False})
-                    blocked[(cond, seed)] = 'G11 failure in training'
+                    f = failures[(data, cond, seed)]
+                    cells.append({'data': data, 'cond': cond, 'seed': seed, 'status': f['status'], 'safe': False,
+                                  **({'g11': f['record']} if 'record' in f else {'calibration_refused': f['reason']})})
+                    blocked[(cond, seed)] = {'g11_failure_in_training': 'G11 failure in training',
+                                             'calibration_refused': 'calibration refused (not trained)'}[f['status']]
                     continue
                 model, args, run, result = runs[(data, cond, seed)]
                 print(f"{f' {cli.exp} {data} {cond} seed {seed} ({split}) ':=^100s}")

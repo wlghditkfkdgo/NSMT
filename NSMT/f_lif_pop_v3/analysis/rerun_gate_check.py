@@ -26,6 +26,7 @@ beyond validation and writes nothing outside a scratch registry.
     F7  a changed earlier record and a changed calibration file are fatal
     F8  reopen: a never-opened split is refused, an opened one is reopened once, a second reopen is refused
     F9  a blocked cell withholds its contrast, and 'withheld' enters the verdict comparison
+    F10 a refused calibration: its cell is blocked when no run exists, and an existing run for it is an error
     N1  new classes in one_pass: the rebuilt pearson masks equal the model's (0 mismatches), q1 keeps the
         whole kernel (kept mass 1), q 0.5 keeps less, and validation reproduces best_val_loss (1e-6)
 """
@@ -260,6 +261,14 @@ def faults(main, smoke, calibration, device):
     cmp_ = rc.compare('dbg95', t, rc.paired(rc.per_seed(values, 'a'), rc.per_seed(values, 'b')))
     gate('F9', t['status'] == 'withheld' and cmp_['rerun'] == 'withheld' and cmp_['agreement'] == 'different verdict',
          f"blocked cell -> {t['status']}; comparison {cmp_}")
+
+    # F10: refused calibrations (2T D-CN)
+    spec_run, _, _, cal_run = cells[('ett', 'q1_R')]
+    refused = {**cal_run, 'refused': True, 'reason': 'gate fixture'}
+    stray, _ = rc.refused_cell(smoke, 'ett', 'ETTh1', spec_run, 7, refused)       # a smoke run exists for q1_R
+    clean, info = rc.refused_cell(smoke, 'ett', 'ETTh1', rc.ETT_CONDITIONS['q1_R_a1'], 7, refused)
+    gate('F10', bool(stray) and not clean and info['status'] == 'calibration_refused',
+         f'refused calibration with a run directory -> {stray}; without -> blocked as {info["status"]}')
 
     # N1: new classes in one pass
     detail, ok = {}, True

@@ -108,13 +108,25 @@ def run_id(task, dataset, spec, seed, pred_len=96):
             f"{variant_of(task, spec)}_seed{seed}")
 
 
+def run_dirs(suite, task, dataset, spec, seed):
+    return glob.glob(str(TASK / 'log' / suite / dataset / '*' / f"*+model+myModel+*+alpha+{float(spec['alpha'])}+*"
+                         / f"seed{seed}_{spec['head_mode']}_spike_{variant_of(task, spec)}"))
+
+
+def refused_cell(suite, task, dataset, spec, seed, calibration):
+    """A configuration whose calibration was refused is not trained (2T D-CN): the cell is blocked,
+    and a run directory for it would be an error (fail closed)."""
+    stray = run_dirs(suite, task, dataset, spec, seed)
+    bad = [f'calibration refused but {len(stray)} run directories exist'] if stray else []
+    return bad, {'status': 'calibration_refused', 'calibration': calibration['file'], 'reason': calibration['reason']}
+
+
 def find_cell(suite, task, dataset, spec, seed, pred_len=96):
     """('done', run dir, result json) or ('g11', run dir, None); anything else is fatal (2P D-BX).
     A G11 stop can come after an epoch that saved a checkpoint, so only the G11 record and the
     missing result decide 'g11'."""
     variant = variant_of(task, spec)
-    runs = glob.glob(str(TASK / 'log' / suite / dataset / '*' / f"*+model+myModel+*+alpha+{float(spec['alpha'])}+*"
-                         / f"seed{seed}_{spec['head_mode']}_spike_{variant}"))
+    runs = run_dirs(suite, task, dataset, spec, seed)
     result = TASK / 'results' / suite / f'{run_id(task, dataset, spec, seed, pred_len)}.json'
     if len(runs) != 1:
         raise SystemExit(f'[rerun] {suite} {dataset} {variant} seed {seed}: {len(runs)} run directories')
