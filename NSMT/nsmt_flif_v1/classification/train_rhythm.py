@@ -8,6 +8,8 @@ framework's timm cosine schedule. Differences from train.py, all forced by the n
   * the RNG is seeded once; epoch e shuffles with seed*1000+e and CinC crops depend on (seed, epoch, record), so every
     epoch sees new crops (train.py re-seeds every epoch, which repeats the same order);
   * CinC: CAL class weights from the training part (--loss_kind cal) or plain CE (--loss_kind ce).
+Aux-loss options (MODI 2026-10-20): --alpha 0 = aux loss off (plain CE), --alpha 0.5 / 0.9 = its weight, --keep_ratio 0 =
+reconstruct the full patched signal instead of its DCT low-pass part.
 usage: python train_rhythm.py --data CINC2017|SHD --model myModel|neoMixer ... (see scripts/run_rhythm.sh)
 """
 import os
@@ -43,7 +45,10 @@ def train_epoch(model, dl, criterion, opt, ratio, device):
         else:
             z, mse = out, torch.zeros((), device=device)
         ce = criterion(z, y)
-        loss = ce * (1 - ratio) + mse * ratio if hasattr(model, 'time_block') else ce
+        if hasattr(model, 'time_block') and ratio > 0:
+            loss = ce * (1 - ratio) + mse * ratio
+        else:                                    # no neocortex, or the aux loss switched off (--alpha 0, MODI 2026-10-20):
+            loss = ce                            # plain CE; the decoder gets no gradient (mse is still logged)
         opt.zero_grad(); loss.backward(); opt.step()
         functional.reset_net(model)
         tot += loss.item(); ce_s += ce.item(); mse_s += float(mse); n += 1

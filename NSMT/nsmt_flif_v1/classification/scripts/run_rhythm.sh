@@ -3,7 +3,9 @@
 # usage: DATA=CINC2017|SHD COND=<cond> [FOLD=0] [LR=...] [EPOCHS=...] [CROP=k] run_rhythm.sh <seed> <gpu>
 #   COND: nsmt_lif | nsmt_flif | nsmt_pop | spk_ssa | mix_flif_bidir | mix_pop_bidir | mix_lif_bidir | mix_none
 #         (+ suffix _ce for plain CE on CinC 2017, e.g. nsmt_lif_ce, mix_lif_bidir_ce)
-#   common: D 384, 8 heads, mlp 1, 1 block, 2 neocortex layers, keep_ratio 0.15, aux 0.1, tau 2, AdamW wd 1e-4,
+#         NSMT aux-loss options (MODI 2026-10-20), suffix on nsmt_*: _auxoff (alpha 0 = plain CE), _full (keep_ratio 0 =
+#         reconstruct the full patched signal, no DCT low-pass), _a05 / _a09 (alpha 0.5 / 0.9); default alpha 0.1, keep 0.15
+#   common: D 384, 8 heads, mlp 1, 1 block, 2 neocortex layers, keep_ratio 0.15, aux 0.1 (unless a suffix above), tau 2, AdamW wd 1e-4,
 #           timm cosine, batch 32; CinC: patch 64 (117 tokens), 30 epochs; SHD: patch 2 (100 tokens), 50 epochs.
 set -u
 S=${1:?}; GPU=${2:?}
@@ -11,7 +13,15 @@ W="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; R="$(cd "$W/../.." && pwd)
 PY=${PY:-/home/yschoi/.conda/envs/snn_recall/bin/python}
 export LD_LIBRARY_PATH="$(dirname "$(dirname "$PY")")/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 DATA=${DATA:?DATA=CINC2017|SHD}; COND=${COND:?}; FOLD=${FOLD:-0}; CROP=${CROP:-0}
-BASE=${COND%_ce}; LOSS=cal; [ "$BASE" != "$COND" ] && LOSS=ce
+ALPHA=0.1; KEEP=0.15
+case $COND in
+  nsmt_*_auxoff) ALPHA=0;   COND0=${COND%_auxoff} ;;
+  nsmt_*_full)   KEEP=0;    COND0=${COND%_full} ;;
+  nsmt_*_a05)    ALPHA=0.5; COND0=${COND%_a05} ;;
+  nsmt_*_a09)    ALPHA=0.9; COND0=${COND%_a09} ;;
+  *)             COND0=$COND ;;
+esac
+BASE=${COND0%_ce}; LOSS=cal; [ "$BASE" != "$COND0" ] && LOSS=ce
 case $BASE in
   nsmt_lif)       CF="--model myModel --neo_neuron lif --neo_where both" ;;
   nsmt_flif)      CF="--model myModel --neo_neuron flif --neo_where both --neo_alpha 0.5" ;;
@@ -38,7 +48,7 @@ TAGC=${COND}$([ "$CROP" != 0 ] && echo "_crop$CROP")
 OUT=$LOG/${DATA}_${TAGC}_f${FOLD}_seed${S}_lr${LR}_${TS}_${SHA}.stdout; t0=$(date +%s)
 (cd "$W" && CUDA_VISIBLE_DEVICES=$GPU OMP_NUM_THREADS=${THREADS:-4} $PY ./train_rhythm.py \
   --data $DATA --seed $S --log_dir "$LOG/$DATA" --gating attn -s -nd 0 --warm_up_epoch 0 \
-  -emb 384 -nh 8 --mlp_ratios 1 --layers 1 --time_layers 2 --keep_ratio 0.15 --alpha 0.1 --tau 2.0 --no-bias \
+  -emb 384 -nh 8 --mlp_ratios 1 --layers 1 --time_layers 2 --keep_ratio $KEEP --alpha $ALPHA --tau 2.0 --no-bias \
   --scheduler cosine -bs 32 --eval_bs 32 -lr $LR --weight_decay 1e-4 --max_lr 0.005 $HP $CF --tag $TAGC lr$LR seed$S > "$OUT" 2>&1)
 RC=$?
 D=$(ls -td "$LOG/$DATA"/*/*"+${TAGC}+lr${LR}+seed${S}+"*/seed${S}_* 2>/dev/null | head -1)

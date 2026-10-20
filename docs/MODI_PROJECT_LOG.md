@@ -1456,3 +1456,78 @@ CinC 점수 = F1(정상)·F1(AF)·F1(Other)의 평균. 시험은 기록마다 30
 **다음 (사용자 결정):** 선택지 — (a) SHD population mixer의 경계 결과를 새 사전 고정(추가 seed 또는 다른 검증 분할)으로 확인, (b) MIT-BIH AFDB(긴 연속 기록)로 확장, (c) SSC로 확장, (d) 여기서 9단계를 닫고 정리.
 
 **commit/tag:** 이 항목·결과·분석·요약을 담은 commit에 태그 `exp/nsmt-flif-neo-20261020`를 붙이고 브랜치와 태그만 push한다.
+
+---
+
+## 2026-10-20 16:57 KST — 9단계 추가 실험 설계·구현·사전 고정: NSMT 보조 손실 옵션(끄기 / DCT 없이 원 신호 재구성 / 비중 α 0.5·0.9) × 세 뉴런 × 두 과제 — 점검 19/19, smoke 8/8, tmux에서 시작
+
+**질문과 답 (사용자, 10-20):** "현재 비교군에 있는 'NSMT' 모델 설정은 'auxiliary loss(reconstruction loss)'가 포함된 상태야?" → 예. 코드(`train_rhythm.py`)와 학습 기록(`best_log_0.csv`의 train_mse)으로 확인했다.
+- NSMT 네 조건(LIF, f-LIF, population, 보통 CE)의 손실은 0.9 × CE + 0.1 × MSE다(CinC NSMT LIF seed 42 마지막 epoch: 0.9 × 0.3324 + 0.1 × 0.2482 = 0.3240 = 기록된 손실).
+- 재구성 목표는 입력의 DCT 저역 15%(평균 복원, CinC 약 0–9.4 Hz, SHD 채널별 약 0–8 Hz)를 같은 방식으로 조각낸 것이다. 디코더는 신피질 출력만 읽는 선형층 하나다.
+- Spikformer식·Neo-mixer·하한은 CE만 쓴다. 그래서 9단계 R4의 "NSMT 대 Spikformer식"은 구조와 손실이 함께 다른 비교였다. 이 점을 답에서 밝혔다.
+
+**요청 (사용자, 10-20):** "1. 보조 손실 완전 OFF 2. full time-series (w/o DCT) 를 reconstruction 3. alpha를 {0.5, 0.9} 로 변경 위 세 개의 option을 추가적으로 두 가지 task에 대해서 전부 실험해줘."
+**질문 답 (AskUserQuestion):** 적용 뉴런 = LIF·f-LIF·population 모두(96 run, 약 57시간). LIF → population → f-LIF 순서로 돌리고, 뉴런 묶음이 끝날 때마다 중간 보고한다.
+
+**브랜치·기준:** `exp/nsmt-flif-neo`, 기준 commit `ad1da15a4`(9단계 결과, 태그 `exp/nsmt-flif-neo-20261020`).
+
+**설정 (9단계 NSMT에서 바뀌는 것만):**
+
+| 이름 | α (보조 손실 비중) | 재구성 목표 | 손실 |
+|---|---|---|---|
+| 기준선 (9단계 본 run 재사용) | 0.1 | DCT 저역 15% (`--keep_ratio 0.15`) | 0.9 CE + 0.1 MSE |
+| `auxoff` | 0 | 계산하지만 학습에 쓰지 않음 | CE만 |
+| `full` | 0.1 | 원 신호 조각 그대로 (`--keep_ratio 0`) | 0.9 CE + 0.1 MSE |
+| `a05` | 0.5 | DCT 저역 15% | 0.5 CE + 0.5 MSE |
+| `a09` | 0.9 | DCT 저역 15% | 0.1 CE + 0.9 MSE |
+
+- 기준선은 9단계 본 run(같은 분할·seed·lr·epoch)을 다시 쓴다. 9단계 학습 코드와 이번 코드의 차이는 α = 0일 때만 갈리는 분기 하나다. α > 0이면 손실 식은 그대로다(아래 c19).
+- "full" 목표는 CinC에서 z-score된 125 Hz 신호 64샘플, SHD에서 2구간 × 700채널 스파이크 수(0–6)다.
+- **설계상 사실(예상의 근거):** 보조 손실의 기울기는 신피질 경로(신피질 임베딩과 2층)로만 간다. 분류 손실의 기울기는 교차 주의를 거쳐 신피질에도 가지만 절반으로 줄어 있다(`model.py:263`). AdamW는 기울기 크기를 파라미터마다 정규화한다. 그래서 CE만 받는 해마·head에서는 (1 − α) 배율이 거의 영향을 주지 않는다. α가 실제로 바꾸는 것은 주로 신피질 파라미터 안에서 두 손실의 균형이다.
+
+**코드 (`nsmt_flif_v1/classification/`):**
+- `train_rhythm.py`: `--alpha 0`이면 손실 = CE(디코더에 기울기 없음; MSE는 기록만).
+- `scripts/run_rhythm.sh`: `nsmt_*` 조건에 접미사 `_auxoff`(α 0) · `_full`(keep 0) · `_a05` · `_a09`를 붙인다. 접미사가 없으면 α 0.1·keep 0.15로 이전과 같다.
+- `scripts/make_queue_rhythm.sh`: kind `aux`(96줄 생성기), `auxsmoke`.
+- 새 `scripts/rhythm_aux_driver.sh`: 한 pool, GPU당 1개.
+- `summarize_rhythm.py --aux`: 9단계 suite에서 기준선과 spk_ssa를 읽고 X1–X4를 판정한다.
+- `check_cls.py` c19.
+
+**점검 19/19 (`results/checks/check_cls_aux.txt`):** c1–c18 그대로 통과. c19 내용:
+- keep 0이면 재구성 목표 = 원 신호 조각이다(C = 1 경로 최대 차이 7.2e-07, C = 7 경로 비트 동일). keep 0.15이면 다르다(최대 차이 4.3, 빈 통과 아님).
+- `train_epoch`를 α 0으로 돌리면 손실 = CE(같은 값)이고 디코더 기울기는 없으며 신피질 기울기는 있다.
+- α 0.5·0.9이면 손실 = (1 − α) CE + α MSE이고 디코더 기울기가 생긴다.
+
+**smoke (`results/smoke-rhythm-aux-20261020/raw.txt`, NSMT LIF, 1 epoch, seed 42; 16:48–16:57, 8/8, SKIP 0; 실험 아님):** 아직 commit하지 않은 작업 트리(기준 `ad1da15a4` + 위 코드)에서 돌렸다. 각 run의 `logargs.txt`에서 α·keep_ratio가 의도한 값임을 확인했다. 기록된 마지막 epoch 학습 손실은 사전 식(α = 0이면 CE, 아니면 (1 − α) CE + α MSE)과 최대 6e-07 차이로 일치한다.
+
+| 데이터 | 옵션 | α / keep | 1 epoch 점수 | 학습 손실 / CE / MSE | 총 µJ (FFT) | 시간 s |
+|---|---|---|---|---|---|---|
+| SHD | auxoff | 0 / 0.15 | 0.440813 | 2.47139 / 2.47139 / 0.11216 | 26,027.9 | 236 |
+| SHD | full | 0.1 / 0 | 0.450972 | 2.22893 / 2.46773 / 0.07975 | 26,031.8 | 238 |
+| SHD | a05 | 0.5 / 0.15 | 0.458039 | 1.24356 / 2.46702 / 0.02009 | 26,029.1 | 230 |
+| SHD | a09 | 0.9 / 0.15 | 0.458922 | 0.26407 / 2.46902 / 0.01908 | 26,024.4 | 233 |
+| CinC | auxoff | 0 / 0.15 | 0.323558 | 1.12644 / 1.12644 / 0.73054 | 2,894.9 | 256 |
+| CinC | full | 0.1 / 0 | 0.327960 | 1.05886 / 1.12624 / 0.45248 | 2,912.1 | 252 |
+| CinC | a05 | 0.5 / 0.15 | 0.324345 | 0.71469 / 1.12707 / 0.30230 | 2,874.9 | 258 |
+| CinC | a09 | 0.9 / 0.15 | 0.325207 | 0.38455 / 1.12714 / 0.30204 | 2,876.7 | 251 |
+
+- 끄기에서는 디코더가 학습되지 않아 MSE가 높게 남는다(설계대로). 9단계 smoke의 같은 seed 기준선(α 0.1)은 CinC 0.325715, SHD 0.447438이다. 1 epoch 값이라 비교에 쓰지 않는다.
+
+**실행 (사전 고정):** tmux `flif_aux`, `bash nsmt_flif_v1/classification/scripts/rhythm_aux_driver.sh 0,1,2,3`.
+- 96 run = 3 뉴런(LIF, population, f-LIF) × 4 옵션 × (CinC 3 seed 42/7/2026, fold 0 + SHD 5 seed 42/7/2026/123/1024).
+- lr 1e-3, 나머지는 9단계 그대로. suite는 `flif-v1-rhythm-aux-cinc`, `flif-v1-rhythm-aux-shd`.
+- 큐 순서는 LIF 묶음 → population 묶음 → f-LIF 묶음이고, 묶음 안에서는 SHD 먼저, CinC 다음이다.
+- **예상 시간:** 9단계 run당 시간(CinC LIF 약 1.4 h, f-LIF·population 약 2.0 h; SHD LIF 약 2.1 h, f-LIF·population 약 3.0 h)으로 약 229 GPU시간, GPU 4장에서 약 57시간(10-23 새벽 무렵).
+
+**판정 (9단계와 같은 규칙; 같은 seed끼리 짝):** "좋음" = 평균 ≥ +0.5%p이고 A > B인 seed가 CinC 3개 중 2개 이상, SHD 5개 중 4개 이상. 반대면 "나쁨", 그 밖은 "차이 없음", seed 누락·비유한 값은 "미완".
+- X1 보조 손실 끄기: `auxoff` − 기준선(뉴런별·과제별 6개).
+- X2 재구성 목표: `full` − 기준선(6개).
+- X3 비중: `a05` − 기준선, `a09` − 기준선(12개).
+- X4 Spikformer식과: 각 옵션 − `spk_ssa`(24개)에 기준 (2)를 적용한다. NSMT 에너지가 Spikformer식의 약 25배이므로 기준 (2)는 "좋음"일 때만 충족될 수 있다.
+- 보고만: 마지막 epoch 학습 CE·MSE, 신피질 발화율, 에너지, 마지막 epoch 점수, 토큰 축 기억(끝난 뒤 별도로 돌리면 보고).
+- **해석 틀(사전):** X1에서 끄기가 기준선과 차이 없으면, 보조 손실은 NSMT의 성능을 설명하지 않는다. 끄기가 좋으면 보조 손실이 분류를 방해한 것이고, 나쁘면 도운 것이다. X4에서 어느 옵션도 Spikformer식을 넘지 못하면, 9단계 R4의 NSMT 패배는 보조 손실 때문이 아니다.
+- **예상(사전 기록):** 끄기와 full은 기준선과 차이가 없을 것이다(±0.5%p 안; 비중 0.1이 작고, 해마·head는 Adam 때문에 거의 영향을 받지 않음). α 0.9는 신피질이 분류보다 재구성에 맞춰져 약간 나쁠 수 있다. population 조건의 SHD 이득이 신피질 상태에서 나왔다면 특히 그렇다. CinC에서 Spikformer식을 넘는 옵션은 없을 것이다(차이 3.8–4.7%p).
+
+**운영:** 데이터·checkpoint·TensorBoard·stdout은 로컬에 둔다. 뉴런 묶음이 끝날 때마다 중간 기록을 덧붙이고 commit·push한다. 감사는 98 이후 새 항목이 없다.
+
+**commit:** 이 항목·코드·점검·smoke를 commit·push한 뒤 시작한다.

@@ -5,6 +5,9 @@
 #   kind smoke  : every condition once, seed 42, EPOCHS=1
 #   kind lr     : nsmt_lif, seed 42, LR in {0.001, 0.003}
 #   kind crop   : memory pre-check, mix_lif_bidir and mix_none with CROP in {8, 32, 0}, seed 42
+#   kind aux    : (MODI 2026-10-20) NSMT aux-loss options, neurons in the order lif, pop, flif x options auxoff / full /
+#                 a05 / a09 x the main seeds (the alpha 0.1 + DCT baseline is the stage-9 main run, not repeated)
+#   kind auxsmoke: nsmt_lif x the 4 options, seed 42, EPOCHS=1
 # The heaviest jobs (NSMT, ~35 GB) are listed first; the pool runs them one per GPU (see rhythm_driver.sh).
 set -u
 W="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; SUITE=${1:?}; DATA=${2:?}; KIND=${3:?}; LR=${4:-0.001}
@@ -19,6 +22,9 @@ case $KIND in
   smoke) for c in $CONDS; do echo "COND=$c $C EPOCHS=1 bash nsmt_flif_v1/classification/scripts/run_rhythm.sh 42" >> "$Q"; done ;;
   lr)    for lr in 0.001 0.003; do echo "COND=nsmt_lif DATA=$DATA SUITE=$SUITE LR=$lr bash nsmt_flif_v1/classification/scripts/run_rhythm.sh 42" >> "$Q"; done ;;
   crop)  for c in mix_lif_bidir mix_none; do for k in 8 32 0; do echo "COND=$c $C CROP=$k bash nsmt_flif_v1/classification/scripts/run_rhythm.sh 42" >> "$Q"; done; done ;;
+  aux)   for n in nsmt_lif nsmt_pop nsmt_flif; do for v in auxoff full a05 a09; do for s in $SEEDS; do
+           echo "COND=${n}_$v $C bash nsmt_flif_v1/classification/scripts/run_rhythm.sh $s" >> "$Q"; done; done; done ;;
+  auxsmoke) for v in auxoff full a05 a09; do echo "COND=nsmt_lif_$v $C EPOCHS=1 bash nsmt_flif_v1/classification/scripts/run_rhythm.sh 42" >> "$Q"; done ;;
   *) echo "bad kind $KIND"; exit 1 ;;
 esac
 echo "$Q: $(wc -l < "$Q") lines"

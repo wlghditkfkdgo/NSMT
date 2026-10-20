@@ -38,6 +38,10 @@ cannot run, or whose test is vacuous (no spikes), FAILs.
       train / val / test disjoint; record-level aggregation of predict() = manual mean of window softmaxes
   c18 (stage 9) SHD data: 8,156 / 2,264 samples, 20 classes, binned counts = spikes kept by the converter, validation
       split disjoint from training and containing every class
+  c19 (MODI 2026-10-20) NSMT aux-loss options: with keep_ratio 0 the reconstruction target is the raw patched signal (C = 1
+      path: allclose to manual slices of the padded input; C = 7 token path: bitwise) and with 0.15 it is not (non-vacuous);
+      train_rhythm.train_epoch with alpha 0 returns loss == CE and leaves the decoder without gradient while the neocortex
+      still gets one (through the cross-attention); alpha 0.5 / 0.9 give loss == (1 - a) CE + a MSE and a decoder gradient
 usage: python check_cls.py [--out results/checks/check_cls.txt]
 """
 import argparse
@@ -683,12 +687,61 @@ def c18():
            f'val disjoint & all classes (seeds 42, 7) {oks}')
 
 
+@check('c19')
+def c19():
+    from load_model import LOAD_MODEL
+    from config import set_random_seed
+    import torch.nn as nn
+    from train_rhythm import train_epoch
+    from spikingjelly.clock_driven import functional
+    msgs, oks = [], []
+    g = torch.Generator().manual_seed(19)
+    # (a) reconstruction target, C = 1 path (CinC) and C = 7 token path (SHD-like)
+    x1 = torch.randn(4, 1, 3750, generator=g).cuda()
+    xpad = torch.cat([x1, x1[:, :, -1:].repeat(1, 1, 32)], dim=2)
+    for keep in (0., 0.15):
+        set_random_seed(0)
+        m = LOAD_MODEL['myModel'](NS(**dict(HP, patch_size=64, seq_len=3750, num_channels=1, keep_ratio=keep)), True).cuda()
+        m.train(); m.train_mode = 'training'
+        with torch.no_grad():
+            m(x1); functional.reset_net(m)
+        manual = xpad.unfold(-1, 64, 32)[:, 0].transpose(0, 1).unsqueeze(2)          # [N, B, 1, P]
+        diff = (m.org_x - manual).abs().max().item()
+        ok = (diff < 1e-5) if keep == 0 else (diff > 1e-2)
+        oks.append(ok); msgs.append(f'C=1 keep {keep}: max |target - raw| {diff:.1e}')
+    x7 = torch.rand(3, 7, 50, generator=g).cuda()
+    for keep in (0., 0.15):
+        set_random_seed(0)
+        m = LOAD_MODEL['myModel'](NS(**dict(HP, patch_size=4, seq_len=50, num_channels=7, keep_ratio=keep)), True).cuda()
+        m.train(); m.train_mode = 'training'
+        _, neo = m._tokens_mc(x7)
+        same = torch.equal(m.org_x, neo)
+        ok = same if keep == 0 else (not same and (m.org_x - neo).abs().max().item() > 1e-2)
+        oks.append(ok); msgs.append(f'C=7 keep {keep}: target == raw tokens {same}')
+    # (b) the loss in train_rhythm.train_epoch
+    xb = torch.rand(16, 1, 187, generator=g); yb = torch.randint(0, 5, (16,), generator=g)
+    for alpha in (0., 0.5, 0.9):
+        set_random_seed(0)
+        m = LOAD_MODEL['myModel'](NS(**HP), True).cuda()
+        opt = torch.optim.SGD(m.parameters(), lr=0.)                                 # lr 0: parameters fixed, gradients kept
+        r = train_epoch(m, [(xb, yb)], nn.CrossEntropyLoss(), opt, alpha, 'cuda')
+        dec = [p.grad for p in m.weak_decoder.parameters()]
+        dec_none = all(gr is None or float(gr.abs().sum()) == 0. for gr in dec)
+        neo_grad = any(p.grad is not None and float(p.grad.abs().sum()) > 0 for p in m.time_block.parameters())
+        want = r['ce'] if alpha == 0 else (1 - alpha) * r['ce'] + alpha * r['mse']
+        loss_ok = (r['loss'] == r['ce']) if alpha == 0 else abs(r['loss'] - want) <= 1e-5 * max(1., abs(want))
+        ok = loss_ok and neo_grad and (dec_none if alpha == 0 else not dec_none) and r['mse'] > 0
+        oks.append(ok); msgs.append(f'alpha {alpha}: loss {r["loss"]:.6f} ce {r["ce"]:.6f} mse {r["mse"]:.6f} (loss ok {loss_ok}), '
+                                    f'decoder grad {"none" if dec_none else "yes"}, neocortex grad {neo_grad}')
+    report('c19', all(oks), '; '.join(msgs))
+
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', default=os.path.join(HERE, 'results', 'checks', 'check_cls.txt'))
     ap.add_argument('--only', nargs='*', default=None)
     a = ap.parse_args()
-    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18):
+    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19):
         if a.only and fn.__name__ not in a.only:
             continue
         fn()
