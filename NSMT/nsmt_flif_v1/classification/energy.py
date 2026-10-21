@@ -59,7 +59,7 @@ def e_flif_direct(T, rho, memory=None):
 def _kind(module):
     if isinstance(module, FLIFNeuron):
         if getattr(module, 'num_members', 1) > 1 and getattr(module, 'has_soma', False):
-            return 'pop_flif'
+            return 'pop_flif' if module.alpha < 1. else 'pop_lif'      # MODI 2026-10-21: alpha 1 = Euler LIF branches, no history
         return 'flif' if module.alpha < 1. else 'lif'                # alpha = 1 is the Euler LIF
     return 'lif'
 
@@ -132,6 +132,9 @@ class FiringRateRecorder:
             elif st['kind'] == 'pop_flif':
                 K = st['members']
                 fft, direct = e_pop_flif(T, rho, K, st['memory']), e_pop_flif(T, rho, K, st['memory'], direct=True)
+            elif st['kind'] == 'pop_lif':                              # MODI 2026-10-21: K Euler branches (no history term) + mix + soma
+                K = st['members']
+                fft = direct = K * T * (2. * KAPPA + 2.) + T * K * KAPPA + e_lif(T, rho)
             rows.append(dict(module=name, kind=st['kind'], path=st['path'], T=T, neurons_per_sample=per_sample,
                              rho=rho, rho_syops=st['rate_sum'] / st['calls'], alpha=st['alpha'],
                              E_lif_J=per_sample * lif * E_AC, E_fft_J=per_sample * fft * E_AC,

@@ -1743,3 +1743,137 @@ GPU마다 보조 손실 NSMT(약 40 GB)가 돌고 있어 정식 배치(32)로는
 **다음:** f-LIF 묶음(32 run, 진행 중) → 중간 기록 3/3·결과 항목. 아이디어 묶음(사용자 지시 10-21; 사전 고정은 별도 항목)은 smoke가 돌고 있다.
 
 **commit:** 이 항목과 population 결과를 commit·push한다.
+
+---
+
+## 2026-10-21 01:00 KST — SHD 제외 결정과 아이디어 묶음 설계·구현·사전 고정: BiX(순방향·역방향 스트림 사이 토큰 축 교차 주의)와 사용자 원안 BiX-ch × 뉴런 8종, soma 없는 population 두 형태, Spikformer 주의 BN 대조 (**CinC만 54 run**) + 원인 분리 population 보충 — 점검 31/31, smoke 20/22(실패 2 = GPU 메모리 부족); soma 없는 두 형태(24 run)는 과다 발화가 드러나 보정을 다시 정한 뒤 별도 항목으로 시작, 나머지 30 run 시작
+
+**SHD 제외 (사용자, 10-21 23:3x):** "혹시 현재 SHD 실험이 돌고 있는 것이 있어? SHD는 더 이상 우리의 고려되는 task가 아니게 돼. T=N 주장을 유지해야 하기 때문에."
+- 그 시점 돌던 run 8개가 모두 SHD였다: 보조 손실 f-LIF 묶음 `nsmt_flif_auxoff` SHD seed 42/7/2026/123(시작 7–23분 뒤) 4개, 아이디어 묶음 smoke(SHD popk, 1 epoch) 4개.
+- **조치:** (i) 대기 중인 SHD run 120개를 큐에서 뺐다(각 큐의 잠금을 잡고 편집; 보조 손실 16, 아이디어 smoke 14, 아이디어 본 학습 90; 뺀 줄은 `scripts/queues/removed-shd-20261021/`에 보관). (ii) 보조 손실 SHD run 4개는 PID로 정확히 중단했다(`results/flif-v1-rhythm-aux-shd/raw.txt`에 SKIP rc=143 네 줄). pool은 곧바로 CinC run으로 넘어갔다. (iii) SHD smoke 4개는 끝나게 두었다 — 중단하면 드라이버가 "smoke 실패"로 멈추고, popk 코드 경로 확인용으로는 쓸모가 있다(결과는 판정·주장에 쓰지 않음). (iv) 원인 분리 드라이버를 CinC만 돌도록 고쳤다(실행 전이라 안전; 원인 분리 100 → **45 run**: 가벼움 33, 무거움 12).
+- **기록상 의미:** 지금까지의 SHD 결과(9단계, 보조 손실 LIF·population 묶음 — 특히 "population + α 0.9가 Spikformer식보다 +1.93%p")는 기록으로 남기되 연구 주장에서 뺀다. 보조 손실 실험의 f-LIF 묶음은 CinC 12 run만 남는다(사전 고정의 SHD 20 run은 사용자 결정으로 취소). T = N 주장은 CinC(연속 ECG)에서만 다룬다.
+- 같은 GPU에서 다른 작업 계열의 ETT 학습(`etthard-2u-20261021`, GPU당 약 1.5 GB)이 돌고 있다. 건드리지 않았다.
+
+**사용자 지시 (10-21, 5개 항목)와 답:**
+1. "SHD는 이미 spiking time step과 data의 time step을 일치할 수 있는 데이터 포맷 … T=N 효과를 주장할 수 있는 task가 아닌 것 같아." → 동의. 8단계 조사에서도 SHD 논문 대부분이 10 ms 칸 하나를 한 스텝으로 넣는다(T = 칸 수). 이어서 사용자가 SHD를 과제에서 뺐다(위). T = N 주장은 CinC 같은 연속 신호에서만 가능한데, 지금 그 과제에서는 T = N NSMT가 T = 4 Spikformer식에 지고 있어 받쳐 줄 결과가 없다.
+2. "아까 내가 제안했던 아이디어(bidirectional + cross-attention)는 왜 실험 안 해?" → 직전 질문에서 제가 "1-A/1-C 결과를 본 뒤 결정"을 추천했고 그 선택지가 골라졌다(비용과 "주의가 들어오면 뉴런 기억의 몫이 다시 작아질" 위험 때문). 이번에 돌린다 — 머리 묶음 형태와 **사용자 원안(채널별 T×T′ 지도)** 둘 다.
+3. "Population LIF 실험 옵션도 비교에 항상 넣어줘. (구조 비교 실험 시)" + 계획 의견 "Population f-LIF와 population LIF 둘 다 비교에 넣으라는 것" → 메모리에 상시 규칙으로 기록. AskUserQuestion 범위: **"아이디어 묶음만 넓힘"** — 원인 분리 묶음에는 population f-LIF 보충 3조건만 넣고 population LIF 보충은 넣지 않는다.
+4. "Population LIF/f-LIF neuron에서 soma가 꼭 필요할까? … Population 축도 두면 되지 않아? 그리고 나서 head에서 정보를 합치는 것" → 문헌 정리: 지금 구조는 가지 → soma(DH-SNN, Nat. Commun. 2024)와 같고, soma 없는 형태는 층 안 τ 이질성(Perez-Nieves 등 Nat. Commun. 2021 — SHD에서 이득 보고)이 표준이며, "줄기를 head까지 분리"는 그것과 출력 집단 투표를 합친 형태로 흔하지 않다. 사용자 질문 "보통 Population coding은 어떻게 수행돼?"에 ① 값 부호화(가우시안 수용장·집단 벡터), ② 출력 집단 투표, ③ 층 안 시간 척도 이질성, ③′ 가지 → soma로 답했다. AskUserQuestion: **두 형태 모두**(층 안 τ 그룹 / 줄기 분리).
+5. "Batch Normalization을 점검해줘 … BN 이후에 Spiking Neuron의 발화량이 급격하게 줄어드는 현상이 있는지도" → 아래 점검 결과. 순서: AskUserQuestion **"아이디어 묶음 먼저"**(원인 분리 76 run보다 앞).
+
+### BN 점검 (seed 42, 13개 모델, 시험 앞쪽 48단위; 학습 뒤 = 최고 검증 가중치·평가 모드 BN, 초기 = 같은 설정 새 가중치·학습 모드 BN; 스크립트는 scratchpad의 읽기 전용 측정, 수치는 이 항목에 기록)
+- **구조:** 모든 스파이킹 뉴런 앞에 Linear + BN이 있다. 예외는 **주의 출력 뉴런(attn_lif)** 하나 — NSMT 교차 주의(MCA)와 Spikformer식 SSA 모두, 주의 점수 × 값의 결과가 BN 없이 뉴런에 들어간다(저자 코드·Spikformer 설계). BN·뉴런 없는 선형층은 분류층과 재구성 디코더(출력용)뿐이다.
+- **발화가 크게 줄어드는 곳:**
+
+| 위치 | 초기 발화율 | 학습 뒤 | 비교 |
+|---|---|---|---|
+| Spikformer식 SSA 주의 출력 뉴런 | SHD 0.0041, CinC **0.0007** | 0.2159 / 0.1199 | 다른 층 초기 0.04–0.06 |
+| NSMT 교차 주의 출력 뉴런 | 0.0148–0.0181 | 0.049–0.149 | |
+| **CinC population NSMT 첫 신피질 뉴런** | 0.0056 | **0.0073 / 0.0078 / 0.0090 (seed 3개 전부)** | LIF 0.060–0.061, SHD population 0.088–0.109 |
+
+- 원인: (a) 주의 출력 — BN이 없고 점수 배율 384^−0.5 = 0.051·문턱 1.0이라 학습 초기 거의 침묵. (b) CinC population 첫 층 — BN 출력은 정상(평균 −0.03, 표준편차 0.97, 1을 넘는 비율 0.11)인데, BN이 평균을 0으로 맞춘 입력을 느린 리셋 없는 가지(τ 32 정상 상태 표준편차 ≈ 0.13)가 평균 내 지워 soma 합이 문턱을 거의 못 넘는다(SHD는 말소리 구간에 입력이 몰려 괜찮음). 그 밖의 층은 학습 뒤 0.05–0.26으로 붕괴 없음.
+- 대응: 두 BiX 형태 모두 주의 출력 앞에 BN을 둔다("연산 + BN + 뉴런 한 세트"), 공정 비교를 위해 Spikformer식에도 같은 BN을 넣은 `spk_ssa_abn`을 추가한다. (b)는 대기 중인 원인 분리 V1(soma 가중치 1.5·2.0)이 직접 건드린다.
+
+**브랜치·기준:** `exp/nsmt-flif-neo`, 기준 commit `9efdbc87d`. 프로토콜은 9단계 CinC 그대로(fold 0 × seed 42/7/2026, lr 1e-3, 30 epoch, 배치 32, CAL 가중 CE). 기준선은 9단계 run 재사용(`mix_lif_bidir`, `mix_flif_bidir`, `mix_pop_bidir`, `mix_none`, `spk_ssa`). suite `flif-v1-rhythm-bix-cinc`.
+
+### 모델
+- **공통 골격 = Neo-mixer:** 조각 임베딩 → 블록 1개(`x ← x·(1 − 섞기)`, `x ← x·(1 − MLP(x))`) → 조각 평균 → head. 모든 뉴런은 토큰 축을 시간으로 쓴다(T = N).
+- **BiX** (`--mixer_comb xattn`): 순방향 신피질 2층 F, 역방향 2층 R(기존 `MixerStack`) → 토큰 축 교차 주의(`bix.TokenXAttn`): q = 뉴런(BN(Linear(F))), k·v = 뉴런(BN(Linear(R))), 점수_h[t, t′] = q_h[t]·k_h[t′] × 384^−0.5 + 상대 위치 편향(헤드 8, 0 초기화) → @v → **BN** → 주의 뉴런 → proj(Linear + BN + 뉴런). Neo-mixer의 OR 결합만 교차 주의로 바뀐다.
+- **BiX-ch** (`--mixer_comb xattn_ch`, 사용자 원안): 점수_d[t, t′] = q[t,d]·k[t′,d](채널마다 T×T′ 지도, 헤드 합·위치 편향 없음) → 출력[t,d] = Σ_t′ 점수_d[t,t′] v[t′,d] → BN → 주의 뉴런 → proj. 0/1 스파이크에서는 출력 = q[t,d]·Σ_t′ k[t′,d] v[t′,d]·배율로 줄어든다(c26이 실제 텐서에서 차이 0으로 확인 — 토큰별 상호작용이 없음). 실험으로도 확인한다.
+- **뉴런 축 (8종):**
+  - LIF(대조, spikeDE), f-LIF(α 0.5): 신피질(mixer) 층만, 나머지 층은 spikingjelly LIF τ 2(9단계와 같음).
+  - **population LIF** = `PopulationFLIF`에서 α = 1(pred·전체 이력 → 가지가 정확한 Euler LIF, c31: 수동 반복과 차이 0). **soma 가중치 0.5** — {0.25, 0.5, 1.0} 중 초기 mixer 발화율이 LIF mixer에 가장 가까운 값(측정: CinC 0.0019 / **0.0476** / 0.3032 vs LIF 0.0798; SHD 0.0183 / **0.1004** / 0.3424 vs LIF 0.0977). population f-LIF는 9단계대로 1.0(초기 0.0373 / 0.0817).
+  - **popg_lif / popg_flif** (soma 없음, 층 안 τ 그룹): 모든 뉴런 층(임베딩·신피질·주의·MLP)의 유닛을 96 × 4 그룹(τ 4/8/16/32)으로 나눔, 각 유닛이 스스로 발화·리셋. 신피질 층 = spikeDE LIF(τ_k) 또는 f-LIF(τ_k, α 0.5), 나머지 층 = spikingjelly LIF(τ_k). 다음 선형층이 모든 그룹을 함께 읽음. 비용은 기존과 같음.
+  - **popk_lif / popk_flif** (soma 없음, 줄기 분리 — 사용자 원안; `stream_mixer.StreamMixer`): 임베딩 선형층 출력을 4줄기로 복제, 줄기마다 τ_k인 같은 신경망(선형층 가중치 공유, BN만 줄기별), head에서 줄기별 조각 평균을 이어 붙여 Linear(4·384 → 클래스). 계산·에너지 약 4배. K = 1·τ 2에서 Neo-mixer(f-LIF)와 로짓이 비트 동일(c28).
+  - **τ 보정(사전 규칙):** τ_k 뉴런 앞 BN의 가중치 초기값 = √((2τ_k − 1)/3) × 2(τ > 2). √ 부분은 계획대로(백색 입력에서 τ 2 LIF와 막전위 분산을 맞춤)였으나 **계획의 식만으로는 τ 32 그룹이 초기 0.2–0.7%로 c27·c28(≥ 1%)에 실패**했다(리셋 뒤 느린 회복을 반영하지 못함). 그래서 τ > 2에 곱하는 공통 배율을 {1, 1.5, 2, 3} 중 "두 데이터·네 모델의 모든 층·모든 그룹이 ≥ 1%"를 만족하는 최솟값으로 정했다. 측정(그룹 τ 4/8/16/32의 층별 최소 발화율):
+
+| 배율 | CinC (popg_lif / popk_flif) | SHD (popg_lif / popk_flif) |
+|---|---|---|
+| ×1 | 0.018/0.010/0.006/0.003 · 0.017/0.010/0.006/0.003 | 0.021/0.015/0.009/0.006 · 0.024/0.014/0.008/0.003 |
+| ×1.5 | 0.047/0.026/0.015/**0.008** · 0.045/0.026/0.015/**0.008** | 0.048/0.033/0.023/0.014 · 0.053/0.032/0.019/0.011 |
+| **×2** | 0.073/0.041/0.024/0.014 · 0.072/0.042/0.024/0.013 | 0.080/0.056/0.037/0.023 · 0.087/0.054/0.032/0.018 |
+| ×3 | 0.114/0.069/0.041/0.024 · 0.113/0.069/0.041/0.024 | 0.133/0.094/0.066/0.041 · 0.140/0.095/0.059/0.036 |
+
+- **원인 분리 보충(population f-LIF):** `nsmt_pop_pe`(무거움), `mix_pop_bidir_pe`, `mix_pop_rec_bidir`(population soma에 게이트 재귀 전류 tanh(g)·W_rec·s_{t−1}, g 초기 0 — `layers.RecurrentPopulationFLIF`; `neurons.py` 불변, c8).
+
+### 조건 (아이디어 묶음, CinC 3 seed — SHD 제외로 144 → 54 run)
+| 묶음 | 조건 | run |
+|---|---|---|
+| BiX | `bix_{lif, flif, pop_lif, pop_flif, popg_lif, popg_flif, popk_lif, popk_flif}` | 8 × 3 = 24 |
+| BiX-ch | `bixch_{lif, flif, pop_lif, pop_flif}` (원안 형태 확인용; soma 없는 두 형태는 BiX·mixer에서 비교하므로 제외) | 4 × 3 = 12 |
+| soma 비교 (Neo-mixer, OR) | `mix_pop_lif_bidir`(새 기준선), `mix_popg_{lif,flif}_bidir`, `mix_popk_{lif,flif}_bidir` | 5 × 3 = 15 |
+| 주의 BN 대조 | `spk_ssa_abn` | 3 |
+
+원인 분리 묶음: CinC만 45 run(보충 `nsmt_pop_pe`·`mix_pop_bidir_pe`·`mix_pop_rec_bidir` 9 run 포함; 아이디어 묶음 뒤 자동 시작).
+
+### 코드 (`nsmt_flif_v1/classification/`; 기존 조건 출력 비트 동일 — c1·c2·c13–c24)
+- 새 `bix.py`(`TokenXAttn`, `StreamSpikeLinear`), 새 `stream_mixer.py`(`StreamMixer`, `StreamNeurons`).
+- `neo_mixer.py`: `Block(comb='or'|'xattn'|'xattn_ch')`, 뉴런 `pop_lif`·`pop_rec`·`popg_lif`·`popg_flif`(그룹 τ 전 층 + BN 보정).
+- `layers.py`: `GroupNeuron`, `tau_gain`(TAU_GAIN_SLOW = 2), `group_gamma`, `sj_lif`, `RecurrentPopulationFLIF`, `build_neo_neuron('pop_lif'|'pop_rec')`, `SSA_rel_scl(attn_bn)`.
+- `model.py`: `attn_bn` 전달. `config.py`: `--mixer_comb`, `--attn_bn`, mixer 선택지, 디렉터리 접미사(`_xa`, `_xach`, `_abn`, `_smix-…`). `load_model.py`: `streamMixer`. `energy.py`: population LIF는 이력 항 없는 에너지(α = 1은 Euler). `train_rhythm.py`: 끝에 최대 GPU 메모리 출력.
+- `scripts/run_rhythm2.sh`: **돌고 있는 `run_rhythm.sh`의 복사본**(10-21 사고 뒤 규칙) + 새 조건; 원인 분리 큐도 이것을 쓴다(상위 집합). `scripts/make_queue_rhythm.sh`: kind `bixlight`/`bixheavy`/`bixsmoke`, fix kind에 보충 3조건. 새 `scripts/rhythm_bix_driver.sh`. `summarize_rhythm.py --bix`, `--fix`에 Y2p·Y3p·Z1p. `rhythm_analysis.py`: 줄기 축을 펼쳐 측정.
+
+### 점검 31/31 (`results/checks/check_cls_bix.txt`)
+- c1–c24 그대로 통과.
+- c25 BiX: 모든 뉴런 T = N, 주의 지도 [B, 1, 8, N, N], q는 F·k/v는 R에서만, 토큰 j 교체가 j 앞 토큰 출력도 바꿈.
+- c26 BiX-ch: 주의 BN 직전 출력 = q·Σk v·배율과 **차이 0**(머리 묶음 형태는 1.28로 다름).
+- c27 popg: 그룹 τ·BN 보정 확인, 모든 층·그룹 초기 발화율 ≥ 1%(최소 CinC 0.0137, SHD 0.0228).
+- c28 popk: K = 1·τ 2·가중치 복사 → Neo-mixer(f-LIF)와 **로짓 비트 동일**(state dict 51/51 정렬); τ가 같으면 4줄기 출력 동일; head 입력 1,536; 모든 층·줄기 ≥ 1%(최소 CinC 0.0134).
+- c29 pop_rec: g = 0이면 population f-LIF mixer와 비트 동일, g가 기울기를 받음, 재귀 경로를 키우면(g = 1, W_rec × 100) 출력이 달라짐(처음엔 초기 W_rec ± 0.005가 스파이크를 하나도 바꾸지 못해 검사가 너무 약했다 — 고침).
+- c30 `--attn_bn`: 추가 파라미터는 attn_bn뿐, 끄면 기본 모델과 비트 동일, 초기 주의 발화율 0.0000 → 0.0463.
+- c31 population LIF: 가지 상태 = 수동 Euler 반복(차이 0), soma 출력 0/1, 초기 mixer 발화율(psi 0.5) CinC 0.0476 / SHD 0.1004.
+
+### smoke (정식 배치 32, 1 epoch, seed 42; 10-21 23:25 – 10-22 00:57; 실험 아님)
+- `results/smoke-rhythm-bix-20261021/raw.txt`: **RESULT 20, SKIP 2.** SHD 4개는 SHD 제외 전에 시작한 것이라 끝까지 두었다(판정에 쓰지 않음). CinC 18개 중 16개 통과.
+- **실패 2건 — CinC `bix_popk_flif`, `mix_popk_flif_bidir`: GPU 메모리 부족**(이 job이 5.34 GB를 잡았을 때 남은 공간 11 MB). 보조 손실 CinC f-LIF NSMT(GPU당 약 40–45 GB)와 다른 작업 계열의 ETT 학습(GPU당 약 1.5 GB) 옆에서 돌렸기 때문이다. 코드 오류는 아니다(같은 모델이 SHD와 CinC LIF판에서 완주). 남는 메모리를 GPU당 약 7 GB로 본 제 추정이 GPU 0·1에서 틀렸다(45.5 / 47.3 GB 사용 중). 드라이버는 사전 규칙대로 smoke 뒤 멈췄다(00:57).
+- 최대 GPU 메모리(train_rhythm 출력): BiX·BiX-ch 1.9–3.6 GB, SHD 줄기 분리 4.5–5.1 GB.
+- 에너지 규모 확인: CinC 줄기 분리(LIF) BiX 168.9 µJ vs τ 그룹(LIF) BiX 52.1 µJ → 약 3.2배(4줄기 설계와 맞는 규모). Spikformer식 + 주의 BN 108.0 µJ(9단계 Spikformer식 127.4).
+
+| CinC smoke | 1 epoch 점수 | 총 µJ (FFT) | 시간 s |
+|---|---|---|---|
+| bix_lif / bix_flif | 0.3107 / 0.3474 | 32.8 / 37.4 | 297 / 475 |
+| bix_pop_lif / bix_pop_flif | 0.2740 / 0.3003 | 44.5 / 72.3 | 582 / 631 |
+| bixch_lif / bixch_flif | 0.2772 / 0.2914 | 31.6 / 36.7 | 345 / 602 |
+| bixch_pop_lif / bixch_pop_flif | 0.2800 / 0.2919 | 43.6 / 71.2 | 616 / 518 |
+| mix_pop_lif_bidir | 0.3525 | 35.2 | 493 |
+| spk_ssa_abn | 0.3397 | 108.0 | 50 |
+| bix_popg_lif / bix_popg_flif | **0.2488 / 0.2488** | 52.1 / 49.0 | 1,136 / 1,956 |
+| mix_popg_lif / mix_popg_flif | **0.2488 / 0.2488** | 30.2 / 32.3 | 667 / 1,572 |
+| bix_popk_lif / mix_popk_lif | **0.2503 / 0.2487** | 168.9 / 80.4 | 1,160 / 1,125 |
+
+- **soma 없는 두 형태의 과다 발화 (smoke가 잡은 보정 문제):** popg·popk 6개는 1 epoch 뒤 시험에서 거의 모두 "정상"으로만 예측했다(0.2488 = 정상만 맞힐 때의 CinC 점수). 학습 손실(1.13–1.18)은 BiX LIF(1.15)와 같은 수준이라 학습 실패라고 보지는 않는다. 그러나 층별 발화율이 기준 모델보다 훨씬 높다. 초기(학습 전, 실제 CinC 16표본, 학습 모드 BN)에 다시 재었다:
+
+| 층 | LIF mixer (기준) | popg_lif τ 4/8/16/32 | popk_lif τ 4/8/16/32 |
+|---|---|---|---|
+| 임베딩 | 0.029 | 0.072 / 0.041 / 0.025 / 0.013 | 0.071 / 0.042 / 0.024 / 0.013 |
+| 신피질 1층 | 0.037 | 0.140 / 0.144 / 0.146 / 0.146 | 0.146 / 0.142 / 0.137 / 0.130 |
+| 신피질 2층 | 0.041 | **0.265 / 0.288 / 0.310 / 0.330** | **0.223 / 0.275 / 0.322 / 0.347** |
+| 주의 q (BiX) | 0.038 | 0.164 / 0.124 / 0.087 / 0.061 | – |
+| MLP 1층 | 0.035 | 0.075 / 0.047 / 0.029 / 0.018 | 0.078 / 0.047 / 0.027 / 0.015 |
+
+  원인: τ 보정 배율 ×2는 "모든 층·그룹 ≥ 1%"라는 하한만 맞췄고 상한이 없었다. 하한을 묶은 것은 spikingjelly LIF 층(임베딩·MLP)의 느린 그룹이었는데, 같은 배율을 받은 spikeDE 신피질 뉴런은 리셋이 θ/τ만 빼는 방식이라(τ 32면 문턱의 1/32) 느린 그룹일수록 문턱 근처에 머물며 계속 발화한다. 그래서 신피질이 기준의 3–9배로 발화한다. 이대로 돌리면 "soma 제거" 효과와 "과다 발화" 효과가 섞인다.
+  **결정:** popg·popk 8조건(24 run)은 보류하고, 뉴런 종류별로 초기 발화율을 기준(τ 2 같은 층)에 맞추는 보정 규칙을 다시 정해 점검·smoke한 뒤 **별도 사전 고정 항목**으로 시작한다(판정 정의 P1·B1·B3 해당 행은 그대로 둔다). 나머지 10조건(30 run)은 보정과 무관하므로 지금 시작한다.
+
+### 실행
+- smoke 드라이버 `rhythm_bix_driver.sh`(10-21 23:25 – 10-22 00:57, smoke 실패 규칙으로 정지) 다음은 새 드라이버 `scripts/rhythm_bix_driver2.sh`(tmux `flif_bix`)가 맡는다:
+  - 큐 A = 보정이 정해진 10조건 30 run(`bix`·`bixch` × LIF·f-LIF·population LIF·population f-LIF, `mix_pop_lif_bidir`, `spk_ssa_abn`). 이 항목 commit 뒤 `scripts/queues/bix.go`를 만들면 지금 메모리 여유가 있는 GPU 2·3에서 1개씩 시작, 보조 손실 "ALL DONE" 뒤 GPU 0–3에 2개씩으로 늘림.
+  - 큐 B = popg·popk 24 run. 보정 재설정 항목 commit 뒤 `scripts/queues/bix_b.go`를 만들면 정식 배치 smoke(8조건, 실패 시 정지) → 본 학습.
+  - 두 큐가 끝나면 `summarize_rhythm.py --bix` → `rhythm_fix_driver.sh`(원인 분리 CinC 45 run).
+- **계획과 다른 점:** (a) 계획은 아이디어 묶음을 보조 손실 종료 뒤에 시작하는 것이었으나, mixer 수준 run의 메모리가 작아(smoke 최대 1.9–3.6 GB) 메모리 여유가 있는 GPU에서 **사전 고정 직후 바로 시작**한다(사용자 결정 "아이디어 묶음 먼저"를 더 일찍 실현). (b) popg·popk `_lif`의 비신피질 층은 계획의 spikeDE LIF 대신 spikingjelly LIF(τ_k) — 다른 모든 모델과 같은 뉴런이고, K = 1 비트 동일 검사(c28)가 가능하다. (c) population LIF soma 0.5는 위 측정 규칙으로 정했다. τ 보정 배율 ×2는 smoke에서 과다 발화가 드러나 popg·popk와 함께 보류하고 다시 정한다. (d) 대기 중이던 원인 분리 드라이버(`tmux flif_fix`, 시작한 job 없음, 20:12부터 대기)는 종료하고 이 드라이버가 이어받는다.
+- **예상 시간(SHD 제외 뒤):** 보조 손실은 CinC f-LIF 12 run만 남아 10-22 낮 무렵 끝난다(추정). 아이디어 묶음 54 run은 10-23 무렵, 원인 분리 45 run은 10-24 무렵 끝난다(추정).
+
+### 판정 (사전 고정; 9단계 규칙 — 평균 ≥ +0.5%p이고 seed 3개 중 2개 이상; 누락·비유한 값은 미완)
+- **B1 결합 방식:** `bix_n` − Neo-mixer(OR) 같은 뉴런 (8개 전부; 9단계 `mix_lif/flif/pop_bidir` 재사용, 나머지는 이 묶음).
+- **B2 Spikformer식과:** `bix_n` − `spk_ssa`, − `spk_ssa_abn` (기준 (2)).
+- **B3 BiX 안의 뉴런:** 각 뉴런 − `bix_lif`; 분수 차수 효과 = f-LIF − LIF 짝 4쌍(`flif/lif`, `pop_flif/pop_lif`, `popg_flif/popg_lif`, `popk_flif/popk_lif`).
+- **B4 원안 형태:** `bixch_n` − `bix_n`, `bixch_n` − Neo-mixer(OR) (n = lif, flif, pop_lif, pop_flif).
+- **P1 soma:** 차수(LIF·f-LIF)마다 그룹 − soma, 줄기 − soma, 줄기 − 그룹(분리 효과); Neo-mixer와 BiX 각각.
+- **F1:** Neo-mixer population f-LIF − population LIF.
+- **A1:** `spk_ssa_abn` − `spk_ssa`.
+- 원인 분리 보충(원인 분리 요약에 포함): Y2p `nsmt_pop_pe` − `nsmt_pop`, Y3p `mix_pop_bidir_pe` − `mix_pop_bidir`, Z1p `mix_pop_rec_bidir` − `mix_pop_bidir`.
+- 보고: 토큰 축 기억, 그룹·줄기별 발화율, 에너지, 주의 초기·학습 뒤 발화율, CinC population 첫 층 발화율, 학습 뒤 g.
+- **예상(사전 기록):** B1 교차 주의는 OR보다 좋음(전역 접근) — +1%p 이상. B2 CinC는 여전히 Spikformer식보다 낮을 가능성이 큼. B3 분수 차수 효과는 대부분 차이 없음. B4 원안 형태는 머리 묶음보다 나쁘고 Neo-mixer(OR)와 비슷. P1 그룹 ≈ soma, 줄기는 차이 없거나 약간 좋음(에너지 4배). F1 차이 없음. A1 CinC에서 약간 좋음.
+
+**감사:** 102(10-21 20:21)까지 새 판단 근거 없음.
+
+**commit:** 이 항목·코드·점검·smoke를 commit·push한 뒤 `bix.go`를 만들어 본 학습을 시작한다.

@@ -15,7 +15,7 @@ def _neo_kwargs(args):
                 in_channels=getattr(args, 'num_channels', 1), hippo_ssa=getattr(args, 'hippo_ssa', False),   # stage 9
                 hippo_T=getattr(args, 'hippo_T', 0), pop_soma_init=getattr(args, 'pop_soma_init', None),
                 hippo_xattn=getattr(args, 'hippo_xattn', False), pos_emb=getattr(args, 'pos_emb', False),   # MODI 2026-10-21
-                ssa_pe=int(getattr(args, 'ssa_pe', 1)),
+                ssa_pe=int(getattr(args, 'ssa_pe', 1)), attn_bn=getattr(args, 'attn_bn', False),
                 pop_taus=tuple(float(t) for t in str(getattr(args, 'pop_taus', '4,8,16,32')).split(',')))
 
 
@@ -144,7 +144,8 @@ def load_neo_mixer(args, train=True):
                      pop_taus=tuple(float(t) for t in str(getattr(args, 'pop_taus', '4,8,16,32')).split(',')),
                      bias=args.bias, tau=args.tau, train_mode='training',
                      in_channels=getattr(args, 'num_channels', 1), pop_soma_init=getattr(args, 'pop_soma_init', None),   # stage 9
-                     pos_emb=getattr(args, 'pos_emb', False))                                                          # MODI 2026-10-21
+                     pos_emb=getattr(args, 'pos_emb', False),                                                          # MODI 2026-10-21
+                     mixer_comb=getattr(args, 'mixer_comb', 'or'), heads=args.num_heads)
     if not train:
         saved_model_path = os.path.join(args.save_result_path, "model_state", "best+model.pt")
         model.load_state_dict(torch.load(saved_model_path, map_location='cpu'))
@@ -154,8 +155,25 @@ def load_neo_mixer(args, train=True):
     return model
 
 
+def load_stream_mixer(args, train=True):
+    """MODI 2026-10-21: soma-less population as K separate streams merged in the head (stream_mixer.StreamMixer)."""
+    from stream_mixer import StreamMixer
+    model = StreamMixer(seq_len=args.seq_len, data_patch_size=args.patch_size, embed_dim=args.embed_dim, num_classes=args.num_classes,
+                        depths=args.num_layers, mlp_ratios=args.mlp_ratios, mixer=getattr(args, 'mixer', 'popk_flif'),
+                        mixer_bidir=getattr(args, 'mixer_bidir', True), mixer_layers=args.time_num_layers,
+                        neo_alpha=getattr(args, 'neo_alpha', 0.5),
+                        pop_taus=tuple(float(t) for t in str(getattr(args, 'pop_taus', '4,8,16,32')).split(',')),
+                        bias=args.bias, tau=args.tau, train_mode='training', in_channels=getattr(args, 'num_channels', 1),
+                        mixer_comb=getattr(args, 'mixer_comb', 'or'), heads=args.num_heads)
+    if not train:
+        model.load_state_dict(torch.load(os.path.join(args.save_result_path, 'model_state', 'best+model.pt'), map_location='cpu'))
+        model = model.to(args.device); model.train_mode = 'testing'
+    return model
+
+
 LOAD_MODEL = {
     'myModel' : load_mymodel,
     'neoMixer' : load_neo_mixer,                                       # stage 7
+    'streamMixer' : load_stream_mixer,                                 # MODI 2026-10-21 (popk)
     # 'Spikformer' : load_spikformer, 
 }

@@ -26,7 +26,7 @@ import rhythm_data as rd                                   # noqa: E402
 @torch.no_grad()
 def net_out(m, x, j=None, perm=None):
     """token-mixing network output [N, B, D] for input x [B, C, L]; optionally token j replaced by sample perm's token j."""
-    if hasattr(m, 'forward_parts'):                        # Neo-mixer
+    if hasattr(m, 'forward_parts'):                        # Neo-mixer / stream model (BiX: mix() = cross-attention output)
         tok = m.tokens(x)
         if j is not None:
             tok = tok.clone(); tok[j] = tok[j][perm]
@@ -37,7 +37,7 @@ def net_out(m, x, j=None, perm=None):
             neo = neo.clone(); neo[j] = neo[j][perm]
         _, o = m.neo_forward(neo)
     functional.reset_net(m)
-    return o[:, :, 0]
+    return o.flatten(2)                                     # [N, B, K*D] (K = 1 except the stream model, MODI 2026-10-21)
 
 
 def main():

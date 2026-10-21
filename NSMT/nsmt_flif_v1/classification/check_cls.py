@@ -56,6 +56,22 @@ cannot run, or whose test is vacuous (no spikes), FAILs.
       under blocks.0.mixer as neocortex path
   c24 (MODI 2026-10-21) population branches tau 16/32/64/128: tau values, and the soma init in {1, 2, 4} whose initial firing on
       real data (training-mode BN) is closest to the tau 4-32 / psi 1 mixer (per dataset) -- the value is reported, not asserted
+  c25 (MODI 2026-10-21) BiX (mixer_comb xattn): every spiking neuron runs T = N steps, attention map [B, 1, 8, N, N], the
+      query Linear sees the forward stream and the key / value Linears the reverse stream, and changing input token j changes
+      the mixer output before token j (bidirectional reach)
+  c26 (MODI 2026-10-21) BiX-ch (user's per-channel T x T' maps): the attention output before its BN equals
+      q[t, d] * sum_t' k[t', d] v[t', d] * scale exactly (the reduction claimed in the review), the head form does not
+  c27 (MODI 2026-10-21) popg (soma-less tau groups): group taus 4/8/16/32 in every neuron layer, BN weights = tau_gain per
+      group, every group of every layer fires >= 1 % at init on real CinC and SHD data (training-mode BN)
+  c28 (MODI 2026-10-21) popk (StreamMixer): [N, B, 4, D] streams, shared Linears (equal taus -> identical streams), head input
+      4*D, every stream of every layer fires >= 1 % at init on real data; K = 1 / tau 2 with copied weights gives logits
+      bitwise equal to NeoMixer(mixer='flif')
+  c29 (MODI 2026-10-21) pop_rec: with g = 0 the logits equal the population f-LIF mixer bitwise (copied weights), g = 1
+      changes them, g receives a gradient
+  c30 (MODI 2026-10-21) --attn_bn: only attn_bn.* parameters are added, with BN the init attention firing rises and the
+      output changes; without the flag the model equals the default model bitwise
+  c31 (MODI 2026-10-21) population LIF (alpha 1): branch states equal a manual non-resetting Euler LIF recursion, soma
+      output is 0/1; initial firing on real CinC / SHD data is reported
 usage: python check_cls.py [--out results/checks/check_cls.txt]
 """
 import argparse
@@ -942,12 +958,267 @@ def c24():
     report('c24', all(oks), '; '.join(msgs))
 
 
+def _real_batch(data, n=16):
+    import rhythm_data as rd
+    pargs = dict(data='CINC2017', crop_tokens=0, patch_size=64, fs_target=125., fold=0, val_frac=0.1, win_s=30., hop_s=15.) if data == 'CINC2017' \
+        else dict(data='SHD', crop_tokens=0, patch_size=2, val_frac=0.1)
+    d = rd.build(NS(**pargs), 42)
+    return torch.stack([d['train'][i][0] for i in range(n)]).float().cuda(), d, pargs['patch_size']
+
+
+def _bn_freeze_eval(m, x):
+    """one batch-statistics pass with momentum 1 fixes the BN running statistics, then eval mode (deterministic)."""
+    from spikingjelly.clock_driven import functional
+    for mod in m.modules():
+        if isinstance(mod, torch.nn.BatchNorm1d):
+            mod.momentum = 1.0
+    m.train()
+    with torch.no_grad():
+        m(x); functional.reset_net(m)
+    m.eval()
+
+
+def _mixer_kw(**kw):
+    base = dict(HP, model='neoMixer', mixer='lif', mixer_bidir=True, neo_alpha=0.5, pop_taus='4,8,16,32', neo_tau=2.0,
+                fde_method='pred', fde_step=1.0, fde_memory=0)
+    base.update(kw)
+    return base
+
+
+@check('c25')
+def c25():
+    from load_model import LOAD_MODEL
+    from config import set_random_seed
+    from energy import FiringRateRecorder
+    from spikingjelly.clock_driven import functional
+    g = torch.Generator().manual_seed(25); x = torch.rand(8, 1, 187, generator=g).cuda()
+    set_random_seed(0)
+    m = LOAD_MODEL['neoMixer'](NS(**_mixer_kw(mixer_comb='xattn')), True).cuda(); m.train_mode = 'testing'
+    _bn_freeze_eval(m, x)
+    N = m.num_patches; blk = m.blocks[0]; xa = blk.xattn; xa.keep_scores = True
+    seen = {}
+    hs = [xa.q.linear.register_forward_pre_hook(lambda md, i: seen.__setitem__('q_in', i[0].detach())),
+          xa.k.linear.register_forward_pre_hook(lambda md, i: seen.__setitem__('k_in', i[0].detach())),
+          xa.v.linear.register_forward_pre_hook(lambda md, i: seen.__setitem__('v_in', i[0].detach()))]
+    rec = FiringRateRecorder(m)
+    with torch.no_grad():
+        e = m.encoding(m.tokens(x)); functional.reset_net(m)
+        F = blk.mixer(e); functional.reset_net(m)
+        R = blk.mixer_rev(e.flip(0)).flip(0); functional.reset_net(m)
+        o0 = blk.mix(e); functional.reset_net(m)
+        rec.add_samples(x.shape[0])
+    for h in hs: h.remove()
+    Ts = {st['T'] if not st['single'] else None for st in rec.stats.values() if st['calls']}
+    rec.detach()
+    q_ok = torch.equal(seen['q_in'], F) and torch.equal(seen['k_in'], R) and torch.equal(seen['v_in'], R)
+    shape = tuple(xa.last_scores.shape)
+    j = N - 3; perm = torch.roll(torch.arange(8), 1).cuda()
+    def tok_fn(t):
+        t = t.clone(); t[j] = t[j][perm]; return t
+    with torch.no_grad():
+        o1 = blk.mix(m.encoding(tok_fn(m.tokens(x)))); functional.reset_net(m)
+    before = not torch.equal(o0[:j], o1[:j])
+    ok = Ts == {N} and q_ok and shape == (8, 1, 8, N, N) and before
+    report('c25', ok, f'neuron T values {sorted(Ts)} (N={N}), q<-F & k,v<-R {q_ok}, scores {shape}, token {j} change reaches earlier tokens {before}')
+
+
+@check('c26')
+def c26():
+    from load_model import LOAD_MODEL
+    from config import set_random_seed
+    msgs, oks = [], []
+    g = torch.Generator().manual_seed(26)
+    for form, comb in (('channel', 'xattn_ch'), ('head', 'xattn')):
+        set_random_seed(0)
+        m = LOAD_MODEL['neoMixer'](NS(**_mixer_kw(mixer_comb=comb)), True).cuda().eval()
+        xa = m.blocks[0].xattn; N = m.num_patches
+        q = (torch.rand(N, 4, 1, 384, generator=g) < 0.2).float().cuda()
+        k = (torch.rand(N, 4, 1, 384, generator=g) < 0.2).float().cuda()
+        v = (torch.rand(N, 4, 1, 384, generator=g) < 0.2).float().cuda()
+        with torch.no_grad():
+            z = xa.scores_and_z(q, k, v)
+        manual = q * (k * v).sum(0, keepdim=True) * xa.scale
+        diff = (z - manual).abs().max().item()
+        ok = diff < 1e-5 if form == 'channel' else diff > 1e-2
+        oks.append(ok); msgs.append(f'{form}: max |z - q*sum(k*v)*scale| {diff:.2e}')
+    report('c26', all(oks), '; '.join(msgs))
+
+
+def _group_rates(m, x):
+    """per (layer, group) firing rates of every GroupNeuron / StreamNeurons part at init, training-mode BN."""
+    from layers import GroupNeuron
+    from stream_mixer import StreamNeurons
+    from spikingjelly.clock_driven import functional
+    rates, hs = {}, []
+    for name, mod in m.named_modules():
+        if isinstance(mod, (GroupNeuron, StreamNeurons)):
+            for gi, part in enumerate(mod.parts):
+                hs.append(part.register_forward_hook(lambda md, i, o, k=(name, gi): rates.__setitem__(k, float((o[0] if isinstance(o, tuple) else o).float().mean()))))
+    m.train(); m.train_mode = 'testing'
+    with torch.no_grad():
+        m(x); functional.reset_net(m)
+    for h in hs: h.remove()
+    return rates
+
+
+@check('c27')
+def c27():
+    from load_model import LOAD_MODEL
+    from config import set_random_seed
+    from layers import GroupNeuron, tau_gain
+    msgs, oks = [], []
+    for data in ('CINC2017', 'SHD'):
+        xb, d, P = _real_batch(data)
+        for mixer in ('popg_lif', 'popg_flif'):
+            set_random_seed(0)
+            m = LOAD_MODEL['neoMixer'](NS(**_mixer_kw(mixer=mixer, mixer_comb='xattn', patch_size=P, seq_len=d['seq_len'], num_channels=d['num_channels'],
+                                                      num_classes=d['num_classes'])), True).cuda()
+            gns = [mod for mod in m.modules() if isinstance(mod, GroupNeuron)]
+            taus_ok = all(gn.taus == (4., 8., 16., 32.) for gn in gns)
+            w = m.blocks[0].mixer.Mem[0].bn.weight.detach().cpu()
+            gam_ok = all(abs(float(w[k * 96]) - tau_gain(t)) < 1e-6 for k, t in enumerate((4., 8., 16., 32.)))
+            r = _group_rates(m, xb)
+            lo = min(r.values()); worst = min(r, key=r.get)
+            ok = taus_ok and gam_ok and lo >= 0.01 and len(gns) >= 10
+            oks.append(ok); msgs.append(f'{data} {mixer}: {len(gns)} group layers, taus ok {taus_ok}, gamma ok {gam_ok}, min group rate {lo:.4f} ({worst[0]}[{worst[1]}])')
+            del m; torch.cuda.empty_cache()
+    report('c27', all(oks), '; '.join(msgs))
+
+
+@check('c28')
+def c28():
+    from load_model import LOAD_MODEL
+    from config import set_random_seed
+    from spikingjelly.clock_driven import functional
+    msgs, oks = [], []
+    # (a) K = 1, tau 2, copied weights -> NeoMixer(mixer='flif')
+    g = torch.Generator().manual_seed(28); x = torch.rand(8, 1, 187, generator=g).cuda()
+    set_random_seed(0); a = LOAD_MODEL['neoMixer'](NS(**_mixer_kw(mixer='flif')), True).cuda()
+    set_random_seed(0); b = LOAD_MODEL['streamMixer'](NS(**_mixer_kw(model='streamMixer', mixer='popk_flif', pop_taus='2')), True).cuda()
+    sa, sb = a.state_dict(), b.state_dict()
+    pairs = list(zip(sa.items(), sb.items()))
+    aligned = len(sa) == len(sb) and all(va.shape == vb.shape and ka.split('.')[-1] == kb.split('.')[-1] for (ka, va), (kb, vb) in pairs)
+    if aligned:
+        b.load_state_dict({kb: va.clone() for (ka, va), (kb, _) in pairs})
+    for mm in (a, b):
+        mm.train(); mm.train_mode = 'testing'
+    with torch.no_grad():
+        za = a(x)[0]; functional.reset_net(a)
+        zb = b(x)[0]; functional.reset_net(b)
+    eq = aligned and torch.equal(za, zb)
+    oks.append(eq); msgs.append(f'K=1 tau 2 vs NeoMixer flif: state dicts aligned {aligned} ({len(sa)}/{len(sb)}), logits bitwise equal {eq}, max diff {(za - zb).abs().max().item():.1e}')
+    # (b) equal taus -> identical streams; head input K*D
+    set_random_seed(0); c = LOAD_MODEL['streamMixer'](NS(**_mixer_kw(model='streamMixer', mixer='popk_lif', pop_taus='2,2,2,2', mixer_comb='xattn')), True).cuda()
+    c.train(); c.train_mode = 'testing'
+    with torch.no_grad():
+        _, e, m0, feat, h = c.forward_parts(x); functional.reset_net(c)
+    same = all(torch.equal(h[:, :, 0], h[:, :, k]) for k in range(1, 4))
+    oks.append(same and tuple(h.shape[2:]) == (4, 384) and c.head.in_features == 4 * 384)
+    msgs.append(f'equal taus: streams identical {same}, h {tuple(h.shape)}, head in {c.head.in_features}')
+    # (c) real data: every stream of every layer fires >= 1 % at init
+    for data in ('CINC2017', 'SHD'):
+        xb, d, P = _real_batch(data)
+        for mixer in ('popk_lif', 'popk_flif'):
+            set_random_seed(0)
+            mm = LOAD_MODEL['streamMixer'](NS(**_mixer_kw(model='streamMixer', mixer=mixer, mixer_comb='xattn', patch_size=P, seq_len=d['seq_len'],
+                                                         num_channels=d['num_channels'], num_classes=d['num_classes'])), True).cuda()
+            r = _group_rates(mm, xb); lo = min(r.values()); worst = min(r, key=r.get)
+            oks.append(lo >= 0.01); msgs.append(f'{data} {mixer}: min stream rate {lo:.4f} ({worst[0]}[{worst[1]}])')
+            del mm; torch.cuda.empty_cache()
+    report('c28', all(oks), '; '.join(msgs))
+
+
+@check('c29')
+def c29():
+    from load_model import LOAD_MODEL
+    from config import set_random_seed
+    from spikingjelly.clock_driven import functional
+    from layers import RecurrentPopulationFLIF
+    g = torch.Generator().manual_seed(29); x = torch.rand(8, 1, 187, generator=g).cuda()
+    set_random_seed(0); a = LOAD_MODEL['neoMixer'](NS(**_mixer_kw(mixer='pop_flif', pop_soma_init=1.0)), True).cuda()
+    set_random_seed(0); b = LOAD_MODEL['neoMixer'](NS(**_mixer_kw(mixer='pop_rec', pop_soma_init=1.0)), True).cuda()
+    missing, unexpected = b.load_state_dict(a.state_dict(), strict=False)
+    extra_ok = not unexpected and all(k.endswith(('w_rec.weight', '.g')) for k in missing)
+    recs = [mm for mm in b.modules() if isinstance(mm, RecurrentPopulationFLIF)]
+    for mm in (a, b):
+        mm.train(); mm.train_mode = 'testing'
+    with torch.no_grad():
+        za = a(x)[0]; functional.reset_net(a)
+        zb = b(x)[0]; functional.reset_net(b)
+        w0 = [r.w_rec.weight.clone() for r in recs]
+        for r in recs: r.g.fill_(1.); r.w_rec.weight.mul_(100.)      # init W_rec is +-0.005: amplify so the recurrent path must flip spikes
+        zc = b(x)[0]; functional.reset_net(b)
+        for r, w in zip(recs, w0): r.g.fill_(0.); r.w_rec.weight.copy_(w)
+    b.train_mode = 'training'
+    z = b(x); torch.nn.functional.cross_entropy(z, torch.arange(8).cuda() % 5).backward(); functional.reset_net(b)
+    ggrad = all(r.g.grad is not None and float(r.g.grad.abs()) > 0 for r in recs)
+    ok = extra_ok and len(recs) == 4 and torch.equal(za, zb) and not torch.equal(zb, zc) and ggrad
+    report('c29', ok, f'extra params only w_rec / g {extra_ok}, recurrent neurons {len(recs)}, g=0 equal {torch.equal(za, zb)}, g=1 differs {not torch.equal(zb, zc)}, g grad {ggrad}')
+
+
+@check('c30')
+def c30():
+    from load_model import LOAD_MODEL
+    from config import set_random_seed
+    from spikingjelly.clock_driven import functional
+    g = torch.Generator().manual_seed(30); x = torch.randn(4, 1, 3750, generator=g).cuda()
+    kw = dict(HP, patch_size=64, seq_len=3750, num_channels=1, num_classes=4, hippo_ssa=True, hippo_T=4)
+    set_random_seed(0); a = LOAD_MODEL['myModel'](NS(**kw), True).cuda()
+    set_random_seed(0); a2 = LOAD_MODEL['myModel'](NS(**dict(kw, attn_bn=False)), True).cuda()
+    set_random_seed(0); b = LOAD_MODEL['myModel'](NS(**dict(kw, attn_bn=True)), True).cuda()
+    extra = sorted(set(b.state_dict()) - set(a.state_dict()))
+    b.load_state_dict(a.state_dict(), strict=False)
+    rates = {}
+    for nm, mm in (('off', a), ('off2', a2), ('on', b)):
+        h = mm.data_block[0].ssa.attn_lif.register_forward_hook(lambda md, i, o, k=nm: rates.__setitem__(k, float(o.float().mean())))
+        mm.train(); mm.train_mode = 'testing'
+        with torch.no_grad():
+            rates[nm + '_z'] = mm(x)[0]; functional.reset_net(mm)
+        h.remove()
+    default_eq = torch.equal(rates['off_z'], rates['off2_z']) and set(a.state_dict()) == set(a2.state_dict())
+    ok = all(e.startswith('data_block.0.ssa.attn_bn.') for e in extra) and len(extra) > 0 and default_eq and rates['on'] > rates['off'] and not torch.equal(rates['on_z'], rates['off_z'])
+    report('c30', ok, f'extra {extra[:2]}..., flag off == default {default_eq}, init attention firing off {rates["off"]:.4f} -> on {rates["on"]:.4f}')
+
+
+@check('c31')
+def c31():
+    from neurons import PopulationFLIF
+    from load_model import LOAD_MODEL
+    from config import set_random_seed
+    from layers import NeoNeuron
+    g = torch.Generator().manual_seed(31)
+    taus = (4., 8., 16., 32.)
+    n = PopulationFLIF(6, tau=taus, soma='lif', tau_s=2., heterogeneous=True, alpha=1., method='pred', memory=None, threshold=1., surrogate_scale=5., step=1., max_length=40)
+    I = torch.randn(40, 3, 6, generator=g)
+    out, aux = n(I, return_aux=True)
+    v = torch.zeros(3, 6, 4); tau = torch.tensor(taus); maxd = 0.
+    for t in range(40):
+        v = v + (I[t].unsqueeze(-1) - v) / tau
+        maxd = max(maxd, (aux['state'][t] - v).abs().max().item())
+    binary = bool(((out == 0) | (out == 1)).all())
+    msgs = [f'branch states vs manual Euler max diff {maxd:.1e}, soma binary {binary}']
+    rates = {}
+    for data in ('CINC2017', 'SHD'):
+        xb, d, P = _real_batch(data)
+        set_random_seed(0)
+        m = LOAD_MODEL['neoMixer'](NS(**_mixer_kw(mixer='pop_lif', pop_soma_init=0.5, patch_size=P, seq_len=d['seq_len'], num_channels=d['num_channels'],
+                                                  num_classes=d['num_classes'])), True).cuda().train()
+        m.train_mode = 'testing'
+        from spikingjelly.clock_driven import functional
+        with torch.no_grad():
+            o = m.blocks[0].mix(m.encoding(m.tokens(xb))); functional.reset_net(m)
+        rates[data] = float(o.float().mean())
+        del m; torch.cuda.empty_cache()
+    msgs.append('init mixer firing (pop LIF, psi 0.5 = closest to the LIF mixer of {0.25, 0.5, 1}) ' + ', '.join(f'{k} {v:.4f}' for k, v in rates.items()))
+    report('c31', maxd < 1e-5 and binary, '; '.join(msgs))
+
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', default=os.path.join(HERE, 'results', 'checks', 'check_cls.txt'))
     ap.add_argument('--only', nargs='*', default=None)
     a = ap.parse_args()
-    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23, c24):
+    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30, c31):
         if a.only and fn.__name__ not in a.only:
             continue
         fn()

@@ -216,10 +216,11 @@ FIX_LABEL = {'spk_ssa': 'Hippo-only, Spikformer SSA (T=4), relative bias', 'spk_
              'mix_pop_bidir': 'Neo-mixer bidir population (taus 4-32, psi 1)', 'mix_pop_bidir_pt16': 'Neo-mixer bidir population (taus 16-128)',
              'nsmt_lif_t4': 'NSMT LIF, hippocampus T=4 + token cross-attention', 'nsmt_pop_t4': 'NSMT population, hippocampus T=4 + token cross-attention',
              'nsmt_pop_psi1.5': 'NSMT population psi 1.5', 'nsmt_pop_psi2': 'NSMT population psi 2', 'mix_pop_bidir_psi1.5': 'Neo-mixer bidir population psi 1.5',
-             'mix_pop_bidir_psi2': 'Neo-mixer bidir population psi 2'}
-FIX_ORDER = ('spk_ssa', 'spk_ssa_nope', 'nsmt_lif', 'nsmt_lif_pe', 'nsmt_lif_t4', 'nsmt_pop', 'nsmt_pop_t4', 'nsmt_pop_psi1.5', 'nsmt_pop_psi2',
-             'mix_lif_bidir', 'mix_lif_bidir_pe', 'mix_sjlif_bidir', 'mix_lif_rec_bidir', 'mix_pop_bidir', 'mix_pop_bidir_pt16',
-             'mix_pop_bidir_psi1.5', 'mix_pop_bidir_psi2')
+             'mix_pop_bidir_psi2': 'Neo-mixer bidir population psi 2', 'nsmt_pop_pe': 'NSMT population + absolute position',
+             'mix_pop_bidir_pe': 'Neo-mixer bidir population + absolute position', 'mix_pop_rec_bidir': 'Neo-mixer bidir recurrent population f-LIF'}
+FIX_ORDER = ('spk_ssa', 'spk_ssa_nope', 'nsmt_lif', 'nsmt_lif_pe', 'nsmt_lif_t4', 'nsmt_pop', 'nsmt_pop_pe', 'nsmt_pop_t4', 'nsmt_pop_psi1.5', 'nsmt_pop_psi2',
+             'mix_lif_bidir', 'mix_lif_bidir_pe', 'mix_sjlif_bidir', 'mix_lif_rec_bidir', 'mix_pop_bidir', 'mix_pop_bidir_pe', 'mix_pop_rec_bidir',
+             'mix_pop_bidir_pt16', 'mix_pop_bidir_psi1.5', 'mix_pop_bidir_psi2')
 
 
 def fix_summary(a):
@@ -257,6 +258,8 @@ def fix_summary(a):
          ('Z1 recurrence (same neuron)', 'mix_lif_rec_bidir', 'mix_sjlif_bidir'), ('Z1 report: spikingjelly vs spikeDE LIF', 'mix_sjlif_bidir', 'mix_lif_bidir'),
          ('Z2 slower population branches', 'mix_pop_bidir_pt16', 'mix_pop_bidir'),
          ('Z3 vs Hippo-only (criterion 2)', 'mix_lif_rec_bidir', 'spk_ssa'), ('Z3 vs Hippo-only (criterion 2)', 'mix_pop_bidir_pt16', 'spk_ssa'),
+         ('Y2p absolute position in NSMT (population)', 'nsmt_pop_pe', 'nsmt_pop'), ('Y3p absolute position in Neo-mixer (population)', 'mix_pop_bidir_pe', 'mix_pop_bidir'),
+         ('Z1p recurrence (population)', 'mix_pop_rec_bidir', 'mix_pop_bidir'),
          ('W1 hippocampus T=4 + token xattn', 'nsmt_lif_t4', 'nsmt_lif'), ('W1 hippocampus T=4 + token xattn', 'nsmt_pop_t4', 'nsmt_pop'),
          ('W2 vs Hippo-only (criterion 2)', 'nsmt_lif_t4', 'spk_ssa'), ('W2 vs Hippo-only (criterion 2)', 'nsmt_pop_t4', 'spk_ssa')]
     if data == 'CINC2017':
@@ -275,6 +278,75 @@ def fix_summary(a):
     print('\n'.join(L))
 
 
+BIX_NEURONS = ('lif', 'flif', 'pop_lif', 'pop_flif', 'popg_lif', 'popg_flif', 'popk_lif', 'popk_flif')
+BIX_NAME = {'lif': 'spikeDE LIF', 'flif': 'f-LIF', 'pop_lif': 'population LIF (psi 0.5)', 'pop_flif': 'population f-LIF (psi 1)',
+            'popg_lif': 'soma-less tau groups, LIF', 'popg_flif': 'soma-less tau groups, f-LIF', 'popk_lif': 'soma-less streams, LIF',
+            'popk_flif': 'soma-less streams, f-LIF'}
+
+
+def _mix_cond(n):
+    """Neo-mixer (OR) condition of each neuron: stage-9 names for lif / flif / pop_flif."""
+    return {'lif': 'mix_lif_bidir', 'flif': 'mix_flif_bidir', 'pop_flif': 'mix_pop_bidir'}.get(n, f'mix_{n}_bidir')
+
+
+def bix_summary(a):
+    """MODI 2026-10-21 idea batch: B1-B4, P1, F1, A1 (see the pre-registration)."""
+    R = os.path.join(HERE, 'results', a.suite)
+    base_suite = a.suite.replace('-bix', '')
+    rows = [r for r in parse(os.path.join(R, 'raw.txt')) if int(r.get('crop', 0)) == 0]
+    rows += [r for r in parse(os.path.join(HERE, 'results', base_suite, 'raw.txt'))
+             if int(r.get('crop', 0)) == 0 and r['cond'] in ('spk_ssa', 'mix_lif_bidir', 'mix_flif_bidir', 'mix_pop_bidir', 'mix_none')]
+    data = 'CINC2017' if 'cinc' in a.suite else 'SHD'
+    seeds = (42, 7, 2026) if data == 'CINC2017' else (42, 7, 2026, 123, 1024)
+    need = 2 if data == 'CINC2017' else 4
+    metric = 'CinC score (mean F1 of N, AF, Other)' if data == 'CINC2017' else 'test accuracy'
+    lab = {'spk_ssa': 'Spikformer-style SSA (T=4)', 'spk_ssa_abn': 'Spikformer-style SSA (T=4) + attention BN', 'mix_none': 'no mixing (floor)'}
+    for n in BIX_NEURONS:
+        lab[f'bix_{n}'] = f'BiX (head), {BIX_NAME[n]}'; lab[f'bixch_{n}'] = f'BiX-ch (per channel), {BIX_NAME[n]}'; lab[_mix_cond(n)] = f'Neo-mixer (OR), {BIX_NAME[n]}'
+    order = ['spk_ssa', 'spk_ssa_abn', 'mix_none'] + [_mix_cond(n) for n in BIX_NEURONS] + [f'bix_{n}' for n in BIX_NEURONS] + [f'bixch_{n}' for n in BIX_NEURONS[:4]]
+    def ms(v, s=100., nd=2):
+        v = np.asarray(list(v), dtype=float)
+        return 'n/a' if len(v) == 0 or not np.all(np.isfinite(v)) else f'{s * v.mean():.{nd}f} ± {s * v.std(ddof=1) if len(v) > 1 else 0:.{nd}f}'
+    L = [f'# Idea batch `{a.suite}` ({data}) — summary', '',
+         f'Best-validation weights on the test set; {metric}; mean ± sd over seeds {seeds} (%). Stage-9 rows from `results/{base_suite}/raw.txt`. '
+         'SHD rows compare structures within native-time processing only (no T = N claim on SHD).', '',
+         '| condition | n | score | best val | val − test | macro-F1 | total µJ (FFT / direct) | neocortex firing | params | time s |', '|---|---|---|---|---|---|---|---|---|---|']
+    energy = {}
+    for c in order:
+        rr = [r for r in rows if r['cond'] == c]
+        if not rr:
+            L.append(f'| {lab.get(c, c)} | 0 | n/a | | | | | | | |'); continue
+        energy[c] = np.mean([float(r['total_fft_uJ']) for r in rr])
+        val = [best_val(r) for r in rr]; sc = [float(r['score']) for r in rr]; rho = [r.get('rho_neo') for r in rr]
+        L.append(f"| {lab.get(c, c)} | {len(rr)} | {ms(sc)} | {ms(val)} | {ms([v - s for v, s in zip(val, sc)])} | {ms([r['macro_f1'] for r in rr])} | "
+                 f"{energy[c]:.1f} / {np.mean([float(r['total_direct_uJ']) for r in rr]):.1f} | {ms(rho, 1., 4) if all(isinstance(x, float) for x in rho) else 'n/a'} | "
+                 f"{int(rr[0]['params'])} | {np.mean([r['time_s'] for r in rr]):.0f} |")
+    Q = [('B1 OR -> cross-attention', f'bix_{n}', _mix_cond(n)) for n in BIX_NEURONS]
+    Q += [('B2 vs Spikformer (criterion 2)', f'bix_{n}', 'spk_ssa') for n in BIX_NEURONS]
+    Q += [('B2 vs Spikformer + attention BN (criterion 2)', f'bix_{n}', 'spk_ssa_abn') for n in BIX_NEURONS]
+    Q += [('B3 neuron inside BiX', f'bix_{n}', 'bix_lif') for n in BIX_NEURONS[1:]]
+    Q += [('B3 fractional order inside BiX', f'bix_{f}', f'bix_{l}') for l, f in (('lif', 'flif'), ('pop_lif', 'pop_flif'), ('popg_lif', 'popg_flif'), ('popk_lif', 'popk_flif'))]
+    Q += [('B4 per-channel vs head form', f'bixch_{n}', f'bix_{n}') for n in BIX_NEURONS[:4]]
+    Q += [('B4 per-channel vs Neo-mixer (OR)', f'bixch_{n}', _mix_cond(n)) for n in BIX_NEURONS[:4]]
+    for f in ('lif', 'flif'):
+        Q += [('P1 soma -> tau groups (Neo-mixer)', _mix_cond(f'popg_{f}'), _mix_cond(f'pop_{f}')), ('P1 soma -> streams (Neo-mixer)', _mix_cond(f'popk_{f}'), _mix_cond(f'pop_{f}')),
+              ('P1 groups -> streams (separation, Neo-mixer)', _mix_cond(f'popk_{f}'), _mix_cond(f'popg_{f}')),
+              ('P1 soma -> tau groups (BiX)', f'bix_popg_{f}', f'bix_pop_{f}'), ('P1 soma -> streams (BiX)', f'bix_popk_{f}', f'bix_pop_{f}'),
+              ('P1 groups -> streams (separation, BiX)', f'bix_popk_{f}', f'bix_popg_{f}')]
+    Q += [('F1 fractional order, Neo-mixer population', 'mix_pop_bidir', 'mix_pop_lif_bidir'), ('A1 attention BN', 'spk_ssa_abn', 'spk_ssa')]
+    L += ['', '## Pre-registered comparisons (%p, paired by seed)', '', '| question | A | B | A − B per seed | mean | verdict | energy A/B | criterion (2) |',
+          '|---|---|---|---|---|---|---|---|']
+    for q, x, y in Q:
+        v, d, m = verdict(rows, x, y, seeds, need)
+        er = energy.get(x, float('nan')) / energy.get(y, float('nan')) if energy.get(y) else float('nan')
+        crit = ''
+        if 'criterion 2' in q and v != 'incomplete':
+            crit = 'met' if (v == 'better') or (m >= -0.5 and math.isfinite(er) and er <= 0.5) else 'not met'
+        L.append(f"| {q} | {lab.get(x, x)} | {lab.get(y, y)} | {' / '.join(f'{z:+.2f}' for z in d)} | {m:+.2f} | {v} | {er:.2f} | {crit} |")
+    open(os.path.join(R, 'summary.md'), 'w').write('\n'.join(L) + '\n')
+    print('\n'.join(L))
+
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--decide', action='store_true')
@@ -283,5 +355,6 @@ if __name__ == '__main__':
     ap.add_argument('--suite', default=None)
     ap.add_argument('--aux', action='store_true')
     ap.add_argument('--fix', action='store_true')
+    ap.add_argument('--bix', action='store_true')
     a = ap.parse_args()
-    decide(a) if a.decide else (aux_summary(a) if a.aux else (fix_summary(a) if a.fix else summary(a)))
+    decide(a) if a.decide else (aux_summary(a) if a.aux else (fix_summary(a) if a.fix else (bix_summary(a) if a.bix else summary(a))))

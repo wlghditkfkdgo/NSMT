@@ -11,6 +11,10 @@
 #   kind fixlight / fixheavy: (MODI 2026-10-21) cause-separation conditions x main seeds; light = second pool on a shared GPU,
 #                 heavy = NSMT T=N (one per GPU). CinC adds the population soma-init rows (psi 1.5 / 2)
 #   kind fixsmoke: every cause-separation condition once, seed 42, EPOCHS=1
+#   kind bixlight / bixheavy / bixsmoke: (MODI 2026-10-21) idea batch -- BiX (q = forward, k/v = reverse stream) and BiX-ch over
+#                 the neuron axis LIF / f-LIF / population LIF / population f-LIF / popg / popk, soma-less population mixers,
+#                 population LIF mixer, Spikformer with attention BN; heavy = popk (stream model, ~4x compute). Runner run_rhythm2.sh
+#   fix kinds also carry the population completions nsmt_pop_pe / mix_pop_bidir_pe / mix_pop_rec_bidir (run_rhythm2.sh, a superset)
 # The heaviest jobs (NSMT, ~35 GB) are listed first; the pool runs them one per GPU (see rhythm_driver.sh).
 set -u
 W="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; SUITE=${1:?}; DATA=${2:?}; KIND=${3:?}; LR=${4:-0.001}
@@ -29,12 +33,22 @@ case $KIND in
            echo "COND=${n}_$v $C bash nsmt_flif_v1/classification/scripts/run_rhythm.sh $s" >> "$Q"; done; done; done ;;
   auxsmoke) for v in auxoff full a05 a09; do echo "COND=nsmt_lif_$v $C EPOCHS=1 bash nsmt_flif_v1/classification/scripts/run_rhythm.sh 42" >> "$Q"; done ;;
   fixlight|fixheavy|fixsmoke)
-    LIGHT="spk_ssa_nope mix_lif_bidir_pe mix_lif_rec_bidir mix_sjlif_bidir mix_pop_bidir_pt16 nsmt_lif_t4 nsmt_pop_t4"; HEAVY="nsmt_lif_pe"
+    LIGHT="spk_ssa_nope mix_lif_bidir_pe mix_lif_rec_bidir mix_sjlif_bidir mix_pop_bidir_pt16 nsmt_lif_t4 nsmt_pop_t4 mix_pop_bidir_pe mix_pop_rec_bidir"; HEAVY="nsmt_lif_pe nsmt_pop_pe"
     [ "$DATA" = CINC2017 ] && { LIGHT="$LIGHT mix_pop_bidir_psi1.5 mix_pop_bidir_psi2"; HEAVY="$HEAVY nsmt_pop_psi1.5 nsmt_pop_psi2"; }
     case $KIND in fixlight) L=$LIGHT ;; fixheavy) L=$HEAVY ;; fixsmoke) L="$LIGHT $HEAVY" ;; esac
     for c in $L; do
-      if [ "$KIND" = fixsmoke ]; then echo "COND=$c $C EPOCHS=1 bash nsmt_flif_v1/classification/scripts/run_rhythm.sh 42" >> "$Q"
-      else for s in $SEEDS; do echo "COND=$c $C bash nsmt_flif_v1/classification/scripts/run_rhythm.sh $s" >> "$Q"; done; fi
+      if [ "$KIND" = fixsmoke ]; then echo "COND=$c $C EPOCHS=1 bash nsmt_flif_v1/classification/scripts/run_rhythm2.sh 42" >> "$Q"
+      else for s in $SEEDS; do echo "COND=$c $C bash nsmt_flif_v1/classification/scripts/run_rhythm2.sh $s" >> "$Q"; done; fi
+    done ;;
+  bixlight|bixheavy|bixsmoke)
+    BL=""; for n in lif flif pop_lif pop_flif popg_lif popg_flif; do BL="$BL bix_$n"; done
+    for n in lif flif pop_lif pop_flif; do BL="$BL bixch_$n"; done
+    BL="$BL mix_pop_lif_bidir mix_popg_lif_bidir mix_popg_flif_bidir spk_ssa_abn"
+    BH="bix_popk_flif bix_popk_lif mix_popk_flif_bidir mix_popk_lif_bidir"
+    case $KIND in bixlight) L=$BL ;; bixheavy) L=$BH ;; bixsmoke) L="$BH $BL" ;; esac
+    for c in $L; do
+      if [ "$KIND" = bixsmoke ]; then echo "COND=$c $C EPOCHS=1 bash nsmt_flif_v1/classification/scripts/run_rhythm2.sh 42" >> "$Q"
+      else for s in $SEEDS; do echo "COND=$c $C bash nsmt_flif_v1/classification/scripts/run_rhythm2.sh $s" >> "$Q"; done; fi
     done ;;
   *) echo "bad kind $KIND"; exit 1 ;;
 esac

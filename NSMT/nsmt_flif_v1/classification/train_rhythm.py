@@ -108,6 +108,8 @@ def main():
     model.load_state_dict(torch.load(os.path.join(args.save_model_state_path, 'checkpoint.pth'), map_location=args.device))
     re_.final_test(args, model, data['test'], args.save_log_path, tag='best')
     print(f'done in {time.time() - t0:.0f}s')
+    if torch.cuda.is_available():                                       # MODI 2026-10-21: memory planning for shared GPUs
+        print(f'peak_mem_GB {torch.cuda.max_memory_allocated() / 2 ** 30:.2f}')
 
 
 if __name__ == '__main__':

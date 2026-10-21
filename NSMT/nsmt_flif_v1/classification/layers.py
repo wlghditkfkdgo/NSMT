@@ -123,10 +123,12 @@ class MLP(nn.Module):
         return x
     
 class SSA_rel_scl(nn.Module):
-    def __init__(self, dim, seq_len, num_heads=8, pe=True, lif_bias=False, tau=2.0, topk_ratio=None, drop=0.1) -> None:
+    def __init__(self, dim, seq_len, num_heads=8, pe=True, lif_bias=False, tau=2.0, topk_ratio=None, drop=0.1, attn_bn=False) -> None:
         super().__init__()
         
         self.seq_len = seq_len
+        # MODI 2026-10-21 (BN audit): optional BN in front of the attention neuron (the only neuron without Linear+BN in front)
+        self.attn_bn = nn.BatchNorm1d(dim) if attn_bn else None
         self.num_heads = num_heads
         self.scale = dim ** -0.5
         self.pe = pe
@@ -226,6 +228,8 @@ class SSA_rel_scl(nn.Module):
         x = attn_scores @ v
 
         x = x.transpose(2, 3).reshape(T, B, N, C).contiguous()
+        if self.attn_bn is not None:
+            x = self.attn_bn(x.flatten(0, 1).transpose(-1, -2).contiguous()).transpose(-1, -2).reshape(T, B, N, C).contiguous()
         x = self.attn_lif(x) 
         x = self.proj_linear(x)
         return x
@@ -439,15 +443,98 @@ def build_neo_neuron(kind, size, T, layout, tau=2., alpha=.5, method='pred', ste
         n = LIFNeuron(size, **common)
     elif kind == 'flif':
         n = FLIFNeuron(size, alpha=alpha, method=method, memory=(int(memory) if memory else None), **common)
-    elif kind == 'pop_flif':
+    elif kind in ('pop_flif', 'pop_lif', 'pop_rec'):
         # f_lif_pop_v3 population neuron: K non-resetting f-LIF branches (time constants pop_taus) mixed by learnable
         # weights into one LIF soma (time constant `tau`); same alpha / solver as 'flif'; output = soma spikes [T, B, D]
+        # MODI 2026-10-21: 'pop_lif' = the same class with alpha 1 (pred + full history = exact Euler LIF branches);
+        # 'pop_rec' = population f-LIF with a gated recurrent current tanh(g) W_rec s_{t-1} on the soma spikes (g init 0)
         common.pop('tau')
-        n = PopulationFLIF(size, tau=tuple(float(t) for t in pop_taus), soma='lif', tau_s=tau, heterogeneous=True,
-                           alpha=alpha, method=method, memory=(int(memory) if memory else None), **common)
+        cls = RecurrentPopulationFLIF if kind == 'pop_rec' else PopulationFLIF
+        n = cls(size, tau=tuple(float(t) for t in pop_taus), soma='lif', tau_s=tau, heterogeneous=True,
+                alpha=(1. if kind == 'pop_lif' else alpha), method=method, memory=(int(memory) if memory else None), **common)
         if pop_soma_init is not None:                                 # stage 9 calibration: soma mix weights 1/K -> value
             with torch.no_grad():
                 n.soma.weight.fill_(float(pop_soma_init))
     else:
-        raise ValueError(f"build_neo_neuron needs 'lif', 'flif' or 'pop_flif', got {kind!r}")
+        raise ValueError(f"build_neo_neuron needs 'lif', 'flif', 'pop_flif', 'pop_lif' or 'pop_rec', got {kind!r}")
     return NeoNeuron(n, layout)
+
+
+# ---- MODI 2026-10-21: soma-less population (tau groups / streams) and recurrent population ---------------------------------
+TAU_GAIN_SLOW = 2.0      # measured 10-21 (MODI): smallest uniform factor in {1, 1.5, 2, 3} for tau > 2 that keeps every group / stream
+                         # of every layer >= 1 % initial firing on real CinC and SHD data (x1: tau-32 groups 0.2-0.7 %)
+
+
+def tau_gain(tau):
+    """BN gamma init for a neuron with time constant tau: sqrt((2 tau - 1) / 3) matches the stationary membrane variance of
+    an Euler leaky integrator under unit white input to that of tau = 2; for tau > 2 it is multiplied by TAU_GAIN_SLOW to
+    offset the slow recovery after a reset (pre-registered rule, MODI 2026-10-21). tau = 2 -> 1 (default model unchanged)."""
+    t = float(tau)
+    return ((2. * t - 1.) / 3.) ** .5 * (TAU_GAIN_SLOW if t > 2. else 1.)
+
+
+def sj_lif(tau=2.):
+    """the spikingjelly LIF used everywhere else in these models (embedding, MLP, attention)."""
+    return MultiStepLIFNode(tau=float(tau), detach_reset=True, backend='cupy', surrogate_function=surrogate.Sigmoid())
+
+
+class GroupNeuron(nn.Module):
+    """K groups of D/K units along one axis, group k with time constant taus[k]; every unit fires and resets itself
+    (no soma). kind 'sj' = spikingjelly LIF (any input layout, `axis` = channel axis); 'lif' / 'flif' = spikeDE LIFNeuron /
+    FLIFNeuron (alpha) on a 4-D [T, B, N', D] input (channel axis last), as NeoNeuron('ND')."""
+    def __init__(self, size, taus, kind='sj', T=64, alpha=.5, axis=-1):
+        super().__init__()
+        self.taus, self.kind, self.axis = tuple(float(t) for t in taus), kind, axis
+        K = len(self.taus)
+        if size % K:
+            raise ValueError(f'size {size} not divisible by {K} groups')
+        self.G = size // K
+        if kind == 'sj':
+            self.parts = nn.ModuleList([sj_lif(t) for t in self.taus])
+        elif kind in ('lif', 'flif'):
+            mk = (lambda t: LIFNeuron(self.G, tau=t, threshold=1., surrogate_scale=5., max_length=int(T))) if kind == 'lif' else \
+                 (lambda t: FLIFNeuron(self.G, alpha=alpha, method='pred', memory=None, tau=t, threshold=1., surrogate_scale=5., max_length=int(T)))
+            self.parts = nn.ModuleList([NeoNeuron(mk(t), 'ND') for t in self.taus])
+        else:
+            raise ValueError(f'GroupNeuron kind {kind!r}')
+
+    def forward(self, x):
+        xs = torch.split(x, self.G, dim=self.axis)
+        return torch.cat([p(c.contiguous()) for p, c in zip(self.parts, xs)], dim=self.axis)
+
+
+def group_gamma(size, taus):
+    """BN weight vector [size] for a GroupNeuron: group k gets tau_gain(taus[k])."""
+    G = size // len(taus)
+    return torch.cat([torch.full((G,), tau_gain(t)) for t in taus])
+
+
+class RecurrentPopulationFLIF(PopulationFLIF):
+    """Population f-LIF (soma='lif') whose input current at step t gets tanh(g) W_rec s_{t-1} from its own soma spikes;
+    g = 0 at init gives exactly PopulationFLIF (the same rhs / integrate / emit calls). neurons.py is untouched."""
+    def __init__(self, size, rec_scale=.1, **kwargs):
+        super().__init__(size, **kwargs)
+        self.w_rec = nn.Linear(size, size, bias=False)
+        nn.init.uniform_(self.w_rec.weight, -rec_scale / size ** .5, rec_scale / size ** .5)
+        self.w_rec._skip_global_init = True
+        self.g = nn.Parameter(torch.zeros(1))
+
+    def forward(self, x, mode=None, oracle_p=None, return_aux=False, analog=False):
+        if return_aux or analog:
+            raise ValueError('RecurrentPopulationFLIF: plain spike output only')
+        T, B, D = x.shape
+        self._check_length(T)
+        u = x.new_zeros(B, D, self.num_members)
+        soma = self.initial_soma(x)
+        history = self.new_history()
+        gamma = torch.tanh(self.g)
+        s_prev = x.new_zeros(B, D)
+        spikes = []
+        for t in range(T):
+            xt = x[t] + gamma * self.w_rec(s_prev)
+            F, s = self.rhs(u, xt)
+            nxt, _, _ = self.integrate(t, u, F, xt, history, oracle_p)
+            out, soma, _ = self.emit(nxt, s, soma)
+            spikes.append(out)
+            s_prev, u = out, nxt
+        return torch.stack(spikes)
