@@ -5,6 +5,10 @@
 #         (+ suffix _ce for plain CE on CinC 2017, e.g. nsmt_lif_ce, mix_lif_bidir_ce)
 #         NSMT aux-loss options (MODI 2026-10-20), suffix on nsmt_*: _auxoff (alpha 0 = plain CE), _full (keep_ratio 0 =
 #         reconstruct the full patched signal, no DCT low-pass), _a05 / _a09 (alpha 0.5 / 0.9); default alpha 0.1, keep 0.15
+#         cause-separation conds (MODI 2026-10-21): spk_ssa_nope (no relative bias), nsmt_lif_pe / mix_lif_bidir_pe (learned
+#         absolute position), mix_lif_rec_bidir (recurrent spikingjelly LIF mixer) + its control mix_sjlif_bidir, mix_pop_bidir_pt16
+#         (branch taus 16/32/64/128, soma init PT16_PSI_<DATA>), nsmt_lif_t4 / nsmt_pop_t4 (hippocampus T=4 + token cross-attention);
+#         suffix _psi<v> on nsmt_pop / mix_pop_bidir overrides the soma init (e.g. nsmt_pop_psi1.5)
 #   common: D 384, 8 heads, mlp 1, 1 block, 2 neocortex layers, keep_ratio 0.15, aux 0.1 (unless a suffix above), tau 2, AdamW wd 1e-4,
 #           timm cosine, batch 32; CinC: patch 64 (117 tokens), 30 epochs; SHD: patch 2 (100 tokens), 50 epochs.
 set -u
@@ -13,7 +17,9 @@ W="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; R="$(cd "$W/../.." && pwd)
 PY=${PY:-/home/yschoi/.conda/envs/snn_recall/bin/python}
 export LD_LIBRARY_PATH="$(dirname "$(dirname "$PY")")/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 DATA=${DATA:?DATA=CINC2017|SHD}; COND=${COND:?}; FOLD=${FOLD:-0}; CROP=${CROP:-0}
-ALPHA=0.1; KEEP=0.15
+ALPHA=0.1; KEEP=0.15; PSI=1.0
+case $COND in *_psi*) PSI=${COND##*_psi}; COND=${COND%_psi*}; PSITAG=_psi$PSI ;; esac
+PT16_PSI_CINC2017=${PT16_PSI_CINC2017:-2.0}; PT16_PSI_SHD=${PT16_PSI_SHD:-2.0}    # check c24 rule ({1,2,4} closest to the tau 4-32 / psi 1 initial firing): 2.0 for both (MODI 2026-10-21)
 case $COND in
   nsmt_*_auxoff) ALPHA=0;   COND0=${COND%_auxoff} ;;
   nsmt_*_full)   KEEP=0;    COND0=${COND%_full} ;;
@@ -25,12 +31,20 @@ BASE=${COND0%_ce}; LOSS=cal; [ "$BASE" != "$COND0" ] && LOSS=ce
 case $BASE in
   nsmt_lif)       CF="--model myModel --neo_neuron lif --neo_where both" ;;
   nsmt_flif)      CF="--model myModel --neo_neuron flif --neo_where both --neo_alpha 0.5" ;;
-  nsmt_pop)       CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0" ;;
+  nsmt_pop)       CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init $PSI" ;;
   spk_ssa)        CF="--model myModel --hippo_ssa --hippo_T 4" ;;
   mix_flif_bidir) CF="--model neoMixer --mixer flif --mixer_bidir --neo_alpha 0.5" ;;
-  mix_pop_bidir)  CF="--model neoMixer --mixer pop_flif --mixer_bidir --neo_alpha 0.5 --pop_soma_init 1.0" ;;
+  mix_pop_bidir)  CF="--model neoMixer --mixer pop_flif --mixer_bidir --neo_alpha 0.5 --pop_soma_init $PSI" ;;
   mix_lif_bidir)  CF="--model neoMixer --mixer lif --mixer_bidir" ;;
   mix_none)       CF="--model neoMixer --mixer none" ;;
+  spk_ssa_nope)   CF="--model myModel --hippo_ssa --hippo_T 4 --ssa_pe 0" ;;
+  nsmt_lif_pe)    CF="--model myModel --neo_neuron lif --neo_where both --pos_emb" ;;
+  mix_lif_bidir_pe) CF="--model neoMixer --mixer lif --mixer_bidir --pos_emb" ;;
+  mix_lif_rec_bidir) CF="--model neoMixer --mixer lif_rec --mixer_bidir" ;;
+  mix_sjlif_bidir) CF="--model neoMixer --mixer sj_lif --mixer_bidir" ;;
+  mix_pop_bidir_pt16) v=PT16_PSI_$DATA; CF="--model neoMixer --mixer pop_flif --mixer_bidir --neo_alpha 0.5 --pop_taus 16,32,64,128 --pop_soma_init ${!v}" ;;
+  nsmt_lif_t4)    CF="--model myModel --neo_neuron lif --neo_where both --hippo_T 4 --hippo_xattn" ;;
+  nsmt_pop_t4)    CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn" ;;
   *) echo "bad cond $COND"; exit 1 ;;
 esac
 case $DATA in
@@ -44,16 +58,16 @@ SUITE=${SUITE:-flif-v1-rhythm-$(date +%Y%m%d)}
 RES=${RES:-$W/results/$SUITE}; LOG=${LOG:-$W/log/$SUITE}
 mkdir -p "$RES" "$LOG"; RES="$(cd "$RES" && pwd)"; LOG="$(cd "$LOG" && pwd)"
 SHA=$(cd "$R" && git rev-parse --short HEAD); TS=$(date +%Y%m%d)
-TAGC=${COND}$([ "$CROP" != 0 ] && echo "_crop$CROP")
+TAGC=${COND}${PSITAG:-}$([ "$CROP" != 0 ] && echo "_crop$CROP")
 OUT=$LOG/${DATA}_${TAGC}_f${FOLD}_seed${S}_lr${LR}_${TS}_${SHA}.stdout; t0=$(date +%s)
 (cd "$W" && CUDA_VISIBLE_DEVICES=$GPU OMP_NUM_THREADS=${THREADS:-4} $PY ./train_rhythm.py \
   --data $DATA --seed $S --log_dir "$LOG/$DATA" --gating attn -s -nd 0 --warm_up_epoch 0 \
   -emb 384 -nh 8 --mlp_ratios 1 --layers 1 --time_layers 2 --keep_ratio $KEEP --alpha $ALPHA --tau 2.0 --no-bias \
-  --scheduler cosine -bs 32 --eval_bs 32 -lr $LR --weight_decay 1e-4 --max_lr 0.005 $HP $CF --tag $TAGC lr$LR seed$S > "$OUT" 2>&1)
+  --scheduler cosine -bs ${BS:-32} --eval_bs ${BS:-32} -lr $LR --weight_decay 1e-4 --max_lr 0.005 $HP $CF --tag $TAGC lr$LR seed$S > "$OUT" 2>&1)
 RC=$?
 D=$(ls -td "$LOG/$DATA"/*/*"+${TAGC}+lr${LR}+seed${S}+"*/seed${S}_* 2>/dev/null | head -1)
 CSV="$D/log/final+result.csv"; LCSV="$D/log/last/final+result.csv"
-if [ $RC -ne 0 ] || [ ! -s "$CSV" ]; then echo "SKIP(rc=$RC, no result) data=$DATA cond=$COND fold=$FOLD seed=$S lr=$LR crop=$CROP out=$OUT" | tee -a "$RES/raw.txt"; exit 1; fi
+if [ $RC -ne 0 ] || [ ! -s "$CSV" ]; then echo "SKIP(rc=$RC, no result) data=$DATA cond=${COND}${PSITAG:-} fold=$FOLD seed=$S lr=$LR crop=$CROP out=$OUT" | tee -a "$RES/raw.txt"; exit 1; fi
 VALS=$($PY - "$CSV" "$LCSV" <<'EOF'
 import csv, sys
 b = next(csv.DictReader(open(sys.argv[1]))); l = next(csv.DictReader(open(sys.argv[2])))
@@ -63,4 +77,4 @@ EOF
 )
 BE=$(cat "$D/log/best_epoch.txt" 2>/dev/null | tr ' ' ':')
 PAR=$(grep -a 'number of parameters' "$OUT" | grep -oE 'parameters : [0-9]+' | grep -oE '[0-9]+'); t1=$(date +%s)
-echo "RESULT exp=nsmt_flif_v1_rhythm data=$DATA cond=$COND fold=$FOLD seed=$S lr=$LR crop=$CROP $VALS best_epoch_val=$BE params=$PAR time_s=$((t1-t0)) sha=$SHA dir=$D" | tee -a "$RES/raw.txt"
+echo "RESULT exp=nsmt_flif_v1_rhythm data=$DATA cond=${COND}${PSITAG:-} fold=$FOLD seed=$S lr=$LR crop=$CROP $VALS best_epoch_val=$BE params=$PAR time_s=$((t1-t0)) sha=$SHA dir=$D" | tee -a "$RES/raw.txt"

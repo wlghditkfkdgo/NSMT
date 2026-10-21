@@ -1,0 +1,76 @@
+NeoMixer(
+  (padding_patch_layer): ReplicationPad1d()
+  (encoding): Embedding(
+    (emb_linear): Linear(24.58 k, 1.632% Params, 0.0 Ops, 0.000% ACs, 2.88 M Ops, 82.015% MACs, 100.000% Spike Rate)
+    (emb_bn): BatchNorm1d(768, 0.051% Params, 0.0 Ops, 0.000% ACs, 89.86 K Ops, 2.563% MACs, 100.000% Spike Rate)
+    (emb_lif): MultiStepLIFNode(
+      0, 0.000% Params, 44.93 K Ops, 0.561% ACs, 0.0 Ops, 0.000% MACs, 8.461% Spike Rate
+      (surrogate_function): Sigmoid()
+    )
+  )
+  (blocks): ModuleList(
+    (0): Block(
+      (mixer): MixerStack(
+        (Mem): ModuleList(
+          (0): NeoLayer(
+            (w_in): Linear(147.46 k, 9.791% Params, 975.39 K Ops, 12.170% ACs, 0.0 Ops, 0.000% MACs, 5.654% Spike Rate)
+            (bn): BatchNorm1d(768, 0.051% Params, 0.0 Ops, 0.000% ACs, 89.86 K Ops, 2.563% MACs, 100.000% Spike Rate)
+            (lif): LIFNode(
+              0, 0.000% Params, 44.93 K Ops, 0.561% ACs, 0.0 Ops, 0.000% MACs, 523.711% Spike Rate
+              (surrogate_function): Sigmoid()
+            )
+            (w_rec): Linear(147.46 k, 9.791% Params, 766.65 K Ops, 9.566% ACs, 0.0 Ops, 0.000% MACs, 519.933% Spike Rate)
+          )
+          (1): NeoLayer(
+            (w_in): Linear(147.46 k, 9.791% Params, 771.22 K Ops, 9.623% ACs, 0.0 Ops, 0.000% MACs, 4.470% Spike Rate)
+            (bn): BatchNorm1d(768, 0.051% Params, 0.0 Ops, 0.000% ACs, 89.86 K Ops, 2.563% MACs, 100.000% Spike Rate)
+            (lif): LIFNode(
+              0, 0.000% Params, 44.93 K Ops, 0.561% ACs, 0.0 Ops, 0.000% MACs, 486.866% Spike Rate
+              (surrogate_function): Sigmoid()
+            )
+            (w_rec): Linear(147.46 k, 9.791% Params, 700.37 K Ops, 8.739% ACs, 0.0 Ops, 0.000% MACs, 474.959% Spike Rate)
+          )
+        )
+      )
+      (mixer_rev): MixerStack(
+        (Mem): ModuleList(
+          (0): NeoLayer(
+            (w_in): Linear(147.46 k, 9.791% Params, 975.39 K Ops, 12.170% ACs, 0.0 Ops, 0.000% MACs, 5.654% Spike Rate)
+            (bn): BatchNorm1d(768, 0.051% Params, 0.0 Ops, 0.000% ACs, 89.86 K Ops, 2.563% MACs, 100.000% Spike Rate)
+            (lif): LIFNode(
+              0, 0.000% Params, 44.93 K Ops, 0.561% ACs, 0.0 Ops, 0.000% MACs, 484.268% Spike Rate
+              (surrogate_function): Sigmoid()
+            )
+            (w_rec): Linear(147.46 k, 9.791% Params, 703.47 K Ops, 8.777% ACs, 0.0 Ops, 0.000% MACs, 477.081% Spike Rate)
+          )
+          (1): NeoLayer(
+            (w_in): Linear(147.46 k, 9.791% Params, 714.37 K Ops, 8.913% ACs, 0.0 Ops, 0.000% MACs, 4.141% Spike Rate)
+            (bn): BatchNorm1d(768, 0.051% Params, 0.0 Ops, 0.000% ACs, 89.86 K Ops, 2.563% MACs, 100.000% Spike Rate)
+            (lif): LIFNode(
+              0, 0.000% Params, 44.93 K Ops, 0.561% ACs, 0.0 Ops, 0.000% MACs, 470.032% Spike Rate
+              (surrogate_function): Sigmoid()
+            )
+            (w_rec): Linear(147.46 k, 9.791% Params, 673.04 K Ops, 8.398% ACs, 0.0 Ops, 0.000% MACs, 456.440% Spike Rate)
+          )
+        )
+      )
+      (fc1): SpikLinearLayer(
+        (linear): Linear(147.46 k, 9.791% Params, 800.42 K Ops, 9.987% ACs, 0.0 Ops, 0.000% MACs, 4.639% Spike Rate)
+        (bn): BatchNorm1d(768, 0.051% Params, 0.0 Ops, 0.000% ACs, 89.86 K Ops, 2.563% MACs, 100.000% Spike Rate)
+        (lif): MultiStepLIFNode(
+          0, 0.000% Params, 44.93 K Ops, 0.561% ACs, 0.0 Ops, 0.000% MACs, 5.479% Spike Rate
+          (surrogate_function): Sigmoid()
+        )
+      )
+      (fc2): SpikLinearLayer(
+        (linear): Linear(147.46 k, 9.791% Params, 619.73 K Ops, 7.733% ACs, 0.0 Ops, 0.000% MACs, 3.592% Spike Rate)
+        (bn): BatchNorm1d(768, 0.051% Params, 0.0 Ops, 0.000% ACs, 89.86 K Ops, 2.563% MACs, 100.000% Spike Rate)
+        (lif): MultiStepLIFNode(
+          0, 0.000% Params, 44.93 K Ops, 0.561% ACs, 0.0 Ops, 0.000% MACs, 6.879% Spike Rate
+          (surrogate_function): Sigmoid()
+        )
+      )
+    )
+  )
+  (head): Linear(1.54 k, 0.102% Params, 0.0 Ops, 0.000% ACs, 1.54 K Ops, 0.044% MACs, 100.000% Spike Rate)
+)

@@ -155,7 +155,7 @@ class Embedding(nn.Module):
                  rpe_kernel_size: int = 3,
                  rpe_depthwise: bool = True,
                  rpe_rebinarize: bool = True,
-                 neuron=None) -> None:
+                 neuron=None, pos_emb=False) -> None:
         super().__init__()
         
         self.num_patches = num_patches
@@ -167,6 +167,12 @@ class Embedding(nn.Module):
         self.pe = pe
         
         self.emb_linear = nn.Linear(patch_size, embed_dim, bias=bias)
+        # MODI 2026-10-21 (1-B): learned absolute position [1, N, D] added to the real-valued pre-activation (before BN and
+        # the neuron); every repetition step receives the same value. pos_emb=False: no module, output unchanged.
+        self.pos = None
+        if pos_emb:
+            self.pos = nn.Parameter(torch.zeros(1, num_patches, embed_dim))
+            trunc_normal_(self.pos, std=.02)
         self.emb_bn = nn.BatchNorm1d(embed_dim)
         # nsmt_flif_v1: `neuron` (NeoNeuron, layout 'DN') replaces the LIF; None keeps the spikingjelly LIF.
         # For encoding_neo the input is [N, B, 1, P], so this neuron runs over the token axis (T = N).
@@ -178,7 +184,14 @@ class Embedding(nn.Module):
     def forward(self, x:torch.tensor, pe=True): 
         T, B, _,_ = x.shape
 
-        x = self.emb_linear(x.flatten(0, 1))
+        x = self.emb_linear(x.flatten(0, 1))                      # [T*B, N', D]
+        if self.pos is not None:                                  # MODI 2026-10-21 (1-B): position of each token
+            if x.shape[1] == self.num_patches:                    # hippocampus layout: tokens on dim 1 (T = repetitions)
+                x = x + self.pos
+            elif x.shape[1] == 1 and T == self.num_patches:       # token-axis layout (Neo-mixer / neocortex): tokens on dim 0
+                x = (x.reshape(T, B, 1, -1) + self.pos.reshape(T, 1, 1, -1)).reshape(T * B, 1, -1)
+            else:
+                raise RuntimeError(f'pos_emb: cannot place {tuple(self.pos.shape)} on {tuple(x.shape)} (T={T})')
         x = self.emb_bn(x.transpose(-1, -2).contiguous())
         x = x.reshape(T, B, self.embed_dim, -1).contiguous() # [T B N D]
         x = x.flatten(3).contiguous() # [T B D N] 
@@ -222,15 +235,16 @@ class HighFreqAmp(nn.Module):
 class Block(nn.Module):
     def __init__(self, T, dim, seq_len, num_heads, mlp_ratios=2., max_ratio=2, qkv_bias=False, qk_scale=None, drop=0., attn_drop=0.1,
                 drop_path=0.1, norm_layer=nn.LayerNorm, sr_ratio=1, lif_bias=False, tau=2.0, attn=False,
-                time_num_layers=1, patch_size=16, ssa=False):
+                time_num_layers=1, patch_size=16, ssa=False, xattn=False, ssa_pe=True):
         super().__init__()
         
         topk_ratio = None
         self.use_ssa = bool(ssa)                         # stage 9 Hippo-only: Spikformer-style token self-attention (N x N)
+        self.use_xattn = bool(xattn)                     # MODI 2026-10-21 (1-C): token cross-attention, q = hippocampus, k/v = neocortex
         
         # self.high_freq = HighFreqAmp(dim) if not attn else SSA_rel_scl(dim=dim, seq_len=seq_len, num_heads=num_heads, pe=True, lif_bias=lif_bias, tau=tau, drop=attn_drop)
-        if self.use_ssa:
-            self.ssa = SSA_rel_scl(dim=dim, seq_len=seq_len, num_heads=num_heads, pe=True, lif_bias=lif_bias, tau=tau, drop=attn_drop)
+        if self.use_ssa or self.use_xattn:
+            self.ssa = SSA_rel_scl(dim=dim, seq_len=seq_len, num_heads=num_heads, pe=bool(ssa_pe), lif_bias=lif_bias, tau=tau, drop=attn_drop)
         else:
             self.mca = MutualCrossAttention(dim=dim, out_seq=False, lif_bias=lif_bias, num_heads=num_heads, tau=tau, drop=drop)
         mlp_hidden_dim = int(dim * mlp_ratios)
@@ -245,6 +259,13 @@ class Block(nn.Module):
 
         if self.use_ssa:                                # stage 9: x = x (1 - SSA(x)); same IAND structure as the other blocks
             x = x * (1. - self.ssa(x))
+            x = x * (1. - self.mlp(x))
+            return x
+
+        if self.use_xattn:                              # MODI 2026-10-21 (1-C): hippocampus T_h repeats attend over the N neocortex tokens
+            mx = (0.5 * mx + (1 - 0.5) * mx.detach())   # same gradient share as the memory-replay path
+            kv = mx.transpose(0, 2).expand(x.shape[0], -1, -1, -1).contiguous()   # [N, B, 1, D] -> [T_h, B, N, D]
+            x = x * (1. - self.ssa(x, kv=kv))
             x = x * (1. - self.mlp(x))
             return x
 
@@ -463,9 +484,16 @@ class myModel(nn.Module):
         self.in_channels = int(kwargs.get('in_channels', 1) or 1)
         self.tok_dim = self.patch_size * self.in_channels
         self.hippo_ssa = bool(kwargs.get('hippo_ssa', False))
+        # MODI 2026-10-21: hippo_xattn (1-C) = hippocampus with its own T_h and token cross-attention over the neocortex tokens;
+        # pos_emb (1-B) = learned absolute position in the hippocampus embedding; ssa_pe (1-B) = relative bias in SSA / xattn
+        self.hippo_xattn = bool(kwargs.get('hippo_xattn', False))
+        self.pos_emb = bool(kwargs.get('pos_emb', False))
+        self.ssa_pe = bool(int(kwargs.get('ssa_pe', 1)))
+        if self.hippo_xattn and self.hippo_ssa:
+            raise ValueError('choose one of hippo_ssa and hippo_xattn')
         self.T_h = int(kwargs.get('hippo_T', 0) or 0) or self.T
-        if self.T_h != self.T and not self.hippo_ssa:
-            raise ValueError('hippo_T != number of tokens is only allowed with hippo_ssa (the cross-attention needs T = N)')
+        if self.T_h != self.T and not (self.hippo_ssa or self.hippo_xattn):
+            raise ValueError('hippo_T != number of tokens is only allowed with hippo_ssa / hippo_xattn (the memory-replay cross-attention needs T = N)')
 
         # sine spike-encoding: roll the Hippocampus patch sequence per spiking step T with a
         # raised-cosine causal shift schedule (APE-like, ported from forecasting ours_roll).
@@ -492,6 +520,8 @@ class myModel(nn.Module):
             raise ValueError('choose one of no_neo and hippo_only')
         if self.hippo_ssa and (self.no_neo or self.hippo_only or self.neo_bidir or neo_neuron != 'sj_lif'):
             raise ValueError('hippo_ssa has no neocortex path; do not combine it with no_neo / hippo_only / neo options')
+        if self.hippo_xattn and (self.no_neo or self.hippo_only):
+            raise ValueError('hippo_xattn needs the neocortex path')
         self.neo_neuron, self.neo_where = neo_neuron, neo_where
         _neo = dict(tau=self.neo_tau, alpha=float(kwargs.get('neo_alpha', 0.5)), method=str(kwargs.get('fde_method', 'pred')),
                     step=float(kwargs.get('fde_step', 1.0)), memory=int(kwargs.get('fde_memory', 0)),
@@ -522,7 +552,8 @@ class myModel(nn.Module):
                                     stride=self.stride,
                                     pe=False,
                                     bias=lif_bias,
-                                    tau=tau
+                                    tau=tau,
+                                    pos_emb=self.pos_emb              # MODI 2026-10-21 (1-B)
                                     )
         if not self.hippo_ssa:                                         # stage 9: Hippo-only (SSA) builds no neocortex
           self.encoding_neo = Embedding(num_patches=self.num_patches,
@@ -544,7 +575,7 @@ class myModel(nn.Module):
                     dim=embed_dim, seq_len=self.num_patches, num_heads=num_heads, mlp_ratios=mlp_ratios, qkv_bias=qkv_bias,
                     qk_scale=qk_scale, drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[j],
                     norm_layer=norm_layer, sr_ratio=sr_ratios, lif_bias=lif_bias, tau=tau, attn=(gating=='original'),
-                    ssa=self.hippo_ssa)
+                    ssa=self.hippo_ssa, xattn=self.hippo_xattn, ssa_pe=self.ssa_pe)
                     for j in range(depths)])
 
         if not self.hippo_ssa:
@@ -656,7 +687,7 @@ class myModel(nn.Module):
         # if self.keep_ratio > 0:
         #     low_freq_x, _, _ = lowpass_memory(x, keep_ratio=self.keep_ratio, time_dim=2, center=True, rebinarize=False)
             
-        if self.in_channels > 1 or self.hippo_ssa:      # stage 9 path (multichannel and/or T_h != N); exact copies, no means
+        if self.in_channels > 1 or self.hippo_ssa or self.hippo_xattn:   # stage 9 path (multichannel and/or T_h != N); exact copies, no means
             patched_x, neo_in = self._tokens_mc(x)
         else:
           if self.spk_encoding:

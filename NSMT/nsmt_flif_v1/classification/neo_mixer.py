@@ -24,14 +24,18 @@ from model import Embedding, NeoLayer
 
 __all__ = ['NeoMixer']
 
-MIXERS = ('none', 'lif', 'flif', 'pop_flif')
+MIXERS = ('none', 'lif', 'flif', 'pop_flif', 'lif_rec', 'sj_lif')   # MODI 2026-10-21 (1-A): lif_rec = NeoLayer(recurrent=True), gated W_rec;
+                                                                    # sj_lif = the same spikingjelly single-step LIF loop without recurrence (control)
 
 
 class MixerStack(nn.Module):
     """`n` NeoLayers over the token axis with the chosen spikeDE neuron (built by layers.build_neo_neuron)."""
-    def __init__(self, dim, n, neuron_fn, bias=False):
+    def __init__(self, dim, n, neuron_fn, bias=False, recurrent=None, tau=2.0):
         super().__init__()
-        self.Mem = nn.ModuleList([NeoLayer(dim, bias=bias, neuron=neuron_fn()) for _ in range(n)])
+        if recurrent is not None:                                      # spikingjelly single-step LIF loop (+ tanh(g) W_rec s_{t-1}, g init 0, if recurrent)
+            self.Mem = nn.ModuleList([NeoLayer(dim, tau=tau, bias=bias, recurrent=bool(recurrent)) for _ in range(n)])
+        else:
+            self.Mem = nn.ModuleList([NeoLayer(dim, bias=bias, neuron=neuron_fn()) for _ in range(n)])
 
     def forward(self, x):
         for l in self.Mem:
@@ -44,10 +48,11 @@ class Block(nn.Module):
         super().__init__()
         self.mixer_kind, self.bidir = mixer, bool(mixer_bidir)
         if mixer != 'none':
-            fn = lambda: build_neo_neuron(mixer, dim, T, 'ND', **neo_kw)
-            self.mixer = MixerStack(dim, mixer_layers, fn, bias)
+            rec = {'lif_rec': True, 'sj_lif': False}.get(mixer)          # None -> spikeDE neuron from build_neo_neuron
+            fn = None if rec is not None else (lambda: build_neo_neuron(mixer, dim, T, 'ND', **neo_kw))
+            self.mixer = MixerStack(dim, mixer_layers, fn, bias, recurrent=rec, tau=tau)
             if self.bidir:
-                self.mixer_rev = MixerStack(dim, mixer_layers, fn, bias)
+                self.mixer_rev = MixerStack(dim, mixer_layers, fn, bias, recurrent=rec, tau=tau)
         hidden = int(dim * mlp_ratio)
         self.fc1 = SpikLinearLayer(dim, hidden, tau=tau, lif_bias=bias)       # spikingjelly LIF over the token axis
         self.fc2 = SpikLinearLayer(hidden, dim, tau=tau, lif_bias=bias)
@@ -74,7 +79,7 @@ class NeoMixer(nn.Module):
     def __init__(self, seq_len=187, data_patch_size=32, embed_dim=384, num_classes=5, depths=1, mlp_ratios=1.0,
                  mixer='pop_flif', mixer_bidir=True, mixer_layers=2, neo_tau=2.0, neo_alpha=0.5, fde_method='pred',
                  fde_step=1.0, fde_memory=0, pop_taus=(4., 8., 16., 32.), bias=False, tau=2.0, train_mode='training',
-                 in_channels=1, pop_soma_init=None, **kwargs):
+                 in_channels=1, pop_soma_init=None, pos_emb=False, **kwargs):
         super().__init__()
         if mixer not in MIXERS:
             raise ValueError(f'mixer must be one of {MIXERS}')
@@ -91,13 +96,15 @@ class NeoMixer(nn.Module):
                       pop_soma_init=pop_soma_init)
         self.in_channels = int(in_channels or 1)                           # stage 9: a token = P steps x C channels
         self.encoding = Embedding(num_patches=self.num_patches, patch_size=data_patch_size * self.in_channels, embed_dim=embed_dim, stride=self.stride,
-                                  pe=False, bias=bias, tau=tau)            # spikingjelly LIF over the token axis
+                                  pe=False, bias=bias, tau=tau, pos_emb=pos_emb)   # spikingjelly LIF over the token axis; pos_emb (1-B)
         self.blocks = nn.ModuleList([Block(embed_dim, mixer, mixer_bidir, mixer_layers, mlp_ratios, neo_kw, self.T, bias, tau)
                                      for _ in range(self.depths)])
         self.head = nn.Linear(embed_dim, num_classes, bias=bias)
         self.apply(self._init_weights)
 
     def _init_weights(self, m):
+        if getattr(m, '_skip_global_init', False):                     # NeoLayer W_rec keeps its small init (as model.py)
+            return
         if isinstance(m, nn.Linear):
             trunc_normal_(m.weight, std=.02)
             if m.bias is not None:

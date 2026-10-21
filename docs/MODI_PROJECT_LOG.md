@@ -1590,3 +1590,98 @@ CinC 점수 = F1(정상)·F1(AF)·F1(Other)의 평균. 시험은 기록마다 30
 **다음:** population 묶음(32 run, 06:10 시작) → f-LIF 묶음. 묶음마다 중간 기록. 전체가 끝나면 결과 항목·태그.
 
 **commit:** 이 항목·LIF 결과·중간 요약을 commit·push한다.
+
+---
+
+## 2026-10-21 20:12 KST — 9단계 원인 분리 실험 설계·구현·사전 고정: 1-B 위치 정보 · 1-A 도달 거리 · 1-C 해마 T = 4 · 3 population soma 가중치 (76 run) — 점검 24/24, smoke 16/20 통과(4건 공유 GPU 메모리 부족; 본 학습 전 정식 배치 smoke 재실행), 드라이버 대기 시작
+
+**배경 (사용자 질문 "문제점과 그 원인을 분석해줘", 10-21):** 9단계 결과(태그 `exp/nsmt-flif-neo-20261020`)와 보조 손실 LIF 묶음(commit `7e1b1e98a`)을 바탕으로 문제 6개와 원인을 정리해 보고했다. 요지: (1) 조각 사이 정보 통로의 성격 차이 — 자기주의는 모든 조각을 한 번에 보고, 신피질 막전위는 2–3토큰에서 잊는다(토큰 축 기억 측정); (2) **제가 만든 비대칭** — `SSA_rel_scl`에만 상대 위치 편향이 있고 NSMT 교차 주의·Neo-mixer에는 위치 정보가 없다; (3) NSMT는 학습 데이터에 더 맞고 새 데이터에 덜 맞는다(SHD 검증 98.24 > Spikformer식 97.82인데 시험 80.37 < 86.75; 검증−시험 17.9 vs 11.1); (4) 보조 손실은 원인이 아니다(LIF 묶음); (5) T = N 해마 반복이 에너지 대부분; (6) f-LIF ≈ LIF, population은 SHD에서만 이득. 사용자가 1-B·1-A·1-C·3을 진행하기로 했고, 별도 아이디어(순방향·역방향 스트림 사이의 교차 주의)는 검토 보고 뒤 "1-A/1-C 결과를 본 뒤 결정"으로 두었다.
+
+**아이디어 검토 요지(기록):** 채널별 T×T' 주의 지도는 스파이크 입력에서 점수가 F[t,d]·R[t',d](두 비트의 AND)뿐이라 출력[t,d] = F[t,d]·Σ_t' R[t',d]V[t',d]로 **모든 토큰이 같은 합을 받는다**(토큰별 상호작용 소멸). 채널을 헤드로 묶어 내적을 취하면 "질의 = 순방향 스트림, 키/값 = 역방향 스트림인 Spikformer식 주의"가 되고, 이것이 작동하는 형태다. 위험: 주의가 들어오면 뉴런 기억의 몫이 다시 작아질 수 있다(5단계 "자기 키/값 = 신피질 키/값"). 문헌: TIM(IJCAI 2024)·STAtten(CVPR 2025)은 반복 축 위의 시간 주의, QKFormer(NeurIPS 2024)는 토큰/채널 1차원 주의, SHD 상위 결과(SE-adLIF 95.1%, DCLS 지연 학습, STSC-SNN 92.4%)는 재귀·지연 기반, f-SNN(ICLR 2026)이 우리 f-LIF. "재귀 뉴런 상태를 질의·키로 쓰는 신호 시간 축 스파이킹 주의"는 찾지 못했다.
+
+**브랜치·기준:** `exp/nsmt-flif-neo`, 기준 commit `7e1b1e98a`. 모든 run은 9단계 프로토콜 그대로(fold 0 × seed 42/7/2026, SHD seed 42/7/2026/123/1024, lr 1e-3, 30/50 epoch, 배치 32). 기준선은 9단계 본 run 재사용. suite `flif-v1-rhythm-fix-{cinc,shd}`.
+
+**계획 중 측정(population 초기 발화율, 학습 모드 BN, 실제 16표본, 초기 가중치; soma 가중치별):**
+
+| 데이터 / 모델 | LIF | psi 1.0 | 1.25 | 1.5 | 2.0 | 4.0 | 8.0 |
+|---|---|---|---|---|---|---|---|
+| CinC NSMT 신피질 | 0.0448 | 0.0381 | 0.0638 | 0.1057 | 0.2004 | 0.3628 | 0.4305 |
+| CinC mixer | 0.0798 | 0.0373 | 0.0748 | 0.1287 | 0.2589 | 0.5483 | 0.6636 |
+| SHD NSMT 신피질 | 0.0579 | 0.0690 | – | – | 0.2497 | 0.3795 | 0.4422 |
+| SHD mixer | 0.0977 | 0.0817 | – | – | 0.3077 | 0.5728 | 0.6796 |
+
+**초기 발화는 9단계 보정(1.0)에서 이미 LIF와 맞았다.** CinC에서 학습 뒤 population 신피질 발화율이 LIF의 절반(0.040 vs 0.079)인 것은 학습 중에 생긴 차이다. 가설 3("초기 보정 부족")은 초기값으로는 지지되지 않는다. 사용자 결정대로 "초기 구동을 더 세게 주면 CinC 결과가 바뀌는가"를 psi 1.5(LIF의 1.3–1.6배)·2.0(4–5배)으로 시험한다.
+
+### 조건 (새 조건 10개 + soma 가중치 2값; 76 run)
+
+| 가설 | 조건 | 설정 | run | pool |
+|---|---|---|---|---|
+| 1-B | `spk_ssa_nope` | Spikformer식(T_h 4), 상대 위치 편향 없음 (`--ssa_pe 0`) | 3 + 5 | 가벼움 |
+| 1-B | `nsmt_lif_pe` | NSMT LIF(T = N) + 해마 임베딩에 학습형 절대 위치 [1, N, D] (`--pos_emb`; 선형층 출력에 더한 뒤 BN·LIF) | 3 + 5 | 무거움 |
+| 1-B | `mix_lif_bidir_pe` | 양방향 spikeDE-LIF Neo-mixer + 같은 위치 임베딩 | 3 + 5 | 가벼움 |
+| 1-A | `mix_lif_rec_bidir` | 양방향 Neo-mixer, 층 = spikingjelly 단일 스텝 LIF 루프 + 게이트 재귀 `tanh(g)·W_rec·s_{t−1}`(g 초기 0, `NeoLayer(recurrent=True)`) | 3 + 5 | 가벼움 |
+| 1-A 대조 | `mix_sjlif_bidir` | 위와 같은 spikingjelly LIF 루프, 재귀 없음 (**계획에 없던 추가**: `lif_rec`는 뉴런 구현이 9단계 `mix_lif_bidir`의 spikeDE LIF와 달라 재귀 효과를 따로 보려면 같은 뉴런의 대조군이 필요) | 3 + 5 | 가벼움 |
+| 1-A | `mix_pop_bidir_pt16` | 양방향 population mixer, 가지 τ 16/32/64/128, soma 가중치 **2.0**(c24 규칙) | 3 + 5 | 가벼움 |
+| 1-C | `nsmt_lif_t4` | 해마 T_h = 4(정확한 반복) + 토큰 교차 주의(질의 = 해마 토큰, 키/값 = 신피질 토큰을 T_h로 복제, 상대 위치 편향 포함, 기울기 절반 공유 유지), 신피질 LIF T = N, 보조 손실 α 0.1·DCT 유지 (`--hippo_T 4 --hippo_xattn`) | 3 + 5 | 가벼움 |
+| 1-C | `nsmt_pop_t4` | 위와 같고 신피질 population(psi 1.0) | 3 + 5 | 가벼움 |
+| 3 | `nsmt_pop_psi1.5`, `nsmt_pop_psi2` | NSMT population, soma 가중치 1.5 / 2.0 (CinC만) | 3 + 3 | 무거움 |
+| 3 | `mix_pop_bidir_psi1.5`, `mix_pop_bidir_psi2` | 양방향 population mixer, 1.5 / 2.0 (CinC만) | 3 + 3 | 가벼움 |
+
+- **c24 규칙과 결과:** τ 16–128의 soma 가중치는 {1, 2, 4} 중 초기 발화율이 "τ 4–32·psi 1.0 mixer"(CinC 0.0373, SHD 0.0817)에 가장 가까운 값. 측정: CinC 1 → 0.0000, 2 → 0.0116, 4 → 0.1337; SHD 1 → 0.0038, 2 → 0.0405, 4 → 0.2020 → **두 데이터 모두 2.0**. 선택값의 초기 발화는 기준의 1/3–1/2이다(규칙상 그대로 쓰되 기록).
+- **계획과 다른 점(실행 순서):** 계획은 가벼움 pool 62 run을 지금 돌고 있는 보조 손실 pool 옆에 바로 시작하는 것이었다. 그러나 보조 손실 population·f-LIF NSMT run은 GPU당 약 40 GB(LIF 묶음은 30 GB)를 써서 두 번째 작업이 들어갈 자리가 없다 — 첫 smoke(배치 32)에서 SHD `mix_lif_bidir_pe`가 메모리 부족으로 실패했다(`results/smoke-rhythm-fix-20261021/raw.txt`의 SKIP 1건, 통과 1건; 그 뒤 중단). 그래서 **두 pool 모두 보조 손실 드라이버의 "ALL DONE" 뒤에 시작**한다: 무거움 pool(GPU당 1개) + 가벼움 pool A(GPU당 1개) 동시, 무거움이 끝나면 같은 큐를 읽는 가벼움 pool B를 추가(GPU당 2개).
+
+### 코드 (`nsmt_flif_v1/classification/`; 기존 조건 출력 비트 동일 — c1·c2·c20·c21)
+- `layers.py`: `SSA_rel_scl.forward(x, mask=None, kv=None)` — kv가 있으면 키·값을 kv에서.
+- `model.py`: `Embedding(pos_emb=False)`(파라미터 `pos` [1, N, D], trunc_normal 0.02, BN 앞에 더함); `Block(xattn, ssa_pe)` — xattn 경로 `kv = mx.transpose(0,2).expand(T_h)`, `x·(1 − ssa(x, kv))`, MLP; `myModel(hippo_xattn, pos_emb, ssa_pe)` — `hippo_T ≠ N`을 `hippo_xattn`에도 허용, 입력은 `_tokens_mc` 경로(정확한 T_h 반복), 신피질·디코더·보조 목표는 NSMT와 같음.
+- `neo_mixer.py`: `MIXERS += lif_rec, sj_lif`(`MixerStack(recurrent=True/False)` → `NeoLayer` spikingjelly 루프; `_init_weights`가 `W_rec`의 작은 초기값을 보존); `pos_emb`.
+- `config.py`: `--ssa_pe {0,1}`, `--pos_emb`, `--hippo_xattn`, `--mixer lif_rec|sj_lif`; 디렉터리 접미사 `_xaT{T}`, `_pe`, `_nope`, population mixer의 `_pt…`.
+- `load_model.py`: 새 인자 전달. `scripts/run_rhythm.sh`: 새 조건, `_psi<v>` 접미사, `PT16_PSI_<DATA>`(2.0), `BS` 환경변수(smoke용). `scripts/make_queue_rhythm.sh`: kind `fixlight`/`fixheavy`/`fixsmoke`. 새 `scripts/rhythm_fix_driver.sh`. `summarize_rhythm.py --fix`. `scripts/run_rhythm_analysis.sh`: `SUITES`/`CONDS` 환경변수. `check_cls.py` c20–c24.
+
+### 점검 24/24 (`results/checks/check_cls_fix.txt`)
+- c1–c19 그대로 통과(기본 경로 비트 동일).
+- c20 `--ssa_pe 0`: 상대 위치 표 없음; 초기 출력이 `pe=1`(표 0 초기화)과 비트 동일; `pe=1`에서 표가 기울기를 받음(합 1.05e-01).
+- c21 `--pos_emb`: 추가 파라미터는 `encoding.pos` [1, N, 384] 하나(NSMT·mixer); 임베딩 출력 모양 불변; 가중치를 옮기고 pos를 0으로 두면 출력 비트 동일; 토큰 j에만 오프셋을 주면 두 배치 모두 토큰 j의 스파이크만 바뀜; 무작위 pos면 로짓이 달라짐(아래 smoke가 잡은 오류 뒤 보강).
+- c22 `--hippo_xattn`: T_h 4, 주의 q [4, B, 117, 384]·kv [4, B, 117, 384], 신피질 인과(토큰 j 교체 → j 이전 변화 0), 신피질 토큰 교체로 블록 출력 변화, 디코더 존재, 학습 손실 = 0.9 CE + 0.1 MSE. (처음 두 번은 검사 방법 문제로 실패: 평가 모드 BN은 초기 뉴런을 모두 침묵시키고, 학습 모드 BN은 배치 통계를 다시 합산해 j 이전 토큰의 문턱 근처 스파이크를 뒤집었다. BN 통계를 한 번 고정(momentum 1)한 뒤 평가 모드로 검사하도록 고쳤다.)
+- c23 `lif_rec`/`sj_lif`: 재귀 층 4개(양방향 2 × 2), g 초기 0, W_rec을 0으로 둔 모델과 출력 비트 동일, g = 1이면 달라짐, g가 기울기를 받음; `sj_lif`는 W_rec 없음; 에너지 기록기가 `blocks.0.mixer` 아래 LIFNode 4개를 신피질 경로로 잡음.
+- c24: 위 표.
+
+### smoke (배치 8, 1 epoch, seed 42; 실험 아님 — 파이프라인·설정 확인용)
+GPU마다 보조 손실 NSMT(약 40 GB)가 돌고 있어 정식 배치(32)로는 자리가 없었다. 배치 8로 20개를 돌렸고(`results/smoke-rhythm-fix-20261021-bs8/raw.txt`), **16개 통과, 4개는 CinC에서 메모리 부족으로 실패**(`mix_lif_bidir_pe`, `nsmt_lif_pe`, `nsmt_pop_psi1.5`, `nsmt_pop_psi2`; 모두 공유 GPU의 빈 메모리 부족, 코드 오류 아님). 실패한 네 조건 중 `nsmt_lif_pe`·`mix_lif_bidir_pe`는 SHD에서 통과했고, `nsmt_pop_psi*`는 9단계 `nsmt_pop`과 soma 값만 다르다(c16·c24). 각 run의 `logargs.txt`에서 hippo_T·hippo_xattn·pos_emb·ssa_pe·mixer·pop_taus·pop_soma_init 값이 의도와 같음을 확인했다. **본 학습 직전에 드라이버가 정식 배치로 smoke 20개를 다시 돌리고, 실패가 있으면 본 학습을 시작하지 않는다.**
+
+**smoke가 잡은 구현 오류(수정 완료):** 첫 구현의 위치 임베딩은 표 [1, N, D]를 선형층 출력에 그대로 더했다. 해마 배치([T·B, N, D])에서는 맞지만, Neo-mixer처럼 토큰이 0번 축에 있는 배치([N·B, 1, D])에서는 브로드캐스트로 텐서가 N배로 커지고 위치도 틀리게 붙는다. SHD `mix_lif_bidir_pe` smoke의 에너지가 대조군의 6배(1,538.9 vs 260.0 µJ, 뉴런 수 100배)로 나와 발견했다. c21이 이것을 놓친 이유는 출력 모양을 검사하지 않았기 때문이다(0 위치에서 로짓이 같다는 검사만 통과). `Embedding.forward`가 두 배치를 구분해 토큰 축에 더하도록 고치고, c21에 "임베딩 출력 모양 불변"과 "토큰 j에만 큰 오프셋을 주면 토큰 j의 스파이크만 바뀜(두 배치 모두)"을 추가했다. 고친 뒤 SHD·CinC `mix_lif_bidir_pe`를 다시 smoke했다: 두 run 모두 통과(`results/smoke-rhythm-fix-20261021-bs8b/raw.txt`), 1 epoch 점수 CinC 0.3019 / SHD 0.6210, 총 에너지 **24.2 / 260.8 µJ**(대조군 24.1 / 260.0과 같은 규모), 파라미터 961,152 / 1,473,792(= 대조군 + N × 384).
+
+| 데이터 | 조건 | 1 epoch 점수 | 총 µJ (FFT) | 시간 s |
+|---|---|---|---|---|
+| SHD | spk_ssa_nope | 0.5861 | 1,049.7 | 97 |
+| SHD | mix_sjlif_bidir | 0.5137 | 260.0 | 829 |
+| SHD | mix_lif_rec_bidir | 0.3750 | 270.3 | 1,404 |
+| SHD | mix_pop_bidir_pt16 (psi 2) | 0.7372 | 292.8 | 1,677 |
+| SHD | nsmt_lif_t4 | 0.6343 | 1,297.6 | 627 |
+| SHD | nsmt_pop_t4 | 0.7200 | 1,328.3 | 1,225 |
+| SHD | nsmt_lif_pe | 0.5702 | 26,103.8 | 840 |
+| CinC | spk_ssa_nope | 0.3548 | 105.5 | 78 |
+| CinC | mix_sjlif_bidir | 0.2970 | 24.1 | 979 |
+| CinC | mix_lif_rec_bidir | 0.3085 | 26.9 | 1,642 |
+| CinC | mix_pop_bidir_pt16 (psi 2) | 0.3354 | 62.4 | 1,715 |
+| CinC | nsmt_lif_t4 | 0.3483 | 134.3 | 632 |
+| CinC | nsmt_pop_t4 | 0.3435 | 144.4 | 1,423 |
+| CinC | mix_pop_bidir_psi1.5 | 0.3816 | 64.5 | 1,679 |
+| CinC | mix_pop_bidir_psi2 | 0.3777 | 65.6 | 1,690 |
+
+- 에너지 규모(사전 기록): 해마 T = 4 + 신피질 T = N인 `nsmt_*_t4`는 SHD 약 1,300 µJ(Spikformer식 1,050 + 신피질 약 260), CinC 약 135–145 µJ — 9단계 NSMT(26,500 / 3,400)의 1/20–1/25. 시간은 배치 8·공유 GPU 값이라 본 학습 추정에 쓰지 않는다.
+
+### 판정 (사전 고정; 9단계 규칙 — 평균 ≥ +0.5%p이고 CinC 3개 중 2개·SHD 5개 중 4개; 누락·비유한 값은 미완)
+- **Y (1-B)**: Y1 `spk_ssa_nope` − `spk_ssa`; Y2 `nsmt_lif_pe` − `nsmt_lif`; Y3 `mix_lif_bidir_pe` − `mix_lif_bidir`; Y4 `nsmt_lif_pe`·`mix_lif_bidir_pe` − `spk_ssa_nope`(위치 정보를 양쪽 다 뺀/다 준 비교) 및 − `spk_ssa`(기준 (2)).
+- **Z (1-A)**: Z1 `mix_lif_rec_bidir` − `mix_sjlif_bidir`(같은 뉴런); 보고 `mix_sjlif_bidir` − `mix_lif_bidir`(뉴런 구현 차이); Z2 `mix_pop_bidir_pt16` − `mix_pop_bidir`; Z3 둘 − `spk_ssa`(기준 (2)); 보고: 토큰 축 기억, 학습 후 g.
+- **W (1-C)**: W1 `nsmt_lif_t4` − `nsmt_lif`, `nsmt_pop_t4` − `nsmt_pop`; W2 둘 − `spk_ssa`(기준 (2)); 보고: 검증−시험 차이, 에너지.
+- **V (3, CinC만)**: V1 psi 1.5 / 2 − psi 1.0(NSMT·mixer); 보고: 학습 후 신피질 발화율.
+- **예상(사전 기록):** Y1 상대 위치 편향 제거는 Spikformer식을 0.5–2%p 낮추지만 NSMT·mixer보다는 여전히 높다. Y2·Y3 위치 임베딩은 CinC에서 약간 돕고 SHD에서는 차이 없음. Z1 재귀는 SHD에서 좋음(문헌상 SHD는 재귀가 중요), CinC 불확실; `sj_lif` − `lif`는 차이 없음; Z2 느린 가지는 CinC 차이 없음, SHD 불확실(초기 발화가 기준의 1/3이라 침묵 위험). W1 T = 4 해마는 T = N과 차이 없거나 좋음, 에너지 1/20; W2는 5단계("자기 키/값 = 신피질 키/값")가 맞다면 기준 (2) 충족 가능(가장 불확실). V1 차이 없음.
+
+
+**실행 중 스크립트 수정 사고(공개):** 이 구현을 위해 `scripts/run_rhythm.sh`를 고치는 동안 보조 손실 pool이 같은 파일로 돌고 있었다. bash는 스크립트를 바이트 위치로 읽으므로, 학습이 끝난 뒤 다음 줄을 읽은 인스턴스 4개(CinC `nsmt_pop_auxoff` seed 42/7/2026, `nsmt_pop_full` seed 42)가 바뀐 파일의 엉뚱한 위치에서 `line 53: syntax error`로 끝나 RESULT 줄을 쓰지 못했다(pool 로그에 4건). 학습·시험 산출물은 온전하다. `collect_missing_results.py`로 같은 형식의 RESULT 줄 4개를 `results/flif-v1-rhythm-aux-cinc/raw.txt`에 덧붙였고 `collected=1`로 표시했다(`time_s`는 stdout의 "done in" 값). 18:29 이후 시작한 run은 정상이다. 재발 방지: 돌고 있는 셸 스크립트는 고치지 않고 복사본을 쓴다(메모리에 기록).
+
+**실행:** tmux `flif_fix`, `bash nsmt_flif_v1/classification/scripts/rhythm_fix_driver.sh 0,1,2,3`(보조 손실 완료를 기다렸다가 시작). 예상: 보조 손실 완료 10-23 새벽 → 무거움 14 run 약 7시간, 가벼움 62 run 약 1일 → **10-24 새벽–낮** 종료.
+
+**감사:** 100(10-20 17:01) 이후 새 항목 없음.
+
+**commit:** 이 항목·코드·점검·smoke를 commit·push한 뒤 시작한다.

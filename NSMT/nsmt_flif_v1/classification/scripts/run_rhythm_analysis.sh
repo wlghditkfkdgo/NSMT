@@ -7,9 +7,9 @@ W="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PY=${PY:-/home/yschoi/.conda/envs/snn_recall/bin/python}
 export LD_LIBRARY_PATH="$(dirname "$(dirname "$PY")")/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 IFS=, read -ra G <<< "${1:-0,1,2,3}"; PER=${2:-2}
-CONDS='nsmt_lif nsmt_flif nsmt_pop mix_lif_bidir mix_flif_bidir mix_pop_bidir'
+CONDS=${CONDS:-'nsmt_lif nsmt_flif nsmt_pop mix_lif_bidir mix_flif_bidir mix_pop_bidir'}   # MODI 2026-10-21: overridable, also SUITES
 JOBS=$(mktemp)
-for SUITE in flif-v1-rhythm-cinc flif-v1-rhythm-shd; do
+for SUITE in ${SUITES:-flif-v1-rhythm-cinc flif-v1-rhythm-shd}; do
   for C in $CONDS; do
     grep '^RESULT' "$W/results/$SUITE/raw.txt" | grep " cond=$C " | grep ' crop=0 ' | while read -r L; do
       S=$(grep -oE ' seed=[0-9]+' <<< "$L" | cut -d= -f2); D=$(grep -oE ' dir=\S+' <<< "$L" | cut -d= -f2)

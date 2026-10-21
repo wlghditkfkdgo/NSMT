@@ -8,6 +8,9 @@
 #   kind aux    : (MODI 2026-10-20) NSMT aux-loss options, neurons in the order lif, pop, flif x options auxoff / full /
 #                 a05 / a09 x the main seeds (the alpha 0.1 + DCT baseline is the stage-9 main run, not repeated)
 #   kind auxsmoke: nsmt_lif x the 4 options, seed 42, EPOCHS=1
+#   kind fixlight / fixheavy: (MODI 2026-10-21) cause-separation conditions x main seeds; light = second pool on a shared GPU,
+#                 heavy = NSMT T=N (one per GPU). CinC adds the population soma-init rows (psi 1.5 / 2)
+#   kind fixsmoke: every cause-separation condition once, seed 42, EPOCHS=1
 # The heaviest jobs (NSMT, ~35 GB) are listed first; the pool runs them one per GPU (see rhythm_driver.sh).
 set -u
 W="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; SUITE=${1:?}; DATA=${2:?}; KIND=${3:?}; LR=${4:-0.001}
@@ -25,6 +28,14 @@ case $KIND in
   aux)   for n in nsmt_lif nsmt_pop nsmt_flif; do for v in auxoff full a05 a09; do for s in $SEEDS; do
            echo "COND=${n}_$v $C bash nsmt_flif_v1/classification/scripts/run_rhythm.sh $s" >> "$Q"; done; done; done ;;
   auxsmoke) for v in auxoff full a05 a09; do echo "COND=nsmt_lif_$v $C EPOCHS=1 bash nsmt_flif_v1/classification/scripts/run_rhythm.sh 42" >> "$Q"; done ;;
+  fixlight|fixheavy|fixsmoke)
+    LIGHT="spk_ssa_nope mix_lif_bidir_pe mix_lif_rec_bidir mix_sjlif_bidir mix_pop_bidir_pt16 nsmt_lif_t4 nsmt_pop_t4"; HEAVY="nsmt_lif_pe"
+    [ "$DATA" = CINC2017 ] && { LIGHT="$LIGHT mix_pop_bidir_psi1.5 mix_pop_bidir_psi2"; HEAVY="$HEAVY nsmt_pop_psi1.5 nsmt_pop_psi2"; }
+    case $KIND in fixlight) L=$LIGHT ;; fixheavy) L=$HEAVY ;; fixsmoke) L="$LIGHT $HEAVY" ;; esac
+    for c in $L; do
+      if [ "$KIND" = fixsmoke ]; then echo "COND=$c $C EPOCHS=1 bash nsmt_flif_v1/classification/scripts/run_rhythm.sh 42" >> "$Q"
+      else for s in $SEEDS; do echo "COND=$c $C bash nsmt_flif_v1/classification/scripts/run_rhythm.sh $s" >> "$Q"; done; fi
+    done ;;
   *) echo "bad kind $KIND"; exit 1 ;;
 esac
 echo "$Q: $(wc -l < "$Q") lines"

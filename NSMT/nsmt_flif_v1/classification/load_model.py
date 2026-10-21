@@ -14,6 +14,8 @@ def _neo_kwargs(args):
                 neo_bidir=getattr(args, 'neo_bidir', False),                                        # stage 6
                 in_channels=getattr(args, 'num_channels', 1), hippo_ssa=getattr(args, 'hippo_ssa', False),   # stage 9
                 hippo_T=getattr(args, 'hippo_T', 0), pop_soma_init=getattr(args, 'pop_soma_init', None),
+                hippo_xattn=getattr(args, 'hippo_xattn', False), pos_emb=getattr(args, 'pos_emb', False),   # MODI 2026-10-21
+                ssa_pe=int(getattr(args, 'ssa_pe', 1)),
                 pop_taus=tuple(float(t) for t in str(getattr(args, 'pop_taus', '4,8,16,32')).split(',')))
 
 
@@ -141,7 +143,8 @@ def load_neo_mixer(args, train=True):
                      fde_memory=getattr(args, 'fde_memory', 0),
                      pop_taus=tuple(float(t) for t in str(getattr(args, 'pop_taus', '4,8,16,32')).split(',')),
                      bias=args.bias, tau=args.tau, train_mode='training',
-                     in_channels=getattr(args, 'num_channels', 1), pop_soma_init=getattr(args, 'pop_soma_init', None))   # stage 9
+                     in_channels=getattr(args, 'num_channels', 1), pop_soma_init=getattr(args, 'pop_soma_init', None),   # stage 9
+                     pos_emb=getattr(args, 'pos_emb', False))                                                          # MODI 2026-10-21
     if not train:
         saved_model_path = os.path.join(args.save_result_path, "model_state", "best+model.pt")
         model.load_state_dict(torch.load(saved_model_path, map_location='cpu'))

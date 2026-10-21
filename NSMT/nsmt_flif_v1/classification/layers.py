@@ -169,17 +169,19 @@ class SSA_rel_scl(nn.Module):
         
         
         # self.dropout = nn.Dropout(drop)
-    def forward(self, x, mask=None):
+    def forward(self, x, mask=None, kv=None):
         T,B,N,C = x.shape
         
         # T, batch_size, seq_len, _ = x.shape 
         x_for_qkv = x.flatten(0, 1)  # TB, N, D
+        # MODI 2026-10-21 (1-C): with kv [T, B, N, C] the keys / values come from kv and only the queries from x
+        x_for_kv = x_for_qkv if kv is None else kv.flatten(0, 1)
         
-        k = self.k_linear(x_for_qkv)
+        k = self.k_linear(x_for_kv)
         k = self.k_lif(self.k_bn(k.transpose(-1, -2)).transpose(-1, -2).reshape(T, B, N, C).contiguous())
         k = k.reshape(T, B, N, self.num_heads, C//self.num_heads).permute(0, 1, 3, 2, 4).contiguous()
 
-        v = self.v_linear(x_for_qkv)
+        v = self.v_linear(x_for_kv)
         v = self.v_lif(self.v_bn(v.transpose(-1, -2).contiguous()).transpose(-1, -2).contiguous().reshape(T, B, N, C).contiguous())
         v = v.reshape(T, B, N, self.num_heads, C//self.num_heads).permute(0, 1, 3, 2, 4).contiguous()
         

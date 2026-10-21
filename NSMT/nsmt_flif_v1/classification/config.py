@@ -112,11 +112,15 @@ def parse_arguments():
     snn_arg.add_argument('--neo_bidir', action='store_true', default=False,
                          help='stage 6: second neocortex over the reversed token axis, fused with the forward one by OR')
     # stage 7: --model neoMixer (attention replaced by the neocortex network; --layers = blocks, --time_layers = mixer layers)
-    snn_arg.add_argument('--mixer', choices=['none', 'lif', 'flif', 'pop_flif'], default='pop_flif')
+    snn_arg.add_argument('--mixer', choices=['none', 'lif', 'flif', 'pop_flif', 'lif_rec', 'sj_lif'], default='pop_flif')
     snn_arg.add_argument('--mixer_bidir', action='store_true', default=False)
     # stage 9 (MODI 2026-10-19): CinC 2017 / SHD, Spikformer-style Hippo-only, population calibration (see train_rhythm.py)
     snn_arg.add_argument('--hippo_ssa', action='store_true', default=False, help='Hippo-only with Spikformer-style token self-attention')
-    snn_arg.add_argument('--hippo_T', type=int, default=0, help='hippocampus repetitions (0 = number of tokens; only hippo_ssa may differ)')
+    snn_arg.add_argument('--hippo_T', type=int, default=0, help='hippocampus repetitions (0 = number of tokens; only hippo_ssa / hippo_xattn may differ)')
+    # MODI 2026-10-21 (stage 9 cause-separation): 1-B position, 1-C hippocampus T_h with token cross-attention over neocortex tokens
+    snn_arg.add_argument('--ssa_pe', type=int, choices=[0, 1], default=1, help='relative position bias in SSA / hippo_xattn (0 = none)')
+    snn_arg.add_argument('--pos_emb', action='store_true', default=False, help='learned absolute position in the hippocampus / mixer embedding')
+    snn_arg.add_argument('--hippo_xattn', action='store_true', default=False, help='hippocampus T_h repeats with token cross-attention (q = hippocampus, k/v = neocortex tokens)')
     snn_arg.add_argument('--pop_soma_init', type=float, default=None, help='pop_flif soma mixing weight init (None = 1/K)')
     snn_arg.add_argument('--fold', type=int, default=0, help='CinC 2017: test fold 0..4 of the record-wise stratified 5-fold split')
     snn_arg.add_argument('--val_frac', type=float, default=0.1, help='share of the training part held out for validation')
@@ -211,11 +215,17 @@ class Config():
             _iso += "_bidir"
         if getattr(args, 'model', 'myModel') == 'neoMixer':
             _iso += f"_mix-{args.mixer}" + ("-bidir" if getattr(args, 'mixer_bidir', False) else "") + f"-L{args.num_layers}-a{args.neo_alpha}"
-        if getattr(args, 'neo_neuron', 'sj_lif') == 'pop_flif' and getattr(args, 'pop_taus', '4,8,16,32') != '4,8,16,32':
+        if (getattr(args, 'neo_neuron', 'sj_lif') == 'pop_flif' or getattr(args, 'mixer', '') == 'pop_flif') and getattr(args, 'pop_taus', '4,8,16,32') != '4,8,16,32':
             _iso += "_pt" + args.pop_taus.replace(',', '-')
         # stage 9 suffixes (absent for every earlier configuration)
         if getattr(args, 'hippo_ssa', False):
             _iso += f"_ssaT{args.hippo_T}"
+        if getattr(args, 'hippo_xattn', False):
+            _iso += f"_xaT{args.hippo_T}"
+        if getattr(args, 'pos_emb', False):
+            _iso += "_pe"
+        if int(getattr(args, 'ssa_pe', 1)) == 0:
+            _iso += "_nope"
         if getattr(args, 'pop_soma_init', None) is not None:
             _iso += f"_psi{args.pop_soma_init:g}"
         if str(getattr(args, 'data', '')).upper() in ('CINC2017', 'SHD'):

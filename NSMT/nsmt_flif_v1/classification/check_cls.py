@@ -42,6 +42,20 @@ cannot run, or whose test is vacuous (no spikes), FAILs.
       path: allclose to manual slices of the padded input; C = 7 token path: bitwise) and with 0.15 it is not (non-vacuous);
       train_rhythm.train_epoch with alpha 0 returns loss == CE and leaves the decoder without gradient while the neocortex
       still gets one (through the cross-attention); alpha 0.5 / 0.9 give loss == (1 - a) CE + a MSE and a decoder gradient
+  c20 (MODI 2026-10-21) --ssa_pe 0: no relative-bias table; at init its output equals the pe=1 model bitwise (table is zero at
+      init) and under pe=1 the table receives a gradient
+  c21 (MODI 2026-10-21) --pos_emb: exactly one extra parameter encoding.pos [1, N, D] (NSMT and NeoMixer); the embedding
+      output shape is unchanged (the first version broadcast the table over the token-axis layout: 100x tensors, found in the
+      smoke energy); with the no-pos weights loaded and pos zeroed the outputs are bitwise equal; an offset on token j changes
+      the embedding spikes of token j only in both layouts; a random pos changes the logits
+  c22 (MODI 2026-10-21) --hippo_xattn: T_h = 4, attention q [4, B, N, D] from the hippocampus and kv [4, B, N, D] from the
+      neocortex tokens, neocortex causal at T = N, decoder present and loss = 0.9 CE + 0.1 MSE, replacing neocortex token j
+      changes the block output (non-vacuous)
+  c23 (MODI 2026-10-21) mixers lif_rec / sj_lif: 4 recurrent (resp. plain) spikingjelly NeoLayers, gate g = 0 at init so the output
+      equals the W_rec-zeroed model bitwise, g = 1 changes it, g receives a gradient; the energy recorder hooks the LIFNodes
+      under blocks.0.mixer as neocortex path
+  c24 (MODI 2026-10-21) population branches tau 16/32/64/128: tau values, and the soma init in {1, 2, 4} whose initial firing on
+      real data (training-mode BN) is closest to the tau 4-32 / psi 1 mixer (per dataset) -- the value is reported, not asserted
 usage: python check_cls.py [--out results/checks/check_cls.txt]
 """
 import argparse
@@ -736,12 +750,204 @@ def c19():
     report('c19', all(oks), '; '.join(msgs))
 
 
+@check('c20')
+def c20():
+    from load_model import LOAD_MODEL
+    from config import set_random_seed
+    from spikingjelly.clock_driven import functional
+    g = torch.Generator().manual_seed(20); x = torch.randn(2, 1, 3750, generator=g).cuda()
+    outs, ms = [], []
+    for pe in (1, 0):
+        set_random_seed(0)
+        m = LOAD_MODEL['myModel'](NS(**dict(HP, patch_size=64, seq_len=3750, num_channels=1, num_classes=4, hippo_ssa=True, hippo_T=4, ssa_pe=pe)), True).cuda().eval()
+        m.train_mode = 'testing'
+        with torch.no_grad():
+            outs.append(m(x)[0]); functional.reset_net(m)
+        ms.append(m)
+    has = [hasattr(m.data_block[0].ssa, 'relative_bias_table') for m in ms]
+    same = torch.equal(outs[0], outs[1])
+    m = ms[0].train(); m.train_mode = 'training'
+    z = m(x)[0]; torch.nn.functional.cross_entropy(z, torch.tensor([0, 1]).cuda()).backward(); functional.reset_net(m)
+    gr = m.data_block[0].ssa.relative_bias_table.grad
+    ok = has == [True, False] and same and gr is not None and float(gr.abs().sum()) > 0
+    report('c20', ok, f'rel-bias table present (pe=1, pe=0) {has}, outputs equal at init {same}, table grad sum {float(gr.abs().sum()) if gr is not None else None:.3e}')
+
+
+@check('c21')
+def c21():
+    from load_model import LOAD_MODEL
+    from config import set_random_seed
+    from spikingjelly.clock_driven import functional
+    g = torch.Generator().manual_seed(21); x = torch.rand(4, 1, 187, generator=g).cuda()
+    msgs, oks = [], []
+    for name in ('myModel', 'neoMixer'):
+        kw = dict(HP, model=name, neo_neuron='lif', mixer='lif', mixer_bidir=True, neo_alpha=0.5, pop_taus='4,8,16,32')
+        set_random_seed(0); m0 = LOAD_MODEL[name](NS(**kw), True).cuda().eval(); m0.train_mode = 'testing'
+        set_random_seed(0); m1 = LOAD_MODEL[name](NS(**dict(kw, pos_emb=True)), True).cuda().eval(); m1.train_mode = 'testing'
+        extra = sorted(set(m1.state_dict()) - set(m0.state_dict()))
+        shape = tuple(m1.encoding.pos.shape) if extra == ['encoding.pos'] else None
+        m1.load_state_dict(m0.state_dict(), strict=False)
+        emb = {}
+        h = m1.encoding.emb_lif.register_forward_hook(lambda mod, i, o: emb.__setitem__('shape', tuple(o.shape)))
+        h0 = m0.encoding.emb_lif.register_forward_hook(lambda mod, i, o: emb.__setitem__('shape0', tuple(o.shape)))
+        with torch.no_grad():
+            m1.encoding.pos.zero_()
+            z0 = m0(x)[0]; functional.reset_net(m0)
+            z1 = m1(x)[0]; functional.reset_net(m1)
+            # a large offset on token j only must change the embedding spikes at token j only (both layouts)
+            j = 5; m1.encoding.pos[0, j] = 50.
+            if name == 'myModel':
+                e0 = m0.encoding(m0._tokens_mc(x)[0] if False else m0.padding_patch_layer(x.unsqueeze(0).repeat(m0.T, 1, 1, 1).flatten(0, 1).reshape(m0.T, x.shape[0], -1)).unfold(-1, 32, 16)); functional.reset_net(m0)
+                e1 = m1.encoding(m1.padding_patch_layer(x.unsqueeze(0).repeat(m1.T, 1, 1, 1).flatten(0, 1).reshape(m1.T, x.shape[0], -1)).unfold(-1, 32, 16)); functional.reset_net(m1)
+                tok_axis = 2                                       # [T, B, N, D]
+            else:
+                e0 = m0.encoding(m0.tokens(x)); functional.reset_net(m0)
+                e1 = m1.encoding(m1.tokens(x)); functional.reset_net(m1)
+                tok_axis = 0                                       # [N, B, 1, D]
+            others = [k for k in range(e0.shape[tok_axis]) if k != j]
+            local = torch.equal(e0.index_select(tok_axis, torch.tensor(others).cuda()), e1.index_select(tok_axis, torch.tensor(others).cuda())) \
+                and not torch.equal(e0.select(tok_axis, j), e1.select(tok_axis, j))
+            m1.encoding.pos.normal_(0, 1.)
+            z2 = m1(x)[0]; functional.reset_net(m1)
+        h.remove(); h0.remove()
+        same_shape = emb.get('shape') == emb.get('shape0') and e0.shape == e1.shape
+        ok = extra == ['encoding.pos'] and shape == (1, m0.num_patches, 384) and torch.equal(z0, z1) and not torch.equal(z1, z2) and same_shape and local
+        oks.append(ok); msgs.append(f'{name}: extra params {extra} shape {shape}, embedding shape unchanged {same_shape} {emb.get("shape")}, zero-pos equal {torch.equal(z0, z1)}, '
+                                    f'offset on token {j} changes token {j} only {local}, random-pos differs {not torch.equal(z1, z2)}')
+    report('c21', all(oks), '; '.join(msgs))
+
+
+@check('c22')
+def c22():
+    from load_model import LOAD_MODEL
+    from config import set_random_seed
+    from train_rhythm import train_epoch
+    from spikingjelly.clock_driven import functional
+    import torch.nn as nn
+    g = torch.Generator().manual_seed(22); x = torch.randn(3, 1, 3750, generator=g).cuda()
+    set_random_seed(0)
+    m = LOAD_MODEL['myModel'](NS(**dict(HP, patch_size=64, seq_len=3750, num_channels=1, num_classes=4, hippo_T=4, hippo_xattn=True, neo_neuron='lif')), True).cuda().train()
+    m.train_mode = 'testing'                                           # BN with batch statistics (eval-mode BN at init silences every neuron, c16)
+    # one batch-statistics pass fixes the BN running statistics (momentum 1), then eval mode makes the causality test
+    # deterministic (train-mode BN would re-sum the permuted batch and flip near-threshold spikes before token j)
+    for mod in m.modules():
+        if isinstance(mod, torch.nn.BatchNorm1d):
+            mod.momentum = 1.0
+    with torch.no_grad():
+        m(x); functional.reset_net(m)
+    m.eval()
+    seen = {}
+    ssa = m.data_block[0].ssa; orig = ssa.forward
+    def rec(xx, mask=None, kv=None):
+        seen['q'] = tuple(xx.shape); seen['kv'] = None if kv is None else tuple(kv.shape); return orig(xx, mask=mask, kv=kv)
+    ssa.forward = rec
+    N = m.num_patches; j = N // 2; perm = torch.tensor([1, 2, 0]).cuda()
+    with torch.no_grad():
+        hip, neo = m._tokens_mc(x)
+        _, o0 = m.neo_forward(neo); functional.reset_net(m)
+        neo2 = neo.clone(); neo2[j] = neo2[j][perm]
+        _, o1 = m.neo_forward(neo2); functional.reset_net(m)
+        causal = torch.equal(o0[:j], o1[:j]) and not torch.equal(o0[j:], o1[j:])
+        xh = m.encoding(hip); functional.reset_net(m)
+        h0 = m.data_block[0](xh, o0); functional.reset_net(m)
+        h1 = m.data_block[0](xh, o1); functional.reset_net(m)
+        sens = not torch.equal(h0, h1)
+    ssa.forward = orig
+    m.train(); m.train_mode = 'training'
+    opt = torch.optim.SGD(m.parameters(), lr=0.)
+    r = train_epoch(m, [(x.cpu(), torch.tensor([0, 1, 2]))], nn.CrossEntropyLoss(), opt, 0.1, 'cuda')
+    loss_ok = abs(r['loss'] - (0.9 * r['ce'] + 0.1 * r['mse'])) < 1e-6 and r['mse'] > 0
+    ok = m.T_h == 4 and seen.get('q') == (4, 3, N, 384) and seen.get('kv') == (4, 3, N, 384) and causal and sens and hasattr(m, 'weak_decoder') and hasattr(m, 'time_block') and loss_ok
+    report('c22', ok, f'T_h {m.T_h}, q {seen.get("q")}, kv {seen.get("kv")}, neocortex causal {causal}, block output changes with neocortex token {sens}, '
+                      f'decoder {hasattr(m, "weak_decoder")}, loss {r["loss"]:.6f} = 0.9 ce {r["ce"]:.6f} + 0.1 mse {r["mse"]:.6f} ({loss_ok})')
+
+
+@check('c23')
+def c23():
+    from load_model import LOAD_MODEL
+    from config import set_random_seed
+    from energy import FiringRateRecorder
+    from spikingjelly.clock_driven import functional
+    from model import NeoLayer
+    import copy
+    g = torch.Generator().manual_seed(23); x = torch.rand(4, 1, 187, generator=g).cuda()
+    msgs, oks = [], []
+    for mixer in ('lif_rec', 'sj_lif'):
+        set_random_seed(0)
+        m = LOAD_MODEL['neoMixer'](NS(**dict(HP, model='neoMixer', mixer=mixer, mixer_bidir=True, neo_alpha=0.5, pop_taus='4,8,16,32')), True).cuda().train()
+        m.train_mode = 'testing'                                       # BN with batch statistics (see c16 / c22)
+        layers = [l for l in m.modules() if isinstance(l, NeoLayer)]
+        n_rec = sum(l.recurrent for l in layers)
+        rec = FiringRateRecorder(m); hooked = [n for n in rec.stats if n.startswith('blocks.0.mixer') and rec.stats[n]['single']]
+        with torch.no_grad():
+            z0 = m(x)[0]; functional.reset_net(m)
+        rec.detach()
+        if mixer == 'lif_rec':
+            gs = [float(l.g) for l in layers]
+            m2 = copy.deepcopy(m)
+            with torch.no_grad():
+                for l in m2.modules():
+                    if isinstance(l, NeoLayer): l.w_rec.weight.zero_()
+                z1 = m2(x)[0]; functional.reset_net(m2)
+                for l in m2.modules():
+                    if isinstance(l, NeoLayer): l.g.fill_(1.)
+                functional.reset_net(m2)
+            m3 = copy.deepcopy(m)
+            with torch.no_grad():
+                for l in m3.modules():
+                    if isinstance(l, NeoLayer): l.g.fill_(1.)
+                z2 = m3(x)[0]; functional.reset_net(m3)
+            m.train(); m.train_mode = 'training'
+            z = m(x); torch.nn.functional.cross_entropy(z, torch.tensor([0, 1, 2, 3]).cuda()).backward(); functional.reset_net(m)
+            ggrad = all(l.g.grad is not None and float(l.g.grad.abs()) > 0 for l in layers)
+            ok = len(layers) == 4 and n_rec == 4 and gs == [0.] * 4 and torch.equal(z0, z1) and not torch.equal(z0, z2) and ggrad and len(hooked) == 4
+            oks.append(ok); msgs.append(f'lif_rec: layers {len(layers)} recurrent {n_rec}, g {gs}, equals W_rec-zeroed {torch.equal(z0, z1)}, g=1 differs {not torch.equal(z0, z2)}, g grad {ggrad}, hooked LIFNodes {len(hooked)}')
+        else:
+            has_rec = any(hasattr(l, 'w_rec') for l in layers)
+            ok = len(layers) == 4 and n_rec == 0 and not has_rec and len(hooked) == 4
+            oks.append(ok); msgs.append(f'sj_lif: layers {len(layers)} recurrent {n_rec}, W_rec {has_rec}, hooked LIFNodes {len(hooked)}')
+    report('c23', all(oks), '; '.join(msgs))
+
+
+@check('c24')
+def c24():
+    from load_model import LOAD_MODEL
+    from config import set_random_seed
+    import rhythm_data as rd
+    from layers import NeoNeuron
+    from neurons import PopulationFLIF
+    from spikingjelly.clock_driven import functional
+    msgs, oks = [], []
+    for data, pargs in (('CINC2017', dict(data='CINC2017', crop_tokens=0, patch_size=64, fs_target=125., fold=0, val_frac=0.1, win_s=30., hop_s=15.)),
+                        ('SHD', dict(data='SHD', crop_tokens=0, patch_size=2, val_frac=0.1))):
+        d = rd.build(NS(**pargs), 42)
+        xb = torch.stack([d['train'][i][0] for i in range(16)]).float().cuda()
+        rates, taus = {}, {}
+        for pt, psi in (('4,8,16,32', 1.0), ('16,32,64,128', 1.0), ('16,32,64,128', 2.0), ('16,32,64,128', 4.0)):
+            set_random_seed(0)
+            kw = dict(HP, patch_size=pargs['patch_size'], seq_len=d['seq_len'], num_channels=d['num_channels'], num_classes=d['num_classes'],
+                      model='neoMixer', mixer='pop_flif', mixer_bidir=True, neo_alpha=0.5, pop_taus=pt, pop_soma_init=psi)
+            m = LOAD_MODEL['neoMixer'](NS(**kw), True).cuda().train(); m.train_mode = 'training'
+            pops = [mod.neuron for mod in m.modules() if isinstance(mod, NeoNeuron) and isinstance(mod.neuron, PopulationFLIF)]
+            taus[pt] = sorted({round(float(t), 1) for p in pops for t in p.tau.flatten().tolist()})
+            with torch.no_grad():
+                o = m.blocks[0].mix(m.encoding(m.tokens(xb)))
+            functional.reset_net(m); rates[(pt, psi)] = o.float().mean().item()
+            del m; torch.cuda.empty_cache()
+        ref = rates[('4,8,16,32', 1.0)]
+        cand = {psi: rates[('16,32,64,128', psi)] for psi in (1.0, 2.0, 4.0)}
+        pick = min(cand, key=lambda k: abs(cand[k] - ref))
+        ok = taus['16,32,64,128'] == [16., 32., 64., 128.] and all(v > 0 for v in cand.values())
+        oks.append(ok); msgs.append(f'{data}: taus {taus["16,32,64,128"]}, ref (4-32, psi 1) {ref:.4f}, 16-128 at psi ' + ', '.join(f'{k:g}: {v:.4f}' for k, v in cand.items()) + f' -> pick psi {pick:g}')
+    report('c24', all(oks), '; '.join(msgs))
+
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', default=os.path.join(HERE, 'results', 'checks', 'check_cls.txt'))
     ap.add_argument('--only', nargs='*', default=None)
     a = ap.parse_args()
-    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19):
+    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23, c24):
         if a.only and fn.__name__ not in a.only:
             continue
         fn()
