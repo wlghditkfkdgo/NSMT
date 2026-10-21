@@ -81,5 +81,10 @@ case $WHAT in
       one ${DS}_${RV}_q1      "CUDA_VISIBLE_DEVICES=$GPU" $COMMON $EX $U1
       one ${DS}_${RV}_pearson "CUDA_VISIBLE_DEVICES=$GPU" $COMMON $EX $US
     done ;;
+  ett2v)   # prereg 2V: the two new soma x norm combinations, q1 only (R on and off); usage: ett2v <suite> <DS> <gpu> <soma> <norm>
+    DS=${3:?dataset}; GPU=${4:?gpu}; SOMA=${5:?soma}; NORM=${6:?norm}
+    COMMON="--task ett --data $DS --input_norm $NORM --seed 7 -nd 0 --neuron pop_flif --soma $SOMA --mode full"
+    one ${DS}_Roff_q1 "CUDA_VISIBLE_DEVICES=$GPU" $COMMON
+    one ${DS}_R_q1    "CUDA_VISIBLE_DEVICES=$GPU" $COMMON --revin ;;
   *) echo "bad target $WHAT"; exit 1 ;;
 esac

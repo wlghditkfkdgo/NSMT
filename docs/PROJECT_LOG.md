@@ -7656,3 +7656,39 @@ SUITE=neurons-smoke-20261014b-nocal EXTRA='--no-require_calibration --input_scal
 **태그:** 이 기록을 담은 commit 에 `exp/f-lif-pop-v3-2u-snnblocks-20261022`(annotated, 완료)를 붙인다.
 
 **commit:** 이 기록을 담은 commit 을 `exp/f-lif-pop-v3` 에 push (해시는 다음 기록에).
+
+## 2026-10-22 01:22 KST — 사전등록 2V: 2U가 2T보다 나쁜 원인을 세 변경의 2×2×2로 분해 (validation, **탐색**) — 학습 전 분석, 보정 8개, 대기열 192 run
+
+**직전 commit:** 2U 완료 commit 은 `6be3e94f7` (태그 `exp/f-lif-pop-v3-2u-snnblocks-20261022`).
+
+**사용자 요청:** "1. 원인을 분석해보자. 2. 그리고 나서 튜닝할 수 있는 부분이 있다면 튜닝해보자. 3. 2T가 무슨 실험이었지?" 3번은 답했다. 2T는 구조를 그대로 두고 뉴런만 spikeDE 기반으로 바꿔 2J–2Q를 같은 분할에서 다시 돌린 재현 묶음이다.
+
+**학습 없이 한 분석:**
+- **곡선 (seed 8개 평균, `best_log_0.csv`):**
+
+| 데이터 / 조건 | 최저 val 시점 epoch (2T → 2U) | 최저점 학습 오차 (2T → 2U) | 최저 학습 오차 (2T → 2U) | 최저 val (2T → 2U) |
+|---|---|---|---|---|
+| ETTh1 q1_R | 9.0 → 3.2 | 0.3391 → 0.3483 | 0.3266 → 0.3174 | 0.7304 → 0.7968 |
+| ETTh1 q1 | 15.2 → 9.2 | 0.3456 → 0.3601 | 0.3354 → 0.3403 | 0.7656 → 0.8423 |
+| ETTh2 q1_R | 2.4 → 1.2 | 0.3941 → 0.4101 | 0.3426 → 0.3004 | 0.2332 → 0.2483 |
+| ETTh2 q1 | 7.5 → 3.4 | 0.3905 → 0.4180 | 0.3632 → 0.3515 | 0.2757 → 0.3232 |
+
+  2U는 학습 오차를 2T만큼 또는 더 낮추지만, val 최저점이 일찍 오고 그 값이 높다. 학습을 못 하는 것이 아니라 일반화가 나쁘다.
+- **BN 모드 대조 (2U checkpoint, seed 7/13/21/42):**
+  - val을 누적 통계로 재면 ETTh1 q1_R 0.7943, batch 통계로 재면 0.9418이다. 다른 조건도 batch 통계 쪽이 나쁘다(ETTh2 q1 0.3202 → 0.8642).
+  - 학습 집합을 평가 모드로 재면 학습 오차와 같다(ETTh1 q1_R 0.3441).
+  - 따라서 BN의 학습/평가 모드 불일치가 원인이라는 증거는 없다.
+
+**설계와 준비:** 사전등록 부록 **2V**(D-CZ ~ D-DB). 코드는 `rerun_common.cell_2v`/`CELLS_2V`/`SOURCE_2V`, `scripts/rerun2v_ett.sh`, `scripts/rerun2v_queue.sh`, `rerun_calibrate.sh ett2v`, `analysis/ablation_2v.py`다.
+
+- **보정 8개 (모두 통과):**
+
+| 조합 | ETTh1 R 끔 / 켬 | ETTh2 R 끔 / 켬 |
+|---|---|---|
+| lif + bn (soma 발화율) | 6.0 (0.2166) / 10.0 (0.2189) | 6.0 (0.2163) / 8.0 (0.1835) |
+| none + frozen (구성원 발화율) | 6.0 (0.2314) / 8.0 (0.2009) | 6.0 (0.2298) / 8.0 (0.2040) |
+
+- **smoke** (보고 안 함, suite `rerun2v-smoke-20261022`): q1_R-lif-bn-hidden과 q1-none-frozen-flatten을 1 epoch 돌렸다. manifest는 짧은 학습만 지적했고, val 재현은 6e-8과 4e-8이었다.
+- **대기열:** `scripts/rerun2v_queue.sh etthard-2v-20261022`로 192 run을 만들었다(q1_R 먼저).
+
+**commit:** 이 기록을 담은 commit 을 `exp/f-lif-pop-v3` 에 push (해시는 다음 기록에). 그 뒤 pool을 시작한다.

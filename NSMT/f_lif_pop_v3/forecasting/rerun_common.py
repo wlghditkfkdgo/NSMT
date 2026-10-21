@@ -68,6 +68,36 @@ U_BLOCK = {'soma': 'none', 'input_norm': 'bn', 'hidden_dim': 32, 'hidden_tau': 2
 ETT_CONDITIONS_2U = {c: {**ETT_CONDITIONS[c], **U_BLOCK}
                      for c in ('q1', 'pearson', 'q1_R', 'pearson_R', 'q1_R_a1', 'pearson_R_a1')}
 CONDITIONS = {'2T': ETT_CONDITIONS, '2U': ETT_CONDITIONS_2U}
+
+
+# prereg 2V: the 2T -> 2U changes taken apart, 2 x 2 x 2 on validation: soma (lif | none) x input norm
+# (frozen standardisation + fixed scale | per-step BN with gamma from D11) x head (flatten: Linear(D*,32) then
+# Linear(1344,96), as 2T | hidden: Linear + BN + SpikingJelly LIF then one Linear, as 2U). Cell names
+# '<base>-<soma>-<norm>-<head>', base q1_R or q1. lif-frozen-flatten is 2T's run, none-bn-hidden is 2U's.
+def cell_2v(name):
+    base, soma, norm, head = name.split('-')
+    spec = {**ETT_CONDITIONS[base], 'soma': soma, 'input_norm': norm}
+    if head == 'hidden':
+        spec.update(hidden_dim=32, hidden_tau=2., head_mode='linear')
+    elif head == 'flatten':
+        spec.update(hidden_dim=0, head_mode='flatten')
+    else:
+        raise ValueError(f'head {head!r}')
+    return spec
+
+
+CELLS_2V = [f'{b}-{s}-{n}-{h}' for b in ('q1_R', 'q1') for s in ('lif', 'none') for n in ('frozen', 'bn')
+            for h in ('flatten', 'hidden')]
+SOURCE_2V = {   # (soma, norm, head) -> (training suite, stdout condition label of base, calibration suite)
+    ('lif', 'frozen', 'flatten'): ('etthard-spikede-20261021', '{base}', 'rerun-cal-20261021'),
+    ('none', 'bn', 'hidden'): ('etthard-2u-20261021', '{base}', 'rerun2u-cal-20261021'),
+    ('lif', 'bn', 'flatten'): ('etthard-2v-20261022', '{cell}', 'rerun2v-cal-lifbn-20261022'),
+    ('lif', 'bn', 'hidden'): ('etthard-2v-20261022', '{cell}', 'rerun2v-cal-lifbn-20261022'),
+    ('lif', 'frozen', 'hidden'): ('etthard-2v-20261022', '{cell}', 'rerun-cal-20261021'),
+    ('none', 'frozen', 'flatten'): ('etthard-2v-20261022', '{cell}', 'rerun2v-cal-nonefrozen-20261022'),
+    ('none', 'frozen', 'hidden'): ('etthard-2v-20261022', '{cell}', 'rerun2v-cal-nonefrozen-20261022'),
+    ('none', 'bn', 'flatten'): ('etthard-2v-20261022', '{cell}', 'rerun2u-cal-20261021'),
+}
 # run_ett.sh / ett_test.REGISTERED: the O8 budget and the shape; alpha and head_mode come from the condition
 ETT_REGISTERED = {'task': 'ett', 'seq_len': 336, 'patch_size': 8, 'embed_dim': 32, 'head_dim': 32, 'epoch': 50,
                   'batch_size': 128, 'lr': 1e-3, 'weight_decay': .01, 'patience': 10, 'scheduler_patience': 5,
