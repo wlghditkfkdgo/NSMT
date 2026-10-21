@@ -7532,3 +7532,30 @@ SUITE=neurons-smoke-20261014b-nocal EXTRA='--no-require_calibration --input_scal
 **한계:** 바뀐 세 가지(population 축 유지, BN, hidden 블록)를 한꺼번에 바꿨으므로 결과 차이를 하나에 돌릴 수 없다. 보정·학습은 아직 하지 않았다.
 
 **commit:** 이 기록을 담은 commit 을 `exp/f-lif-pop-v3` 에 push (해시는 다음 기록에).
+
+## 2026-10-21 22:42 KST — 2U 보정 12개 고정 (train, seed 7; 값은 BN γ 초기값): 10개 통과, **α=1 pearson 2개 거부**; ETT 대기열 80 run
+
+**직전 commit:** 2U 사전등록 commit 은 `26ca29dd1` (`exp/f-lif-pop-v3`).
+
+**명령:** `scripts/rerun_calibrate.sh ett2u rerun2u-cal-20261021 ETTh1 0`과 `… ETTh2 1`을 동시에 돌린 뒤 `rerun_common.py freeze-calibration rerun2u-cal-20261021`로 고정했다(`results/rerun2u-cal-20261021/calibration_manifest.json`, 파일은 `results/calibration/*_norm-bn*_261021-*.json`).
+
+| 설정 | γ 초기값 (발화율, G11 한계) | 2T(soma, 고정 표준화) 배율 |
+|---|---|---|
+| ETTh1 R 끔 q1 / pearson | 6.0 (0.2317, 491.773) | 6.0 |
+| ETTh2 R 끔 q1 / pearson | 6.0 (0.2308, 849.286) | 6.0 |
+| ETTh1 R 켬 q1 / pearson | 8.0 (0.2013, 974.436) | 10.0 |
+| ETTh2 R 켬 q1 / pearson | 8.0 (0.2046, 1393.044) | 8.0 |
+| ETTh1 R 켬 α=1 q1 | 6.0 (0.1980, 730.827) | 6.0 |
+| ETTh2 R 켬 α=1 q1 | 6.0 (0.2063, 1044.783) | 6.0 |
+| ETTh1 R 켬 α=1 pearson | **거부**: 학습 전 상태 최대값 1593.6 ≥ 730.8 | 거부 |
+| ETTh2 R 켬 α=1 pearson | **거부**: 2292.6 ≥ 1044.8 | 거부 |
+
+- pearson α=0.7의 at-init 발화율은 ETTh1 0.2322(R 끔)와 0.2645(R 켬), ETTh2 0.2137과 0.2527이며 모두 범위 안이다.
+- 발화율은 구성원 4개가 각자 내는 스파이크의 평균이다. soma가 없으므로 2T의 soma 발화율과 같은 양이 아니다.
+- α=1 pearson은 옛 뉴런, 2T, 2U 세 구조 모두에서 학습할 수 없었다. 2P의 F_p, S_on(1), J는 이번에도 보류된다.
+
+**대기열:** `CONDS="q1 pearson q1_R pearson_R q1_R_a1 pearson_R_a1" scripts/rerun_ett_queue.sh etthard-2u-20261021 rerun2u-cal-20261021 rerun2u_ett.sh`로 80 run을 만들었다. pearson_R_a1 16개는 넣지 않았다. 사본은 `results/etthard-2u-20261021/run_commands.txt`에 있다.
+
+**다음:** 이 commit 뒤에 pool(GPU당 1개, 다른 작업의 SHD 학습 옆)을 시작한다.
+
+**commit:** 이 기록을 담은 commit 을 `exp/f-lif-pop-v3` 에 push (해시는 다음 기록에).
