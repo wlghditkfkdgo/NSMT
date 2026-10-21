@@ -7467,3 +7467,68 @@ SUITE=neurons-smoke-20261014b-nocal EXTRA='--no-require_calibration --input_scal
 - 다음 실험은 사전등록 2U로 따로 등록한다.
 
 **태그:** 이 기록을 담은 commit 에 `exp/f-lif-pop-v3-spikede-rerun-20261021`(annotated)을 붙인다. 2K 미평가 상태의 완료 태그다.
+
+## 2026-10-21 22:39 KST — 사전등록 2U: population 축 유지 + Linear·BN·스파이킹 뉴런 블록 + 출력 Linear 하나로 ETT 2N·2O·2P 재현 (**탐색**) — 구현·관문·smoke, 보정·학습 전
+
+**직전 commit:** 04:3x 기록(2T 종료)의 commit 은 `efd8338aa` (`exp/f-lif-pop-v3`, 태그 `exp/f-lif-pop-v3-spikede-rerun-20261021`).
+
+**사용자 요청:** "지금 내가 지적한 사항을 반영해서 다시 실험해보자." 결정 과정을 순서대로 적는다(질문과 답).
+1. 구조: 스파이킹 hidden 블록을 추가하는 안을 골랐다.
+2. BN 크기: 처음에는 "BN만(NSMT처럼)"을 골랐다.
+3. 범위: ETT만이다. 2T의 2K는 규칙대로 미평가다.
+4. **BN만으로는 population이 거의 꺼진다는 사실을 보고하고 다시 물었다.**
+   - ETTh1 train에서 BN만 쓰면(γ=1, 배율 없음) 학습 전 발화율은 0.0014였고 단위 48%가 미발화였다.
+   - 3 epoch smoke에서도 0.0016 → 0.0021 → 0.0030이었고, val은 1.01이었다(보고 안 함, `log/scratch-2u-wake-20261021`).
+   - 사용자는 원문 f-LIF의 BN 처리를 정리해 달라고 했다.
+5. **원문 정리:** 근거는 spikeDE `fcd743b`의 예제 Spikformer·DVSNet·`example_per_layer_alpha`, `snn.py`·`odefunc.py`, ICLR 2026 논문이다.
+   - 모든 층이 Conv/Linear → BatchNorm → LIFNeuron 순서다.
+   - BN은 일반 PyTorch BN이고 γ는 1에서 시작하며 입력 배율이 없다.
+   - 마지막 뉴런까지의 연산이 적분기 우변에 들어가므로 BN은 solver step마다 시점별로 계산된다.
+   - 모든 뉴런이 τ = 2.0, 문턱 1, 대리 기울기 5다. h = 0.1, T = 8 또는 16, α는 0.5 또는 0.9로 조정했다. 논문 본문에는 BN 언급이 없다.
+6. 사용자 질문: "왜 τ = 4, 8, 16, 32인가? 1, 2, 4, 8이나 2, 3, 4, 5가 아닌 이유가 있나?"
+   - 답: 처음 설계는 [2, 4, 8, 16]이었다. 2배씩 벌린 지수 커널의 합이 멱함수 기억을 닮는다는 SOE·DH-SNN 논거였다. 사전등록 rev.1 F1에서 옛 선택기의 상태 발산 때문에 [4, 8, 16, 32]로 바뀌었다. 2배 간격 자체의 근거와 다른 조합을 검토한 기록은 없다.
+   - 측정(train, BN만, 시간 축 합친 BN): 발화율은 [4,8,16,32] 0.0014, [2,4,8,16] 0.0110, [1,2,4,8] 0.0470, [2,3,4,5] 0.0149였다.
+   - pearson 선택의 학습 전 상태 최대값은 α=0.7에서 [4,8,16,32] 3.7(통과), [2,4,8,16] 1,926, [1,2,4,8] 1.2억, [2,3,4,5] 1,928(모두 한계 132 초과로 거부)이었다. α=1은 네 조합 모두 거부였다.
+   - 원인은 지금 선택이 누설 항이 든 과거 증분을 통째로 버려, 빠른 가지의 감쇠가 사라지기 때문이다.
+7. 최종 결정:
+   - τ는 [4, 8, 16, 32]를 유지한다.
+   - BN은 γ를 D11 보정값에서 시작하고 학습 중 자유롭게 둔다.
+   - BN 통계는 f-LIF 층은 시점별, LIF 층은 SpikingJelly 방식대로 층마다 시간 축을 합친다.
+
+### 코드 (모두 `NSMT/f_lif_pop_v3/forecasting/`)
+- **`config.py`:** `--input_norm bn`, `--hidden_dim`, `--hidden_tau`를 추가했다.
+  - BN이나 hidden 블록은 neurons.py 클래스에서만 허용한다. hidden 블록에는 `--head_mode linear`와 `--readout spike`가 필요하다.
+  - 이름에 `_bn`, `_h32`가 붙는다(`block_tag`).
+- **`layers.Embedding`:** `input_norm='bn'`이면 BatchNorm1d를 시점마다 적용한다. γ 초기값은 `input_scale`이고, `set_scale`이 보정 탐색에서 γ를 바꾼다. 다른 경로는 그대로다.
+- **`ours.myModel`:** hidden 블록은 Linear(bias 없음) + 시간 축을 합친 BatchNorm1d + SpikingJelly `MultiStepLIFNode(τ 2, detach_reset, Sigmoid)`다.
+  - forward마다 상태를 리셋한다. backend는 GPU면 cupy, CPU면 torch이고 두 결과는 같다.
+  - `aux['hidden_spikes']`를 남긴다.
+- **`model.py`:** hidden 인자를 myModel에만 넘긴다.
+- **`calibrate.py`:** BN이면 D11 탐색값을 γ로 넣는다(규칙은 그대로). 중간에 만든 "BN만" 규칙은 사용자 결정에 따라 지웠다(commit한 적 없음).
+- **`rerun_common.py`:** `ETT_CONDITIONS_2U`, `block_tag`를 반영한 이름, 2T 기록(SHA256 고정) 읽기, hidden 발화율을 추가했다.
+- **`ett_rerun.py`:** `--appendix 2T|2U`를 추가했다. 2U는 이전 기록과 2T 기록 양쪽과 판정을 비교하고, `reopen`을 appendix 2U로 남긴다.
+- **새 파일:** `check_2u.py`(U1–U9), `scripts/rerun2u_ett.sh`, `scripts/rerun2u_smoke.sh`, `rerun_calibrate.sh`의 `ett2u`·`smoke2u` 대상, `rerun_ett_queue.sh`의 launcher·CONDS 인자.
+
+### 검증 (`results/rerun2u-checks-20261021/`)
+| 검사 | 결과 |
+|---|---|
+| `check_2u.py` (smoke 포함) | 9/9 |
+| `check_neurons.py --spikede … <이전 run 3개>` | 28/28 |
+| `check_model.py` | 23/23 |
+| `spikede_copy.py check` | 19/19 |
+| `analysis/rerun_gate_check.py` | 14/14 |
+
+- 2U 검사가 확인한 것:
+  - U2: 시점별 BN이 손계산과 rel 2.8e-7로 같고, 시간 축을 합친 BN과는 다르다(0.44).
+  - U4: SpikingJelly cupy와 torch backend 결과가 같다.
+  - U6: 평가 출력이 batch에 무관하다(rel 2.8e-8).
+  - U8: 2T checkpoint 두 개가 바뀐 코드에서도 val을 6.5e-8 안에서 재현한다.
+- **smoke**(보고 안 함, `scripts/rerun2u_smoke.sh 20261021 1`):
+  - 보정은 ETTh1 R 켬에서 γ 8.0, 발화율 0.2013, 한계 974.4였고, pearson의 at-init 발화율은 0.2645였다.
+  - 1 epoch 학습은 25 s와 30 s였고, 1 epoch 뒤 구성원 발화율은 0.19–0.27, hidden 발화율은 0.08–0.10이었다.
+
+**사전등록:** `NSMT/docs/Population_fLIF_v3_prereg_KO.md` 부록 **2U**(D-CS ~ D-CY).
+
+**한계:** 바뀐 세 가지(population 축 유지, BN, hidden 블록)를 한꺼번에 바꿨으므로 결과 차이를 하나에 돌릴 수 없다. 보정·학습은 아직 하지 않았다.
+
+**commit:** 이 기록을 담은 commit 을 `exp/f-lif-pop-v3` 에 push (해시는 다음 기록에).

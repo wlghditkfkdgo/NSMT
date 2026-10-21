@@ -10,6 +10,9 @@
 # usage: rerun_calibrate.sh recall <suite>          rerun_calibrate.sh ett <suite> <DS> <gpu>
 #        rerun_calibrate.sh recall_extra <suite> <q>   (recent / random at a newly selected q)
 #        CALDIR=<folder> rerun_calibrate.sh smoke <suite> <gpu>   (smoke test: 5 recall + 2 ETTh1 files)
+#        rerun_calibrate.sh ett2u <suite> <DS> <gpu>     prereg 2U: --soma none --input_norm bn; the D11 scale
+#                                                        becomes BN's initial gamma (6 files per dataset)
+#        CALDIR=<folder> rerun_calibrate.sh smoke2u <suite> <gpu>   (2U smoke: ETTh1 R on, q1 and pearson)
 set -u
 WHAT=${1:?recall|ett|recall_extra}; SUITE=${2:?suite}
 W="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"  # task root
@@ -66,5 +69,17 @@ case $WHAT in
     COMMON="--task ett --data ETTh1 --input_norm frozen --seed 7 -nd 0 --revin"
     one ETTh1_R_q1      "CUDA_VISIBLE_DEVICES=$GPU" $COMMON $Q1
     one ETTh1_R_pearson "CUDA_VISIBLE_DEVICES=$GPU" $COMMON $SEL --hard_stat pearson --hard_q 0.5 ;;
+  ett2u|smoke2u)
+    if [ "$WHAT" = smoke2u ]; then DS=ETTh1; GPU=${3:?gpu}; RVS="R"
+      [ "$CALDIR" != calibration ] || { echo 'smoke calibrations need their own CALDIR'; exit 1; }
+    else DS=${3:?dataset}; GPU=${4:?gpu}; RVS="Roff R R_a1"; fi
+    COMMON="--task ett --data $DS --input_norm bn --seed 7 -nd 0"
+    U1="--neuron pop_flif --soma none --mode full"
+    US="--neuron sel_pop_flif --soma none --mode hard --hard_axis shared --hard_stat pearson --hard_q 0.5"
+    for RV in $RVS; do
+      case $RV in Roff) EX="" ;; R) EX="--revin" ;; R_a1) EX="--revin --alpha 1" ;; esac
+      one ${DS}_${RV}_q1      "CUDA_VISIBLE_DEVICES=$GPU" $COMMON $EX $U1
+      one ${DS}_${RV}_pearson "CUDA_VISIBLE_DEVICES=$GPU" $COMMON $EX $US
+    done ;;
   *) echo "bad target $WHAT"; exit 1 ;;
 esac

@@ -3,11 +3,13 @@
 # appends the GPU) and its git-tracked copy results/<suite>/run_commands.txt. Order 2N -> 2O -> 2P -> 2Q (B),
 # datasets and seeds interleaved. A condition whose calibration was refused (calibration_manifest.json)
 # is not queued (D-CN).
-# usage: rerun_ett_queue.sh <suite> <calibration suite>
+# usage: rerun_ett_queue.sh <suite> <calibration suite> [launcher]     (2U: launcher rerun2u_ett.sh and
+#        CONDS="q1 pearson q1_R pearson_R q1_R_a1 pearson_R_a1")
 set -u
-SUITE=${1:?suite}; CAL=${2:?calibration suite}
+SUITE=${1:?suite}; CAL=${2:?calibration suite}; LAUNCHER=${3:-rerun_ett.sh}
+CONDS=${CONDS:-q1 pearson q1_R pearson_R q1_R_a1 pearson_R_a1 q1_R_lin pearson_R_lin}
 W="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-Q=$W/scripts/queues/rerun-ett-${SUITE#etthard-spikede-}.txt; RES=$W/results/$SUITE
+Q=$W/scripts/queues/rerun-ett-${SUITE#etthard-}.txt; RES=$W/results/$SUITE
 mkdir -p "$(dirname "$Q")" "$RES"
 [ -e "$Q" ] && { echo "queue $Q exists"; exit 1; }
 refused() {   # <data> <cond> -> 0 if its calibration was refused
@@ -19,11 +21,11 @@ label = f"{data}_{regime}_{'q1' if cond.startswith('q1') else 'pearson'}"
 sys.exit(0 if m[label]['refused'] else 1)
 PY
 }
-for C in q1 pearson q1_R pearson_R q1_R_a1 pearson_R_a1 q1_R_lin pearson_R_lin; do
+for C in $CONDS; do
   for S in 7 13 21 42 123 256 512 1024; do
     for DS in ETTh1 ETTh2; do
       if refused $DS $C; then echo "# not queued (calibration refused): $DS $C seed $S" >> "$RES/run_commands.txt"; continue; fi
-      echo "SUITE=$SUITE bash f_lif_pop_v3/forecasting/scripts/rerun_ett.sh $DS 96 $C $S" | tee -a "$Q" >> "$RES/run_commands.txt"
+      echo "SUITE=$SUITE bash f_lif_pop_v3/forecasting/scripts/$LAUNCHER $DS 96 $C $S" | tee -a "$Q" >> "$RES/run_commands.txt"
     done
   done
 done

@@ -1,4 +1,7 @@
-"""Prereg 2T: the ETT experiments 2N / 2O / 2P / 2Q (B) rerun with the spikeDE-based neurons. EXPLORATORY.
+"""Prereg 2T / 2U: the ETT experiments 2N / 2O / 2P (/ 2Q (B), 2T only) rerun with the spikeDE-based neurons.
+EXPLORATORY. --appendix 2T: the M1 model with a soma; --appendix 2U: the population axis kept, Linear + BN +
+spiking neuron blocks and one output Linear (rerun_common.ETT_CONDITIONS_2U); 2U is compared with the earlier
+records AND with the 2T records, contrast by contrast, under the same rules.
 
     python ett_rerun.py --exp 2N --data ETTh1 --suite <training suite> --calibration <calibration suite> [-nd 0]
     python ett_rerun.py --exp 2P --data both  --suite <training suite> --calibration <calibration suite>
@@ -125,14 +128,36 @@ def legacy_side(exp, data, plan):
     return out, values, {'file': name, 'sha256': digest}
 
 
-def gate(plan, suite, calibration, opening, device):
+def twot_side(exp, data, plan):
+    """2U only: every contrast recomputed from the 2T record's per-seed values (+ the earlier baselines),
+    checked against what the 2T record stored (mean and CI to 1e-12, the same withheld state)."""
+    values, withheld, stored = rc.values_2t(exp, data)
+    baselines, _ = rc.legacy_values(exp, data)
+    for cond in plan['baselines']:
+        for seed in rc.SEEDS:
+            values[(cond, seed)] = baselines[(cond, seed)]
+    blocked = {k: 'withheld in the 2T record' for k in withheld}
+    out = {}
+    for cname, spec, rule, level, role in plan['contrasts']:
+        t = contrast(spec, values, blocked, level)
+        st = stored[cname]
+        if (t['status'] == 'withheld') != (st.get('status') == 'withheld'):
+            raise SystemExit(f'[ett_rerun] 2T {exp} {data} {cname}: withheld state differs from the record')
+        if t['status'] != 'withheld' and (abs(t['mean'] - st['mean']) > 1e-12
+                                          or max(abs(t['ci'][0] - st['ci'][0]), abs(t['ci'][1] - st['ci'][1])) > 1e-12):
+            raise SystemExit(f'[ett_rerun] 2T {exp} {data} {cname}: recomputed {t["mean"]} != stored {st["mean"]}')
+        out[cname] = t
+    return out, values
+
+
+def gate(plan, suite, calibration, opening, device, conditions=rc.ETT_CONDITIONS):
     """Manifest of every cell of every dataset (no forward); models are built for `opening` only."""
     errors, runs, failures = [], {}, {}
     for data in DATASETS:
         if rc.sha256(rc.DATA_ROOT / f'{data}.csv') != rc.DATA_SHA256[data]:
             errors.append(f'{data}: data CSV sha256 is not the fixed one')
         for cond in plan['conds']:
-            spec = rc.ETT_CONDITIONS[cond]
+            spec = conditions[cond]
             cal = calibration[rc.calibration_label('ett', cond, data)]
             for seed in rc.SEEDS:
                 if cal['refused']:                               # D-CN: not trained, its comparisons withheld
@@ -165,6 +190,7 @@ def evaluate(model, args, split):
 def parse_arguments():
     parser = argparse.ArgumentParser(description='prereg 2T: ETT reruns with the spikeDE-based neurons (exploratory)')
     parser.add_argument('--exp', required=True, choices=list(EXPERIMENTS))
+    parser.add_argument('--appendix', default='2T', choices=['2T', '2U'], help='which pre-registered rerun')
     parser.add_argument('--data', required=True, choices=list(DATASETS) + ['both'])
     parser.add_argument('--suite', required=True, help='the 2T ETT training suite')
     parser.add_argument('--calibration', required=True, help='suite holding calibration_manifest.json')
@@ -176,6 +202,9 @@ def parse_arguments():
 def main():
     cli = parse_arguments()
     plan = EXPERIMENTS[cli.exp]
+    if cli.appendix == '2U' and cli.exp == '2Q':
+        raise SystemExit('[ett_rerun] 2U has one output Linear by construction; 2Q (B) is not part of it')
+    conditions = rc.CONDITIONS[cli.appendix]
     split = plan['split']
     if cli.data == 'both' and split != 'val':
         raise SystemExit('[ett_rerun] a test / future period is reopened one dataset at a time')
@@ -186,8 +215,9 @@ def main():
 
     # ---- 1. gate: every cell, every fingerprint (nothing beyond validation is read) ------------------------
     calibration = rc.calibration_manifest(cli.calibration)
-    errors, runs, failures = gate(plan, cli.suite, calibration, opening, device)
+    errors, runs, failures = gate(plan, cli.suite, calibration, opening, device, conditions)
     legacy = {data: legacy_side(cli.exp, data, plan) for data in opening}     # fatal on any mismatch
+    twot = {data: twot_side(cli.exp, data, plan) for data in opening} if cli.appendix == '2U' else {}
     if errors:
         for e in errors:
             print(f'[ett_rerun] manifest {e}')
@@ -217,8 +247,11 @@ def main():
     out.mkdir(parents=True, exist_ok=False)
     record_path = out / 'ett_rerun_record.json'
     if split != 'val':
-        reopen(f'{cli.data}-{split}-H96', f'prereg 2T: {cli.exp} rerun with the spikeDE-based neurons', record_path)
-    head = {'prereg': '2T', 'experiment': cli.exp, 'exploratory': True, 'split': split,
+        reopen(f'{cli.data}-{split}-H96', f'prereg {cli.appendix}: {cli.exp} rerun with the spikeDE-based neurons',
+               record_path, appendix=cli.appendix)
+    head = {'prereg': cli.appendix, 'experiment': cli.exp, 'conditions': {c: conditions[c] for c in plan['conds']},
+            'references_2T': {d: rc.SPIKEDE_2T[(cli.exp, None if cli.exp == '2P' else d)] for d in opening}
+            if cli.appendix == '2U' else None, 'exploratory': True, 'split': split,
             'target_rows': rc.TARGET_ROWS[split], 'context': 336, 'pred_len': 96, 'datasets': list(opening),
             'suite': cli.suite, 'calibration_suite': cli.calibration,
             'calibration': {k: v for k, v in calibration.items()},
@@ -270,11 +303,17 @@ def main():
             t = contrast(spec, values, blocked, level)
             t.update(role=role, comparison=rc.compare(rule, t, legacy_t[cname]),
                      earlier={k: legacy_t[cname].get(k) for k in ('mean', 'ci', 'relative', 'a_lower', 'status')})
+            if twot:
+                t2 = twot[data][0][cname]
+                t.update(comparison_2T=rc.compare(rule, t, t2),
+                         earlier_2T={k: t2.get(k) for k in ('mean', 'ci', 'relative', 'a_lower', 'status')})
             contrasts[cname] = t
         level = {c: {'rerun_mean': float(np.mean([values[(c, s)] for s in rc.SEEDS if (c, s) in values]))
                      if any((c, s) in values for s in rc.SEEDS) else None,
                      'earlier_mean': float(np.mean([legacy_values[(c, s)] for s in rc.SEEDS if (c, s) in legacy_values]))
                      if any((c, s) in legacy_values for s in rc.SEEDS) else None,
+                     'mean_2T': (float(np.mean([twot[data][1][(c, s)] for s in rc.SEEDS if (c, s) in twot[data][1]]))
+                                 if twot and any((c, s) in twot[data][1] for s in rc.SEEDS) else None),
                      'source': 'earlier record (not retrained)' if c in plan['baselines'] else 'rerun'}
                  for c in plan['conds'] + plan['baselines']}
         per_data[data] = {'contrasts': contrasts, 'blocked': [list(k) + [v] for k, v in sorted(blocked.items())],
@@ -300,19 +339,22 @@ def main():
     # ---- 3. report ---------------------------------------------------------------------------------------
     print(f"{f' RESULT {cli.exp} ({split}, exploratory rerun) ':=^100s}")
     for data, block in per_data.items():
+        fmt = lambda v: 'none' if v is None else f'{v:.6f}'
         print(f'[ett_rerun] {data} mean MSE: ' + ', '.join(
-            f"{c} {m['rerun_mean']:.6f} (earlier {m['earlier_mean']:.6f})" if m['rerun_mean'] is not None
-            else f'{c} none' for c, m in block['means'].items()))
+            f"{c} {fmt(m['rerun_mean'])} (earlier {fmt(m['earlier_mean'])}"
+            + (f", 2T {fmt(m['mean_2T'])})" if twot else ')') for c, m in block['means'].items()))
         for cname, t in block['contrasts'].items():
             cmp_ = t['comparison']
             if t['status'] == 'withheld':
                 print(f"[ett_rerun] {data} {cname:<44} WITHHELD ({len(t['blocked'])} blocked, {len(t['missing'])} missing)"
-                      f"  earlier {cmp_['earlier']} -> {cmp_['agreement']}")
+                      f"  earlier {cmp_['earlier']} -> {cmp_['agreement']}"
+                      + (f"; 2T {t['comparison_2T']['earlier']} -> {t['comparison_2T']['agreement']}" if twot else ''))
                 continue
             rel = '' if t['relative'] is None else f"rel {100 * t['relative']:+.2f}%  "
             print(f"[ett_rerun] {data} {cname:<44} mean {t['mean']:+.6f}  {int(100 * t['level'] * 10) / 10:g}% CI "
                   f"[{t['ci'][0]:+.6f}, {t['ci'][1]:+.6f}]  {rel}a<b {t['a_lower']}/{t['n']}  -> {cmp_['rerun']} "
-                  f"(earlier {cmp_['earlier']}: {cmp_['agreement']})")
+                  f"(earlier {cmp_['earlier']}: {cmp_['agreement']}"
+                  + (f"; 2T {t['comparison_2T']['earlier']}: {t['comparison_2T']['agreement']})" if twot else ')'))
     if 'head_decision' in extra:
         print(f"[ett_rerun] D-CB head: rerun {extra['head_decision']['rerun'][0]}, earlier "
               f"{extra['head_decision']['earlier'][0]} -> {extra['head_decision']['agreement']}")

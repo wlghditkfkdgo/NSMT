@@ -76,7 +76,7 @@ class myModel(nn.Module):
     """
     def __init__(self, task='recall', seq_len=336, pred_len=96, patch_size=8, embed_dim=32,
                  head_dim=32, head_mode='flatten', readout='spike', input_scale=8.,
-                 input_norm='frozen', revin=False, **neuron_args):
+                 input_norm='frozen', revin=False, hidden_dim=0, hidden_tau=2., **neuron_args):
         super().__init__()
 
         if revin and task == 'recall':
@@ -94,6 +94,21 @@ class myModel(nn.Module):
         self.embedding = Embedding(patch_size, embed_dim, input_scale, input_norm, **neuron_args)
         # 스파이크 폭. soma='none'인 모집단 클래스(neurons.py)는 유닛마다 K개의 스파이크열을 낸다.
         width = getattr(self.embedding.neuron, 'out_features', embed_dim)
+        # prereg 2U: a second spiking block so no two Linear layers meet without a spiking neuron between them.
+        # It is NSMT's SpikLinearLayer: Linear (no bias) + BatchNorm1d over time x batch (per layer) +
+        # SpikingJelly MultiStepLIFNode (tau 2, detach_reset, sigmoid surrogate). With --soma none it mixes the
+        # population axis (D*K spike trains) into hidden_dim units; the output Linear reads its spikes.
+        self.hidden_dim = int(hidden_dim)
+        if self.hidden_dim:
+            if readout != 'spike' or head_mode != 'linear':
+                raise ValueError("the hidden block needs readout 'spike' and head_mode 'linear'")
+            from spikingjelly.clock_driven.neuron import MultiStepLIFNode
+            from spikingjelly.clock_driven import surrogate
+            self.hidden_linear = nn.Linear(width, self.hidden_dim, bias=False)
+            self.hidden_bn = nn.BatchNorm1d(self.hidden_dim)
+            self.hidden_neuron = MultiStepLIFNode(tau=float(hidden_tau), detach_reset=True, backend='cupy',
+                                                  surrogate_function=surrogate.Sigmoid())
+            width = self.hidden_dim
         # 두 head를 항상 함께 만든다. 그래야 초기화가 task에 따라 달라지지 않는다.
         self.recall_head = nn.Linear(width, 1)
         self.head_compress = nn.Linear(width, head_dim)
@@ -133,6 +148,14 @@ class myModel(nn.Module):
         result = self.embedding(patch, mode, oracle_p, want, analog)
         spikes, aux = result if want else (result, {})
         z = spikes if self.readout == 'spike' else aux['analog']      # [T, B*C, D]
+        if self.hidden_dim:                                          # [T, B*C, D*K] -> [T, B*C, hidden_dim] 스파이크
+            T, R, _ = z.shape
+            h = self.hidden_bn(self.hidden_linear(z).reshape(T * R, -1)).reshape(T, R, -1)
+            self.hidden_neuron.reset()                               # 시퀀스마다 v = 0 에서 (functional.reset_net)
+            self.hidden_neuron.backend = 'cupy' if h.is_cuda else 'torch'   # 같은 결과 (check_2u U4)
+            z = self.hidden_neuron(h.contiguous())
+            if want:
+                aux['hidden_spikes'] = z.detach()
 
         if self.task == 'recall':
             output = self.recall_head(z).squeeze(-1).transpose(0, 1)  # [B*C, T] -> 채널 1개

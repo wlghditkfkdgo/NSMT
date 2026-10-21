@@ -26,7 +26,7 @@ import numpy as np
 import torch
 from scipy import stats
 
-from config import Config, parse_defaults, TASK, check_neuron_args, neuron_variant
+from config import Config, parse_defaults, TASK, check_neuron_args, neuron_variant, block_tag
 from model import LOAD_MODEL
 from test import EVENT_KINDS, kind_mask
 import layers
@@ -62,6 +62,12 @@ ETT_CONDITIONS = {
     'q1_R_lin':      {**Q1, 'revin': True, 'alpha': .7, 'head_mode': 'linear'},
     'pearson_R_lin': {**PEARSON, 'revin': True, 'alpha': .7, 'head_mode': 'linear'},
 }
+# prereg 2U: population axis kept (members fire, no soma), Linear + per-step BN (gamma from D11) before the
+# population f-LIF, a spiking hidden block (Linear + BN + SpikingJelly LIF, 32 units), one output Linear.
+U_BLOCK = {'soma': 'none', 'input_norm': 'bn', 'hidden_dim': 32, 'hidden_tau': 2., 'head_mode': 'linear'}
+ETT_CONDITIONS_2U = {c: {**ETT_CONDITIONS[c], **U_BLOCK}
+                     for c in ('q1', 'pearson', 'q1_R', 'pearson_R', 'q1_R_a1', 'pearson_R_a1')}
+CONDITIONS = {'2T': ETT_CONDITIONS, '2U': ETT_CONDITIONS_2U}
 # run_ett.sh / ett_test.REGISTERED: the O8 budget and the shape; alpha and head_mode come from the condition
 ETT_REGISTERED = {'task': 'ett', 'seq_len': 336, 'patch_size': 8, 'embed_dim': 32, 'head_dim': 32, 'epoch': 50,
                   'batch_size': 128, 'lr': 1e-3, 'weight_decay': .01, 'patience': 10, 'scheduler_patience': 5,
@@ -100,7 +106,8 @@ def variant_of(task, spec):
         setattr(ns, key, value)
     ns.task = task
     check_neuron_args(ns)
-    return neuron_variant(ns) + ('_revin' if spec.get('revin') else '') + ('_k3' if task == 'recall' else '')
+    return (neuron_variant(ns) + block_tag(ns) + ('_revin' if spec.get('revin') else '')
+            + ('_k3' if task == 'recall' else ''))
 
 
 def run_id(task, dataset, spec, seed, pred_len=96):
@@ -297,6 +304,7 @@ def one_pass(model, loader, args, ties=True):
     sse, per_n, windows = None, 0, 0
     peak, finite, nonfinite = 0., True, 0
     kept, kept_n, spikes, spike_n = 0., 0, 0., 0
+    hidden, hidden_n = 0., 0                                    # 2U: the spiking hidden block
     meff_seq, n_ties, tie_n, mismatch = [], 0, 0, 0
     for x, y, truth, kind in loader:
         x, y = x.float().to(device), y.float().to(device)
@@ -327,6 +335,9 @@ def one_pass(model, loader, args, ties=True):
             peak = max(peak, state.abs().max().item())
         spikes += aux['spikes'].double().mean(dim=(0, 2)).sum().item()
         spike_n += aux['spikes'].shape[1]
+        if 'hidden_spikes' in aux:
+            hidden += aux['hidden_spikes'].double().mean(dim=(0, 2)).sum().item()
+            hidden_n += aux['hidden_spikes'].shape[1]
         b = neuron.b
         rows = state.shape[1]
         share = torch.zeros(rows, dtype=torch.float64, device=device)
@@ -367,6 +378,7 @@ def one_pass(model, loader, args, ties=True):
            'safe': finite and (not spiking or (bound is not None and peak < bound)),
            'kept_mass_frac': kept / kept_n if kept_n else None,
            'firing_rate': spikes / spike_n if spike_n else None,
+           'hidden_firing_rate': hidden / hidden_n if hidden_n else None,
            'ties': [n_ties, tie_n] if count_ties else None, 'mask_mismatch': mismatch if count_ties else None}
     if recall:
         res = {name: (t[0] / t[2]).item() for name, t in sums.items() if t[2] > 0}
@@ -452,6 +464,38 @@ LEGACY = {   # git-tracked records of the legacy-neuron experiments, fixed by SH
     ('2M', None):    ('hardbench-172518-eval/hard_benchmark_record.json',
                       '91912981ebf0bd8d23c8f44cc820a3d852c5241a86bc2b734876645f83d6aeea'),
 }
+
+
+SPIKEDE_2T = {   # the 2T records (spikeDE neurons, soma, two-Linear head), fixed by SHA256 before the 2U runs
+    ('2N', 'ETTh1'): ('etthard-spikede-20261021-2N-test-ETTh1/ett_rerun_record.json',
+                      'df773bfafc21a9a962aaf92bec2b5e704f8f04ca6fae34ef2e5e6d3260f2cca8'),
+    ('2N', 'ETTh2'): ('etthard-spikede-20261021-2N-test-ETTh2/ett_rerun_record.json',
+                      '821062ea061eb7a51916ebf43b68108c739b7b1647d21d1e13543462c8028a98'),
+    ('2O', 'ETTh1'): ('etthard-spikede-20261021-2O-future-ETTh1/ett_rerun_record.json',
+                      '4c1df3ec84672811fd6e18035723917b111fd72f9ceeaf68519f78f7a71a7446'),
+    ('2O', 'ETTh2'): ('etthard-spikede-20261021-2O-future-ETTh2/ett_rerun_record.json',
+                      '4833fcef3f6de6ac8423bd84be8225ed8d8366105ba1804d9b7dfd88a3520010'),
+    ('2P', None):    ('etthard-spikede-20261021-2P-val-both/ett_rerun_record.json',
+                      '793585bab4f864ff936c72abf86723bcfc05243418f9989cf32a1edbb60299bc'),
+}
+
+
+def record_2t(exp, data):
+    """(record, name, sha) of the 2T record of an ETT experiment; fatal if it changed."""
+    name, digest = SPIKEDE_2T[(exp, None if exp == '2P' else data)]
+    path = TASK / 'results' / name
+    if sha256(path) != digest:
+        raise SystemExit(f'[2T] {name} is not the fixed record (sha256 differs)')
+    return json.loads(path.read_text()), name, digest
+
+
+def values_2t(exp, data):
+    """(cond, seed) -> error of the 2T rerun, the withheld cells, and its stored contrasts."""
+    record, _, _ = record_2t(exp, data)
+    values = {(c['cond'], c['seed']): c['mse'] for c in record['cells']
+              if c.get('data') == data and c.get('status') == 'evaluated'}
+    withheld = {(b[0], b[1]) for b in record['per_data'][data]['blocked']}
+    return values, withheld, record['per_data'][data]['contrasts']
 
 
 def legacy_record(exp, data=None):

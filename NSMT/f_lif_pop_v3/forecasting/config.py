@@ -104,8 +104,15 @@ def parse_arguments():
     neuron_arg.add_argument('--threshold', type=float, default=1.)
     neuron_arg.add_argument('--surrogate_scale', type=float, default=5.)
     neuron_arg.add_argument('--input_scale', type=float, default=8., help='D11 calibration; 8.0 recall, 6.0 ETTh1')
-    neuron_arg.add_argument('--input_norm', choices=['none', 'frozen'], default='frozen',
-                            help='frozen: per-unit standardisation estimated once on train, no batch stats')
+    neuron_arg.add_argument('--input_norm', choices=['none', 'frozen', 'bn'], default='frozen',
+                            help='frozen: per-unit standardisation estimated once on train, no batch stats; '
+                                 'bn: BatchNorm1d per time step after the embedding Linear (prereg 2U); its initial '
+                                 'gamma is the calibrated input_scale')
+    # prereg 2U: a second spiking block Linear + BN + LIF (spikeDE LIFNeuron) between the population neuron
+    # and the output Linear, so no two Linear layers meet without a spiking neuron between them.
+    neuron_arg.add_argument('--hidden_dim', type=int, default=0, help='width of the spiking hidden block; 0 = none')
+    neuron_arg.add_argument('--hidden_tau', type=float, default=2.,
+                            help='tau of the hidden SpikingJelly MultiStepLIFNode (NSMT SpikLinearLayer)')
     # 뉴런 클래스 (neurons.py). legacy는 layers.PopulationNeuron 그대로이며 지금까지의 실행을 재현한다.
     neuron_arg.add_argument('--neuron', default='legacy', choices=['legacy'] + NEURON_CLASSES,
                             help='legacy = layers.PopulationNeuron (every run so far); the others are the '
@@ -193,7 +200,7 @@ class Config():
                 self.variant += f'-{self.hard_axis}-{self.hard_stat}-q{self.hard_q:g}'
         else:
             check_neuron_args(self)
-            self.variant = neuron_variant(self)
+            self.variant = neuron_variant(self) + block_tag(self)
         if self.revin:
             self.variant += '_revin'
         if self.task == 'recall':
@@ -246,7 +253,10 @@ def check_neuron_args(config):
     --hard_stat and --hard_axis), so --mode only states which kind of class it is: 'full'
     without selection, 'hard' with it -- the legacy names of the same two computations.
     """
+    block = getattr(config, 'input_norm', 'frozen') == 'bn' or getattr(config, 'hidden_dim', 0)
     if getattr(config, 'neuron', 'legacy') == 'legacy':
+        if block:
+            raise ValueError('--input_norm bn and --hidden_dim are for the neurons.py classes (prereg 2U)')
         return
     config.soma = soma_of(config)                                    # 클래스 기본값을 채운다
     single, selective = config.neuron in SINGLE, config.neuron in SELECTIVE
@@ -273,8 +283,21 @@ def check_neuron_args(config):
         problems.append('no soft-selector options (--qk_norm, --no-cap, --eta_fixed, --key_norm): legacy only')
     if config.fde_step <= 0. or config.fde_memory < 0:
         problems.append('--fde_step > 0 and --fde_memory >= 0')
+    hidden = getattr(config, 'hidden_dim', 0)
+    if hidden < 0 or getattr(config, 'hidden_tau', 2.) <= 0.:
+        problems.append('--hidden_dim >= 0 and --hidden_tau > 0')
+    if hidden and (config.head_mode != 'linear' or config.readout != 'spike'):
+        problems.append('--head_mode linear and --readout spike with --hidden_dim (its spikes feed one output Linear)')
     if problems:
         raise ValueError(f'--neuron {config.neuron} needs: ' + '; '.join(problems))
+
+
+def block_tag(config):
+    """Name part of the 2U blocks: BN after the embedding Linear, the spiking hidden block."""
+    tag = '_bn' if getattr(config, 'input_norm', 'frozen') == 'bn' else ''
+    if getattr(config, 'hidden_dim', 0):
+        tag += f"_h{config.hidden_dim}" + ('' if config.hidden_tau == 2. else f"-ht{config.hidden_tau:g}")
+    return tag
 
 
 def neuron_variant(config):

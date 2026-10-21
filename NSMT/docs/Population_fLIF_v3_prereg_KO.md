@@ -1667,3 +1667,82 @@ AdamW lr 1e-3, wd 1e-2, batch 128, grad clip 1, 최대 50 epoch, early stop pati
 
 말할 수 있는 것: spikeDE 기반 뉴런에서 이전 실험 판정이 같은 범주로 다시 나오는지(같은 기간을 두 번째로 본 탐색), 조건별 오차·발화·상태 크기가 이전 뉴런과 어떻게 다른지(기술).
 말하지 않는 것: 어떤 확증, 아직 보지 않은 자료로의 일반화, oracle이 필요한 판정(G14, O7-2, O7-4), weather, 새 뉴런과 옛 뉴런의 오차 차이에 대한 검정.
+
+## 2U. 부록 (2026-10-21) — population 축을 유지하고 SNN 블록으로 다시 짠 구조로 ETT 2N·2O·2P 재현 (**탐색**)
+
+사용자 지적(2026-10-21):
+1. population f-LIF에 soma가 꼭 필요하지 않다. population 축을 끝까지 유지하는 것이 population coding의 취지다.
+2. SNN에서는 Linear + BN + 스파이킹 뉴런이 한 세트로 움직여야 한다. 지금 head는 뉴런 없는 선형-선형이다.
+3. head 입력은 [T, B×C, D]이고 펼치면 [B×C, T×D]다.
+
+사용자 결정(같은 날, 질문과 답):
+- 구조: 스파이킹 hidden 블록을 추가한 안.
+- f-LIF 앞 BN: 시점별로 정규화하고, γ 초기값을 D11 보정값으로 둔다. 원문 f-LIF는 τ=2에서 BN(γ=1)만 쓰는데, 우리 τ에서 같은 설정은 학습 전 발화율이 0.0014였다(\`docs/PROJECT_LOG.md\` 10-21).
+- LIF 층: SpikingJelly 라이브러리를 쓰고, BN은 층마다 시간 축을 합쳐 정규화한다.
+- τ = [4, 8, 16, 32] 유지.
+- 범위: ETT 2N·2O·2P만. 2T의 2K는 미평가로 둔다.
+
+이 부록은 보정·학습보다 먼저 commit한다.
+
+### D-CS. 구조 (\`ours.myModel\`, \`layers.Embedding\`; 조건 표 \`rerun_common.ETT_CONDITIONS_2U\`)
+
+```
+patch [T=42, B·C, 8]
+  └ Linear(8→32) + BatchNorm1d(32), 시점마다 따로 정규화 (γ 초기값 = D11 보정값, β = 0)
+  └ population f-LIF: spikeDE LIFNeuron 4개, τ 4/8/16/32, α 0.7(2P는 1), 문턱 1. 구성원이 각자 발화한다(soma 없음).
+    pearson 조건은 Selective(공유 축 피어슨, q 0.5)를 붙인다.
+  → spikes [T, B·C, 32·4 = 128]
+  └ Linear(128→32, bias 없음) + BatchNorm1d(32), 시간×batch 합쳐 정규화 + SpikingJelly MultiStepLIFNode
+    (τ 2, detach_reset, sigmoid 대리 기울기, 문턱 1, 리셋 0; NSMT SpikLinearLayer와 같음)
+  → spikes [T, B·C, 32] → 펼침 [B·C, T·32 = 1344] → Linear(1344→96)   (비스파이킹 출력층)
+  → (R 켬) ×s + μ
+```
+
+- 파라미터는 133,665개이고, 그 가운데 129,120개가 출력 Linear다.
+- 선형 층 두 개가 뉴런 없이 이어지는 곳은 없다(\`check_2u\` U1).
+- 평가에서 BN은 누적 통계를 쓴다. 그래서 출력이 batch 구성에 따라 달라지지 않는다(U6).
+
+### D-CT. 보정
+
+- 규칙은 D11 그대로다(train 분할, seed 7, 발화율 [0.1, 0.3]에서 0.2에 가장 가까운 값, 구성원 건강, G11 한계 10 × max|I|). 고르는 값은 BN의 γ 초기값이다.
+- 보정 표본에서 BN은 시점별 batch 통계를 쓴다. 학습 시작 시점과 같은 계산이다(U3).
+- 선택 조건은 q=1 클래스로 γ를 정하고, 자기 at-init 검사를 따로 통과해야 한다.
+- 거부되면 학습하지 않고, 그 칸이 들어간 비교는 보류한다. 범위를 넓히거나 다시 보정하지 않는다.
+- 12개 설정({ETTh1, ETTh2} × {R 끔, R 켬, R 켬 α=1} × {q1, pearson})의 파일을 \`calibration_manifest.json\`에 고정하고, 학습 전에 commit한다.
+
+### D-CU. 조건과 run
+
+- 2 데이터셋 × 8 seed {7, 13, 21, 42, 123, 256, 512, 1024} × {q1, pearson, q1_R, pearson_R, q1_R_a1, pearson_R_a1}로 최대 96 run이다. 보정이 거부된 칸은 빠진다.
+- 예산은 이전과 같다(AdamW lr 1e-3 wd 1e-2, batch 128, clip 1, 최대 50 epoch, 조기 종료 10, ReduceLROnPlateau(0.5, 5), CUDA, torch 1.12.0+cu113, \`--no-test\`).
+- GRU와 Linear는 다시 학습하지 않는다. 같은 창에서 잰 이전 기록의 seed별 값을 쓴다.
+- 대기열은 \`scripts/rerun_ett_queue.sh <suite> <cal suite> rerun2u_ett.sh\`로 만들고, GPU당 1개씩 다른 작업 옆에서 돌린다.
+
+### D-CV. 분할과 열람
+
+- 2N은 ETT test, 2O는 future다. 이 기간은 이전과 2T에서 이미 두 번 열렸고, 이번이 세 번째다. 결과는 모두 탐색이다.
+- \`split_registry.reopen(..., appendix='2U')\`로 \`<split>.reopen-2U.json\`을 남긴다. 2P는 validation이라 등록하지 않는다.
+
+### D-CW. 판정과 보류
+
+- 대비와 규칙은 2T와 같다(2N D-BG, 2O D-BN 1차와 보조, 2P D-BV).
+- 각 대비의 판정 범주를 **이전 기록(옛 뉴런)과 2T 기록(spikeDE 뉴런, soma, 선형-선형 head)** 양쪽과 비교한다. 2T 기록도 SHA256으로 고정하고, seed별 값으로 다시 계산해 저장값과 1e-12 이내인지 대조한다.
+- 보류 규칙은 2T D-CP와 같다. 보정 거부, 학습 중 G11 정지, 평가 unsafe, val 재현 실패(1e-6)가 있는 칸이 들어간 비교는 보류한다. seed는 빼지 않는다.
+- 열기 전 관문도 2T와 같다. 모든 칸의 manifest, 지문, 여는 데이터 모든 run의 val 재현이 통과해야 한다.
+- 기술 통계로 함께 적는 것: 조건별 평균 오차(새 구조, 이전, 2T), 구성원 발화율, hidden 발화율, 최대 상태값, 남긴 계수 비중, 경계 동점, epoch 수, 학습 시간.
+
+### D-CX. 절차
+
+- 준비 검사(모두 통과했고 \`results/rerun2u-checks-20261021/\`에 있다):
+  - \`check_2u.py\` 9/9(smoke 포함), \`check_neurons.py\` 28/28, \`check_model.py\` 23/23, \`spikede_copy.py check\` 19/19, \`analysis/rerun_gate_check.py\` 14/14.
+  - smoke(\`scripts/rerun2u_smoke.sh\`, 1 epoch)는 보고하지 않는다.
+- 보정: \`scripts/rerun_calibrate.sh ett2u <suite> ETTh1|ETTh2 <gpu>\`를 돌리고 \`rerun_common.py freeze-calibration <suite>\`로 고정한다.
+- 학습: 위 대기열로 \`NSMT/scripts/gpu_pool2.sh <queue> 0,1,2,3\`을 돌린다.
+- 평가: \`ett_rerun.py --appendix 2U --exp 2N|2O --data ETTh1|ETTh2\`, \`--exp 2P --data both\`.
+
+### D-CY. 주장 범위
+
+말할 수 있는 것: 지적을 반영한 구조에서 이전 판정이 같은 범주로 나오는지(같은 기간의 세 번째 열람, 탐색), 조건별 오차·발화율이 이전 두 구조와 어떻게 다른지(기술).
+말하지 않는 것:
+- 어떤 확증.
+- 바뀐 세 가지(population 축 유지, BN, 스파이킹 hidden 블록) 가운데 무엇 때문에 달라졌는지. 세 가지를 한꺼번에 바꿨으므로 따로 떼어 말할 수 없다.
+- 회상 과제, weather, 용량을 맞춘 비교, GRU·Linear 대비 우위의 검정.

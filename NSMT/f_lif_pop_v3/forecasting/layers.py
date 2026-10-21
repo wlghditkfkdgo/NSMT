@@ -585,13 +585,22 @@ class Embedding(nn.Module):
                  **neuron_args):
         super().__init__()
 
-        if input_norm not in ('none', 'frozen'):
-            raise ValueError("input_norm must be 'none' or 'frozen'")
+        if input_norm not in ('none', 'frozen', 'bn'):
+            raise ValueError("input_norm must be 'none', 'frozen' or 'bn'")
         self.emb_linear = nn.Linear(patch_size, embed_dim, bias=True)
         self.input_scale = float(input_scale)
         self.input_norm = input_norm
         self.register_buffer('norm_mean', torch.zeros(embed_dim))
         self.register_buffer('norm_std', torch.ones(embed_dim))
+        if input_norm == 'bn':
+            # prereg 2U: Linear + BN + spiking neuron. BN is applied per time step (patch), as spikeDE does
+            # by evaluating the pre-neuron graph inside the solver's right-hand side one step at a time; the
+            # learnable gamma starts at the D11-calibrated scale and carries it (no separate input_scale).
+            if neuron == 'legacy':
+                raise ValueError("input_norm 'bn' is for the neurons.py classes (prereg 2U)")
+            self.bn = nn.BatchNorm1d(embed_dim)
+            with torch.no_grad():
+                self.bn.weight.fill_(self.input_scale)
         if neuron == 'legacy':
             self.neuron = PopulationNeuron(embed_dim, **neuron_args)
         else:
@@ -603,8 +612,17 @@ class Embedding(nn.Module):
         z = self.emb_linear(x)
         if self.input_norm == 'frozen':
             z = (z - self.norm_mean) / self.norm_std
+        elif self.input_norm == 'bn':                                # 시점별 batch 통계 (평가: 누적 통계), 크기는 gamma
+            return torch.stack([self.bn(z[t]) for t in range(z.shape[0])])
 
         return z * self.input_scale
+
+    @torch.no_grad()
+    def set_scale(self, scale):
+        """The calibrated scale: input_scale, or BN's initial gamma when input_norm is 'bn' (2U)."""
+        self.input_scale = float(scale)
+        if self.input_norm == 'bn':
+            self.bn.weight.fill_(self.input_scale)
 
     @torch.no_grad()
     def fit_norm(self, patches):

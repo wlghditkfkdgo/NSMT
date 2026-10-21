@@ -76,7 +76,7 @@ def probe(embedding, batches, device, scale, mode='full'):
     -------
     dict with firing rate, dead/saturated fraction, per-constituent |u| and max|u|.
     """
-    embedding.input_scale = float(scale)
+    embedding.set_scale(scale)                                       # 2U: BN's initial gamma
     rate, per_unit, branch, peak, drive = [], [], [], 0., 0.
     branch_peak, finite = None, True
     for patch in batches:
@@ -179,7 +179,7 @@ def main():
     print(f"[calib] {'scale':>6} {'rate':>7} {'dead':>6} {'sat':>6} "
           f"{'unit min/max':>14} {'max|I|':>8} {'max|u|':>8}  branch |u| by tau")
     rows = []
-    for scale in GRID:
+    for scale in GRID:                                               # 2U: the scale is BN's initial gamma
         row = probe(embedding, batches, config.device, scale)
         rows.append(row)
         print(f"[calib] {scale:>6.1f} {row['firing_rate']:>7.4f} {row['dead_frac']:>6.2f} "
@@ -250,7 +250,8 @@ def main():
     rv = '_revin' if getattr(config, 'revin', False) else ''
     name = (f"{stem}_a{config.alpha}_norm-{config.input_norm}{qk}{rv}{calibration_tag(config)}"
             f"_seed{config.seed}_{stamp}.json")
-    payload = {'band': BAND, 'target': TARGET, 'mode': 'full', 'input_norm': config.input_norm,
+    payload = {'rule': 'D11 (2U: the scale is the initial BN gamma)' if config.input_norm == 'bn' else 'D11',
+               'band': BAND, 'target': TARGET, 'mode': 'full', 'input_norm': config.input_norm,
                'grid': rows,
                'picked': picked, 'reason': reason,
                'neuron': {k: (list(v) if isinstance(v, tuple) else v)
