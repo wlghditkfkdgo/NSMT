@@ -7449,3 +7449,21 @@ SUITE=neurons-smoke-20261014b-nocal EXTRA='--no-require_calibration --input_scal
 ## 2026-10-21 04:17 KST — 정정: 2T 요약의 합계 (commit `6aba75f87`의 메시지)
 
 `6aba75f87`의 commit 메시지에 "50 verdicts compared, 46 same"이라고 적었다. **틀렸다.** 같은 기록의 요약 표 줄을 더하면 판정한 대비는 **52개**이고, **같은 판정 48개, 다른 판정 4개**다(2J 3, 2M 4, 2N 6, 2O 14, 2P 16, 2Q 9). 표 자체의 줄별 값은 맞다. push한 commit은 고쳐 쓰지 않고 이 정정을 덧붙인다.
+
+## 2026-10-21 21:29 KST — 2T 종료: 사용자 결정으로 2K는 "관문에서 멈춤, 미평가"로 확정 (confirm3 열지 않음); 완료 태그
+
+**직전 commit:** 04:1x 정정 기록의 commit 은 `e786fa2a9` (`exp/f-lif-pop-v3`).
+
+**사용자 결정 (10-21):** 2T의 2K는 규칙 그대로 둔다. 관문(random 대조의 val 재현 요구)을 바꾸지 않는다. 따라서 2K는 평가하지 않았고, confirm3는 2T에서 열리지 않았다(`confirm3.reopen-2T.json` 없음).
+
+**2T 최종:** 판정한 대비 52개 가운데 같은 판정 48개, 다른 판정 4개였다. 다른 판정 가운데 사전등록 1차 판정은 2O ETTh1 D_P 하나다. 2K는 미평가이고, 2I와 2M의 oracle 조건은 표현할 수 없어 실행하지 않았다. 모두 탐색이다.
+
+**사용자 지적 (같은 날, 다음 실험의 계기):**
+1. population f-LIF에 soma가 꼭 필요하지 않다. population coding이라면 population 축을 시간 축처럼 끝까지 유지해야 한다.
+2. SNN에서는 Linear+BN+스파이킹 뉴런이 한 세트로 움직여야 한다. 지금 head는 `Linear(32→32)` 뒤에 `Linear(1344→96)`이 비선형 없이 붙어 있어 사실상 선형 층 하나다.
+3. head 입력은 [T, B×C, D]이고 펼치면 [B×C, T×D]다.
+
+- 세 지적 모두 사실이다. 2T까지의 모든 실험은 이 두 설계 문제(soma로 접힌 population 축, 뉴런 없는 선형-선형 head)를 가진 채 돌았다.
+- 다음 실험은 사전등록 2U로 따로 등록한다.
+
+**태그:** 이 기록을 담은 commit 에 `exp/f-lif-pop-v3-spikede-rerun-20261021`(annotated)을 붙인다. 2K 미평가 상태의 완료 태그다.
