@@ -461,16 +461,24 @@ def build_neo_neuron(kind, size, T, layout, tau=2., alpha=.5, method='pred', ste
 
 
 # ---- MODI 2026-10-21: soma-less population (tau groups / streams) and recurrent population ---------------------------------
-TAU_GAIN_SLOW = 2.0      # measured 10-21 (MODI): smallest uniform factor in {1, 1.5, 2, 3} for tau > 2 that keeps every group / stream
-                         # of every layer >= 1 % initial firing on real CinC and SHD data (x1: tau-32 groups 0.2-0.7 %)
+# Rate-matched BN gamma init (MODI 2026-10-22): for each neuron family and tau, the gain whose initial firing on real CinC
+# BN pre-activations (embedding input for spikingjelly LIF, first-mixer-layer input for spikeDE neurons; seed 0, 32 training
+# windows) equals that of the tau = 2 neuron of the same family at gain 1 (0.0274 / 0.0369 / 0.0384), found by bisection.
+# Replaces the 10-21 rule sqrt((2 tau - 1) / 3) x 2, which over-drove the spikeDE mixer neurons 3-9x (smoke, 10-22).
+TAU_GAIN = {'sj': {4.: 1.901, 8.: 3.689, 16.: 7.652, 32.: 17.088},
+            'lif': {4.: 1.632, 8.: 2.424, 16.: 3.432, 32.: 4.775},
+            'flif': {4.: 1.758, 8.: 3.089, 16.: 5.547, 32.: 10.215}}
 
 
-def tau_gain(tau):
-    """BN gamma init for a neuron with time constant tau: sqrt((2 tau - 1) / 3) matches the stationary membrane variance of
-    an Euler leaky integrator under unit white input to that of tau = 2; for tau > 2 it is multiplied by TAU_GAIN_SLOW to
-    offset the slow recovery after a reset (pre-registered rule, MODI 2026-10-21). tau = 2 -> 1 (default model unchanged)."""
+def tau_gain(tau, family='sj'):
+    """BN gamma init for a neuron of `family` (sj = spikingjelly LIF, lif / flif = spikeDE) with time constant tau (table above;
+    tau = 2 -> 1, so the default model is unchanged)."""
     t = float(tau)
-    return ((2. * t - 1.) / 3.) ** .5 * (TAU_GAIN_SLOW if t > 2. else 1.)
+    if t == 2.:
+        return 1.
+    if t not in TAU_GAIN[family]:
+        raise ValueError(f'no calibrated gain for tau {t} ({family})')
+    return TAU_GAIN[family][t]
 
 
 def sj_lif(tau=2.):
@@ -503,10 +511,10 @@ class GroupNeuron(nn.Module):
         return torch.cat([p(c.contiguous()) for p, c in zip(self.parts, xs)], dim=self.axis)
 
 
-def group_gamma(size, taus):
-    """BN weight vector [size] for a GroupNeuron: group k gets tau_gain(taus[k])."""
+def group_gamma(size, taus, family='sj'):
+    """BN weight vector [size] for a GroupNeuron: group k gets tau_gain(taus[k], family)."""
     G = size // len(taus)
-    return torch.cat([torch.full((G,), tau_gain(t)) for t in taus])
+    return torch.cat([torch.full((G,), tau_gain(t, family)) for t in taus])
 
 
 class RecurrentPopulationFLIF(PopulationFLIF):
@@ -538,3 +546,31 @@ class RecurrentPopulationFLIF(PopulationFLIF):
             spikes.append(out)
             s_prev, u = out, nxt
         return torch.stack(spikes)
+
+
+CALIB_TAUS = (4., 8., 16., 32.)
+
+
+def apply_tau_calibration(model, model_name, mixer, comb, taus):
+    """Set the BN weights of a soma-less population model from calib/tau_gains_<model>_<mixer>_<comb>.json (calibrate_groups.py,
+    MODI 2026-10-22). Only for the calibrated taus 4/8/16/32; a missing table or a grouped BN without an entry raises."""
+    import json, os
+    if tuple(float(t) for t in taus) != CALIB_TAUS:
+        return False
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'calib', f'tau_gains_{model_name}_{mixer}_{comb}.json')
+    table = json.load(open(path))['gains']                              # FileNotFoundError = fail closed
+    mods = dict(model.named_modules())
+    for name, mod in mods.items():
+        parts = getattr(mod, 'parts', None)
+        if parts is not None and len(parts) > 1 and type(mod).__name__ in ('GroupNeuron', 'StreamNeurons'):
+            parent, leaf = name.rsplit('.', 1)
+            bn_name = parent + '.' + {'emb_lif': 'emb_bn', 'attn_neuron': 'attn_bn'}.get(leaf, 'bn')
+            if bn_name not in table:
+                raise KeyError(f'{path}: no calibrated gains for {bn_name}')
+    with torch.no_grad():
+        for bn_name, gains in table.items():
+            bn = mods[bn_name]
+            G = bn.weight.numel() // len(gains)
+            for k, g in enumerate(gains):
+                bn.weight[k * G:(k + 1) * G] = float(g)
+    return True

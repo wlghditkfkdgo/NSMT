@@ -20,7 +20,7 @@ import torch
 import torch.nn as nn
 from timm.models.layers import trunc_normal_
 
-from layers import NeoNeuron, sj_lif, tau_gain
+from layers import NeoNeuron, sj_lif, tau_gain, apply_tau_calibration
 from neurons import LIFNeuron, FLIFNeuron
 from bix import TokenXAttn, StreamSpikeLinear
 
@@ -46,7 +46,7 @@ class StreamNeurons(nn.Module):
 
 
 class _Stack(nn.Module):
-    def __init__(self, dim, n, K, neuron_fn, gamma, bias):
+    def __init__(self, dim, n, K, neuron_fn, gamma, bias):                  # gamma: the mixer neuron family's calibration
         super().__init__()
         self.layers = nn.ModuleList([StreamSpikeLinear(dim, dim, K, neuron_fn(), bias=bias, bn_layout='flat', gamma=gamma) for _ in range(n)])
 
@@ -70,8 +70,9 @@ class StreamBlock(nn.Module):
         super().__init__()
         self.comb, self.mixer_kind, self.bidir = comb, kind, True
         nfn = lambda: StreamNeurons(kind, taus, dim, T, alpha)
-        self.mixer = _Stack(dim, mixer_layers, K, nfn, gamma, bias)
-        self.mixer_rev = _Stack(dim, mixer_layers, K, nfn, gamma, bias)
+        g_mix = torch.cat([torch.full((dim,), tau_gain(t, kind)) for t in taus])   # spikeDE lif / flif family (MODI 2026-10-22)
+        self.mixer = _Stack(dim, mixer_layers, K, nfn, g_mix, bias)
+        self.mixer_rev = _Stack(dim, mixer_layers, K, nfn, g_mix, bias)
         if comb != 'or':
             self.xattn = TokenXAttn(dim, T, K=K, heads=heads, form=('head' if comb == 'xattn' else 'channel'),
                                     neuron_fn=lambda: StreamNeurons('sj', taus, dim, T), bias=bias, gamma=gamma)
@@ -93,7 +94,7 @@ class StreamBlock(nn.Module):
 class StreamMixer(nn.Module):
     def __init__(self, seq_len=187, data_patch_size=32, embed_dim=384, num_classes=5, depths=1, mlp_ratios=1.0,
                  mixer='popk_flif', mixer_bidir=True, mixer_layers=2, neo_alpha=0.5, pop_taus=(4., 8., 16., 32.), bias=False,
-                 tau=2.0, train_mode='training', in_channels=1, mixer_comb='or', heads=8, **kwargs):
+                 tau=2.0, train_mode='training', in_channels=1, mixer_comb='or', heads=8, tau_calib=True, **kwargs):
         super().__init__()
         if mixer not in ('popk_lif', 'popk_flif'):
             raise ValueError("StreamMixer mixer must be 'popk_lif' or 'popk_flif'")
@@ -117,6 +118,7 @@ class StreamMixer(nn.Module):
                                                  mixer_comb, heads, bias, gamma) for _ in range(self.depths)])
         self.head = nn.Linear(self.K * embed_dim, num_classes, bias=bias)
         self.apply(self._init_weights)
+        self.tau_calibrated = apply_tau_calibration(self, 'streamMixer', mixer, mixer_comb, self.taus) if tau_calib else False   # MODI 2026-10-22
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):

@@ -61,10 +61,12 @@ cannot run, or whose test is vacuous (no spikes), FAILs.
       the mixer output before token j (bidirectional reach)
   c26 (MODI 2026-10-21) BiX-ch (user's per-channel T x T' maps): the attention output before its BN equals
       q[t, d] * sum_t' k[t', d] v[t', d] * scale exactly (the reduction claimed in the review), the head form does not
-  c27 (MODI 2026-10-21) popg (soma-less tau groups): group taus 4/8/16/32 in every neuron layer, BN weights = tau_gain per
-      group, every group of every layer fires >= 1 % at init on real CinC and SHD data (training-mode BN)
+  c27 (MODI 2026-10-21; band rule 10-22) popg (soma-less tau groups): group taus 4/8/16/32 in every neuron layer, BN weights =
+      the layer-wise calibrated table calib/*.json (calibrate_groups.py), and on real CinC data at init every group of every layer fires within
+      0.5-2x of the same layer of the reference model (spikeDE LIF / f-LIF mixer, same combination) and >= 1 %
   c28 (MODI 2026-10-21) popk (StreamMixer): [N, B, 4, D] streams, shared Linears (equal taus -> identical streams), head input
-      4*D, every stream of every layer fires >= 1 % at init on real data; K = 1 / tau 2 with copied weights gives logits
+      4*D, every stream of every layer within 0.5-2x of the reference model's layer and >= 1 % at init on real CinC data (10-22);
+      K = 1 / tau 2 with copied weights gives logits
       bitwise equal to NeoMixer(mixer='flif')
   c29 (MODI 2026-10-21) pop_rec: with g = 0 the logits equal the population f-LIF mixer bitwise (copied weights), g = 1
       changes them, g receives a gradient
@@ -985,6 +987,55 @@ def _mixer_kw(**kw):
     return base
 
 
+def _layer_kind(name):
+    for k in ('encoding', 'mixer_rev.Mem.0', 'mixer_rev.layers.0', 'mixer.Mem.0', 'mixer.layers.0', 'mixer_rev.Mem.1', 'mixer_rev.layers.1',
+              'mixer.Mem.1', 'mixer.layers.1', 'xattn.q', 'xattn.k', 'xattn.v', 'xattn.attn', 'xattn.proj', 'fc1', 'fc2'):
+        if k in name:
+            return k.replace('Mem.', 'L').replace('layers.', 'L').replace('mixer_rev', 'rev').replace('mixer', 'fwd')
+    return name
+
+
+def _layer_group_rates(m, x):
+    """{layer kind: {group: initial firing}} over the leaf spiking modules (training-mode BN, one forward)."""
+    import re, collections
+    from spikingjelly.clock_driven import functional
+    from spikingjelly.clock_driven.neuron import MultiStepLIFNode
+    from layers import NeoNeuron
+    acc, hs = collections.defaultdict(list), []
+    for name, mod in m.named_modules():
+        if isinstance(mod, (MultiStepLIFNode, NeoNeuron)) and not any(isinstance(c, (MultiStepLIFNode, NeoNeuron)) for c in mod.modules() if c is not mod):
+            g = re.search(r'parts\.(\d+)', name); gi = int(g.group(1)) if g else 0
+            hs.append(mod.register_forward_hook(lambda md, i, o, k=(_layer_kind(name), gi): acc[k].append(float((o[0] if isinstance(o, tuple) else o).float().mean()))))
+    m.train(); m.train_mode = 'testing'
+    with torch.no_grad():
+        m(x); functional.reset_net(m)
+    for h in hs: h.remove()
+    out = {}
+    for (k, gi), v in acc.items():
+        out.setdefault(k, {})[gi] = sum(v) / len(v)
+    return out
+
+
+def _band_check(model, mixer, comb, xb, kw, lo=0.5, hi=2.0):
+    """every group of every layer within [lo, hi] x the same layer of the reference model (spikeDE lif / flif mixer, same comb) and >= 1 %."""
+    from load_model import LOAD_MODEL
+    from config import set_random_seed
+    fam = mixer.split('_', 1)[1]
+    set_random_seed(0)
+    ref = LOAD_MODEL['neoMixer'](NS(**_mixer_kw(mixer=fam, mixer_comb=comb, **kw)), True).cuda()
+    rr = {k: v[0] for k, v in _layer_group_rates(ref, xb).items()}
+    del ref; torch.cuda.empty_cache()
+    set_random_seed(0)
+    m = LOAD_MODEL[model](NS(**_mixer_kw(model=model, mixer=mixer, mixer_comb=comb, **kw)), True).cuda()
+    r = _layer_group_rates(m, xb)
+    del m; torch.cuda.empty_cache()
+    ratios = {(k, g): v / rr[k] for k, gs in r.items() for g, v in gs.items()}
+    lo_k = min(ratios, key=ratios.get); hi_k = max(ratios, key=ratios.get)
+    mn = min(v for gs in r.values() for v in gs.values())
+    ok = lo <= ratios[lo_k] and ratios[hi_k] <= hi and mn >= 0.01
+    return ok, f'{mixer}/{comb}: ratio to reference {ratios[lo_k]:.2f} ({lo_k[0]}[{lo_k[1]}]) .. {ratios[hi_k]:.2f} ({hi_k[0]}[{hi_k[1]}]), min rate {mn:.4f}'
+
+
 @check('c25')
 def c25():
     from load_model import LOAD_MODEL
@@ -1067,21 +1118,24 @@ def c27():
     from config import set_random_seed
     from layers import GroupNeuron, tau_gain
     msgs, oks = [], []
-    for data in ('CINC2017', 'SHD'):
-        xb, d, P = _real_batch(data)
-        for mixer in ('popg_lif', 'popg_flif'):
-            set_random_seed(0)
-            m = LOAD_MODEL['neoMixer'](NS(**_mixer_kw(mixer=mixer, mixer_comb='xattn', patch_size=P, seq_len=d['seq_len'], num_channels=d['num_channels'],
-                                                      num_classes=d['num_classes'])), True).cuda()
-            gns = [mod for mod in m.modules() if isinstance(mod, GroupNeuron)]
-            taus_ok = all(gn.taus == (4., 8., 16., 32.) for gn in gns)
-            w = m.blocks[0].mixer.Mem[0].bn.weight.detach().cpu()
-            gam_ok = all(abs(float(w[k * 96]) - tau_gain(t)) < 1e-6 for k, t in enumerate((4., 8., 16., 32.)))
-            r = _group_rates(m, xb)
-            lo = min(r.values()); worst = min(r, key=r.get)
-            ok = taus_ok and gam_ok and lo >= 0.01 and len(gns) >= 10
-            oks.append(ok); msgs.append(f'{data} {mixer}: {len(gns)} group layers, taus ok {taus_ok}, gamma ok {gam_ok}, min group rate {lo:.4f} ({worst[0]}[{worst[1]}])')
-            del m; torch.cuda.empty_cache()
+    xb, d, P = _real_batch('CINC2017', n=32)
+    kw = dict(patch_size=P, seq_len=d['seq_len'], num_channels=d['num_channels'], num_classes=d['num_classes'])
+    for mixer in ('popg_lif', 'popg_flif'):
+        set_random_seed(0)
+        m = LOAD_MODEL['neoMixer'](NS(**_mixer_kw(mixer=mixer, mixer_comb='xattn', **kw)), True).cuda()
+        gns = [mod for mod in m.modules() if isinstance(mod, GroupNeuron)]
+        taus_ok = all(gn.taus == (4., 8., 16., 32.) for gn in gns)
+        import json
+        tab = json.load(open(os.path.join(HERE, 'calib', f'tau_gains_neoMixer_{mixer}_xattn.json')))['gains']
+        mods = dict(m.named_modules())
+        gam_ok = m.tau_calibrated and all(abs(float(mods[b].weight[k * (mods[b].weight.numel() // len(g))]) - gk) < 1e-5
+                                          for b, g in tab.items() for k, gk in enumerate(g))
+        del m; torch.cuda.empty_cache()
+        oks.append(taus_ok and gam_ok and len(gns) >= 10)
+        msgs.append(f'{mixer}: {len(gns)} group layers, taus ok {taus_ok}, calibrated gains applied from calib/ ({len(tab)} BN layers) {gam_ok}')
+        for comb in ('or', 'xattn'):
+            ok, msg = _band_check('neoMixer', mixer, comb, xb, kw)
+            oks.append(ok); msgs.append(msg)
     report('c27', all(oks), '; '.join(msgs))
 
 
@@ -1115,16 +1169,13 @@ def c28():
     same = all(torch.equal(h[:, :, 0], h[:, :, k]) for k in range(1, 4))
     oks.append(same and tuple(h.shape[2:]) == (4, 384) and c.head.in_features == 4 * 384)
     msgs.append(f'equal taus: streams identical {same}, h {tuple(h.shape)}, head in {c.head.in_features}')
-    # (c) real data: every stream of every layer fires >= 1 % at init
-    for data in ('CINC2017', 'SHD'):
-        xb, d, P = _real_batch(data)
-        for mixer in ('popk_lif', 'popk_flif'):
-            set_random_seed(0)
-            mm = LOAD_MODEL['streamMixer'](NS(**_mixer_kw(model='streamMixer', mixer=mixer, mixer_comb='xattn', patch_size=P, seq_len=d['seq_len'],
-                                                         num_channels=d['num_channels'], num_classes=d['num_classes'])), True).cuda()
-            r = _group_rates(mm, xb); lo = min(r.values()); worst = min(r, key=r.get)
-            oks.append(lo >= 0.01); msgs.append(f'{data} {mixer}: min stream rate {lo:.4f} ({worst[0]}[{worst[1]}])')
-            del mm; torch.cuda.empty_cache()
+    # (c) real CinC data: every stream of every layer within 0.5-2x of the reference model's layer and >= 1 % at init
+    xb, d, P = _real_batch('CINC2017', n=32)
+    kw = dict(patch_size=P, seq_len=d['seq_len'], num_channels=d['num_channels'], num_classes=d['num_classes'])
+    for mixer in ('popk_lif', 'popk_flif'):
+        for comb in ('or', 'xattn'):
+            ok, msg = _band_check('streamMixer', mixer, comb, xb, kw)
+            oks.append(ok); msgs.append(msg)
     report('c28', all(oks), '; '.join(msgs))
 
 

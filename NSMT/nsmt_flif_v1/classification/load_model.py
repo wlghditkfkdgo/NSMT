@@ -145,7 +145,7 @@ def load_neo_mixer(args, train=True):
                      bias=args.bias, tau=args.tau, train_mode='training',
                      in_channels=getattr(args, 'num_channels', 1), pop_soma_init=getattr(args, 'pop_soma_init', None),   # stage 9
                      pos_emb=getattr(args, 'pos_emb', False),                                                          # MODI 2026-10-21
-                     mixer_comb=getattr(args, 'mixer_comb', 'or'), heads=args.num_heads)
+                     mixer_comb=getattr(args, 'mixer_comb', 'or'), heads=args.num_heads, tau_calib=getattr(args, 'tau_calib', True))
     if not train:
         saved_model_path = os.path.join(args.save_result_path, "model_state", "best+model.pt")
         model.load_state_dict(torch.load(saved_model_path, map_location='cpu'))
@@ -164,7 +164,7 @@ def load_stream_mixer(args, train=True):
                         neo_alpha=getattr(args, 'neo_alpha', 0.5),
                         pop_taus=tuple(float(t) for t in str(getattr(args, 'pop_taus', '4,8,16,32')).split(',')),
                         bias=args.bias, tau=args.tau, train_mode='training', in_channels=getattr(args, 'num_channels', 1),
-                        mixer_comb=getattr(args, 'mixer_comb', 'or'), heads=args.num_heads)
+                        mixer_comb=getattr(args, 'mixer_comb', 'or'), heads=args.num_heads, tau_calib=getattr(args, 'tau_calib', True))
     if not train:
         model.load_state_dict(torch.load(os.path.join(args.save_result_path, 'model_state', 'best+model.pt'), map_location='cpu'))
         model = model.to(args.device); model.train_mode = 'testing'

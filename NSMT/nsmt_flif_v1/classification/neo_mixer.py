@@ -25,7 +25,7 @@ import torch.nn as nn
 from timm.models.layers import trunc_normal_
 from spikingjelly.clock_driven.neuron import MultiStepLIFNode, surrogate
 
-from layers import SpikLinearLayer, build_neo_neuron, GroupNeuron, group_gamma, sj_lif
+from layers import SpikLinearLayer, build_neo_neuron, GroupNeuron, group_gamma, sj_lif, apply_tau_calibration
 from model import Embedding, NeoLayer
 from bix import TokenXAttn
 
@@ -74,7 +74,7 @@ class Block(nn.Module):
                 for st in [self.mixer] + ([self.mixer_rev] if self.bidir else []):
                     for l in st.Mem:
                         with torch.no_grad():
-                            l.bn.weight.copy_(group_gamma(dim, taus))
+                            l.bn.weight.copy_(group_gamma(dim, taus, mixer.split('_', 1)[1]))   # spikeDE lif / flif family
         if comb != 'or':                                                 # MODI 2026-10-21: BiX, q = forward stream, k/v = reverse stream
             afn = (lambda: GroupNeuron(dim, taus, 'sj', axis=-1)) if self.grouped else (lambda: sj_lif(tau))
             self.xattn = TokenXAttn(dim, T, K=1, heads=heads, form=('head' if comb == 'xattn' else 'channel'), neuron_fn=afn, bias=bias,
@@ -112,7 +112,7 @@ class NeoMixer(nn.Module):
     def __init__(self, seq_len=187, data_patch_size=32, embed_dim=384, num_classes=5, depths=1, mlp_ratios=1.0,
                  mixer='pop_flif', mixer_bidir=True, mixer_layers=2, neo_tau=2.0, neo_alpha=0.5, fde_method='pred',
                  fde_step=1.0, fde_memory=0, pop_taus=(4., 8., 16., 32.), bias=False, tau=2.0, train_mode='training',
-                 in_channels=1, pop_soma_init=None, pos_emb=False, mixer_comb='or', heads=8, **kwargs):
+                 in_channels=1, pop_soma_init=None, pos_emb=False, mixer_comb='or', heads=8, tau_calib=True, **kwargs):
         super().__init__()
         if mixer not in MIXERS:
             raise ValueError(f'mixer must be one of {MIXERS}')
@@ -140,6 +140,9 @@ class NeoMixer(nn.Module):
                                      for _ in range(self.depths)])
         self.head = nn.Linear(embed_dim, num_classes, bias=bias)
         self.apply(self._init_weights)
+        self.tau_calibrated = False
+        if grouped and tau_calib:                                       # MODI 2026-10-22: layer-wise rate-matched BN gains
+            self.tau_calibrated = apply_tau_calibration(self, 'neoMixer', mixer, mixer_comb, pop_taus)
 
     def _init_weights(self, m):
         if getattr(m, '_skip_global_init', False):                     # NeoLayer W_rec keeps its small init (as model.py)
