@@ -257,7 +257,13 @@ def train(args: Config):
     else:
         print("[train] G11 bound NOT set: exploratory run, no frozen bound is enforced.")
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    if getattr(args, 'wd_exclude_norm_bias', False):              # 2W: decay only on weight matrices
+        decay = [p for p in model.parameters() if p.ndim >= 2]
+        rest = [p for p in model.parameters() if p.ndim < 2]
+        optimizer = torch.optim.AdamW([{'params': decay, 'weight_decay': args.weight_decay},
+                                       {'params': rest, 'weight_decay': 0.}], lr=args.lr)
+    else:
+        optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5,
                                                            patience=args.scheduler_patience)
     args.save_arg()

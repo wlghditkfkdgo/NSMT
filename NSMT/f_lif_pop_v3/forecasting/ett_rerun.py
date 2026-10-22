@@ -150,7 +150,7 @@ def twot_side(exp, data, plan):
     return out, values
 
 
-def gate(plan, suite, calibration, opening, device, conditions=rc.ETT_CONDITIONS):
+def gate(plan, suite, calibration, opening, device, conditions=rc.ETT_CONDITIONS, label=lambda c: c):
     """Manifest of every cell of every dataset (no forward); models are built for `opening` only."""
     errors, runs, failures = [], {}, {}
     for data in DATASETS:
@@ -175,7 +175,7 @@ def gate(plan, suite, calibration, opening, device, conditions=rc.ETT_CONDITIONS
                     else:
                         model, args = None, Config()
                         args.load_args(run, parse_defaults())
-                    bad = rc.check_manifest(args, result, 'ett', spec, seed, cal, data=data, cond=cond)
+                    bad = rc.check_manifest(args, result, 'ett', spec, seed, cal, data=data, cond=label(cond))
                     runs[(data, cond, seed)] = (model, args, run, result)
                 errors += [f'{data} {cond}/{seed}: {b}' for b in bad]
     return errors, runs, failures
@@ -190,7 +190,8 @@ def evaluate(model, args, split):
 def parse_arguments():
     parser = argparse.ArgumentParser(description='prereg 2T: ETT reruns with the spikeDE-based neurons (exploratory)')
     parser.add_argument('--exp', required=True, choices=list(EXPERIMENTS))
-    parser.add_argument('--appendix', default='2T', choices=['2T', '2U'], help='which pre-registered rerun')
+    parser.add_argument('--appendix', default='2T', choices=['2T', '2U', '2W'], help='which pre-registered rerun')
+    parser.add_argument('--cfg2w', default=None, help="2W: the picked setting '<arch>-<lr>-<wd>' (tune_2w_select.json)")
     parser.add_argument('--data', required=True, choices=list(DATASETS) + ['both'])
     parser.add_argument('--suite', required=True, help='the 2T ETT training suite')
     parser.add_argument('--calibration', required=True, help='suite holding calibration_manifest.json')
@@ -202,9 +203,16 @@ def parse_arguments():
 def main():
     cli = parse_arguments()
     plan = EXPERIMENTS[cli.exp]
-    if cli.appendix == '2U' and cli.exp == '2Q':
-        raise SystemExit('[ett_rerun] 2U has one output Linear by construction; 2Q (B) is not part of it')
-    conditions = rc.CONDITIONS[cli.appendix]
+    if cli.appendix in ('2U', '2W') and cli.exp == '2Q':
+        raise SystemExit(f'[ett_rerun] {cli.appendix} has one output Linear by construction; 2Q (B) is not part of it')
+    if cli.appendix == '2W':
+        if cli.exp == '2P' or not cli.cfg2w:
+            raise SystemExit('[ett_rerun] 2W evaluates 2N and 2O of the picked setting (--cfg2w)')
+        conditions = rc.conditions_2w(cli.cfg2w)
+        label = lambda c: f'{c}-{cli.cfg2w}'                            # the stdout names of rerun2w_ett.sh
+    else:
+        conditions = rc.CONDITIONS[cli.appendix]
+        label = lambda c: c
     split = plan['split']
     if cli.data == 'both' and split != 'val':
         raise SystemExit('[ett_rerun] a test / future period is reopened one dataset at a time')
@@ -215,9 +223,9 @@ def main():
 
     # ---- 1. gate: every cell, every fingerprint (nothing beyond validation is read) ------------------------
     calibration = rc.calibration_manifest(cli.calibration)
-    errors, runs, failures = gate(plan, cli.suite, calibration, opening, device, conditions)
+    errors, runs, failures = gate(plan, cli.suite, calibration, opening, device, conditions, label)
     legacy = {data: legacy_side(cli.exp, data, plan) for data in opening}     # fatal on any mismatch
-    twot = {data: twot_side(cli.exp, data, plan) for data in opening} if cli.appendix == '2U' else {}
+    twot = {data: twot_side(cli.exp, data, plan) for data in opening} if cli.appendix in ('2U', '2W') else {}
     if errors:
         for e in errors:
             print(f'[ett_rerun] manifest {e}')
@@ -251,7 +259,7 @@ def main():
                record_path, appendix=cli.appendix)
     head = {'prereg': cli.appendix, 'experiment': cli.exp, 'conditions': {c: conditions[c] for c in plan['conds']},
             'references_2T': {d: rc.SPIKEDE_2T[(cli.exp, None if cli.exp == '2P' else d)] for d in opening}
-            if cli.appendix == '2U' else None, 'exploratory': True, 'split': split,
+            if cli.appendix in ('2U', '2W') else None, 'cfg2w': cli.cfg2w, 'exploratory': True, 'split': split,
             'target_rows': rc.TARGET_ROWS[split], 'context': 336, 'pred_len': 96, 'datasets': list(opening),
             'suite': cli.suite, 'calibration_suite': cli.calibration,
             'calibration': {k: v for k, v in calibration.items()},

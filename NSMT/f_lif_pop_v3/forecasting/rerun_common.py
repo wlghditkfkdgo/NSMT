@@ -86,6 +86,30 @@ def cell_2v(name):
     return spec
 
 
+def cell_2w(name):
+    """Prereg 2W: '<base>-<arch>-<lr>-<wd>' on the 2U base (population axis kept, per-step BN with gamma from D11).
+    arch direct (no hidden block; one Linear on [B*C, T*128]) | hmem (hidden block read through its membrane);
+    lr 0.0005 | 0.001 | 0.002; wd all (AdamW decays everything, as before) | xnb (no decay on BN and biases)."""
+    base, arch, lr, wd = name.split('-', 3)
+    if arch not in ('direct', 'hmem') or wd not in ('all', 'xnb'):
+        raise ValueError(f'2W cell {name!r}')
+    spec = {**ETT_CONDITIONS[base], 'soma': 'none', 'input_norm': 'bn', 'lr': float(lr),
+            'wd_exclude_norm_bias': wd == 'xnb', 'head_mode': 'linear'}
+    if arch == 'hmem':
+        spec.update(hidden_dim=32, hidden_tau=2., hidden_readout='membrane')
+    else:
+        spec.update(hidden_dim=0)
+    return spec
+
+
+GRID_2W = [f'{a}-{lr}-{wd}' for a in ('direct', 'hmem') for lr in ('0.0005', '0.001', '0.002') for wd in ('all', 'xnb')]
+
+
+def conditions_2w(cfg):
+    """The ETT conditions of the selected 2W setting, for ett_rerun.py --appendix 2W."""
+    return {base: cell_2w(f'{base}-{cfg}') for base in ('q1', 'pearson', 'q1_R', 'pearson_R')}
+
+
 CELLS_2V = [f'{b}-{s}-{n}-{h}' for b in ('q1_R', 'q1') for s in ('lif', 'none') for n in ('frozen', 'bn')
             for h in ('flatten', 'hidden')]
 SOURCE_2V = {   # (soma, norm, head) -> (training suite, stdout condition label of base, calibration suite)

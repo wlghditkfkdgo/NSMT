@@ -76,7 +76,7 @@ class myModel(nn.Module):
     """
     def __init__(self, task='recall', seq_len=336, pred_len=96, patch_size=8, embed_dim=32,
                  head_dim=32, head_mode='flatten', readout='spike', input_scale=8.,
-                 input_norm='frozen', revin=False, hidden_dim=0, hidden_tau=2., **neuron_args):
+                 input_norm='frozen', revin=False, hidden_dim=0, hidden_tau=2., hidden_readout='spike', **neuron_args):
         super().__init__()
 
         if revin and task == 'recall':
@@ -99,6 +99,7 @@ class myModel(nn.Module):
         # SpikingJelly MultiStepLIFNode (tau 2, detach_reset, sigmoid surrogate). With --soma none it mixes the
         # population axis (D*K spike trains) into hidden_dim units; the output Linear reads its spikes.
         self.hidden_dim = int(hidden_dim)
+        self.hidden_readout = hidden_readout
         if self.hidden_dim:
             if readout != 'spike' or head_mode != 'linear':
                 raise ValueError("the hidden block needs readout 'spike' and head_mode 'linear'")
@@ -156,6 +157,10 @@ class myModel(nn.Module):
             z = self.hidden_neuron(h.contiguous())
             if want:
                 aux['hidden_spikes'] = z.detach()
+            if self.hidden_readout == 'membrane':                    # 2W: 문턱 전 충전값 H_t (스파이크를 정하는 값)
+                v = self.hidden_neuron.v_seq                         # 리셋 이후 막전위 [T, R, H]
+                prev = torch.cat([torch.zeros_like(v[:1]), v[:-1]])
+                z = prev + (h - prev) / self.hidden_neuron.tau       # decay_input, v_reset 0
 
         if self.task == 'recall':
             output = self.recall_head(z).squeeze(-1).transpose(0, 1)  # [B*C, T] -> 채널 1개

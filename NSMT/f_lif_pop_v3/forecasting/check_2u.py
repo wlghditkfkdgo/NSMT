@@ -19,6 +19,10 @@ Linear. Reads no split beyond validation.
   U6  evaluation does not depend on the batch: a window's output alone == inside a batch (eval, rel 1e-5)
   U7  refused: BN or a hidden block with the legacy neuron, a hidden block with the flatten head or an analog readout
   U8  the 2T path is unchanged: two 2T checkpoints reproduce their best validation MSE (1e-6) with this code
+  U10 (2W) --hidden_readout membrane: the readout is the hidden LIF's charge before the threshold -- the spikes are
+      exactly (charge >= 1) on the torch and cupy backends -- with gradients reaching the hidden block
+  U11 (2W) --wd_exclude_norm_bias: AdamW decays the weight matrices only (BN parameters and biases at 0); the 2W
+      settings are in the run name and the 2T / 2U names are unchanged
   U9  (--smoke) the 2U smoke runs: found by the 2U names, manifest fails only for the 1-epoch training,
       validation reproduces best_val_loss (1e-6), the rebuilt pearson masks equal the model's
 """
@@ -277,6 +281,57 @@ def smoke(suite, calibration, device):
     gate('U9', ok, f'2U smoke runs: {detail}')
 
 
+def membrane(device):
+    from ours import window_norm
+    import layers
+    torch.manual_seed(7)
+    ok = {}
+    for backend in (['torch', 'cupy'] if device.type == 'cuda' else ['torch']):
+        ns = cli(device=str(device), hidden_readout='membrane')
+        m = load_mymodel(ns)
+        m.train()
+        x, y = batch(device=str(device))
+        out, aux = m(x, mode=ns.mode, return_aux=True)
+        with torch.no_grad():
+            spikes = m.embedding(layers.to_patches(window_norm(x)[0], 8), 'hard')
+            T, R, _ = spikes.shape
+            h = m.hidden_bn(m.hidden_linear(spikes).reshape(T * R, -1)).reshape(T, R, -1)
+            m.hidden_neuron.reset(); m.hidden_neuron.backend = backend
+            s_seq = m.hidden_neuron(h.contiguous())
+            v = m.hidden_neuron.v_seq
+            prev = torch.cat([torch.zeros_like(v[:1]), v[:-1]])
+            charge = prev + (h - prev) / m.hidden_neuron.tau
+            m.hidden_neuron.reset()
+        torch.nn.functional.mse_loss(out, y).backward()
+        grads = all(p.grad is not None and float(p.grad.abs().sum()) > 0 for p in
+                    (m.hidden_linear.weight, m.hidden_bn.weight, m.head.weight))
+        ok[backend] = torch.equal(s_seq, (charge >= 1.).to(s_seq.dtype)) and grads
+    gate('U10', all(ok.values()), f'spikes == (charge >= 1) and gradients reach the hidden block: {ok}')
+
+
+def weight_decay():
+    import train as tr
+    ns = cli(wd_exclude_norm_bias=True)
+    m = load_mymodel(ns)
+    decay = [p for p in m.parameters() if p.ndim >= 2]
+    rest = [p for p in m.parameters() if p.ndim < 2]
+    names_rest = sorted(k for k, p in m.named_parameters() if p.ndim < 2)
+    bn_and_bias = all(('bn' in k) or k.endswith('bias') for k in names_rest)
+    src = Path(tr.__file__).read_text()
+    wired = "'weight_decay': 0.}" in src and "wd_exclude_norm_bias" in src
+    from config import neuron_variant, block_tag
+    base = cli()
+    names = {neuron_variant(base) + block_tag(base),
+             neuron_variant(cli(lr=5e-4)) + block_tag(cli(lr=5e-4)),
+             neuron_variant(ns) + block_tag(ns),
+             neuron_variant(cli(hidden_readout='membrane')) + block_tag(cli(hidden_readout='membrane'))}
+    unchanged = rc.variant_of('ett', rc.ETT_CONDITIONS['q1_R']) == 'pop_flif-tau4-8-16-32-somalif_revin' and \
+        rc.variant_of('ett', rc.ETT_CONDITIONS_2U['q1_R']) == 'pop_flif-tau4-8-16-32-somanone_bn_h32_revin'
+    gate('U11', bn_and_bias and len(decay) > 0 and len(rest) > 0 and wired and len(names) == 4 and unchanged,
+         f'no-decay group = BN and biases only {bn_and_bias} ({len(rest)} tensors); train.py wired {wired}; '
+         f'4 distinct names {len(names) == 4}; 2T / 2U names unchanged {unchanged}')
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--smoke', default=None)
@@ -291,6 +346,8 @@ def main():
     gradients()
     batch_independence()
     refusals()
+    membrane(device)
+    weight_decay()
     if device.type == 'cuda':
         two_t(device)
     else:

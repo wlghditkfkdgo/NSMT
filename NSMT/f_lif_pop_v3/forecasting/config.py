@@ -113,6 +113,11 @@ def parse_arguments():
     neuron_arg.add_argument('--hidden_dim', type=int, default=0, help='width of the spiking hidden block; 0 = none')
     neuron_arg.add_argument('--hidden_tau', type=float, default=2.,
                             help='tau of the hidden SpikingJelly MultiStepLIFNode (NSMT SpikLinearLayer)')
+    # prereg 2W: what the output Linear reads from the hidden block, and weight decay off for BN and biases
+    neuron_arg.add_argument('--hidden_readout', choices=['spike', 'membrane'], default='spike',
+                            help="membrane: the hidden LIF's charge before the threshold (the value that decides a spike)")
+    neuron_arg.add_argument('--wd_exclude_norm_bias', action=argparse.BooleanOptionalAction, default=False,
+                            help='AdamW weight decay only on weight matrices; none on BatchNorm parameters and biases')
     # 뉴런 클래스 (neurons.py). legacy는 layers.PopulationNeuron 그대로이며 지금까지의 실행을 재현한다.
     neuron_arg.add_argument('--neuron', default='legacy', choices=['legacy'] + NEURON_CLASSES,
                             help='legacy = layers.PopulationNeuron (every run so far); the others are the '
@@ -288,6 +293,8 @@ def check_neuron_args(config):
         problems.append('--hidden_dim >= 0 and --hidden_tau > 0')
     if hidden and (config.head_mode != 'linear' or config.readout != 'spike'):
         problems.append('--head_mode linear and --readout spike with --hidden_dim (its spikes feed one output Linear)')
+    if getattr(config, 'hidden_readout', 'spike') != 'spike' and not hidden:
+        problems.append('--hidden_readout membrane needs a hidden block (--hidden_dim > 0)')
     if problems:
         raise ValueError(f'--neuron {config.neuron} needs: ' + '; '.join(problems))
 
@@ -297,6 +304,10 @@ def block_tag(config):
     tag = '_bn' if getattr(config, 'input_norm', 'frozen') == 'bn' else ''
     if getattr(config, 'hidden_dim', 0):
         tag += f"_h{config.hidden_dim}" + ('' if config.hidden_tau == 2. else f"-ht{config.hidden_tau:g}")
+        tag += '-hmem' if getattr(config, 'hidden_readout', 'spike') == 'membrane' else ''
+    # 2W: training settings away from the O8 budget are part of the name (run_id has no lr)
+    tag += '' if config.lr == 1e-3 else f'_lr{config.lr:g}'
+    tag += '_wdx' if getattr(config, 'wd_exclude_norm_bias', False) else ''
     return tag
 
 

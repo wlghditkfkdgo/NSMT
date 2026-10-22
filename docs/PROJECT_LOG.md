@@ -7745,3 +7745,33 @@ SUITE=neurons-smoke-20261014b-nocal EXTRA='--no-require_calibration --input_scal
 - **다만 가장 좋은 칸(none-frozen-flatten)은 사용자의 SNN 관례(선형-선형 금지, BN 사용)를 어긴다.** 관례를 지키면서 hidden 블록의 손실을 줄이는 것이 튜닝 과제다.
 
 **commit:** 이 기록을 담은 commit 을 `exp/f-lif-pop-v3` 에 push (해시는 다음 기록에). 완료 태그 `exp/f-lif-pop-v3-2v-ablation-20261022`.
+
+## 2026-10-22 10:44 KST — 사전등록 2W: 2U 구조 튜닝 (arch direct/hmem × lr × BN·bias weight decay), validation으로 선택, test·future는 네 번째 열람 — 구현·관문·smoke, 선택 run 144개 시작
+
+**직전 commit:** 2V 결과 commit 은 `10ecdc964` (태그 `exp/f-lif-pop-v3-2v-ablation-20261022`).
+
+**사용자 결정:** 튜닝 방향은 hidden 블록 없는 출력 Linear, hidden 막전위 읽기, 학습 설정이다. 평가는 validation으로 고르고 test도 본다. 조건은 R 켬·끔 둘 다다.
+
+### 코드
+- `config.py`: `--hidden_readout spike|membrane`과 `--wd_exclude_norm_bias`를 추가했다. 이름에 `-hmem`, `_lr<값>`(lr ≠ 0.001), `_wdx`가 붙는다. 2T·2U·2V 이름은 그대로다(U11).
+- `ours.py`: membrane이면 hidden LIF의 문턱 전 충전값을 SpikingJelly `v_seq`(리셋 이후)에서 계산한다.
+- `train.py`: `--wd_exclude_norm_bias`이면 AdamW에 행렬만 decay하는 그룹과 decay 0 그룹을 둔다.
+- `model.py`: hidden_readout 인자를 넘긴다.
+- `rerun_common.py`: `cell_2w`, `GRID_2W`, `conditions_2w`를 추가했다.
+- `ett_rerun.py`: `--appendix 2W --cfg2w`를 추가했다. stdout 이름은 셀 이름을 쓰고, 2T 기록과도 비교한다.
+- 새 파일: `scripts/rerun2w_ett.sh`, `scripts/rerun2w_queue.sh`, `analysis/tune_2w.py`. `check_2u.py`에 U10(막전위 읽기 = 스파이크를 정하는 충전값; torch·cupy 모두 spikes == (charge ≥ 1))과 U11(decay 그룹, 이름)을 더했다.
+
+**내 실수 (smoke에서 잡음):** 런처에 `--lr`라고 썼는데 학습기 옵션은 `-lr/--learning_rate`였다. smoke 3개가 인자 오류로 시작도 못 했다(`rerun2w-smoke-20261022/raw.txt`의 SKIP 3줄). 고친 뒤 3개 모두 1 epoch를 마쳤다. lr·wdx·readout이 config에 반영되었고, manifest는 짧은 학습만 지적했으며, val 재현은 ≤1e-7, pearson 마스크 불일치는 0이었다.
+
+### 검증 (`results/rerun2w-checks-20261022/`)
+| 검사 | 결과 |
+|---|---|
+| `check_2u.py` (2U smoke 포함) | 11/11 |
+| `check_neurons.py` | 28/28 |
+| `check_model.py` | 23/23 |
+| `spikede_copy.py check` | 19/19 |
+| `analysis/rerun_gate_check.py` | 14/14 |
+
+**사전등록:** 부록 **2W**(D-DC ~ D-DF). 선택 대기열은 `scripts/rerun2w_queue.sh etthard-2w-20261022`로 만든 144 run이다(사본 `results/etthard-2w-20261022/run_commands.txt`).
+
+**commit:** 이 기록을 담은 commit 을 `exp/f-lif-pop-v3` 에 push (해시는 다음 기록에). 그 뒤 pool을 시작한다.

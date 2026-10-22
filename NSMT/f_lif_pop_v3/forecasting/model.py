@@ -7,7 +7,7 @@ from ours import myModel, GRUBaseline, LinearBaseline
 NEURON_KEYS = ['num_population', 'alpha', 'tau', 'heterogeneous', 'max_length', 'theta',
                'eta_init', 'eta_fixed', 'cap', 'tau_s', 'threshold', 'surrogate_scale']
 SHAPE_KEYS = ['task', 'seq_len', 'pred_len', 'patch_size', 'embed_dim', 'head_dim',
-              'head_mode', 'readout', 'input_scale', 'input_norm', 'revin', 'hidden_dim', 'hidden_tau']
+              'head_mode', 'readout', 'input_scale', 'input_norm', 'revin', 'hidden_dim', 'hidden_tau', 'hidden_readout']
 
 
 # 뒤에 추가된 buffer들. 누락을 허용하려면 그 값이 **그 설정에서** 항등이어야 한다.
@@ -56,7 +56,8 @@ def load_mymodel(args, train=True):
 
 def load_gru(args, train=True):
     shape = {key: getattr(args, key) for key in SHAPE_KEYS if key not in ('readout', 'input_scale',
-                                                                          'input_norm', 'hidden_dim', 'hidden_tau')}
+                                                                          'input_norm', 'hidden_dim', 'hidden_tau',
+                                                                          'hidden_readout')}
     return _restore(GRUBaseline(**shape), args, train)
 
 

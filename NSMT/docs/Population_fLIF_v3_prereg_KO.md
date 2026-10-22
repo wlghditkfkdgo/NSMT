@@ -1781,3 +1781,43 @@ patch [T=42, B·C, 8]
 
 말할 수 있는 것: ETT validation에서 세 변경 각각과 그 조합이 오차에 준 영향의 방향과 크기(탐색).
 말하지 않는 것: test·future에서의 효과, 메커니즘(왜 그런가)의 확정, 다른 데이터, 선택 조건(pearson)에서의 같음.
+
+## 2W. 부록 (2026-10-22) — 2U 구조의 튜닝 (validation에서 고르고, test·future도 봄; **탐색**)
+
+2V 결과(validation): 2U 손실의 주원인은 스파이킹 hidden 블록이다(+7–15%). BN은 0–3% 나쁘고, population 축 유지는 중립이거나 조금 좋다.
+
+사용자 결정(2026-10-22):
+- 튜닝 방향은 세 가지다. hidden 블록 없이 출력 Linear 하나, hidden 막전위 읽기, 학습 설정(학습률, BN·bias weight decay 제외). hidden 폭·τ 튜닝은 고르지 않았다.
+- validation으로 고르고 test·future도 본다.
+- R 켬과 R 끔 둘 다 쓴다.
+- 지켜야 할 것은 population 축 유지, Linear + BN + 스파이킹 뉴런 세트 규칙(선형-선형 금지), f-LIF 앞 시점별 BN(γ는 D11 값), τ [4, 8, 16, 32]다.
+
+### D-DC. 격자 (12 설정, \`rerun_common.GRID_2W\`; 바탕은 2U의 population 축 + BN)
+
+- **arch**
+  - direct: hidden 블록 없이 Linear(5376→96) 하나가 [B·C, T·128] 스파이크를 읽는다.
+  - hmem: Linear(128→32) + BN + SpikingJelly LIF를 두되, 출력 Linear가 그 LIF의 문턱 전 충전값 H_t = v_{t−1} + (x_t − v_{t−1})/τ를 읽는다. 스파이크를 정하는 값이고, \`check_2u\` U10이 확인한다.
+- **lr**: 0.0005 | 0.001 | 0.002.
+- **wd**: all(지금처럼 모든 파라미터에 AdamW decay 0.01) | xnb(행렬 가중치만 decay, BN·bias는 0; U11).
+- 나머지 예산은 O8 그대로다. 보정은 2U 보정(\`rerun2u-cal-20261021\`)을 그대로 쓴다. arch·lr·wd는 보정 대상(임베딩 + population)을 바꾸지 않는다.
+
+### D-DD. 선택 (validation, seed 7·13·21)
+
+- 12 설정 × {q1_R, q1} × {ETTh1, ETTh2} × 3 seed = 144 run이다(suite \`etthard-2w-20261022\`).
+- **점수**는 (base, 데이터, seed)마다 val MSE ÷ 같은 칸 2T run의 최저 val MSE를 구해 평균한 값이다.
+- **자격**: 모든 칸이 끝났고(G11 없음), manifest를 통과했고, safe이며, val을 재현해야 한다(1e-6).
+- **고르기**: 점수가 가장 낮은 설정을 고른다. 최저값과 0.005 이내인 설정이 여럿이면 (direct, 0.001, all)에서 바꾼 항목이 적은 쪽을, 그다음 점수가 낮은 쪽을 고른다.
+- R 켬과 R 끔에 **같은 설정 하나**를 고른다. 그래야 2O의 R 켬/끔 대비가 같은 모델을 비교한다.
+- 스크립트는 \`analysis/tune_2w.py --stage select\`, 기록은 \`tune_2w_select.json\`('x')이다.
+
+### D-DE. 고른 설정의 평가
+
+- \`tune_2w.py --stage queue\`로 고른 설정의 {q1, q1_R}(남은 seed 5개)과 {pearson, pearson_R}(8 seed)을 학습한다. 두 데이터셋을 합쳐 52 run이다.
+- 그 뒤 \`ett_rerun.py --appendix 2W --cfg2w <설정> --exp 2N|2O\`로 test와 future를 연다. **네 번째 열람**이며 \`<split>.reopen-2W.json\`으로 남긴다. 결과는 탐색이다.
+- 대비·규칙·보류·열기 전 관문은 2T·2U와 같다. 판정은 이전 기록과 2T 기록 양쪽과 비교한다.
+- 2P(α=1)는 넣지 않는다. α=1 pearson은 세 구조 모두 학습할 수 없었고, 튜닝 대상도 아니다.
+
+### D-DF. 주장 범위
+
+말할 수 있는 것: SNN 관례를 지키는 구조 안에서 validation으로 고른 설정의 val·test·future 오차와 판정(탐색), 2T·2U와의 비교(기술).
+말하지 않는 것: 튜닝 결과의 확증. validation을 고르는 데 썼고, test·future는 이미 세 번 열렸다. 격자 밖 설정이 더 좋지 않다는 것도 말하지 않는다.
