@@ -110,6 +110,17 @@ def conditions_2w(cfg):
     return {base: cell_2w(f'{base}-{cfg}') for base in ('q1', 'pearson', 'q1_R', 'pearson_R')}
 
 
+def cell_2x(name):
+    """Prereg 2X: '<base>-p<P>s<S>' -- the 2W pick (direct-0.0005-all) with patch length P and stride S.
+    p8s8 is the 2W pick itself (patch_stride 0 = the default it was trained with)."""
+    base, patch = name.split('-')
+    size, stride = (int(v) for v in patch[1:].split('s'))
+    spec = cell_2w(f'{base}-direct-0.0005-all')
+    if (size, stride) != (8, 8):
+        spec.update(patch_size=size, patch_stride=stride)
+    return spec
+
+
 CELLS_2V = [f'{b}-{s}-{n}-{h}' for b in ('q1_R', 'q1') for s in ('lif', 'none') for n in ('frozen', 'bn')
             for h in ('flatten', 'hidden')]
 SOURCE_2V = {   # (soma, norm, head) -> (training suite, stdout condition label of base, calibration suite)
@@ -413,7 +424,7 @@ def one_pass(model, loader, args, ties=True):
         if count_ties:                                          # the trained model's top-k boundary ties
             q, _, _, mask_fn = selection
             xin = window_norm(x)[0] if getattr(args, 'revin', False) else x
-            current = model.embedding.current(layers.to_patches(xin, args.patch_size))
+            current = model.embedding.current(layers.to_patches(xin, args.patch_size, getattr(args, 'patch_stride', 0)))
             zero = torch.zeros_like(state[0])
             for n in range(1, current.shape[0]):
                 xi = torch.cat([state[n - 1], current[n].unsqueeze(-1)], dim=-1)

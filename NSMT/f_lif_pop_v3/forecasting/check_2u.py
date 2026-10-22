@@ -23,6 +23,10 @@ Linear. Reads no split beyond validation.
       exactly (charge >= 1) on the torch and cupy backends -- with gradients reaching the hidden block
   U11 (2W) --wd_exclude_norm_bias: AdamW decays the weight matrices only (BN parameters and biases at 0); the 2W
       settings are in the run name and the 2T / 2U names are unchanged
+  U12 (2X) --patch_stride: the default reproduces the non-overlapping patches bit for bit; stride 4 / length 8 gives
+      T = 83 and length 16 / stride 8 gives T = 41 with patch t starting at t*stride; a stride that does not tile the
+      window is refused; the models build and run with the right head width; names and calibration tags carry the
+      patching and the earlier names are unchanged; a 2W checkpoint reproduces its best validation MSE (1e-6)
   U9  (--smoke) the 2U smoke runs: found by the 2U names, manifest fails only for the 1-epoch training,
       validation reproduces best_val_loss (1e-6), the rebuilt pearson masks equal the model's
 """
@@ -332,6 +336,56 @@ def weight_decay():
          f'4 distinct names {len(names) == 4}; 2T / 2U names unchanged {unchanged}')
 
 
+def patches(device):
+    import layers
+    from config import num_patches_of, patch_tag, calibration_tag, neuron_variant, block_tag
+    g = torch.Generator().manual_seed(3)
+    x = torch.randn(2, 336, 3, generator=g)
+    old = x.transpose(1, 2).reshape(6, 336).unfold(-1, 8, 8).permute(1, 0, 2)
+    same = torch.equal(layers.to_patches(x, 8), old) and torch.equal(layers.to_patches(x, 8, 8), old) \
+        and torch.equal(layers.to_patches(x, 8, 0), old)
+    p84, p168 = layers.to_patches(x, 8, 4), layers.to_patches(x, 16, 8)
+    flat = x.transpose(1, 2).reshape(6, 336)
+    where = all(torch.equal(p84[t], flat[:, 4 * t:4 * t + 8]) for t in range(83)) and \
+        all(torch.equal(p168[t], flat[:, 8 * t:8 * t + 16]) for t in range(41))
+    T = {}
+    for size, stride in ((8, 8), (8, 4), (16, 8)):
+        ns = cli(patch_size=size, patch_stride=stride)
+        T[(size, stride)] = num_patches_of(ns)
+    try:
+        num_patches_of(cli(patch_size=8, patch_stride=5))
+        refused = False
+    except ValueError:
+        refused = True
+    shapes = {}
+    for size, stride in ((8, 4), (16, 8)):
+        spec = rc.cell_2x(f'q1_R-p{size}s{stride}')
+        ns = cli(**spec)
+        ns.num_patches = num_patches_of(ns)
+        m = load_mymodel(ns)
+        xb, _ = batch()
+        with torch.no_grad():
+            out = m(xb, mode=ns.mode)
+        shapes[f'p{size}s{stride}'] = (m.head.in_features, tuple(out.shape), m.embedding.emb_linear.in_features)
+    names = {rc.variant_of('ett', rc.cell_2x(c)) for c in ('q1_R-p8s8', 'q1_R-p8s4', 'q1_R-p16s8')}
+    tags = {calibration_tag(cli(**rc.cell_2x(c))) for c in ('q1_R-p8s8', 'q1_R-p8s4', 'q1_R-p16s8')}
+    unchanged = rc.variant_of('ett', rc.cell_2x('q1_R-p8s8')) == rc.variant_of('ett', rc.cell_2w('q1_R-direct-0.0005-all'))
+    repro = None
+    if device.type == 'cuda':
+        status, run, result = rc.find_cell('etthard-2w-20261022', 'ett', 'ETTh1', rc.cell_2w('q1_R-direct-0.0005-all'), 7)
+        model, args = rc.load_model(run, device)
+        set_random_seed(args.seed)
+        _, loader = data_provider(args, 'val')
+        r = rc.one_pass(model, loader, args, ties=False)
+        repro = abs(r['mse'] - json.loads(Path(result).read_text())['train']['best_val_loss'])
+    ok = same and where and T == {(8, 8): 42, (8, 4): 83, (16, 8): 41} and refused \
+        and shapes == {'p8s4': (83 * 128, (4, 96, 3), 8), 'p16s8': (41 * 128, (4, 96, 3), 16)} \
+        and len(names) == 3 and len(tags) == 3 and unchanged and (repro is None or repro <= rc.REPRO_TOL)
+    gate('U12', ok, f'default == non-overlapping {same}; patch positions {where}; T {T}; stride 5 refused {refused}; '
+                    f'models {shapes}; 3 names / 3 calibration tags {len(names)}/{len(tags)}; 2W name unchanged {unchanged}; '
+                    f'2W checkpoint val |diff| {repro}')
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--smoke', default=None)
@@ -348,6 +402,7 @@ def main():
     refusals()
     membrane(device)
     weight_decay()
+    patches(device)
     if device.type == 'cuda':
         two_t(device)
     else:

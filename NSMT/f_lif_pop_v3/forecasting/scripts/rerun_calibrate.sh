@@ -86,5 +86,10 @@ case $WHAT in
     COMMON="--task ett --data $DS --input_norm $NORM --seed 7 -nd 0 --neuron pop_flif --soma $SOMA --mode full"
     one ${DS}_Roff_q1 "CUDA_VISIBLE_DEVICES=$GPU" $COMMON
     one ${DS}_R_q1    "CUDA_VISIBLE_DEVICES=$GPU" $COMMON --revin ;;
+  ett2x)   # prereg 2X: the 2W pick's calibration for another patching; usage: ett2x <suite> <DS> <gpu> <patch> <stride>
+    DS=${3:?dataset}; GPU=${4:?gpu}; P=${5:?patch}; ST=${6:?stride}
+    COMMON="--task ett --data $DS --input_norm bn --seed 7 -nd 0 --neuron pop_flif --soma none --mode full --patch_size $P --patch_stride $ST"
+    one ${DS}_Roff_q1 "CUDA_VISIBLE_DEVICES=$GPU" $COMMON
+    one ${DS}_R_q1    "CUDA_VISIBLE_DEVICES=$GPU" $COMMON --revin ;;
   *) echo "bad target $WHAT"; exit 1 ;;
 esac

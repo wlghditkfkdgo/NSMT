@@ -142,7 +142,8 @@ def main():
         setattr(config, key, value)
     config.dataset = 'recall' if config.task == 'recall' else config.data
     config.data_path = config.data + '.csv'
-    config.num_patches = config.seq_len // config.patch_size
+    from config import num_patches_of, patch_stride_of
+    config.num_patches = num_patches_of(config)
     config.device = torch.device('cpu' if config.cpu else f'cuda:{config.num_device}')
     check_neuron_args(config)                                        # legacy: 아무것도 하지 않는다
 
@@ -155,7 +156,7 @@ def main():
         if getattr(config, 'revin', False):                          # 2O D-BK: R 변환 입력으로 보정
             from ours import window_norm
             x = window_norm(x.float())[0]
-        batches.append(layers.to_patches(x, config.patch_size))
+        batches.append(layers.to_patches(x, config.patch_size, patch_stride_of(config)))
     sample_hash = hashlib.sha256(b''.join(t.cpu().numpy().tobytes() for t in batches)).hexdigest()[:16]
     print(f"[calib] fixed probe sample: {len(batches)} batches, "
           f"{sum(t.shape[1] for t in batches)} windows, sha256[:16] = {sample_hash}")

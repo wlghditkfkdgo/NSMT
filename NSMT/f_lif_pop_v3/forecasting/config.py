@@ -85,6 +85,8 @@ def parse_arguments():
     shape_arg.add_argument('--seq_len', type=int, default=336)
     shape_arg.add_argument('--pred_len', type=int, default=96)
     shape_arg.add_argument('--patch_size', type=int, default=8)
+    shape_arg.add_argument('--patch_stride', type=int, default=0,
+                           help='prereg 2X: step between patch starts; 0 = patch_size (non-overlapping, every earlier run)')
     shape_arg.add_argument('-emb', '--embedding_dim', dest='embed_dim', type=int, default=32)
     shape_arg.add_argument('--head_dim', type=int, default=32)
     shape_arg.add_argument('--head_mode', choices=['flatten', 'last', 'linear'], default='flatten',
@@ -192,7 +194,7 @@ class Config():
             setattr(self, k, v)
         self.dataset = 'recall' if self.task == 'recall' else self.data
         self.data_path = self.data + '.csv'
-        self.num_patches = self.seq_len // self.patch_size
+        self.num_patches = num_patches_of(self)
         if self.neuron == 'legacy':
             self.variant = ('heterogeneous' if self.heterogeneous else 'homogeneous') + '_' + self.mode
             if self.qk_norm:
@@ -299,6 +301,25 @@ def check_neuron_args(config):
         raise ValueError(f'--neuron {config.neuron} needs: ' + '; '.join(problems))
 
 
+def patch_stride_of(config):
+    return getattr(config, 'patch_stride', 0) or config.patch_size
+
+
+def num_patches_of(config):
+    """T = (L - P) // S + 1; the window must be covered exactly (no padding)."""
+    stride = patch_stride_of(config)
+    if config.seq_len < config.patch_size or (config.seq_len - config.patch_size) % stride:
+        raise ValueError(f'seq_len {config.seq_len}, patch {config.patch_size}, stride {stride}: '
+                         'the patches must tile the window exactly')
+    return (config.seq_len - config.patch_size) // stride + 1
+
+
+def patch_tag(config):
+    """Name part of a patching other than the 8 / 8 of every run before prereg 2X."""
+    stride = patch_stride_of(config)
+    return '' if (config.patch_size, stride) == (8, 8) else f'_p{config.patch_size}s{stride}'
+
+
 def block_tag(config):
     """Name part of the 2U blocks: BN after the embedding Linear, the spiking hidden block."""
     tag = '_bn' if getattr(config, 'input_norm', 'frozen') == 'bn' else ''
@@ -308,6 +329,7 @@ def block_tag(config):
     # 2W: training settings away from the O8 budget are part of the name (run_id has no lr)
     tag += '' if config.lr == 1e-3 else f'_lr{config.lr:g}'
     tag += '_wdx' if getattr(config, 'wd_exclude_norm_bias', False) else ''
+    tag += patch_tag(config)                                         # 2X
     return tag
 
 
@@ -341,7 +363,7 @@ def calibration_tag(config):
     if getattr(config, 'neuron', 'legacy') == 'legacy':
         return ''
 
-    return '_n-' + neuron_variant(config)
+    return '_n-' + neuron_variant(config) + patch_tag(config)       # 2X: the probe sees other patches
 
 
 def neuron_kwargs(config):

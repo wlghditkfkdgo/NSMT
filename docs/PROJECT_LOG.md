@@ -7802,3 +7802,45 @@ SUITE=neurons-smoke-20261014b-nocal EXTRA='--no-require_calibration --input_scal
 **다음:** 사용자 요청으로 겹치는 패치(길이 8·간격 4, 길이 16·간격 8)를 이 구조로 validation에서 실험한다(새 부록). 2W의 남은 단계(8 seed 학습과 test·future)는 사용자 결정을 기다린다.
 
 **commit:** 이 기록을 담은 commit 을 `exp/f-lif-pop-v3` 에 push (해시는 다음 기록에).
+
+## 2026-10-22 17:37 KST — 사전등록 2X: 겹치는 패치 (길이 8·간격 4, 길이 16·간격 8) on 2W 고른 구조 (validation, **탐색**) — 구현·관문·보정·smoke; 2W 남은 단계는 **보류**
+
+**직전 commit:** 2W 선택 결과 commit 은 `aff740323` (`exp/f-lif-pop-v3`).
+
+**사용자 질문과 결정:**
+- 질문: "지금은 patch-based strategy로 실험하고 있는 거야?"
+  - 답: 그렇다. 336시점 창을 채널별로 길이 8·간격 8로 잘라 42개 패치를 만들고, 이 패치 순서가 곧 뉴런의 시간 축(T=42)이다. NSMT는 입력을 SNN 시간 단계만큼 반복한 뒤 패치(토큰) 축을 따로 둔다.
+- 요청: "overlapped patch도 실험해보자."
+- 결정:
+  - 패치는 길이 8·간격 4(T=83)와 길이 16·간격 8(T=41)이다.
+  - 구조는 2W에서 고른 것이다.
+  - 평가는 validation만이다.
+  - 2W의 남은 단계는 두 번의 설명(영어로 쓴 첫 설명은 사용자가 거절해 한국어로 다시 썼다) 뒤 **보류**로 정했다.
+
+**코드:**
+- `layers.to_patches(x, patch, stride)`(stride 0/None = 패치 길이).
+- `config.py`: `--patch_stride`, `num_patches_of`(창을 정확히 덮지 않으면 거부), `patch_tag`(이름과 보정 태그에 `_p<P>s<S>`), 학습기 보정 대조에 `patch_stride`를 넣었다.
+- `ours.myModel`: `patch_stride`를 받는다.
+- `calibrate.py`, `train.fit_input_norm`, `rerun_common.one_pass`가 stride를 따른다.
+- `model.py`: 인자를 넘긴다.
+- 새 파일: `scripts/rerun2x_ett.sh`, `scripts/rerun2x_queue.sh`, `rerun_calibrate.sh ett2x`, `analysis/patch_2x.py`, `rerun_common.cell_2x`. `check_2u`에 U12를 더했다.
+
+**검증 (`results/rerun2x-checks-20261022/`):** `check_2u` 12/12, `check_neurons` 28/28, `check_model` 23/23, spikeDE 복사본 19/19, `rerun_gate_check` 14/14.
+- U12가 확인한 것:
+  - 기본값이 이전 패치와 비트 단위로 같다.
+  - 패치 t는 t × 간격에서 시작하고, T는 42/83/41이다. 간격 5는 거부된다.
+  - 이름과 보정 태그가 3개로 구분되고, 2W 이름은 그대로다.
+  - 2W checkpoint의 val 재현은 1.2e-7이다.
+
+**보정 8개 (모두 통과; γ 초기값, 발화율, G11 한계):**
+
+| 패치 | ETTh1 R 끔 | ETTh1 R 켬 | ETTh2 R 끔 | ETTh2 R 켬 |
+|---|---|---|---|---|
+| p8s4 | 4.0 (0.1838, 329.6) | 8.0 (0.2074, 974.4) | 4.0 (0.1825, 566.2) | 6.0 (0.1786, 1044.8) |
+| p16s8 | 6.0 (0.2295, 496.8) | 8.0 (0.1990, 750.0) | 6.0 (0.2276, 693.1) | 8.0 (0.2037, 1175.4) |
+
+**smoke** (보고 안 함, `rerun2x-smoke-20261022`): q1_R-p8s4는 1 epoch 60 s였다(p8s8은 22 s). q1-p16s8은 25 s였다. manifest는 짧은 학습만 지적했고, val 재현은 1.2e-7과 2.3e-8이었다.
+
+**사전등록:** 부록 **2X**(D-DG ~ D-DI). 대기열은 `scripts/rerun2x_queue.sh etthard-2x-20261022`로 만든 24 run이다(p8s4 먼저).
+
+**commit:** 이 기록을 담은 commit 을 `exp/f-lif-pop-v3` 에 push (해시는 다음 기록에). 그 뒤 pool을 시작한다.

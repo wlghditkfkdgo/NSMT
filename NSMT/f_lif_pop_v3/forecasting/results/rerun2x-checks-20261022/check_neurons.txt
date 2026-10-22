@@ -1,0 +1,32 @@
+[neurons] PASS | S1    19 definitions identical to spikeDE fcd743bef: 19/19; extra definitions: 0; imports block intact: True
+[neurons] PASS | N1    f-LIF(alpha=1, pred) vs LIF (Euler): rel state err 0.0e+00, spikes equal True (208 spikes)
+[neurons] PASS | N2    f-LIF(alpha=1, gl) vs LIF (Euler): rel state err 0.0e+00, spikes equal True (208 spikes)
+[neurons] PASS | N3    q=1 == the class without Selective, bitwise: True (8 cases)
+[neurons] PASS | N4    PopulationFLIF[Soma](K=1) == FLIFNeuron / FLIFSoma bitwise: {'none': True, 'lif': True}
+[neurons] PASS | N5    PopulationSelectiveFLIF(K=1, q=.5) == SelectiveFLIF bitwise: True
+[neurons] PASS | N6    FLIFNeuron == spikede.snn_solve(LIFNeuron, AdamsBashforthSNN) called directly, bitwise: True
+[neurons] PASS | N7    Soma == v3 soma with reset theta/tau_s: spikes bitwise True, V rel err 9.9e-17; 411 spikes vs 363 with v3's reset theta
+[neurons] PASS | N8    ['pop_flif{}', "pop_flif{'heterogeneous': False}"] vs layers.PopulationNeuron(mode='full'): member states rel err <= 5.6e-16, coefficients and kept slots equal, spikes == soma reference on own states: [True, True]
+[neurons] PASS | N9    ["sel_pop_flif{'q': 0.5}"] vs layers.PopulationNeuron(mode='hard'): member states rel err <= 1.2e-15, coefficients and kept slots equal, spikes == soma reference on own states: [True]
+[neurons] PASS | N10   ["sel_pop_flif{'q': 0.5, 'stat': 'recent', 'seed': 11}", "sel_pop_flif{'q': 0.5, 'stat': 'random', 'seed': 11}"] vs layers.PopulationNeuron(mode='hard'): member states rel err <= 5.6e-16, coefficients and kept slots equal, spikes == soma reference on own states: [True, True]
+[neurons] PASS | N11   part='input': q=1 bitwise without selection True; differs from part='all' True; states vs the 2Q (A) leak-kept recursion rel err 6.1e-16
+[neurons] PASS | N12   memory >= T is bitwise the full history and memory=5 is not: {'pred': True, 'gl': True}
+[neurons] PASS | N17   alpha=1 == LIF (rel 1e-12, spikes equal) with the whole history {'pred/None': True, 'pred/42': True, 'pred/47': True, 'gl/None': True, 'gl/2': True, 'gl/5': True, 'gl/42': True}; differs with a shorter memory (rel state err) {'pred/1': 0.9612, 'pred/2': 0.9612, 'pred/5': 0.9718, 'pred/39': 0.9612, 'gl/1': 0.9612}
+[neurons] PASS | N14   out_features {'lif/none': (6, 6), 'flif/none': (6, 6), 'flif/lif': (6, 6), 'pop_flif/none': (24, 24), 'pop_flif/lif': (6, 6), 'sel_flif/none': (6, 6), 'sel_flif/lif': (6, 6), 'sel_pop_flif/none': (24, 24), 'sel_pop_flif/lif': (6, 6)}; refused configurations [True, True, True, True, True, True, True]
+[neurons] PASS | N15   kept exactly round(qJ) in 16 cases: True; recent keeps the newest 10/41: True
+[neurons] PASS | N16   each class = FLIFNeuron + Population/Selective/Soma instances, spikeDE cells, silent members under a soma: {'lif/none': True, 'flif/none': True, 'flif/lif': True, 'pop_flif/none': True, 'pop_flif/lif': True, 'sel_flif/none': True, 'sel_flif/lif': True, 'sel_pop_flif/none': True, 'sel_pop_flif/lif': True}
+[neurons] PASS | N13   finite, nonzero gradients to the input (and soma weights): {'lif/none': True, 'flif/none': True, 'flif/lif': True, 'pop_flif/none': True, 'pop_flif/lif': True, 'sel_flif/none': True, 'sel_flif/lif': True, 'sel_pop_flif/none': True, 'sel_pop_flif/lif': True}
+[neurons] PASS | W1    every (neuron, soma) through config -> load_mymodel -> myModel runs, finite: 18/18
+[neurons] PASS | W2    myModel pop_flif(soma) vs legacy --mode full (shared initial values): member states rel err 4.8e-07 (float32), spikes == soma reference on own states True, keys without legacy counterpart [], kernel table equal True
+[neurons] PASS | W3    3 AdamW steps (lr 1e-2, clip 1): finite, soma weights and others move: {'pop_flif': (True, '7/9 moved'), 'sel_pop_flif': (True, '7/9 moved')}
+[neurons] PASS | W4    --soma none: heads read 32*4 spike trains, forward finite: {'flatten': True, 'linear': True}
+[neurons] PASS | W5    accepted 15/15, refused 14/14, distinct names 15/15, one calibration tag per configuration and none for legacy True (e.g. '_n-flif-tau8-somalif')
+[neurons] PASS | W6    legacy neuron_kwargs keys unchanged: True
+[neurons] PASS | N18   same seed -> identical initial model across ['pop_flif', 'pearson .5', 'pearson .25', 'recent .5', 'random .5']: {'ett/7': True, 'ett/1024': True, 'recall/7': True, 'recall/1024': True}; another seed differs True
+val 2785
+[neurons] PASS | W7    seed7_linear_spike_heterogeneous_hard-shared-pearson-q1_revin (ETTh1): validation mse 0.751812104330 vs recorded 0.751812104330 (diff 0.0e+00) on cuda:0
+val 2785
+[neurons] PASS | W7    seed7_linear_spike_heterogeneous_hard-shared-pearson-q0.5_revin (ETTh1): validation mse 0.733373691973 vs recorded 0.733373691973 (diff 0.0e+00) on cuda:0
+val 5175
+[neurons] PASS | W7    seed7_flatten_spike_heterogeneous_hard-shared-pearson-q0.5_revin (weather): validation mse 0.407502230817 vs recorded 0.407502230817 (diff 0.0e+00) on cuda:0
+[neurons] 28 passed, 0 failed

@@ -558,13 +558,14 @@ class PopulationNeuron(nn.Module):
         return torch.stack(out, dim=-1).reshape(T, *x.shape[1:], self.num_population)
 
 
-def to_patches(x, patch_size):
-    #  x: [B, L, C]  ->  [T, B*C, patch_size], T = L // patch_size
-    """Chronological non-overlapping patches, channel-independent (v2 idiom, unchanged)."""
+def to_patches(x, patch_size, stride=None):
+    #  x: [B, L, C]  ->  [T, B*C, patch_size], T = (L - patch_size) // stride + 1
+    """Chronological patches, channel-independent (v2 idiom). stride None (or 0) = patch_size, the
+    non-overlapping patches of every run before prereg 2X; a smaller stride makes them overlap."""
     B, L, C = x.shape
     x = x.transpose(1, 2).reshape(B * C, L)
 
-    return x.unfold(-1, patch_size, patch_size).permute(1, 0, 2).contiguous()
+    return x.unfold(-1, patch_size, stride or patch_size).permute(1, 0, 2).contiguous()
 
 
 class Embedding(nn.Module):

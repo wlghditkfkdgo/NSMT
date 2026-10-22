@@ -76,20 +76,22 @@ class myModel(nn.Module):
     """
     def __init__(self, task='recall', seq_len=336, pred_len=96, patch_size=8, embed_dim=32,
                  head_dim=32, head_mode='flatten', readout='spike', input_scale=8.,
-                 input_norm='frozen', revin=False, hidden_dim=0, hidden_tau=2., hidden_readout='spike', **neuron_args):
+                 input_norm='frozen', revin=False, hidden_dim=0, hidden_tau=2., hidden_readout='spike',
+                 patch_stride=0, **neuron_args):
         super().__init__()
 
         if revin and task == 'recall':
             raise ValueError('window normalisation R is defined for forecasting only (prereg 2O)')
         self.revin = bool(revin)
-        if seq_len < patch_size or seq_len % patch_size:
-            raise ValueError('Require complete chronological non-overlapping patches')
+        self.patch_stride = int(patch_stride) or patch_size             # 2X: 0 = non-overlapping
+        if seq_len < patch_size or (seq_len - patch_size) % self.patch_stride:
+            raise ValueError('Require complete chronological patches that tile the window exactly')
         if head_mode not in ('flatten', 'last', 'linear') or readout not in ('spike', 'analog', 'drive'):
             raise ValueError('Invalid readout configuration')
         self.task, self.readout = task, readout
         self.seq_len, self.pred_len = seq_len, pred_len
         self.patch_size, self.head_mode = patch_size, head_mode
-        self.num_patches = seq_len // patch_size
+        self.num_patches = (seq_len - patch_size) // self.patch_stride + 1
 
         self.embedding = Embedding(patch_size, embed_dim, input_scale, input_norm, **neuron_args)
         # 스파이크 폭. soma='none'인 모집단 클래스(neurons.py)는 유닛마다 K개의 스파이크열을 낸다.
@@ -130,7 +132,7 @@ class myModel(nn.Module):
         B, L, C = x.shape
         if self.revin:
             x, mu, s = window_norm(x)                                # 2O D-BK: patch/embedding 앞
-        patch = to_patches(x, self.patch_size)                       # [T, B*C, patch_size]
+        patch = to_patches(x, self.patch_size, self.patch_stride)    # [T, B*C, patch_size]
 
         oracle_p = None
         # mode=hard with hard_stat=oracle (2M) needs the same answer sets as mode=oracle.
