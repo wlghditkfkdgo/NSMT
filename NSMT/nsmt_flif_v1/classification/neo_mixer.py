@@ -27,13 +27,13 @@ from spikingjelly.clock_driven.neuron import MultiStepLIFNode, surrogate
 
 from layers import SpikLinearLayer, build_neo_neuron, GroupNeuron, group_gamma, sj_lif, apply_tau_calibration
 from model import Embedding, NeoLayer
-from bix import TokenXAttn
+from bix import TokenXAttn, StreamSpikeLinear
 
 __all__ = ['NeoMixer']
 
 MIXERS = ('none', 'lif', 'flif', 'pop_flif', 'lif_rec', 'sj_lif',   # MODI 2026-10-21 (1-A): lif_rec = NeoLayer(recurrent=True), gated W_rec;
           'pop_lif', 'pop_rec', 'popg_lif', 'popg_flif')           # sj_lif = the same spikingjelly single-step LIF loop without recurrence (control)
-COMBS = ('or', 'xattn', 'xattn_ch')
+COMBS = ('or', 'xattn', 'xattn_ch', 'lin')   # lin (MODI 2026-10-22): m = neuron(BN(W [F; R])), learned per-token fusion, no attention
 
 
 class MixerStack(nn.Module):
@@ -75,7 +75,11 @@ class Block(nn.Module):
                     for l in st.Mem:
                         with torch.no_grad():
                             l.bn.weight.copy_(group_gamma(dim, taus, mixer.split('_', 1)[1]))   # spikeDE lif / flif family
-        if comb != 'or':                                                 # MODI 2026-10-21: BiX, q = forward stream, k/v = reverse stream
+        if comb == 'lin':                                                # MODI 2026-10-22: Linear(2D -> D) on [F; R] -> BN -> spikingjelly LIF
+            if self.grouped:
+                raise NotImplementedError('lin fusion is defined for single-tau mixers (lif / flif / pop_lif / pop_flif)')
+            self.fuse = StreamSpikeLinear(2 * dim, dim, 1, sj_lif(tau), bias=bias, bn_layout='flat')
+        elif comb != 'or':                                               # MODI 2026-10-21: BiX, q = forward stream, k/v = reverse stream
             afn = (lambda: GroupNeuron(dim, taus, 'sj', axis=-1)) if self.grouped else (lambda: sj_lif(tau))
             self.xattn = TokenXAttn(dim, T, K=1, heads=heads, form=('head' if comb == 'xattn' else 'channel'), neuron_fn=afn, bias=bias,
                                     gamma=(group_gamma(dim, taus) if self.grouped else None))
@@ -95,7 +99,12 @@ class Block(nn.Module):
         m = self.mixer(x)
         if self.bidir:
             r = self.mixer_rev(x.flip(0)).flip(0)
-            m = torch.maximum(m, r) if self.comb == 'or' else self.xattn(m, r)
+            if self.comb == 'or':
+                m = torch.maximum(m, r)
+            elif self.comb == 'lin':
+                m = self.fuse(torch.cat([m, r], dim=-1))
+            else:
+                m = self.xattn(m, r)
         return m
 
     def forward(self, x, mix_fn=None):

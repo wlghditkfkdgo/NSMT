@@ -347,6 +347,47 @@ def bix_summary(a):
     print('\n'.join(L))
 
 
+def lin_summary(a):
+    """MODI 2026-10-22: linear-fusion Neo-mixer (mixlin_*) vs OR (stage 9 / idea batch), BiX (idea batch) and Spikformer-style."""
+    R = os.path.join(HERE, 'results', a.suite)
+    rows = [r for r in parse(os.path.join(R, 'raw.txt')) if int(r.get('crop', 0)) == 0]
+    rows += [r for r in parse(os.path.join(HERE, 'results', 'flif-v1-rhythm-bix-cinc', 'raw.txt')) if int(r.get('crop', 0)) == 0]
+    rows += [r for r in parse(os.path.join(HERE, 'results', 'flif-v1-rhythm-cinc', 'raw.txt'))
+             if int(r.get('crop', 0)) == 0 and r['cond'] in ('spk_ssa', 'mix_lif_bidir', 'mix_flif_bidir', 'mix_pop_bidir', 'mix_none')]
+    seeds, need = (42, 7, 2026), 2
+    ns = ('lif', 'flif', 'pop_lif', 'pop_flif')
+    lab = {'spk_ssa': 'Spikformer-style SSA (T=4)', 'spk_ssa_abn': 'Spikformer-style SSA + attention BN', 'mix_none': 'no mixing (floor)'}
+    for n in ns:
+        lab[f'mixlin_{n}'] = f'Neo-mixer linear fusion, {BIX_NAME[n]}'; lab[_mix_cond(n)] = f'Neo-mixer OR, {BIX_NAME[n]}'; lab[f'bix_{n}'] = f'BiX, {BIX_NAME[n]}'
+    order = ['spk_ssa', 'spk_ssa_abn', 'mix_none'] + [c for n in ns for c in (_mix_cond(n), f'mixlin_{n}', f'bix_{n}')]
+    def ms(v, s=100., nd=2):
+        v = np.asarray(list(v), dtype=float)
+        return 'n/a' if len(v) == 0 or not np.all(np.isfinite(v)) else f'{s * v.mean():.{nd}f} ± {s * v.std(ddof=1) if len(v) > 1 else 0:.{nd}f}'
+    L = [f'# Linear-fusion Neo-mixer `{a.suite}` (CINC2017) — summary', '', 'Best-validation weights on the test set; CinC score; mean ± sd over seeds (42, 7, 2026) (%).', '',
+         '| condition | n | score | best val | val − test | total µJ (FFT) | neocortex firing | params |', '|---|---|---|---|---|---|---|---|']
+    energy = {}
+    for c in order:
+        rr = [r for r in rows if r['cond'] == c]
+        if not rr:
+            L.append(f'| {lab.get(c, c)} | 0 | n/a | | | | | |'); continue
+        energy[c] = np.mean([float(r['total_fft_uJ']) for r in rr])
+        val = [best_val(r) for r in rr]; sc = [float(r['score']) for r in rr]; rho = [r.get('rho_neo') for r in rr]
+        L.append(f"| {lab.get(c, c)} | {len(rr)} | {ms(sc)} | {ms(val)} | {ms([v - s for v, s in zip(val, sc)])} | {energy[c]:.1f} | "
+                 f"{ms(rho, 1., 4) if all(isinstance(x, float) for x in rho) else 'n/a'} | {int(rr[0]['params'])} |")
+    Q = [('L1 OR -> linear fusion', f'mixlin_{n}', _mix_cond(n)) for n in ns] + [('L2 linear fusion vs BiX', f'mixlin_{n}', f'bix_{n}') for n in ns]
+    Q += [('L3 vs Spikformer (criterion 2)', f'mixlin_{n}', 'spk_ssa') for n in ns]
+    L += ['', '## Pre-registered comparisons (%p, paired by seed)', '', '| question | A | B | A − B per seed | mean | verdict | energy A/B | criterion (2) |', '|---|---|---|---|---|---|---|---|']
+    for q, x, y in Q:
+        v, d, m = verdict(rows, x, y, seeds, need)
+        er = energy.get(x, float('nan')) / energy.get(y, float('nan')) if energy.get(y) else float('nan')
+        crit = ''
+        if 'criterion 2' in q and v != 'incomplete':
+            crit = 'met' if (v == 'better') or (m >= -0.5 and math.isfinite(er) and er <= 0.5) else 'not met'
+        L.append(f"| {q} | {lab.get(x, x)} | {lab.get(y, y)} | {' / '.join(f'{z:+.2f}' for z in d)} | {m:+.2f} | {v} | {er:.2f} | {crit} |")
+    open(os.path.join(R, 'summary.md'), 'w').write('\n'.join(L) + '\n')
+    print('\n'.join(L))
+
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--decide', action='store_true')
@@ -356,5 +397,6 @@ if __name__ == '__main__':
     ap.add_argument('--aux', action='store_true')
     ap.add_argument('--fix', action='store_true')
     ap.add_argument('--bix', action='store_true')
+    ap.add_argument('--lin', action='store_true')
     a = ap.parse_args()
-    decide(a) if a.decide else (aux_summary(a) if a.aux else (fix_summary(a) if a.fix else (bix_summary(a) if a.bix else summary(a))))
+    decide(a) if a.decide else (aux_summary(a) if a.aux else (fix_summary(a) if a.fix else (bix_summary(a) if a.bix else (lin_summary(a) if a.lin else summary(a)))))

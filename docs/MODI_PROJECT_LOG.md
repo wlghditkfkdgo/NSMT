@@ -1961,3 +1961,28 @@ c28의 K = 1·τ 2 비트 동일 검사는 그대로 통과(보정은 τ 4/8/16/
 **다음:** 아이디어 묶음(큐 A 30 run 진행 중, 큐 B 24 run의 smoke가 06:34 시작)과 원인 분리 묶음(CinC 45 run, 아이디어 묶음 뒤 자동)이 이어진다.
 
 **commit/tag:** 이 항목·f-LIF 결과·요약을 commit하고 태그 `exp/nsmt-flif-neo-20261022`를 붙여 브랜치와 태그만 push한다.
+
+---
+
+## 2026-10-22 11:01 KST — 선형 합 Neo-mixer 사전 고정(CinC 12 run)과 원인 분리 묶음 일정 변경(가벼운 33 run 지금 시작), 사용자 질문 답(층 수·잔차 연결) — 점검 32/32, smoke 4/4
+
+**사용자 질문·제안 (10-22):**
+1. "Neo mixer에서 역방향 순방향 각 나온 값을 linear 통과 하여 가중치합을 하는 것은 어때? 그리고 역방향 순방향 각각 몇개의 레이어로 쌓여있어?" → **각 방향 2층**(NeoLayer = Linear 384→384 + BN + 뉴런; 두 방향 가중치 따로; 블록 1개; 9단계 `mix_lif_bidir` run의 `logargs.txt`·모듈 목록으로 확인). 제안 분석: OR는 학습하는 것이 없고 어느 방향이 발화했는지 구분하지 못한다. 선형 합은 두 방향을 채널마다 학습해 섞고(문턱으로 AND 같은 조합도 가능), **같은 조각 위치끼리만** 합치므로 조각 사이 정보는 여전히 정렬된 막전위로만 오간다(T = N 주장과 가장 잘 맞는 구조). 그리고 BiX의 OR 대비 이득(LIF +0.96, f-LIF +1.36)이 (a) 학습되는 합치기 층 때문인지 (b) 주의의 전역 접근 때문인지를 가르는 대조군이 된다. AskUserQuestion: **지금 큐 B 옆에서 바로**, **선형층 형태**(m = 뉴런(BN(W[F; R])); 스칼라 형태는 넣지 않음).
+2. "각 Spikformer 식 모델도 residual connection이 XOR인 상태야?" → 아니다. **모든 모델(NSMT, Spikformer식, Neo-mixer, BiX, 선형 합)이 IAND** `x ← x·(1 − f(x))`(저자 ECG 코드의 방식; x가 1이고 f가 0일 때만 1)를 쓴다. XOR(x + f − 2xf)도, 원 Spikformer의 덧셈 잔차(x + f, 값이 2까지)도 아니다. 그래서 하위 모듈(주의·섞기·MLP)은 스파이크를 끄기만 하고 새로 만들 수 없다. 내부 비교는 같은 조건이라 공정하지만, **우리 "Spikformer식"은 원 Spikformer와 잔차 방식이 다르다** — 문헌 비교에 쓸 때 밝혀야 한다. 잔차 방식을 원인 후보로 시험할지는 AskUserQuestion에서 **"나중에 결정"**.
+3. "Spikformer식 모델과의 성능차이에 대한 원인 분석 실험은 언제 시작해?" → 원래 일정은 아이디어 묶음 큐 B 뒤(오늘 저녁 시작, 10-23 저녁 종료 추정). AskUserQuestion: **가벼운 33 run을 지금 바로**.
+
+### A. 선형 합 Neo-mixer (사전 고정)
+- **조건:** `mixlin_{lif, flif, pop_lif, pop_flif}` × CinC fold 0 × seed 42/7/2026 = 12 run(뉴런 축 규칙: LIF·f-LIF·population LIF·population f-LIF; population soma 가중치는 아이디어 묶음과 같은 0.5 / 1.0). suite `flif-v1-rhythm-lin-cinc`, 러너 `scripts/run_rhythm3.sh`(큐 B가 `run_rhythm2.sh`를 실행 중이라 복사본; 10-21 사고 뒤 규칙).
+- **구현:** `neo_mixer.Block(comb='lin')`: `bix.StreamSpikeLinear(768 → 384, K = 1)` = Linear(이어 붙인 [F; R]) → BN → spikingjelly LIF(τ 2, 토큰 축 T = N). 나머지(임베딩·두 방향 2층·IAND·MLP·head)는 Neo-mixer와 같다. `config.py`: `--mixer_comb lin`, 디렉터리 접미사 `_lin`. `summarize_rhythm.py --lin`.
+- **점검 32/32** (`results/checks/check_cls_lin.txt`): c1–c31 그대로, c32 = Linear (384, 768)·주의 모듈 없음, 합친 출력 0/1, `mix()` = `fuse([F; R])`, 모든 뉴런 T = N, 순방향만 바꿔도·역방향만 바꿔도 합친 출력이 바뀜(초기 발화율 0.034).
+- **smoke** (`results/smoke-rhythm-lin-20261022/raw.txt`, 1 epoch, seed 42; 4/4 통과): mixlin_lif 0.2788 / 26.6 µJ / 224 s, mixlin_flif 0.2903 / 31.6 µJ / 438 s, mixlin_pop_lif 0.3161 / 38.6 µJ / 519 s, mixlin_pop_flif 0.3043 / 66.0 µJ / 478 s. 파라미터 1,211,904(population 1,218,048) = Neo-mixer 916,224 + 294,912 + 768로 설계와 일치. 최대 GPU 메모리 0.26–1.74 GB.
+- **판정(같은 규칙: 평균 ≥ +0.5%p이고 seed 3개 중 2개 이상):** L1 `mixlin_n` − Neo-mixer OR(같은 뉴런; LIF·f-LIF·population f-LIF는 9단계, population LIF는 아이디어 묶음 `mix_pop_lif_bidir`), L2 `mixlin_n` − `bix_n`, L3 `mixlin_n` − Spikformer식(기준 (2)).
+- **해석 틀(사전):** L1 좋음 + L2 차이 없음 → BiX의 이득은 주의가 아니라 학습되는 합치기에서 온다. L1 차이 없음 + (BiX > OR) → 주의(전역 접근)가 핵심이다.
+- **예상(사전 기록):** L1은 LIF·f-LIF에서 좋음(+0.5–1%p), population은 차이 없음. L2는 차이 없거나 BiX가 약간 좋음. L3는 미충족.
+
+### B. 원인 분리 묶음 일정 변경 (10-21 20:12 사전 고정의 조건·판정은 그대로, CinC만)
+- **가벼운 33 run**(위치: `spk_ssa_nope`·`mix_lif_bidir_pe`·`mix_pop_bidir_pe`; 도달 거리: `mix_lif_rec_bidir`·`mix_sjlif_bidir`·`mix_pop_rec_bidir`·`mix_pop_bidir_pt16`; 해마 T = 4: `nsmt_lif_t4`·`nsmt_pop_t4`; mixer soma 가중치: `mix_pop_bidir_psi1.5`·`_psi2`)은 **지금** 새 드라이버 `scripts/rhythm_fix_light_driver.sh`(tmux `flif_fix_light`, 11:00 시작): 11조건 정식 배치 smoke(실패 시 정지) → `scripts/queues/fix_light.go`(이 항목 commit 뒤 생성) → GPU 4장에 1개씩 → `--fix` 요약(무거운 부분이 끝나기 전엔 중간본).
+- **무거운 12 run**(`nsmt_lif_pe`·`nsmt_pop_pe`·`nsmt_pop_psi1.5`·`_psi2`, GPU당 35–45 GB)은 큐 B와 같은 GPU에 들어가지 않아 그대로 큐 B 뒤: `rhythm_fix_driver.sh`를 **무거운 부분만** 돌도록 고쳤다(실행 전이라 안전; `rhythm_bix_driver2.sh`가 큐 B 뒤에 호출; 무거운 4조건 정식 배치 smoke 뒤 시작).
+- 이 때문에 지금 GPU당 최대 4개 run(큐 B 2, 선형 합 1, 원인 분리 1)이 함께 돈다. 각 run은 느려지지만 결과에는 영향이 없다(run마다 같은 명령·seed).
+
+**commit:** 이 항목·코드·점검·smoke를 commit·push한 뒤 선형 합 12 run을 시작하고 `fix_light.go`를 만든다.

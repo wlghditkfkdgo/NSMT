@@ -74,6 +74,8 @@ cannot run, or whose test is vacuous (no spikes), FAILs.
       output changes; without the flag the model equals the default model bitwise
   c31 (MODI 2026-10-21) population LIF (alpha 1): branch states equal a manual non-resetting Euler LIF recursion, soma
       output is 0/1; initial firing on real CinC / SHD data is reported
+  c32 (MODI 2026-10-22) linear fusion (mixer_comb lin): one Linear 768 -> 384 + BN + spikingjelly LIF on [F; R], no attention
+      module, output 0/1, every neuron T = N, changing only the forward (resp. reverse) stream changes the fused output
 usage: python check_cls.py [--out results/checks/check_cls.txt]
 """
 import argparse
@@ -1264,12 +1266,43 @@ def c31():
     report('c31', maxd < 1e-5 and binary, '; '.join(msgs))
 
 
+@check('c32')
+def c32():
+    from load_model import LOAD_MODEL
+    from config import set_random_seed
+    from energy import FiringRateRecorder
+    from spikingjelly.clock_driven import functional
+    g = torch.Generator().manual_seed(32); x = torch.rand(8, 1, 187, generator=g).cuda()
+    set_random_seed(0)
+    m = LOAD_MODEL['neoMixer'](NS(**_mixer_kw(mixer_comb='lin')), True).cuda(); m.train_mode = 'testing'
+    _bn_freeze_eval(m, x)
+    blk = m.blocks[0]
+    lin_ok = tuple(blk.fuse.linear.weight.shape) == (384, 768) and not hasattr(blk, 'xattn')
+    rec = FiringRateRecorder(m)
+    with torch.no_grad():
+        e = m.encoding(m.tokens(x)); functional.reset_net(m)
+        F = blk.mixer(e); functional.reset_net(m)
+        R = blk.mixer_rev(e.flip(0)).flip(0); functional.reset_net(m)
+        m0 = blk.fuse(torch.cat([F, R], -1)); functional.reset_net(m)
+        mm = blk.mix(e); functional.reset_net(m)
+        rec.add_samples(8)
+        F2 = F.clone(); F2[5] = 1. - F2[5]; R2 = R.clone(); R2[5] = 1. - R2[5]
+        mf = blk.fuse(torch.cat([F2, R], -1)); functional.reset_net(m)
+        mr = blk.fuse(torch.cat([F, R2], -1)); functional.reset_net(m)
+    Ts = {st['T'] for st in rec.stats.values() if st['calls'] and not st['single']}
+    rec.detach()
+    binary = bool(((mm == 0) | (mm == 1)).all())
+    ok = lin_ok and binary and torch.equal(m0, mm) and Ts == {m.num_patches} and not torch.equal(m0, mf) and not torch.equal(m0, mr)
+    report('c32', ok, f'Linear (384, 768) & no attention {lin_ok}, fused output binary {binary}, mix() == fuse([F; R]) {torch.equal(m0, mm)}, '
+                      f'neuron T {sorted(Ts)}, forward-only change -> output changes {not torch.equal(m0, mf)}, reverse-only {not torch.equal(m0, mr)}, rate {float(mm.mean()):.3f}')
+
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', default=os.path.join(HERE, 'results', 'checks', 'check_cls.txt'))
     ap.add_argument('--only', nargs='*', default=None)
     a = ap.parse_args()
-    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30, c31):
+    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30, c31, c32):
         if a.only and fn.__name__ not in a.only:
             continue
         fn()
