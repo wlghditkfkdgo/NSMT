@@ -1,0 +1,16 @@
+[2u] PASS | U1  {'q1_R': 'Linear -> BatchNorm1d -> PopulationFLIF -> Linear -> BatchNorm1d -> MultiStepLIFNode -> Identity -> Linear; spikes (42, 12, 128) -> (42, 12, 32) -> out (4, 96, 3); 133665 parameters', 'pearson_R': 'Linear -> BatchNorm1d -> PopulationSelectiveFLIF -> Linear -> BatchNorm1d -> MultiStepLIFNode -> Identity -> Linear; spikes (42, 12, 128) -> (42, 12, 32) -> out (4, 96, 3); 133665 parameters'}
+[2u] PASS | U2  per-step BN == manual rel 2.8e-07; differs from time-folded BN rel 0.44; running statistics == 42 sequential updates True
+[2u] PASS | U3  gamma starts at input_scale True; set_scale moves it True; current == 6 x per-step standardised rel 2.3e-07
+[2u] PASS | U4  SpikingJelly MultiStepLIFNode tau 2 detach_reset sigmoid True; BN over time x batch == manual rel 1.0e-07; repeat forward identical True; another batch size runs; cupy == torch True
+[2u] PASS | U5  nonzero finite gradients 9/9 ([]); 3 AdamW steps finite True; moved 9/11
+[2u] PASS | U6  eval output alone vs in a batch rel 2.8e-08
+[2u] PASS | U7  refused {'bn + legacy': True, 'hidden + legacy': True, 'hidden + flatten': True, 'hidden + analog': True, 'Embedding bn + legacy': True}
+[2u] PASS | U10 spikes == (charge >= 1) and gradients reach the hidden block: {'torch': True, 'cupy': True}
+[2u] PASS | U11 no-decay group = BN and biases only True (7 tensors); train.py wired True; 4 distinct names True; 2T / 2U names unchanged True
+val 2785
+[2u] PASS | U12 default == non-overlapping True; patch positions True; T {(8, 8): 42, (8, 4): 83, (16, 8): 41}; stride 5 refused True; models {'p8s4': (10624, (4, 96, 3), 8), 'p16s8': (5248, (4, 96, 3), 16)}; 3 names / 3 calibration tags 3/3; 2W name unchanged True; 2W checkpoint val |diff| 1.1965049917517234e-07
+val 2785
+val 2785
+[2u] PASS | U8  2 2T checkpoints (ETTh1 seed 7) reproduce their best validation MSE: worst |diff| 6.5e-08
+[2u] U9    not run (no --smoke suite)
+[2u] 11 passed, 0 failed

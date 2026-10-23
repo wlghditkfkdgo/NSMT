@@ -57,7 +57,7 @@ def load_calibration(args):
             mismatch.append(f'{field}: calibration {have} vs requested {want}')
     # qk_eps는 변환과 score scale을 모두 바꾸므로 식별자에 포함되어야 한다 (audit 18 A10-CAL).
     for field in ('revin', 'patch_size', 'patch_stride', 'embed_dim', 'input_norm', 'qk_norm', 'qk_eps', 'key_norm',
-                  'cue_mode', 'n_keys', 'seq_len'):
+                  'cue_mode', 'n_keys', 'seq_len', 'neuron_memory'):
         have = saved.get(field)
         if have is not None and have != getattr(args, field, have):
             mismatch.append(f'{field}: calibration {have} vs requested {getattr(args, field)}')

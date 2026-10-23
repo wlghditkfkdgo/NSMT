@@ -7878,3 +7878,53 @@ SUITE=neurons-smoke-20261014b-nocal EXTRA='--no-require_calibration --input_scal
 **태그:** 이 기록을 담은 commit 에 `exp/f-lif-pop-v3-2x-overlap-20261022`(annotated, 완료).
 
 **commit:** 이 기록을 담은 commit 을 `exp/f-lif-pop-v3` 에 push (해시는 다음 기록에).
+
+---
+
+## 2026-10-23 16:42 KST — 사전등록 2Y: 출력층이 읽는 범위(모든 시점 / 마지막 시점) × 창 길이(336 / 96) × 뉴런 상태(있음 / 패치마다 0) on 2W 고른 구조 (validation, **탐색**) — 구현·관문·보정·smoke
+
+**직전 commit:** 2X 결과 commit 은 `02a2078d5` (`exp/f-lif-pop-v3`, 태그 `exp/f-lif-pop-v3-2x-overlap-20261022`).
+
+**목적:** 사용자 요청(10-23) "(가) (나)를 병렬로 진행하자" 중 (가). `NSMT/docs/About_idea.md` 4.2절의 지적 — 출력층이 모든 시점을 직접 읽으면 뉴런이 기억하지 않아도 과거 정보를 쓸 수 있다 — 을 v3에서 처음 통제한다. 지금까지의 ETT 결과(2N–2X)는 모두 출력 Linear가 42개 시점을 전부 읽는 구조였다. (나)(Neo-mixer 합치기 지점 probe, CinC)는 다른 작업 계열(`exp/nsmt-flif-neo`, `docs/MODI_PROJECT_LOG.md`)에 기록한다.
+
+**브랜치·기준:** `exp/f-lif-pop-v3`, 기준 commit `02a2078d5`. 환경: `snn_recall`(torch 1.12.0+cu113), A6000.
+
+**설계 (부록 2Y, D-DJ ~ D-DL):**
+- 구조: 2W 고른 direct-0.0005-all(population 축, soma 없음, 시점별 BN, 출력 Linear 하나, lr 0.0005).
+- 칸 6개 `<mem|nomem>-<336|96>-<all|last1>`: mem-336-all(2W 선택 run 재사용), mem-96-all, mem-336-last1, mem-96-last1, nomem-336-all, nomem-336-last1.
+  - last1 = 출력 Linear가 마지막 시점의 스파이크 128개만 읽음(`--head_window 1`, Linear(128 → 96)).
+  - 96 = 창 길이 96(T = 12). validation 목표 행은 336과 같다(2785 창, y 동일).
+  - nomem = 패치마다 v = 0에서 한 스텝(`--neuron_memory none`). 구성원 k는 I_t/τ_k ≥ 1일 때만 발화한다. 전류(시점별 BN 포함)와 초기 파라미터는 mem과 같다.
+- q1_R·q1 × ETTh1·ETTh2 × seed 7·13·21, 새 학습 60 run, suite `etthard-2y-20261023`, 예산 O8.
+- 비교 C1–C5(seed별 paired, 기술): C1 nomem-336-all − mem-336-all(모든 시점 읽기에서 상태의 몫), C2 nomem-336-last1 − mem-336-last1(마지막 시점만 읽을 때 상태의 몫), C3 mem-96-last1 − mem-336-last1(96보다 먼 과거가 마지막 상태에 닿는가), C4 mem-96-all − mem-336-all, C5 mem-336-last1 − mem-336-all.
+- 사전 예상: C1 nomem 약간 나쁨(수 %), C2 nomem 크게 나쁨, C3 차이 없음 또는 336이 약간 나음, C4 336이 나음, C5 last1 크게 나쁨.
+
+**코드 (기본값은 지금까지의 모든 run과 같음, Y1):**
+- `config.py`: `--head_window`(0 = 모든 시점), `--neuron_memory {full, none}`. 이름에 `_hw<W>`, `_L<L>`(336이 아닐 때; run_id에 seq_len이 없어 충돌을 막음), `-nomem`. 보정 tag에 `-nomem`, `_L<L>`. `check_neuron_args`가 flatten head의 head_window, T보다 큰 head_window, 선택 클래스·legacy의 nomem을 거부한다.
+- `layers.Embedding`: nomem이면 전류 [T, B, D]를 [1, T·B, D]로 펼쳐 뉴런에 넣고 되돌린다(`unfold_steps`; has_history 전부 False, 계수 없음).
+- `ours.myModel`: head_window면 출력 Linear 입력 폭이 W × 128이고 z[-W:]만 읽는다.
+- `model.py` SHAPE_KEYS에 head_window. `train.load_calibration`이 neuron_memory도 대조한다. `rerun_common.one_pass`는 계수가 없는 run에서 남긴 계수 비중을 None으로 둔다. `rerun_common.cell_2y`, `CELLS_2Y`.
+- 새 파일: `check_2y.py`, `scripts/rerun2y_ett.sh`, `scripts/rerun2y_queue.sh`, `rerun_calibrate.sh ett2y`, `analysis/context_2y.py`.
+
+**보정 (train, seed 7, D11 그대로; 거부 0):**
+
+| 묶음 | suite | ETTh1 R 끔 / 켬 | ETTh2 R 끔 / 켬 | 발화율 |
+|---|---|---|---|---|
+| mem, 96 | `rerun2y-cal-L96-20261023` | 8 / 10 | 8 / 10 | 0.220 / 0.195, 0.218 / 0.193 |
+| nomem, 336 | `rerun2y-cal-nomem-20261023` | 17 / 14 | 17 / 17 | 0.209 / 0.194, 0.196 / 0.212 |
+
+- nomem은 한 스텝에서 I/τ_k ≥ 1이어야 발화하므로 배율이 크다(mem 336은 4–8).
+- 명령: `bash scripts/rerun_calibrate.sh ett2y <suite> <DS> <gpu> 96 full`, `... ett2y <suite> <DS> <gpu> 336 none`. 고정은 `rerun_common.freeze_calibration`.
+
+**검증 (`results/rerun2y-checks-20261023/`):** `check_2y` 8/8(smoke 포함), `check_2u` 11/11(smoke gate U9 미실행), `check_neurons` 28/28, `check_model` 23/23, spikeDE 복사본 19/19, `rerun_gate_check` 14/14.
+- Y1: 2W 이름·보정 tag 불변, 옛 config에 없는 두 옵션은 기본값으로 채워지고 같은 초기값·같은 출력, 2W checkpoint(ETTh2 seed 13) val 재현 8.1e-10.
+- Y2: nomem은 패치 j를 바꾸면 j번째 시점만 바뀌고, 스파이크가 정확히 (I/τ_k ≥ 1)이며, 앞 시점으로 가는 gradient가 정확히 0. mem은 뒤 시점이 바뀌고 gradient가 과거에 닿는다.
+- Y4: last1에서 nomem은 앞 패치를 바꿔도 예측이 비트 단위로 같고, mem은 상태를 통해서만 앞 패치가 예측에 닿는다.
+- Y5: 96에서 T = 12, validation y가 336과 같은 2785 창.
+- 처음 한 번은 환경 문제로 검사 셋이 시작하지 못했다(백그라운드 스크립트에 LD_LIBRARY_PATH가 빠짐, spikeDE 경로를 git 저장소가 아닌 복사본으로 지정). 고쳐서 다시 돌린 결과가 위 숫자다.
+
+**smoke (`results/rerun2y-smoke-20261023/`, 1 epoch, ETTh1 seed 7; 보고하지 않음):** q1_R-mem-96-last1 8 s, q1-nomem-336-all 6 s, q1_R-mem-336-last1 26 s. 셋 다 자기 묶음의 보정을 썼고 val을 재현했다(≤ 8.8e-8).
+
+**학습:** 이 commit 뒤 `scripts/rerun2y_queue.sh etthard-2y-20261023`로 만든 60 run을 `NSMT/scripts/gpu_pool2.sh <queue> 0,1,2,3,0,1,2,3`(GPU당 2개)로 돌린다.
+
+**commit:** 이 기록·코드·보정·관문·smoke를 commit 하고 `exp/f-lif-pop-v3`만 push (해시는 다음 기록에).

@@ -121,6 +121,22 @@ def cell_2x(name):
     return spec
 
 
+def cell_2y(name):
+    """Prereg 2Y: '<base>-<mem|nomem>-<L>-<all|last1>' -- the 2W pick (direct-0.0005-all) with the neuron's state
+    carried across patches (mem) or reset at every patch (nomem), window length L (336 or 96 time steps) and the one
+    output Linear reading all steps or only the last one. q1_R-mem-336-all / q1-mem-336-all are the 2W pick itself."""
+    base, mem, length, head = name.split('-')
+    if mem not in ('mem', 'nomem') or length not in ('336', '96') or head not in ('all', 'last1'):
+        raise ValueError(f'2Y cell {name!r}')
+    spec = cell_2w(f'{base}-direct-0.0005-all')
+    spec.update(seq_len=int(length), neuron_memory='full' if mem == 'mem' else 'none',
+                head_window=0 if head == 'all' else 1)
+    return spec
+
+
+CELLS_2Y = ('mem-336-all', 'mem-96-all', 'mem-336-last1', 'mem-96-last1', 'nomem-336-all', 'nomem-336-last1')
+
+
 CELLS_2V = [f'{b}-{s}-{n}-{h}' for b in ('q1_R', 'q1') for s in ('lif', 'none') for n in ('frozen', 'bn')
             for h in ('flatten', 'hidden')]
 SOURCE_2V = {   # (soma, norm, head) -> (training suite, stdout condition label of base, calibration suite)
@@ -403,6 +419,8 @@ def one_pass(model, loader, args, ties=True):
         if 'hidden_spikes' in aux:
             hidden += aux['hidden_spikes'].double().mean(dim=(0, 2)).sum().item()
             hidden_n += aux['hidden_spikes'].shape[1]
+        if aux['coeff'][-1] is None:                            # 2Y neuron_memory none: no past enters, no kernel to keep
+            continue
         b = neuron.b
         rows = state.shape[1]
         share = torch.zeros(rows, dtype=torch.float64, device=device)

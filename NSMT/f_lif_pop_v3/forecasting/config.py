@@ -91,6 +91,8 @@ def parse_arguments():
     shape_arg.add_argument('--head_dim', type=int, default=32)
     shape_arg.add_argument('--head_mode', choices=['flatten', 'last', 'linear'], default='flatten',
                            help="'linear' = model_v1's single nn.Linear readout on the flattened spikes (prereg 2Q)")
+    shape_arg.add_argument('--head_window', type=int, default=0,
+                           help="prereg 2Y: the 'linear' head reads only the last W time steps; 0 = all of them")
     shape_arg.add_argument('--revin', action=argparse.BooleanOptionalAction, default=False,
                            help='prereg 2O: per-window, per-channel standardisation of the input, inverted on the output')
     shape_arg.add_argument('--readout', choices=['spike', 'analog', 'drive'], default='spike',
@@ -134,6 +136,9 @@ def parse_arguments():
                             help="integration step h of the neurons.py classes (the paper's scripts use 0.1)")
     neuron_arg.add_argument('--fde_memory', type=int, default=0,
                             help='spikeDE short memory: only the last N steps enter; 0 = full history')
+    neuron_arg.add_argument('--neuron_memory', choices=['full', 'none'], default='full',
+                            help="prereg 2Y: 'none' starts the neuron from v = 0 at every patch (each patch is its own "
+                                 "one-step sequence), so no state crosses patches; BN and everything else unchanged")
 
     # 선택자. mode가 곧 실험 조건이다.
     select_arg = parser.add_argument_group('selector')
@@ -297,6 +302,13 @@ def check_neuron_args(config):
         problems.append('--head_mode linear and --readout spike with --hidden_dim (its spikes feed one output Linear)')
     if getattr(config, 'hidden_readout', 'spike') != 'spike' and not hidden:
         problems.append('--hidden_readout membrane needs a hidden block (--hidden_dim > 0)')
+    window = getattr(config, 'head_window', 0)
+    if window < 0 or (window and config.head_mode != 'linear'):
+        problems.append('--head_window >= 0, and only with --head_mode linear (it is the one Linear that reads the steps)')
+    if window and window > num_patches_of(config):
+        problems.append(f'--head_window {window} <= the number of patches ({num_patches_of(config)})')
+    if getattr(config, 'neuron_memory', 'full') != 'full' and (selective or config.readout != 'spike'):
+        problems.append('--neuron_memory none for a class without selection and --readout spike (no past to select from)')
     if problems:
         raise ValueError(f'--neuron {config.neuron} needs: ' + '; '.join(problems))
 
@@ -330,6 +342,8 @@ def block_tag(config):
     tag += '' if config.lr == 1e-3 else f'_lr{config.lr:g}'
     tag += '_wdx' if getattr(config, 'wd_exclude_norm_bias', False) else ''
     tag += patch_tag(config)                                         # 2X
+    tag += f"_hw{config.head_window}" if getattr(config, 'head_window', 0) else ''   # 2Y
+    tag += '' if config.seq_len == 336 else f'_L{config.seq_len}'   # 2Y: run_id has no seq_len
     return tag
 
 
@@ -347,6 +361,8 @@ def neuron_variant(config):
         tag += f'-h{config.fde_step:g}'
     if config.fde_memory:
         tag += f'-mem{config.fde_memory}'
+    if getattr(config, 'neuron_memory', 'full') != 'full':
+        tag += '-nomem'                                              # 2Y: state reset at every patch
     if name in SELECTIVE:
         tag += f'-{config.hard_axis}-{config.hard_stat}-q{config.hard_q:g}'
         if config.select_part != 'all':
@@ -363,7 +379,8 @@ def calibration_tag(config):
     if getattr(config, 'neuron', 'legacy') == 'legacy':
         return ''
 
-    return '_n-' + neuron_variant(config) + patch_tag(config)       # 2X: the probe sees other patches
+    length = '' if config.seq_len == 336 else f'_L{config.seq_len}'  # 2Y: another window length is another probe
+    return '_n-' + neuron_variant(config) + patch_tag(config) + length   # 2X: the probe sees other patches
 
 
 def neuron_kwargs(config):
@@ -376,7 +393,8 @@ def neuron_kwargs(config):
                     surrogate_scale=config.surrogate_scale, soma=soma_of(config),
                     method=config.fde_method, step=config.fde_step, memory=config.fde_memory or None,
                     q=config.hard_q, stat=config.hard_stat, axis=config.hard_axis,
-                    part=config.select_part, seed=config.seed)
+                    part=config.select_part, seed=config.seed,
+                    neuron_memory=getattr(config, 'neuron_memory', 'full'))
     return dict(num_population=config.num_population, alpha=config.alpha, tau=tuple(config.tau),
                 heterogeneous=config.heterogeneous, max_length=config.num_patches,
                 theta=config.theta, eta_init=config.eta_init,

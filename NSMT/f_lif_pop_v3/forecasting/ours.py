@@ -77,7 +77,7 @@ class myModel(nn.Module):
     def __init__(self, task='recall', seq_len=336, pred_len=96, patch_size=8, embed_dim=32,
                  head_dim=32, head_mode='flatten', readout='spike', input_scale=8.,
                  input_norm='frozen', revin=False, hidden_dim=0, hidden_tau=2., hidden_readout='spike',
-                 patch_stride=0, **neuron_args):
+                 patch_stride=0, head_window=0, **neuron_args):
         super().__init__()
 
         if revin and task == 'recall':
@@ -92,6 +92,10 @@ class myModel(nn.Module):
         self.seq_len, self.pred_len = seq_len, pred_len
         self.patch_size, self.head_mode = patch_size, head_mode
         self.num_patches = (seq_len - patch_size) // self.patch_stride + 1
+        # prereg 2Y: the one output Linear reads only the last W steps (0 = all); the recall head is per event anyway
+        self.head_window = int(head_window)
+        if self.head_window and (head_mode != 'linear' or not 0 < self.head_window <= self.num_patches):
+            raise ValueError("head_window needs head_mode 'linear' and 0 < W <= the number of patches")
 
         self.embedding = Embedding(patch_size, embed_dim, input_scale, input_norm, **neuron_args)
         # 스파이크 폭. soma='none'인 모집단 클래스(neurons.py)는 유닛마다 K개의 스파이크열을 낸다.
@@ -120,7 +124,7 @@ class myModel(nn.Module):
         # first so the random stream, and with it every other initial value, matches the
         # 'flatten' run at the same seed; it is then dropped.
         head_in = {'flatten': head_dim * self.num_patches, 'last': head_dim,
-                   'linear': width * self.num_patches}[head_mode]
+                   'linear': width * (self.head_window or self.num_patches)}[head_mode]
         self.head = nn.Linear(head_in, pred_len)
         if head_mode == 'linear':
             self.head_compress = nn.Identity()
@@ -167,6 +171,8 @@ class myModel(nn.Module):
         if self.task == 'recall':
             output = self.recall_head(z).squeeze(-1).transpose(0, 1)  # [B*C, T] -> 채널 1개
         else:
+            if self.head_window:                                     # 2Y: the last W steps only
+                z = z[-self.head_window:]
             h = self.head_compress(z)                                # 'linear': Identity
             h = h.transpose(0, 1).reshape(B * C, -1) if self.head_mode in ('flatten', 'linear') else h[-1]
             output = self.head(h).reshape(B, C, self.pred_len).transpose(1, 2)

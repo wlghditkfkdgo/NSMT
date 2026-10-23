@@ -583,11 +583,16 @@ class Embedding(nn.Module):
     population / selective f-LIF built on it) in place of PopulationNeuron.
     """
     def __init__(self, patch_size, embed_dim, input_scale=2., input_norm='none', neuron='legacy',
-                 **neuron_args):
+                 neuron_memory='full', **neuron_args):
         super().__init__()
 
         if input_norm not in ('none', 'frozen', 'bn'):
             raise ValueError("input_norm must be 'none', 'frozen' or 'bn'")
+        if neuron_memory not in ('full', 'none') or (neuron_memory == 'none' and neuron == 'legacy'):
+            raise ValueError("neuron_memory must be 'full' or 'none' (a neurons.py class)")
+        # prereg 2Y: 'none' runs every patch as its own one-step sequence (v = 0 before each patch). The current,
+        # including the per-step BN, is computed exactly as with memory; only the state does not cross patches.
+        self.memoryless = neuron_memory == 'none'
         self.emb_linear = nn.Linear(patch_size, embed_dim, bias=True)
         self.input_scale = float(input_scale)
         self.input_norm = input_norm
@@ -634,4 +639,25 @@ class Embedding(nn.Module):
 
     def forward(self, x, mode='sparse', oracle_p=None, return_aux=False, analog=False):
         #  x: [T, B, patch_size]  ->  spikes: [T, B, D]
-        return self.neuron(self.current(x), mode, oracle_p, return_aux, analog)
+        current = self.current(x)
+        if not self.memoryless:
+            return self.neuron(current, mode, oracle_p, return_aux, analog)
+        T, B = current.shape[:2]
+        result = self.neuron(current.reshape(1, T * B, -1), mode, oracle_p, return_aux, analog)
+        return unfold_steps(result, T, B)
+
+
+def unfold_steps(result, T, B):
+    """2Y: [1, T*B, ...] outputs of the one-step sequences back to [T, B, ...]. A step has no past
+    (has_history False, no coefficient tensor), which is what it is."""
+    def back(v):
+        return v.reshape(T, B, *v.shape[2:]) if torch.is_tensor(v) and v.ndim >= 2 and v.shape[:2] == (1, T * B) else v
+    if torch.is_tensor(result):
+        return back(result)
+    out, aux = result
+    aux = {k: back(v) for k, v in aux.items()}
+    if 'has_history' in aux:
+        aux['has_history'] = torch.zeros(T, dtype=torch.bool, device=out.device)
+    if 'coeff' in aux:
+        aux['coeff'] = [None] * T
+    return back(out), aux

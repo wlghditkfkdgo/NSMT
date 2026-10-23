@@ -1,0 +1,15 @@
+val 2785
+[2y] PASS | Y1  2W name unchanged True, calibration tag unchanged True, same initial values True, same output True, 2W checkpoint (ETTh2 seed 13) val |diff| 8.062001899400428e-10
+[2y] PASS | Y2  nomem: changing patch 10 changes only step 10 True; spikes == (I/tau_k >= 1) True; grad to earlier steps / last step (0.0, 18.11460304260254); mem: later steps change True, grad to the past 9.75
+[2y] PASS | Y3  same initial parameters True; same per-step BN current (eval / train) True / True
+[2y] PASS | Y4  head inputs (128, 128); nomem: earlier patches leave the forecast unchanged True, the last patch moves it True; mem: patch 20 reaches the forecast through the state True
+val 2785
+val 2785
+[2y] PASS | Y5  T, head inputs (all / last1), output (12, 1536, 128, (4, 96, 3)); validation targets 336 vs 96 (torch.Size([2785, 96, 7]), torch.Size([2785, 96, 7]), True)
+[2y] PASS | Y6  refused {'head_window with flatten': True, 'head_window 13 > T 12': True, 'nomem with pearson': True, 'nomem with legacy': True}
+[2y] PASS | Y7  6 distinct run names True; 3 calibration tags True ['_n-pop_flif-tau4-8-16-32-somanone', '_n-pop_flif-tau4-8-16-32-somanone-nomem', '_n-pop_flif-tau4-8-16-32-somanone_L96']; length / readout / memory in the name True; files a family can find {'mem-336-all': ['ETTh1_a0.7_norm-bn_revin_n-pop_flif-tau4-8-16-32-somanone_seed7_261021-224035.json'], 'mem-96-all': ['ETTh1_a0.7_norm-bn_revin_n-pop_flif-tau4-8-16-32-somanone_L96_seed7_261023-163737.json'], 'nomem-336-all': ['ETTh1_a0.7_norm-bn_revin_n-pop_flif-tau4-8-16-32-somanone-nomem_seed7_261023-163734.json']}
+val 2785
+val 2785
+val 2785
+[2y] PASS | Y8  q1_R-mem-96-last1: done, val |diff| 8.00e-08, safe True, rate 0.205, calibration ETTh1_a0.7_norm-bn_revin_n-pop_flif-tau4-8-16-32-somanone_L96_seed7_261023-163737.json (its family); q1-nomem-336-all: done, val |diff| 4.09e-08, safe True, rate 0.240, calibration ETTh1_a0.7_norm-bn_n-pop_flif-tau4-8-16-32-somanone-nomem_seed7_261023-163730.json (its family); q1_R-mem-336-last1: done, val |diff| 8.77e-08, safe True, rate 0.198, calibration ETTh1_a0.7_norm-bn_revin_n-pop_flif-tau4-8-16-32-somanone_seed7_261021-224035.json (its family)
+[2y] 8 passed, 0 failed
