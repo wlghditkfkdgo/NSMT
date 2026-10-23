@@ -1986,3 +1986,64 @@ c28의 K = 1·τ 2 비트 동일 검사는 그대로 통과(보정은 τ 4/8/16/
 - 이 때문에 지금 GPU당 최대 4개 run(큐 B 2, 선형 합 1, 원인 분리 1)이 함께 돈다. 각 run은 느려지지만 결과에는 영향이 없다(run마다 같은 명령·seed).
 
 **commit:** 이 항목·코드·점검·smoke를 commit·push한 뒤 선형 합 12 run을 시작하고 `fix_light.go`를 만든다.
+
+---
+
+## 2026-10-23 17:26 KST — 진단(학습 없음, 보고만): Neo-mixer 합치기 지점에서 막전위가 스파이크보다 리듬 정보를 더 갖는가 (CinC fold 0, 8 조건 × seed 3 = 24 모델, validation) — **일관된 차이 없음**; f-LIF만 |H_f − H_r|(막전위판 XOR)를 더하면 3/3 seed에서 좋음(+3.2점)
+
+**직전 commit:** `cd4024d50` (선형 합 Neo-mixer 사전 고정).
+
+**목적:** 사용자 질문(10-23) "Neo-mixer에서 순방향·역방향 정보를 spike가 아닌 각 시점의 membrane potential로 {Attention, Linear combination, XOR} 등을 연산하는 것은 어때?" (`NSMT/docs/About_idea.md` 4.4). 학습 전에 먼저, 지금 학습된 모델들의 합치기 지점에 막전위 쪽에만 있는 정보가 있는지 잰다. 작업 범위는 사용자가 고른 "(나)"이고, (가)는 `exp/f-lif-pop-v3`의 사전등록 2Y(`docs/PROJECT_LOG.md`, worktree)다.
+
+**대상:** OR로 합치는 양방향 Neo-mixer 8 조건(뉴런 축 규칙: LIF·f-LIF·population LIF·population f-LIF + soma 없는 popg·popk 두 형태) — `mix_lif_bidir`, `mix_flif_bidir`, `mix_pop_lif_bidir`, `mix_pop_bidir`(population f-LIF), `mix_popg_lif_bidir`, `mix_popg_flif_bidir`, `mix_popk_lif_bidir`, `mix_popk_flif_bidir`. seed 42·7·2026, 9단계와 아이디어 묶음 run. 가중치는 `model_state/checkpoint.pth`(train_rhythm.py가 val 점수가 오를 때마다 저장하고 'best' 시험에 다시 읽는 파일; `best+model.pt`는 마지막 epoch). 모델 자신의 val 점수가 config의 best_val_score와 24개 모두 정확히 같다.
+
+**방법 (`nsmt_flif_v1/classification/fusion_probe.py`, sha256 b002091c…):**
+- 각 방향 마지막 mixer 층의 출력 스파이크 F, R과 문턱 전 충전값 H(LIF·f-LIF: v + (I − v)/τ, soma가 있는 population: soma 충전값)를 잡는다. R과 H_r은 토큰 축으로 다시 뒤집는다.
+- 특징(토큰 평균, 스트림 축은 펼침): or = max(F, R)(모델이 쓰는 것), spk = [F; R], mem = [H_f; H_r], memxor = [H_f; H_r; |H_f − H_r|], spkmem = [F; R; H_f; H_r], input = 블록 입력, head = 모델 head 입력.
+- probe: 표준화 + 다항 logistic 회귀(class_weight balanced), C ∈ {0.001, 0.01, 0.1, 1}은 train 기록의 10% 내부 hold-out에서 CinC 점수로 고르고 train 전체로 다시 맞춘 뒤, validation 창 확률을 기록별로 평균해 `rhythm_eval.metrics`로 잰다(점수 = N·AF·Other F1 평균). probe train은 train 기록마다 가운데 창 하나(6139), validation은 683 기록 / 896 창. test는 만들지 않았다.
+- 점검(모든 batch, 실패 시 중단): H에서 만든 스파이크 = 출력 스파이크(정확히), max(F, R) = 모델의 m0(정확히), 계측한 forward의 로짓 = 보통 forward(차이 0.0). 24 모델 모두 통과, 192개 회귀 모두 수렴.
+- 명령: `nsmt_flif_v1/classification`에서 `OMP_NUM_THREADS=16 … python fusion_probe.py --models <cond:seed …> --skip_done`(GPU 0–3에 나눠서), 끝에 `--summarize`. 실행 로그와 특징 캐시(24 npz, 3.4 GB)는 로컬 `log/fusion-probe-20261023/`.
+
+**결과 (val 점수 ×100, seed 3개 평균; `results/fusion-probe-20261023/summary.txt`·`summary.csv`):**
+
+| 조건 | 모델 자신 | or | spk | mem | memxor | spkmem | input | head |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| LIF | 64.02 | 59.91 | 61.41 | 58.10 | 60.39 | 60.22 | 52.15 | 61.66 |
+| f-LIF | 63.66 | 58.04 | 57.12 | 58.08 | 60.33 | 58.32 | 52.80 | 61.21 |
+| population f-LIF | 64.90 | 61.14 | 61.44 | 60.62 | 61.70 | 61.11 | 55.08 | 61.86 |
+| population LIF | 65.45 | 62.45 | 61.88 | 62.08 | 61.72 | 61.26 | 53.22 | 62.87 |
+| popg LIF | 61.30 | 61.37 | 60.19 | 59.98 | 57.59 | 61.22 | 52.97 | 62.04 |
+| popg f-LIF | 60.22 | 58.07 | 56.92 | 58.28 | 58.21 | 57.26 | 52.73 | 60.23 |
+| popk LIF | 59.10 | 57.49 | 57.33 | 56.93 | 58.12 | 57.91 | 52.76 | 58.37 |
+| popk f-LIF | 62.12 | 55.97 | 56.98 | 56.45 | 57.84 | 58.21 | 53.93 | 59.06 |
+
+| 조건 | mem − spk | memxor − spk | spk − or |
+|---|---|---|---|
+| LIF | **−3.32** (−3.71 / −3.34 / −2.90) | −1.03 (+0.92 / −0.15 / −3.85) | **+1.51** (+0.92 / +1.04 / +2.56) |
+| f-LIF | +0.96 (−1.44 / +0.40 / +3.91) | **+3.20** (+1.60 / +3.90 / +4.10) | −0.92 (−1.52 / +1.16 / −2.41) |
+| population f-LIF | −0.82 (+0.11 / +0.07 / −2.64) | +0.26 (+1.79 / +0.58 / −1.60) | +0.30 |
+| population LIF | +0.21 (−0.27 / +0.22 / +0.67) | −0.16 | −0.57 |
+| popg LIF | −0.21 | **−2.60** (−1.94 / −1.34 / −4.52) | −1.19 |
+| popg f-LIF | **+1.36** (+2.50 / +0.61 / +0.97) | +1.29 (+5.08 / +1.25 / −2.46) | −1.15 |
+| popk LIF | −0.40 | +0.79 (−0.99 / +1.61 / +1.75) | −0.15 |
+| popk f-LIF | −0.52 | +0.87 (−0.85 / +1.54 / +1.91) | +1.00 |
+
+(괄호 = seed 42 / 7 / 2026. 굵게 = 세 seed 부호가 같음.)
+
+- 발화율(F / R): LIF 0.079, f-LIF 0.066, population 0.14–0.19, popg·popk 0.10–0.13. 문턱 바로 아래(−0.5 < H − θ < 0)에 머무는 몫은 12–22%다.
+
+**읽는 법 (탐색, 학습 없는 선형 probe):**
+- **막전위(mem)가 스파이크(spk)보다 리듬 정보를 더 갖는다는 일관된 근거는 없다.** 8 조건 중 세 seed 부호가 같은 것은 LIF(막전위가 −3.3점 나쁨)와 popg f-LIF(+1.4점)뿐이다. 나머지는 ±1점 안에서 seed마다 갈린다.
+- **막전위판 XOR(|H_f − H_r|)는 f-LIF에서만 3/3 seed로 좋다(+3.2점)**. popg LIF에서는 3/3 나쁘다(−2.6점). 뉴런 종류에 따라 반대라서 일반 규칙은 아니다.
+- **OR로 합치며 잃는 것(spk − or)도 일관되지 않다.** LIF만 3/3에서 [F; R]이 OR보다 낫다(+1.5점). 어제 사전 고정한 선형 합(`mixlin_*`)이 겨냥한 것과 같은 지점이다.
+- ETT(v3, 같은 날)에서는 스파이크가 막전위보다 7–35% 더 나빴지만, CinC Neo-mixer 합치기 지점에서는 그런 차이가 보이지 않는다. v3 모델은 출력층이 스파이크를 직접 읽고 회귀하는 구조, 여기는 토큰 평균 뒤 분류라서 같은 질문이 다른 답을 낸다.
+
+**한계:**
+- 토큰 평균 선형 probe다. 시점별 정보(IAND가 토큰마다 쓰는 것)는 보지 않는다. 모델 자신보다 head probe가 2–3점 낮다.
+- probe train 기록이 모델의 학습 기록이라 내부 hold-out 점수가 부풀려져 있다(val보다 중앙값 0.19 높음). C 선택이 그만큼 흔들린다.
+- 잡음 수준: 추출 batch 크기만 32 → 128로 바꿔도 probe 점수가 최대 ±0.25점 움직였다(C가 거의 동점에서 바뀐 경우 포함). seed 간 차이는 흔히 몇 점이다.
+- `results/fusion-probe-20261023/bs32_partial_run/`은 이전 스크립트 버전(batch 32)으로 만든 4 모델 결과다. 최종 값과 0.003 안에서 같으며, 요약에 쓰지 않았다(보존).
+
+**판단:** 학습 없이 본 합치기 지점에서는 "막전위로 합치면 낫다"를 지지하는 근거가 약하다. 학습해서 확인할 가치가 있는 것은 (i) 선형 합 입력을 막전위로 바꾼 것(`lin-mem`)과 (ii) f-LIF의 |H_f − H_r| 항 정도다. 진행 여부는 사용자 결정.
+
+**commit:** 이 항목·스크립트·결과를 commit 하고 `exp/nsmt-flif-neo`만 push (특징 캐시와 실행 로그는 로컬).

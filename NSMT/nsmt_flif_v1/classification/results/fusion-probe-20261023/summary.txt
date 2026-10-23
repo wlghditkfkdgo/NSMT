@@ -1,0 +1,180 @@
+fusion probe summary (fusion-probe-20261023); CinC 2017 fold 0, validation records; score = mean F1 of N / AF / Other; x100 = score points
+script sha256 b002091c6a837c14322e7101edee2ddd693b0328855c6c0878fb094ea6e7a54d
+seeds 42, 7, 2026; a missing or aborted seed makes the mean nan
+
+== mix_lif_bidir  (ok seeds 3/3)
+  model   val score mean  64.02   per seed  65.92  63.01  63.13
+  or      val score mean  59.91   per seed  59.59  60.64  59.49   dim 384  C [1.0, 0.01, 0.1]
+  spk     val score mean  61.41   per seed  60.51  61.68  62.05   dim 768  C [0.1, 0.01, 0.01]
+  mem     val score mean  58.10   per seed  56.80  58.34  59.15   dim 768  C [1.0, 1.0, 0.01]
+  memxor  val score mean  60.39   per seed  61.43  61.53  58.20   dim 1152  C [0.1, 0.1, 0.1]
+  spkmem  val score mean  60.22   per seed  59.43  60.06  61.16   dim 1536  C [0.1, 0.01, 0.01]
+  input   val score mean  52.15   per seed  50.61  54.31  51.52   dim 384  C [1.0, 0.01, 0.01]
+  head    val score mean  61.66   per seed  63.67  60.82  60.50   dim 384  C [0.01, 0.01, 0.01]
+  paired differences (x100; mean | per seed 42/7/2026)
+       mem - spk     -3.32 |  -3.71  -3.34  -2.90
+    memxor - spk     -1.03 |  +0.92  -0.15  -3.85
+    spkmem - spk     -1.20 |  -1.08  -1.62  -0.89
+       spk - or      +1.51 |  +0.92  +1.04  +2.56
+        or - input   +7.75 |  +8.97  +6.33  +7.96
+      head - model   -2.36 |  -2.25  -2.19  -2.63
+  val firing rate F 0.0787 0.0797 0.0780   R 0.0794 0.0812 0.0765   OR 0.1446 0.1471 0.1424
+  val near-threshold share (-0.5 < H - thr < 0) F 0.1265 0.1260 0.1303   R 0.1231 0.1261 0.1253
+  val H - thr  F mean/std/min/max -1.02/0.73/-7.0/6.4 | -1.03/0.74/-7.7/5.5 | -1.02/0.73/-6.8/5.2   R -1.03/0.73/-8.3/6.7 | -1.02/0.73/-8.1/5.9 | -1.03/0.73/-8.4/6.1
+  refit not converged (max_iter 3000): none
+  |model val score - config best_val_score| 0.00e+00 0.00e+00 0.00e+00
+
+== mix_flif_bidir  (ok seeds 3/3)
+  model   val score mean  63.66   per seed  63.28  64.34  63.36
+  or      val score mean  58.04   per seed  59.17  56.52  58.45   dim 384  C [0.01, 0.01, 0.01]
+  spk     val score mean  57.12   per seed  57.65  57.68  56.04   dim 768  C [0.01, 0.01, 0.1]
+  mem     val score mean  58.08   per seed  56.22  58.08  59.95   dim 768  C [0.1, 0.1, 0.01]
+  memxor  val score mean  60.33   per seed  59.26  61.57  60.14   dim 1152  C [0.01, 0.01, 0.01]
+  spkmem  val score mean  58.32   per seed  59.05  58.29  57.63   dim 1536  C [0.01, 0.01, 0.1]
+  input   val score mean  52.80   per seed  51.68  52.18  54.55   dim 384  C [1.0, 0.01, 0.01]
+  head    val score mean  61.21   per seed  61.61  61.80  60.22   dim 384  C [0.01, 0.01, 0.01]
+  paired differences (x100; mean | per seed 42/7/2026)
+       mem - spk     +0.96 |  -1.44  +0.40  +3.91
+    memxor - spk     +3.20 |  +1.60  +3.90  +4.10
+    spkmem - spk     +1.20 |  +1.39  +0.62  +1.59
+       spk - or      -0.92 |  -1.52  +1.16  -2.41
+        or - input   +5.24 |  +7.49  +4.34  +3.90
+      head - model   -2.45 |  -1.67  -2.54  -3.14
+  val firing rate F 0.0692 0.0664 0.0680   R 0.0612 0.0572 0.0658   OR 0.1241 0.1179 0.1274
+  val near-threshold share (-0.5 < H - thr < 0) F 0.1371 0.1323 0.1367   R 0.1128 0.1066 0.1139
+  val H - thr  F mean/std/min/max -1.01/0.68/-7.2/4.5 | -1.02/0.68/-6.5/3.9 | -1.01/0.69/-6.0/4.9   R -1.04/0.67/-6.9/4.8 | -1.06/0.67/-8.5/5.3 | -1.04/0.68/-6.9/5.1
+  refit not converged (max_iter 3000): none
+  |model val score - config best_val_score| 0.00e+00 0.00e+00 0.00e+00
+
+== mix_pop_bidir  (ok seeds 3/3)
+  model   val score mean  64.90   per seed  65.02  65.69  64.00
+  or      val score mean  61.14   per seed  60.81  62.03  60.58   dim 384  C [0.001, 0.01, 0.01]
+  spk     val score mean  61.44   per seed  61.51  61.45  61.36   dim 768  C [0.001, 0.001, 0.01]
+  mem     val score mean  60.62   per seed  61.62  61.52  58.72   dim 768  C [0.001, 0.01, 0.1]
+  memxor  val score mean  61.70   per seed  63.31  62.03  59.76   dim 1152  C [0.001, 0.001, 0.01]
+  spkmem  val score mean  61.11   per seed  60.16  61.82  61.34   dim 1536  C [0.1, 0.001, 0.01]
+  input   val score mean  55.08   per seed  56.30  54.14  54.80   dim 384  C [0.01, 0.1, 0.1]
+  head    val score mean  61.86   per seed  63.87  61.72  60.01   dim 384  C [0.01, 0.001, 0.01]
+  paired differences (x100; mean | per seed 42/7/2026)
+       mem - spk     -0.82 |  +0.11  +0.07  -2.64
+    memxor - spk     +0.26 |  +1.79  +0.58  -1.60
+    spkmem - spk     -0.33 |  -1.35  +0.38  -0.03
+       spk - or      +0.30 |  +0.70  -0.59  +0.79
+        or - input   +6.06 |  +4.51  +7.89  +5.78
+      head - model   -3.04 |  -1.15  -3.98  -3.99
+  val firing rate F 0.1469 0.1286 0.1457   R 0.1538 0.1515 0.1494   OR 0.2612 0.2450 0.2575
+  val near-threshold share (-0.5 < H - thr < 0) F 0.1865 0.1839 0.1993   R 0.1921 0.1889 0.1966
+  val H - thr  F mean/std/min/max -0.93/1.17/-20.7/14.1 | -1.00/1.14/-18.2/14.4 | -0.91/1.14/-16.1/15.6   R -0.92/1.18/-17.3/15.5 | -0.95/1.22/-16.1/15.6 | -0.91/1.17/-19.5/15.3
+  refit not converged (max_iter 3000): none
+  |model val score - config best_val_score| 0.00e+00 0.00e+00 0.00e+00
+
+== mix_pop_lif_bidir  (ok seeds 3/3)
+  model   val score mean  65.45   per seed  66.37  65.44  64.54
+  or      val score mean  62.45   per seed  64.51  61.08  61.74   dim 384  C [0.001, 0.001, 0.01]
+  spk     val score mean  61.88   per seed  63.06  60.13  62.44   dim 768  C [0.01, 0.1, 0.001]
+  mem     val score mean  62.08   per seed  62.78  60.35  63.11   dim 768  C [0.01, 0.01, 0.001]
+  memxor  val score mean  61.72   per seed  62.73  61.89  60.54   dim 1152  C [0.01, 0.001, 0.001]
+  spkmem  val score mean  61.26   per seed  62.92  58.69  62.19   dim 1536  C [0.01, 0.01, 0.01]
+  input   val score mean  53.22   per seed  52.63  51.60  55.45   dim 384  C [0.01, 0.1, 0.1]
+  head    val score mean  62.87   per seed  64.39  61.28  62.95   dim 384  C [0.001, 0.01, 0.01]
+  paired differences (x100; mean | per seed 42/7/2026)
+       mem - spk     +0.21 |  -0.27  +0.22  +0.67
+    memxor - spk     -0.16 |  -0.33  +1.76  -1.90
+    spkmem - spk     -0.61 |  -0.14  -1.45  -0.25
+       spk - or      -0.57 |  -1.45  -0.95  +0.70
+        or - input   +9.22 | +11.88  +9.49  +6.30
+      head - model   -2.58 |  -1.99  -4.16  -1.59
+  val firing rate F 0.1819 0.1904 0.1850   R 0.1716 0.1724 0.1820   OR 0.3019 0.3069 0.3128
+  val near-threshold share (-0.5 < H - thr < 0) F 0.2174 0.2299 0.2125   R 0.2081 0.2243 0.2183
+  val H - thr  F mean/std/min/max -0.91/1.54/-26.2/22.0 | -0.85/1.50/-26.2/20.8 | -0.91/1.59/-31.3/20.0   R -0.95/1.52/-25.6/21.6 | -0.89/1.46/-25.7/21.2 | -0.91/1.58/-27.6/22.4
+  refit not converged (max_iter 3000): none
+  |model val score - config best_val_score| 0.00e+00 0.00e+00 0.00e+00
+
+== mix_popg_lif_bidir  (ok seeds 3/3)
+  model   val score mean  61.30   per seed  62.08  61.39  60.42
+  or      val score mean  61.37   per seed  60.98  64.04  59.10   dim 384  C [0.01, 0.01, 0.01]
+  spk     val score mean  60.19   per seed  59.31  61.96  59.31   dim 768  C [0.01, 0.01, 0.01]
+  mem     val score mean  59.98   per seed  59.13  62.43  58.38   dim 768  C [0.01, 0.1, 0.1]
+  memxor  val score mean  57.59   per seed  57.36  60.62  54.79   dim 1152  C [0.01, 0.001, 0.1]
+  spkmem  val score mean  61.22   per seed  60.47  63.09  60.11   dim 1536  C [0.01, 0.01, 0.01]
+  input   val score mean  52.97   per seed  55.00  51.97  51.93   dim 384  C [0.1, 0.01, 0.1]
+  head    val score mean  62.04   per seed  62.63  61.86  61.65   dim 384  C [0.001, 0.001, 0.01]
+  paired differences (x100; mean | per seed 42/7/2026)
+       mem - spk     -0.21 |  -0.18  +0.47  -0.93
+    memxor - spk     -2.60 |  -1.94  -1.34  -4.52
+    spkmem - spk     +1.03 |  +1.16  +1.14  +0.80
+       spk - or      -1.19 |  -1.67  -2.09  +0.20
+        or - input   +8.41 |  +5.97 +12.07  +7.17
+      head - model   +0.75 |  +0.54  +0.47  +1.22
+  val firing rate F 0.1245 0.1233 0.1288   R 0.1191 0.1216 0.1311   OR 0.2206 0.2215 0.2342
+  val near-threshold share (-0.5 < H - thr < 0) F 0.1735 0.1672 0.1769   R 0.1657 0.1627 0.1718
+  val H - thr  F mean/std/min/max -1.01/0.98/-11.2/8.6 | -1.02/0.98/-11.2/8.1 | -0.99/0.99/-10.1/6.8   R -1.02/0.98/-10.8/8.1 | -1.03/0.98/-11.7/7.3 | -0.99/1.00/-10.6/6.8
+  refit not converged (max_iter 3000): none
+  |model val score - config best_val_score| 0.00e+00 0.00e+00 0.00e+00
+
+== mix_popg_flif_bidir  (ok seeds 3/3)
+  model   val score mean  60.22   per seed  59.29  59.53  61.83
+  or      val score mean  58.07   per seed  56.83  56.25  61.14   dim 384  C [0.01, 0.01, 0.01]
+  spk     val score mean  56.92   per seed  53.40  55.74  61.63   dim 768  C [0.1, 0.01, 0.01]
+  mem     val score mean  58.28   per seed  55.90  56.35  62.60   dim 768  C [0.01, 0.1, 0.1]
+  memxor  val score mean  58.21   per seed  58.48  56.99  59.17   dim 1152  C [0.01, 0.01, 0.01]
+  spkmem  val score mean  57.26   per seed  55.30  55.31  61.16   dim 1536  C [0.1, 0.01, 0.01]
+  input   val score mean  52.73   per seed  52.91  52.33  52.95   dim 384  C [0.1, 0.01, 0.01]
+  head    val score mean  60.23   per seed  59.06  59.91  61.72   dim 384  C [0.1, 0.001, 0.01]
+  paired differences (x100; mean | per seed 42/7/2026)
+       mem - spk     +1.36 |  +2.50  +0.61  +0.97
+    memxor - spk     +1.29 |  +5.08  +1.25  -2.46
+    spkmem - spk     +0.34 |  +1.90  -0.43  -0.47
+       spk - or      -1.15 |  -3.43  -0.51  +0.49
+        or - input   +5.34 |  +3.92  +3.92  +8.19
+      head - model   +0.01 |  -0.23  +0.37  -0.11
+  val firing rate F 0.1089 0.1180 0.1075   R 0.1115 0.1199 0.1115   OR 0.2030 0.2172 0.2015
+  val near-threshold share (-0.5 < H - thr < 0) F 0.1549 0.1572 0.1511   R 0.1602 0.1600 0.1565
+  val H - thr  F mean/std/min/max -0.98/0.91/-9.8/9.9 | -0.97/0.93/-9.7/9.9 | -1.01/0.93/-11.1/8.0   R -0.98/0.92/-11.0/8.7 | -0.98/0.95/-11.6/10.6 | -1.01/0.95/-11.6/8.7
+  refit not converged (max_iter 3000): none
+  |model val score - config best_val_score| 0.00e+00 0.00e+00 0.00e+00
+
+== mix_popk_lif_bidir  (ok seeds 3/3)
+  model   val score mean  59.10   per seed  58.33  59.05  59.92
+  or      val score mean  57.49   per seed  57.88  55.77  58.80   dim 1536  C [0.01, 0.001, 0.01]
+  spk     val score mean  57.33   per seed  59.12  56.08  56.80   dim 3072  C [0.01, 0.001, 0.01]
+  mem     val score mean  56.93   per seed  57.92  55.55  57.31   dim 3072  C [0.01, 0.01, 0.1]
+  memxor  val score mean  58.12   per seed  58.13  57.69  58.55   dim 4608  C [0.001, 0.001, 0.001]
+  spkmem  val score mean  57.91   per seed  58.49  56.71  58.54   dim 6144  C [0.01, 0.001, 0.01]
+  input   val score mean  52.76   per seed  54.45  49.69  54.13   dim 1536  C [0.01, 0.001, 0.01]
+  head    val score mean  58.37   per seed  58.78  57.49  58.83   dim 1536  C [0.001, 0.001, 0.001]
+  paired differences (x100; mean | per seed 42/7/2026)
+       mem - spk     -0.40 |  -1.19  -0.53  +0.51
+    memxor - spk     +0.79 |  -0.99  +1.61  +1.75
+    spkmem - spk     +0.58 |  -0.62  +0.63  +1.74
+       spk - or      -0.15 |  +1.23  +0.30  -2.00
+        or - input   +4.73 |  +3.43  +6.09  +4.67
+      head - model   -0.74 |  +0.45  -1.56  -1.10
+  val firing rate F 0.1157 0.1197 0.1190   R 0.1098 0.1127 0.1117   OR 0.2101 0.2163 0.2149
+  val near-threshold share (-0.5 < H - thr < 0) F 0.1740 0.1663 0.1641   R 0.1633 0.1659 0.1618
+  val H - thr  F mean/std/min/max -1.00/0.92/-10.0/7.1 | -1.01/0.95/-9.2/7.2 | -1.01/0.94/-11.8/7.8   R -1.03/0.93/-9.2/6.8 | -1.03/0.94/-9.0/7.2 | -1.04/0.95/-9.4/6.8
+  refit not converged (max_iter 3000): none
+  |model val score - config best_val_score| 0.00e+00 0.00e+00 0.00e+00
+
+== mix_popk_flif_bidir  (ok seeds 3/3)
+  model   val score mean  62.12   per seed  60.28  63.14  62.96
+  or      val score mean  55.97   per seed  55.73  55.61  56.58   dim 1536  C [0.01, 0.01, 0.01]
+  spk     val score mean  56.98   per seed  55.09  56.32  59.52   dim 3072  C [0.01, 0.01, 0.01]
+  mem     val score mean  56.45   per seed  55.16  56.07  58.13   dim 3072  C [0.01, 0.001, 0.01]
+  memxor  val score mean  57.84   per seed  54.24  57.86  61.43   dim 4608  C [0.01, 0.01, 0.01]
+  spkmem  val score mean  58.21   per seed  54.62  60.09  59.91   dim 6144  C [0.01, 0.001, 0.01]
+  input   val score mean  53.93   per seed  54.69  51.97  55.14   dim 1536  C [0.01, 0.001, 0.01]
+  head    val score mean  59.06   per seed  58.44  60.90  57.84   dim 1536  C [0.001, 0.001, 0.001]
+  paired differences (x100; mean | per seed 42/7/2026)
+       mem - spk     -0.52 |  +0.07  -0.25  -1.39
+    memxor - spk     +0.87 |  -0.85  +1.54  +1.91
+    spkmem - spk     +1.23 |  -0.47  +3.77  +0.39
+       spk - or      +1.00 |  -0.64  +0.71  +2.93
+        or - input   +2.04 |  +1.04  +3.64  +1.44
+      head - model   -3.06 |  -1.84  -2.24  -5.11
+  val firing rate F 0.1030 0.1068 0.1053   R 0.1011 0.1063 0.1008   OR 0.1913 0.1995 0.1933
+  val near-threshold share (-0.5 < H - thr < 0) F 0.1485 0.1442 0.1483   R 0.1531 0.1554 0.1514
+  val H - thr  F mean/std/min/max -1.00/0.89/-11.0/8.7 | -1.00/0.90/-10.9/8.8 | -1.00/0.89/-11.0/7.7   R -1.01/0.89/-12.9/8.0 | -0.99/0.91/-11.4/8.1 | -1.00/0.89/-12.4/7.9
+  refit not converged (max_iter 3000): none
+  |model val score - config best_val_score| 0.00e+00 0.00e+00 0.00e+00
+
