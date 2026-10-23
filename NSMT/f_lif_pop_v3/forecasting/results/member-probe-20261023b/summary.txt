@@ -1,0 +1,24 @@
+A1 forecast probe, validation MSE on the model scale, mean over seeds 7/13/21 (spikes / charges / spikes-charges as % of charges)
+  q1_R/ETTh1: model 0.7447 | tau4 0.7687/0.6942 (+10.7%) | tau8 0.7657/0.7024 (+9.0%) | tau16 0.8410/0.6836 (+23.0%) | tau32 1.0372/0.6832 (+51.8%) | all 0.7344/0.6846 (+7.3%)
+  q1_R/ETTh2: model 0.2304 | tau4 0.2353/0.2092 (+12.5%) | tau8 0.2369/0.2089 (+13.4%) | tau16 0.2407/0.2091 (+15.1%) | tau32 0.2484/0.2104 (+18.1%) | all 0.2277/0.2097 (+8.6%)
+  q1/ETTh1: model 0.8008 | tau4 0.8014/0.6922 (+15.8%) | tau8 0.8341/0.6712 (+24.3%) | tau16 0.8842/0.6772 (+30.6%) | tau32 1.0905/0.6841 (+59.4%) | all 0.8262/0.6786 (+21.8%)
+  q1/ETTh2: model 0.3090 | tau4 0.3498/0.2443 (+43.2%) | tau8 0.3415/0.2378 (+43.6%) | tau16 0.3406/0.2379 (+43.2%) | tau32 0.3719/0.2376 (+56.5%) | all 0.3205/0.2379 (+34.7%)
+A2 memory probe from the LAST step only: R^2 for the input patch l steps back, spikes / charges, mean over the 12 models
+  tau4: l=0 0.74/0.86  l=1 0.68/0.82  l=2 0.49/0.62  l=4 0.52/0.64  l=8 0.28/0.39  l=16 0.26/0.33  l=32 0.23/0.27
+  tau8: l=0 0.70/0.78  l=1 0.66/0.76  l=2 0.53/0.63  l=4 0.55/0.64  l=8 0.32/0.42  l=16 0.29/0.35  l=32 0.27/0.31
+  tau16: l=0 0.65/0.72  l=1 0.64/0.70  l=2 0.55/0.61  l=4 0.55/0.62  l=8 0.36/0.43  l=16 0.31/0.37  l=32 0.30/0.35
+  tau32: l=0 0.57/0.67  l=1 0.57/0.67  l=2 0.51/0.59  l=4 0.49/0.60  l=8 0.37/0.43  l=16 0.31/0.37  l=32 0.30/0.37
+A3 firing statistics, mean over the 12 models
+  tau4: rate 0.311, both of two consecutive steps fire 0.215 (share of spikes 0.69), charged 0.5-1 but silent 0.077, charge mean -0.23 p99 9.01, reset per spike 0.250
+  tau8: rate 0.243, both of two consecutive steps fire 0.181 (share of spikes 0.75), charged 0.5-1 but silent 0.104, charge mean -0.16 p99 6.33, reset per spike 0.125
+  tau16: rate 0.159, both of two consecutive steps fire 0.125 (share of spikes 0.79), charged 0.5-1 but silent 0.128, charge mean -0.08 p99 4.07, reset per spike 0.062
+  tau32: rate 0.073, both of two consecutive steps fire 0.061 (share of spikes 0.83), charged 0.5-1 but silent 0.121, charge mean -0.03 p99 2.40, reset per spike 0.031
+B reset (q1_R seed 7; standalone member reproduces the model spike for spike): rate, A1 spike-probe MSE, A2 R^2 at l=1/4/16
+  q1_R/ETTh1/seed7 tau4 (reproduced 1.000000): theta_over_tau gain 1.00 rate 0.331 A1 0.7666 A2 0.63/0.38/0.06 | theta gain 1.00 rate 0.270 A1 0.7558 A2 0.63/0.34/0.06 | theta_rate_matched gain 1.62 rate 0.341 A1 0.7621 A2 0.63/0.36/0.06
+  q1_R/ETTh1/seed7 tau8 (reproduced 1.000000): theta_over_tau gain 1.00 rate 0.245 A1 0.7665 A2 0.60/0.40/0.03 | theta gain 1.00 rate 0.142 A1 0.7749 A2 0.61/0.31/0.03 | theta_rate_matched gain 2.16 rate 0.265 A1 0.7608 A2 0.62/0.38/0.05
+  q1_R/ETTh1/seed7 tau16 (reproduced 1.000000): theta_over_tau gain 1.00 rate 0.142 A1 0.8279 A2 0.57/0.39/0.01 | theta gain 1.00 rate 0.054 A1 0.8855 A2 0.50/0.23/0.01 | theta_rate_matched gain 2.47 rate 0.166 A1 0.7741 A2 0.61/0.35/0.03
+  q1_R/ETTh1/seed7 tau32 (reproduced 1.000000): theta_over_tau gain 1.00 rate 0.051 A1 1.0174 A2 0.49/0.34/0.00 | theta gain 1.00 rate 0.014 A1 1.0722 A2 0.34/0.15/-0.00 | theta_rate_matched gain 2.18 rate 0.061 A1 0.8733 A2 0.51/0.25/0.01
+  q1_R/ETTh2/seed7 tau4 (reproduced 1.000000): theta_over_tau gain 1.00 rate 0.337 A1 0.2364 A2 0.67/0.38/0.03 | theta gain 1.00 rate 0.275 A1 0.2326 A2 0.68/0.36/0.03 | theta_rate_matched gain 1.47 rate 0.332 A1 0.2346 A2 0.68/0.37/0.03
+  q1_R/ETTh2/seed7 tau8 (reproduced 1.000000): theta_over_tau gain 1.00 rate 0.263 A1 0.2386 A2 0.64/0.42/0.02 | theta gain 1.00 rate 0.150 A1 0.2307 A2 0.66/0.34/0.03 | theta_rate_matched gain 1.95 rate 0.259 A1 0.2345 A2 0.67/0.39/0.03
+  q1_R/ETTh2/seed7 tau16 (reproduced 1.000000): theta_over_tau gain 1.00 rate 0.163 A1 0.2453 A2 0.63/0.43/0.01 | theta gain 1.00 rate 0.059 A1 0.2380 A2 0.53/0.26/0.01 | theta_rate_matched gain 2.27 rate 0.163 A1 0.2339 A2 0.65/0.36/0.03
+  q1_R/ETTh2/seed7 tau32 (reproduced 1.000000): theta_over_tau gain 1.00 rate 0.057 A1 0.2483 A2 0.49/0.31/0.00 | theta gain 1.00 rate 0.016 A1 0.2524 A2 0.34/0.15/0.01 | theta_rate_matched gain 1.98 rate 0.058 A1 0.2391 A2 0.52/0.26/0.01
