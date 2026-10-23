@@ -8042,3 +8042,19 @@ SUITE=neurons-smoke-20261014b-nocal EXTRA='--no-require_calibration --input_scal
 **한계:** probe는 선형이고 학습된 가중치 위에서 잰 것이다(그 가중치는 θ/τ 리셋에 맞춰 학습됨). B는 seed 하나. 막전위 probe는 "막전위를 출력층이 읽으면"의 상한에 가깝지만 스파이크 모델이 아니다.
 
 **commit:** 이 기록·스크립트·두 결과 폴더를 commit 하고 `exp/f-lif-pop-v3`만 push.
+
+---
+
+## 2026-10-23 18:05 KST — 사전등록 2Z: 2Y C1 확인 (상태 유지 vs 패치마다 0; 계열별 학습률 선택 → 8 seed → test, **탐색**) — 학습률 선택용 24 run 시작
+
+**직전 commit:** 구성원 probe commit 은 `c7515d564` (`exp/f-lif-pop-v3`).
+
+**목적:** 사용자 결정(10-23) "[다음 결정]의 1번": 2Y의 "상태를 없애면 낫다"를 8 seed·test로 굳히고, 상태가 있는 모델에도 학습률을 다시 고를 기회를 준다. 부록 **2Z**(D-DM ~ D-DO).
+
+**코드:** `rerun_common.cell_2z`(`<base>-<mem|nomem>-<lr>`), `LRS_2Z`; `scripts/rerun2z_ett.sh`(2Y 러너 + lr); `analysis/confirm_2z.py`(select / queue / test). 모델 코드는 바꾸지 않았다(2Y의 `--neuron_memory`, `--head_window` 그대로; 관문 check_2y 8/8는 2Y 기록).
+
+**smoke (`results/rerun2z-smoke-20261023/`, 1 epoch, 보고하지 않음):** q1-nomem-0.001(ETTh1) 6 s, q1_R-mem-0.002(ETTh2) 19 s. 두 run 모두 2Z 이름으로 찾아지고, manifest는 1 epoch 학습만 지적했으며, val을 재현했다(≤ 8.5e-8). 2W의 direct-0.001-all과 2Y의 nomem-336-all도 2Z 이름(mem-0.001, nomem-0.0005)으로 찾아진다.
+
+**학습:** 이 commit 뒤 nomem lr 0.001·0.002 × q1_R·q1 × ETTh1·ETTh2 × seed 7·13·21 = 24 run을 `gpu_pool2.sh`(GPU당 2개)로 돌린다. 끝나면 `confirm_2z.py --stage select`로 계열마다 lr을 고르고, `--stage queue`의 40 run을 돌린 뒤 `--stage test`.
+
+**commit:** 이 기록·사전등록·코드·smoke를 commit 하고 `exp/f-lif-pop-v3`만 push.

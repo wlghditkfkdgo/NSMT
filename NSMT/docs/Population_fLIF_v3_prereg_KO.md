@@ -1892,3 +1892,32 @@ patch [T=42, B·C, 8]
 
 말할 수 있는 것: 이 구조·예산에서 뉴런 상태와 창 길이와 출력층의 읽는 범위가 validation 오차를 어떻게 바꾸는지(seed 3개, 탐색).
 말하지 않는 것: test·future에서의 효과, 다른 구조(2T의 soma 구조 등)에서의 효과. nomem은 상태만 없앤 것이 아니라 구성원의 실효 문턱이 τ_k θ로 갈라진 부호가 된다(같은 D11 규칙으로 보정했지만 발화 양상은 다르다). last1은 128개 이진 입력이라는 강한 병목 안에서의 비교다.
+
+## 2Z. 부록 (2026-10-23) — 2Y C1 확인: 상태 유지 vs 패치마다 0, 계열별 학습률 선택 + 8 seed + test (**탐색**)
+
+사용자 결정(2026-10-23): 2Y의 "상태를 패치마다 0으로 되돌리면 낫다"(C1)를 먼저 굳힌다. 8 seed와 test 분할로 확인하고, 상태가 있는 모델에도 학습률을 다시 고를 기회를 준다.
+
+### D-DM. 설계
+
+- **구조:** 2W 구조(direct: hidden 블록 없음, 출력 Linear가 모든 시점을 읽음, weight decay 전체, 336 시점). 두 계열:
+  - **mem:** 상태가 패치를 건너 이어짐(2W 그대로).
+  - **nomem:** 패치마다 v = 0(2Y의 `--neuron_memory none`).
+- **학습률 선택 (validation, seed 7·13·21):** 계열마다 lr ∈ {0.0005, 0.001, 0.002}.
+  - mem의 세 lr은 2W 격자의 direct-<lr>-all run을 재사용한다(재학습 없음).
+  - nomem 0.0005는 2Y run을 재사용하고, 0.001·0.002는 새로 학습한다(2 lr × 2 base × 2 데이터셋 × 3 seed = 24 run).
+  - **규칙(2W 규칙을 이 칸들로 제한):** 점수 = (base, 데이터셋, seed)에 대한 val MSE / 같은 seed 2T val MSE의 평균. 모든 칸이 끝나고(G11 중단 없음) manifest·safe·val 재현(1e-6)을 통과해야 후보가 된다. 가장 낮은 점수를 고르되, 0.005 안이면 O8의 lr 0.001, 그다음 낮은 점수. 계열마다 lr 하나(두 base 공통).
+- **본 학습:** 고른 lr에서 나머지 seed 42·123·256·512·1024를 학습한다(2 계열 × 2 base × 2 데이터셋 × 5 seed = 40 run). suite `etthard-2z-20261023`. 보정은 mem = `rerun2u-cal-20261021`, nomem = `rerun2y-cal-nomem-20261023`(학습률은 보정에 영향이 없다).
+- **test:** 64 run(2 계열 × 2 base × 2 데이터셋 × 8 seed)과 2T 32 run(q1, q1_R)이 모두 manifest와 val 재현을 통과한 뒤에만 연다. ETTh1·ETTh2 test는 이미 열린 분할이라 `split_registry.reopen(..., appendix='2Z')`로 탐색 재열람을 기록한다.
+
+### D-DN. 비교 (base·데이터셋마다, seed 8개 paired 95% t; 2N 판정: 구간이 0을 넘지 않으면 낮춘다 / 높인다, 아니면 차이를 보이지 못함)
+
+- **Z1 (주 비교):** nomem − mem, test.
+- Z1v: nomem − mem, validation.
+- Z2: nomem − 2T, test. Z3: mem − 2T, test(2T = soma 구조, `etthard-spikede-20261021`).
+- **예상(사전 기록):** 2Y의 방향이 유지되어 Z1은 네 경우 모두 "낮춘다". R 켬 ETTh2(2Y −3.0%)는 "차이를 보이지 못함"일 수 있다.
+- 분석 스크립트는 `analysis/confirm_2z.py`(`--stage select | queue | test`).
+
+### D-DO. 주장 범위
+
+말할 수 있는 것: 이 구조·예산에서 상태를 패치마다 0으로 되돌린 모델과 상태를 유지한 모델의 test 오차 차이(각 계열에 고른 학습률, seed 8개, 탐색).
+말하지 않는 것: 2T(soma 구조)나 다른 데이터에서의 효과. nomem은 구성원의 실효 문턱이 τ_k θ로 갈라진 부호이기도 하다(2Y D-DL).

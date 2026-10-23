@@ -134,6 +134,21 @@ def cell_2y(name):
     return spec
 
 
+def cell_2z(name):
+    """Prereg 2Z: '<base>-<mem|nomem>-<lr>' -- the 2W structure (direct, weight decay on all, 336 steps, the Linear reads
+    every step) with the state kept (mem) or reset at every patch (nomem) and learning rate lr (0.0005 | 0.001 | 0.002).
+    mem-<lr> is the 2W grid cell direct-<lr>-all; mem-0.0005 / nomem-0.0005 are the 2Y cells mem-336-all / nomem-336-all."""
+    base, mem, lr = name.split('-')
+    if mem not in ('mem', 'nomem') or lr not in ('0.0005', '0.001', '0.002'):
+        raise ValueError(f'2Z cell {name!r}')
+    spec = cell_2w(f'{base}-direct-{lr}-all')
+    spec.update(seq_len=336, neuron_memory='full' if mem == 'mem' else 'none', head_window=0)
+    return spec
+
+
+LRS_2Z = ('0.0005', '0.001', '0.002')
+
+
 CELLS_2Y = ('mem-336-all', 'mem-96-all', 'mem-336-last1', 'mem-96-last1', 'nomem-336-all', 'nomem-336-last1')
 
 
