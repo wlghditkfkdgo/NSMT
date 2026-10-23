@@ -8058,3 +8058,26 @@ SUITE=neurons-smoke-20261014b-nocal EXTRA='--no-require_calibration --input_scal
 **학습:** 이 commit 뒤 nomem lr 0.001·0.002 × q1_R·q1 × ETTh1·ETTh2 × seed 7·13·21 = 24 run을 `gpu_pool2.sh`(GPU당 2개)로 돌린다. 끝나면 `confirm_2z.py --stage select`로 계열마다 lr을 고르고, `--stage queue`의 40 run을 돌린 뒤 `--stage test`.
 
 **commit:** 이 기록·사전등록·코드·smoke를 commit 하고 `exp/f-lif-pop-v3`만 push.
+
+---
+
+## 2026-10-23 20:57 KST — 2Z 학습률 선택 결과 (validation, seed 7·13·21): **두 계열 모두 lr 0.0005** — 상태 유지 모델은 lr을 바꿔도 나아지지 않음; 본 학습 40 run 시작
+
+**직전 commit:** 2Z 사전등록 commit 은 `1efa4b9ed`.
+
+**학습:** nomem lr 0.001·0.002의 24 run이 18:06–18:16에 모두 끝났다(SKIP 0, run당 18–38 s). 명령은 `results/etthard-2z-20261023/run_commands_select.txt`, GPU·시각은 `pool_runs_select.txt`.
+
+**선택 (`analysis/confirm_2z.py --stage select -nd 0` → `results/etthard-2z-20261023/confirm_2z_select.json`, 출력 `confirm_2z_select.stdout`):** 72칸(mem 36 = 2W 격자 재사용, nomem 36 = 2Y 12 + 새 24)이 모두 manifest·safe·val 재현을 통과했다.
+
+| 계열 | lr 0.0005 | lr 0.001 | lr 0.002 | 고른 lr |
+|---|---:|---:|---:|---|
+| mem (상태 유지) | **1.0402** | 1.0499 | 1.0779 | 0.0005 |
+| nomem (패치마다 0) | **0.9355** | 0.9552 | 0.9873 | 0.0005 |
+
+(값 = val MSE / 같은 seed 2T val MSE의 평균. 0.005 안의 동률이 없어 가장 낮은 값을 골랐다.)
+
+- 상태가 있는 모델에 학습률을 다시 고를 기회를 줘도 2W의 선택(0.0005)이 그대로다. 같은 학습률에서 nomem이 mem보다 약 10% 낮다(2T 대비 0.936 vs 1.040).
+
+**다음:** `--stage queue`의 40 run(2 계열 × 2 base × 2 데이터셋 × seed 42·123·256·512·1024, lr 0.0005)을 20:57에 시작했다(`scripts/queues/rerun-ett-2z-final-0.0005-0.0005.txt`, GPU당 2개). 끝나면 `--stage test`.
+
+**commit:** 이 기록과 선택 결과를 commit 하고 `exp/f-lif-pop-v3`만 push.
