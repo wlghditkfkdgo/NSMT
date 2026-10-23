@@ -56,6 +56,7 @@ cannot run, or whose test is vacuous (no spikes), FAILs.
       under blocks.0.mixer as neocortex path
   c24 (MODI 2026-10-21) population branches tau 16/32/64/128: tau values, and the soma init in {1, 2, 4} whose initial firing on
       real data (training-mode BN) is closest to the tau 4-32 / psi 1 mixer (per dataset) -- the value is reported, not asserted
+  c33-c37 (MODI 2026-10-23) membrane fusion and the K-stream neocortex: see the docstrings of c33 ... c37
   c25 (MODI 2026-10-21) BiX (mixer_comb xattn): every spiking neuron runs T = N steps, attention map [B, 1, 8, N, N], the
       query Linear sees the forward stream and the key / value Linears the reverse stream, and changing input token j changes
       the mixer output before token j (bidirectional reach)
@@ -1297,12 +1298,236 @@ def c32():
                       f'neuron T {sorted(Ts)}, forward-only change -> output changes {not torch.equal(m0, mf)}, reverse-only {not torch.equal(m0, mr)}, rate {float(mm.mean()):.3f}')
 
 
+# ---- MODI 2026-10-23: membrane fusion (linmem / linmx / xattnmem) and the K-stream neocortex aligned with T_h ---------------
+MEM_NEURONS = (('lif', {}), ('flif', {}), ('pop_lif', dict(pop_soma_init=0.5)), ('pop_flif', dict(pop_soma_init=1.0)))
+
+
+def _cinc_mixer(comb, mixer, extra, x):
+    from load_model import LOAD_MODEL
+    from config import set_random_seed
+    set_random_seed(0)
+    m = LOAD_MODEL['neoMixer'](NS(**_mixer_kw(mixer=mixer, mixer_comb=comb, patch_size=64, seq_len=3750, num_classes=4, **extra)), True).cuda()
+    m.train_mode = 'testing'
+    return m
+
+
+@check('c33')
+def c33():
+    """charge capture: spikes_and_charge goes through the neuron's own calls -- for every spikeDE neocortex neuron kind the spikes
+    equal forward() bitwise, spikes == (H - theta >= 0), H carries a gradient, and the energy recorder still sees the call."""
+    from spikingjelly.clock_driven import functional
+    from energy import FiringRateRecorder
+    x, _, _ = _real_batch('CINC2017', n=8)
+    rows, ok = [], True
+    for mixer, extra in MEM_NEURONS:
+        m = _cinc_mixer('linmem', mixer, extra, x)
+        _bn_freeze_eval(m, x)
+        blk = m.blocks[0]
+        rec = FiringRateRecorder(m)
+        with torch.no_grad():
+            e = m.encoding(m.tokens(x)); functional.reset_net(m)
+            ref = blk.mixer(e); functional.reset_net(m)
+            calls0 = {k: v['calls'] for k, v in rec.stats.items()}
+            s, h = blk.mixer.forward_charge(e); functional.reset_net(m)
+        seen = all(rec.stats[k]['calls'] == calls0[k] + 1 for k in rec.stats if k.startswith('blocks.0.mixer.Mem.1'))
+        rec.detach()
+        e2 = e.detach().clone().requires_grad_(True)
+        _, h2 = blk.mixer.forward_charge(e2); functional.reset_net(m)
+        h2.sum().backward()
+        good = torch.equal(ref, s) and torch.equal(s, (h >= 0).to(s.dtype)) and e2.grad is not None and float(e2.grad.abs().sum()) > 0 \
+            and seen and 0.005 < float(s.mean()) < 0.9
+        ok &= good
+        rows.append(f'{mixer}: spikes==forward {torch.equal(ref, s)}, ==(H>=0) {torch.equal(s, (h >= 0).to(s.dtype))}, '
+                    f'grad {float(e2.grad.abs().sum()):.2e}, recorder sees it {seen}, rate {float(s.mean()):.3f}')
+    report('c33', ok, '; '.join(rows))
+
+
+@check('c34')
+def c34():
+    """linmem / linmx: fusion Linear (384, 768) / (384, 1152) on [H_f; H_r] / [H_f; H_r; |H_f - H_r|], fused output 0/1, mix() ==
+    fuse(charges) computed from the two stacks separately; on real CinC windows (training-mode BN) both directions' last
+    layers get a gradient through the charges; changing the forward-only or reverse-only charge changes the output; linmem has
+    the initial weights of lin at the same seed (same module shapes and order)."""
+    from spikingjelly.clock_driven import functional
+    x, _, _ = _real_batch('CINC2017', n=8)
+    rows, ok = [], True
+    for comb, width in (('linmem', 768), ('linmx', 1152)):
+        for mixer, extra in MEM_NEURONS:
+            m = _cinc_mixer(comb, mixer, extra, x)
+            same_init = True
+            if comb == 'linmem':                                       # before any forward (BN running statistics move)
+                ml = _cinc_mixer('lin', mixer, extra, x)
+                same_init = all(torch.equal(a, b) for a, b in zip(m.state_dict().values(), ml.state_dict().values()))
+                del ml
+            blk = m.blocks[0]
+            m.train()
+            m.zero_grad()
+            z, *_ = m.forward_parts(x); z.sum().backward(); functional.reset_net(m)
+            gf = float(blk.mixer.Mem[-1].w_in.weight.grad.abs().sum()); gr = float(blk.mixer_rev.Mem[-1].w_in.weight.grad.abs().sum())
+            _bn_freeze_eval(m, x)
+            with torch.no_grad():
+                e = m.encoding(m.tokens(x)); functional.reset_net(m)
+                _, hf = blk.mixer.forward_charge(e); functional.reset_net(m)
+                _, hr = blk.mixer_rev.forward_charge(e.flip(0)); functional.reset_net(m)
+                hr = hr.flip(0)
+                cat = (lambda a, b: torch.cat([a, b], -1)) if comb == 'linmem' else (lambda a, b: torch.cat([a, b, (a - b).abs()], -1))
+                m0 = blk.fuse(cat(hf, hr)); functional.reset_net(m)
+                mm = blk.mix(e); functional.reset_net(m)
+                mf = blk.fuse(cat(hf + 0.5, hr)); functional.reset_net(m)
+                mr = blk.fuse(cat(hf, hr + 0.5)); functional.reset_net(m)
+            binary = bool(((mm == 0) | (mm == 1)).all())
+            shape = tuple(blk.fuse.linear.weight.shape) == (384, width)
+            good = shape and binary and torch.equal(m0, mm) and gf > 0 and gr > 0 and not torch.equal(m0, mf) and not torch.equal(m0, mr) \
+                and same_init and 0.005 < float(mm.mean()) < 0.9
+            ok &= good
+            rows.append(f'{comb}/{mixer}: Linear {tuple(blk.fuse.linear.weight.shape)}, binary {binary}, mix==fuse {torch.equal(m0, mm)}, '
+                        f'grad fwd/rev {gf:.1e}/{gr:.1e}, both directions matter {not torch.equal(m0, mf)}/{not torch.equal(m0, mr)}, '
+                        f"init == lin {same_init if comb == 'linmem' else 'n/a (other width)'}, rate {float(mm.mean()):.3f}")
+    report('c34', ok, '; '.join(rows))
+
+
+@check('c35')
+def c35():
+    """xattnmem: q = BN(W_q (H_f - theta)) and k = BN(W_k (H_r - theta)) are real-valued (no neuron), v = LIF(BN(W_v R)) is 0/1,
+    the output is 0/1 with T = N, the attention map is [B, 1, 8, N, N]; the initial weights equal the spike BiX (xattn) at the
+    same seed; on real CinC windows both directions' last layers get a gradient."""
+    from spikingjelly.clock_driven import functional
+    x, _, _ = _real_batch('CINC2017', n=8)
+    rows, ok = [], True
+    for mixer, extra in MEM_NEURONS:
+        m = _cinc_mixer('xattnmem', mixer, extra, x)
+        mb = _cinc_mixer('xattn', mixer, extra, x)                       # before any forward (BN running statistics move)
+        same_init = all(torch.equal(a, b) for a, b in zip(m.state_dict().values(), mb.state_dict().values()))
+        del mb
+        blk = m.blocks[0]; xa = blk.xattn
+        m.train(); m.zero_grad()
+        z, *_ = m.forward_parts(x); z.sum().backward(); functional.reset_net(m)
+        gf = float(blk.mixer.Mem[-1].w_in.weight.grad.abs().sum()); gr = float(blk.mixer_rev.Mem[-1].w_in.weight.grad.abs().sum())
+        _bn_freeze_eval(m, x)
+        seen = {}
+        hs = [xa.q.register_forward_hook(lambda md, i, o: seen.__setitem__('q', o.detach())),
+              xa.v.register_forward_hook(lambda md, i, o: seen.__setitem__('v', o.detach()))]
+        xa.keep_scores = True
+        with torch.no_grad():
+            e = m.encoding(m.tokens(x)); functional.reset_net(m)
+            mm = blk.mix(e); functional.reset_net(m)
+        for h in hs: h.remove()
+        q_real = not bool(((seen['q'] == 0) | (seen['q'] == 1)).all())
+        v_bin = bool(((seen['v'] == 0) | (seen['v'] == 1)).all())
+        binary = bool(((mm == 0) | (mm == 1)).all())
+        shape = tuple(xa.last_scores.shape) == (8, 1, 8, m.num_patches, m.num_patches)
+        good = q_real and v_bin and binary and shape and same_init and gf > 0 and gr > 0 and 0.005 < float(mm.mean()) < 0.9
+        ok &= good
+        rows.append(f'{mixer}: q real {q_real}, v 0/1 {v_bin}, out 0/1 {binary}, scores {tuple(xa.last_scores.shape)}, init == BiX {same_init}, '
+                    f'grad fwd/rev {gf:.1e}/{gr:.1e}, rate {float(mm.mean()):.3f}')
+    report('c35', ok, '; '.join(rows))
+
+
+@check('c36')
+def c36():
+    """NSMT with a K-stream neocortex aligned with T_h (popk_lif / popk_flif, hippo_T 4, hippo_xattn): the neocortex output is
+    [N, B, 4, D] with every stream neuron at T = N and its tau 4/8/16/32; the cross-attention key / value of hippocampus step t
+    is stream t (not a copy of one stream); the calibration table is loaded and every stream of every neocortex layer fires at
+    0.98-1.02x the reference layer on the calibration windows; each stream is causal along the tokens; the decoder
+    target is the same signal for every stream and the training loss path runs; hippo_T 3 or no hippo_xattn is refused."""
+    from load_model import LOAD_MODEL
+    from config import set_random_seed
+    from spikingjelly.clock_driven import functional
+    from stream_mixer import StreamNeurons
+    from train_rhythm import train_epoch
+    import json as _json
+    x, _, _ = _real_batch('CINC2017', n=32)
+    rows, ok = [], True
+    base = dict(HP, patch_size=64, seq_len=3750, num_channels=1, num_classes=4, hippo_T=4, hippo_xattn=True, neo_alpha=0.5)
+    for neo in ('popk_lif', 'popk_flif'):
+        set_random_seed(0)
+        m = LOAD_MODEL['myModel'](NS(**dict(base, neo_neuron=neo)), True).cuda()
+        table = _json.load(open(os.path.join(HERE, 'calib', f'tau_gains_myModel_{neo}_xaT4.json')))
+        loaded = m.tau_calibrated and all(abs(float(dict(m.named_modules())[bn].weight[k * 384]) - g) < 1e-5
+                                          for bn, gs in table['gains'].items() for k, g in enumerate(gs))
+        taus = [float(p.neuron.tau) for p in m.encoding_neo.neuron.parts]
+        m.train(); m.train_mode = 'testing'
+        rates, hs = {}, []
+        for n, mod in m.named_modules():
+            if isinstance(mod, StreamNeurons) and n.startswith(('encoding_neo', 'time_block')):
+                for k, part in enumerate(mod.parts):
+                    hs.append(part.register_forward_hook(lambda md, i, o, n=n, k=k: rates.__setitem__((n, k), float(o.float().mean()))))
+        seen = {}
+        ssa = m.data_block[0].ssa; orig = ssa.forward
+        def rec_fwd(xx, mask=None, kv=None):
+            seen['kv'] = kv.detach(); return orig(xx, mask=mask, kv=kv)
+        ssa.forward = rec_fwd
+        with torch.no_grad():
+            _, neo_in = m._tokens_mc(x)
+            _, xn = m.neo_forward(neo_in); functional.reset_net(m)
+            m(x); functional.reset_net(m)
+        ssa.forward = orig
+        for h in hs: h.remove()
+        tgt = table['targets']
+        band = all(0.98 <= rates[(n, k)] / tgt[n] <= 1.02 for (n, k) in rates)
+        shape = tuple(xn.shape) == (m.num_patches, 32, 4, 384)
+        aligned = all(torch.equal(seen['kv'][t], xn[:, :, t].transpose(0, 1)) for t in range(4)) and not torch.equal(seen['kv'][0], seen['kv'][3])
+        # causality per stream along the tokens (eval-mode BN for a deterministic comparison)
+        _bn_freeze_eval(m, x)
+        with torch.no_grad():
+            _, neo_in = m._tokens_mc(x[:8])
+            _, a0 = m.neo_forward(neo_in); functional.reset_net(m)
+            j = 60; ni = neo_in.clone(); ni[j] = ni[j][torch.roll(torch.arange(8), 1).cuda()]
+            _, a1 = m.neo_forward(ni); functional.reset_net(m)
+        causal = torch.equal(a0[:j], a1[:j]) and not torch.equal(a0[j:], a1[j:])
+        # training loss path (decoder target expanded over the streams)
+        set_random_seed(0)
+        mt = LOAD_MODEL['myModel'](NS(**dict(base, neo_neuron=neo)), True).cuda().train()
+        out = mt(x[:4]); functional.reset_net(mt)
+        dec_ok = tuple(out[3].shape) == tuple(out[4].shape) == (m.num_patches, 4, 4, 64) and torch.equal(out[3][:, :, 0], out[3][:, :, 3])
+        good = loaded and taus == [4., 8., 16., 32.] and band and shape and aligned and causal and dec_ok
+        ok &= good
+        rows.append(f'{neo}: table loaded {loaded}, stream taus {taus}, firing / reference in [0.98, 1.02] {band} '
+                    f'({min(rates[k] / tgt[k[0]] for k in rates):.3f}-{max(rates[k] / tgt[k[0]] for k in rates):.3f}), neocortex {tuple(xn.shape)}, '
+                    f'kv[t] = stream t {aligned}, causal per stream {causal}, decoder target per stream {dec_ok}')
+    refused = []
+    for bad in (dict(hippo_T=3), dict(hippo_xattn=False, hippo_T=0)):
+        try:
+            LOAD_MODEL['myModel'](NS(**dict(base, neo_neuron='popk_lif', **bad)), True); refused.append(False)
+        except ValueError:
+            refused.append(True)
+    ok &= all(refused)
+    report('c36', ok, '; '.join(rows) + f'; refused hippo_T 3 / no hippo_xattn {refused}')
+
+
+@check('c37')
+def c37():
+    """the new T_h = 4 baselines build and run: population LIF with soma (neo_neuron pop_lif, alpha 1) and the single f-LIF, and
+    the energy recorder reports their neocortex neurons as pop_lif / flif."""
+    from load_model import LOAD_MODEL
+    from config import set_random_seed
+    from spikingjelly.clock_driven import functional
+    from energy import FiringRateRecorder
+    x, _, _ = _real_batch('CINC2017', n=4)
+    base = dict(HP, patch_size=64, seq_len=3750, num_channels=1, num_classes=4, hippo_T=4, hippo_xattn=True, neo_alpha=0.5)
+    rows, ok = [], True
+    for neo, extra in (('pop_lif', dict(pop_soma_init=1.0)), ('flif', {})):
+        set_random_seed(0)
+        m = LOAD_MODEL['myModel'](NS(**dict(base, neo_neuron=neo, **extra)), True).cuda(); m.train(); m.train_mode = 'testing'
+        rec = FiringRateRecorder(m)
+        with torch.no_grad():
+            z = m(x); functional.reset_net(m)
+        rec.add_samples(4)
+        kinds = sorted({st['kind'] for n, st in rec.stats.items() if st['path'] == 'neo' and st['calls']})
+        rec.detach()
+        zz = z[0] if isinstance(z, tuple) else z
+        good = tuple(zz.shape) == (4, 4) and kinds == [neo] and bool(torch.isfinite(zz).all())
+        ok &= good
+        rows.append(f'{neo}: logits {tuple(zz.shape)}, neocortex neuron kinds {kinds}')
+    report('c37', ok, '; '.join(rows))
+
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', default=os.path.join(HERE, 'results', 'checks', 'check_cls.txt'))
     ap.add_argument('--only', nargs='*', default=None)
     a = ap.parse_args()
-    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30, c31, c32):
+    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30, c31, c32, c33, c34, c35, c36, c37):
         if a.only and fn.__name__ not in a.only:
             continue
         fn()

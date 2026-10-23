@@ -53,16 +53,23 @@ class TokenXAttn(nn.Module):
     """Cross-attention along the token (= spiking time) axis: queries from stream F, keys / values from stream R.
     neuron_fn() -> a module mapping [N, B, K, D] to spikes of the same shape (one call per neuron layer);
     gamma: optional [K*D] BN weight init used for every BN in the module (tau calibration)."""
-    def __init__(self, dim, n_tokens, K=1, heads=8, form='head', neuron_fn=None, bias=False, gamma=None):
+    def __init__(self, dim, n_tokens, K=1, heads=8, form='head', neuron_fn=None, bias=False, gamma=None, qk_from='spikes'):
         super().__init__()
         if form not in ('head', 'channel'):
             raise ValueError("form must be 'head' or 'channel'")
+        # MODI 2026-10-23 (membrane fusion 4): qk_from 'charge' -> q = BN(W_q (H_f - theta)), k = BN(W_k (H_r - theta)) stay
+        # real-valued (no neuron); v, the attention neuron and proj are unchanged. Same modules in the same order, so the
+        # initial weights equal those of the spike version at the same seed.
+        if qk_from not in ('spikes', 'charge'):
+            raise ValueError("qk_from must be 'spikes' or 'charge'")
+        self.qk_from = qk_from
         if dim % heads:
             raise ValueError('dim must be divisible by heads')
         self.dim, self.N, self.K, self.heads, self.form = int(dim), int(n_tokens), int(K), int(heads), form
         self.scale = dim ** -0.5                                            # as SSA_rel_scl
         mk = lambda: StreamSpikeLinear(dim, dim, K, neuron_fn(), bias=bias, bn_layout='flat', gamma=gamma)
-        self.q, self.k, self.v = mk(), mk(), mk()
+        mk_qk = mk if qk_from == 'spikes' else (lambda: StreamSpikeLinear(dim, dim, K, nn.Identity(), bias=bias, bn_layout='flat', gamma=gamma))
+        self.q, self.k, self.v = mk_qk(), mk_qk(), mk()
         self.attn_bn = nn.BatchNorm1d(self.K * dim)
         if gamma is not None:
             with torch.no_grad():
@@ -96,8 +103,13 @@ class TokenXAttn(nn.Module):
             self.last_scores = s.detach()
         return z
 
-    def forward(self, f, r):
-        q, k, v = self.q(f), self.k(r), self.v(r)
+    def forward(self, f, r, hf=None, hr=None):
+        if self.qk_from == 'charge':
+            if hf is None or hr is None:
+                raise ValueError("qk_from 'charge' needs the two streams' charges")
+            q, k, v = self.q(hf), self.k(hr), self.v(r)
+        else:
+            q, k, v = self.q(f), self.k(r), self.v(r)
         z = self.scores_and_z(q, k, v).contiguous()
         N, B = z.shape[:2]
         z = self.attn_bn(z.reshape(-1, self.K * self.dim)).reshape(N, B, self.K, self.dim)

@@ -388,6 +388,83 @@ def lin_summary(a):
     print('\n'.join(L))
 
 
+def _table_and_verdicts(a, title, rows, order, lab, Q, note):
+    R = os.path.join(HERE, 'results', a.suite)
+    seeds, need = (42, 7, 2026), 2
+    def ms(v, sc=100., nd=2):
+        v = np.asarray(list(v), dtype=float)
+        return 'n/a' if len(v) == 0 or not np.all(np.isfinite(v)) else f'{sc * v.mean():.{nd}f} ± {sc * v.std(ddof=1) if len(v) > 1 else 0:.{nd}f}'
+    L = [f'# {title} `{a.suite}` (CINC2017) — summary', '', note, '',
+         '| condition | n | score | macro-F1 | best val | val − test | total µJ (FFT) | neocortex firing | params |', '|---|---|---|---|---|---|---|---|---|']
+    energy = {}
+    for c in order:
+        rr = [r for r in rows if r['cond'] == c]
+        if not rr:
+            L.append(f'| {lab.get(c, c)} | 0 | n/a | | | | | | |'); continue
+        energy[c] = np.mean([float(r['total_fft_uJ']) for r in rr])
+        val = [best_val(r) for r in rr]; sc = [float(r['score']) for r in rr]; mf = [float(r['macro_f1']) for r in rr]; rho = [r.get('rho_neo') for r in rr]
+        L.append(f"| {lab.get(c, c)} | {len(rr)} | {ms(sc)} | {ms(mf)} | {ms(val)} | {ms([v - x for v, x in zip(val, sc)])} | {energy[c]:.1f} | "
+                 f"{ms(rho, 1., 4) if all(isinstance(x, float) for x in rho) else 'n/a'} | {int(rr[0]['params'])} |")
+    L += ['', '## Pre-registered comparisons (%p, paired by seed; better = mean >= +0.5 and A > B in >= 2 of 3 seeds)', '',
+          '| question | A | B | A − B per seed | mean | verdict | energy A/B | criterion (2) |', '|---|---|---|---|---|---|---|---|']
+    for q, x, y in Q:
+        v, d, m = verdict(rows, x, y, seeds, need)
+        er = energy.get(x, float('nan')) / energy.get(y, float('nan')) if energy.get(y) else float('nan')
+        crit = ''
+        if 'criterion 2' in q and v != 'incomplete':
+            crit = 'met' if (v == 'better') or (m >= -0.5 and math.isfinite(er) and er <= 0.5) else 'not met'
+        L.append(f"| {q} | {lab.get(x, x)} | {lab.get(y, y)} | {' / '.join(f'{z:+.2f}' for z in d)} | {m:+.2f} | {v} | {er:.2f} | {crit} |")
+    open(os.path.join(R, 'summary.md'), 'w').write('\n'.join(L) + '\n')
+    print('\n'.join(L))
+
+
+def mem_summary(a):
+    """MODI 2026-10-23: membrane fusion (mixlinmem_* / mixlinmx_* / bixmem_*) against the spike versions (lin, BiX), OR and Spikformer."""
+    rows = [r for r in parse(os.path.join(HERE, 'results', a.suite, 'raw.txt')) if int(r.get('crop', 0)) == 0]
+    for sub in ('flif-v1-rhythm-lin-cinc', 'flif-v1-rhythm-bix-cinc'):
+        rows += [r for r in parse(os.path.join(HERE, 'results', sub, 'raw.txt')) if int(r.get('crop', 0)) == 0]
+    rows += [r for r in parse(os.path.join(HERE, 'results', 'flif-v1-rhythm-cinc', 'raw.txt'))
+             if int(r.get('crop', 0)) == 0 and r['cond'] in ('spk_ssa', 'mix_lif_bidir', 'mix_flif_bidir', 'mix_pop_bidir')]
+    ns = ('lif', 'flif', 'pop_lif', 'pop_flif')
+    lab = {'spk_ssa': 'Spikformer-style SSA (T=4)'}
+    for n in ns:
+        lab.update({_mix_cond(n): f'Neo-mixer OR, {BIX_NAME[n]}', f'mixlin_{n}': f'linear fusion of spikes, {BIX_NAME[n]}',
+                    f'mixlinmem_{n}': f'linear fusion of charges, {BIX_NAME[n]}', f'mixlinmx_{n}': f'linear fusion of charges + |H_f - H_r|, {BIX_NAME[n]}',
+                    f'bix_{n}': f'BiX (spike q / k), {BIX_NAME[n]}', f'bixmem_{n}': f'BiX with charge q / k, {BIX_NAME[n]}'})
+    order = ['spk_ssa'] + [c for n in ns for c in (_mix_cond(n), f'mixlin_{n}', f'mixlinmem_{n}', f'mixlinmx_{n}', f'bix_{n}', f'bixmem_{n}')]
+    Q = [('M1 charges vs spikes (linear fusion)', f'mixlinmem_{n}', f'mixlin_{n}') for n in ns]
+    Q += [('M2 + |H_f - H_r|', f'mixlinmx_{n}', f'mixlinmem_{n}') for n in ns]
+    Q += [('M3 charges + |H_f - H_r| vs spikes', f'mixlinmx_{n}', f'mixlin_{n}') for n in ns]
+    Q += [('M4 charge q / k vs spike q / k (BiX)', f'bixmem_{n}', f'bix_{n}') for n in ns]
+    Q += [('M5 vs OR', f'{c}_{n}', _mix_cond(n)) for n in ns for c in ('mixlinmem', 'mixlinmx', 'bixmem')]
+    Q += [('M6 vs Spikformer (criterion 2)', f'{c}_{n}', 'spk_ssa') for n in ns for c in ('mixlinmem', 'mixlinmx', 'bixmem')]
+    _table_and_verdicts(a, 'Membrane-fusion Neo-mixer', rows, order, lab, Q,
+                        'Best-validation weights on the test set; CinC score and macro-F1; mean ± sd over seeds (42, 7, 2026) (%). '
+                        'Energy counts the real-valued fusion inputs as MAC (syops: AC only for 0/1 inputs); attention products are not counted, as before.')
+
+
+def t4k_summary(a):
+    """MODI 2026-10-23: NSMT T_h = 4 with the neocortex as K = 4 soma-less streams aligned with the hippocampus steps."""
+    rows = [r for r in parse(os.path.join(HERE, 'results', a.suite, 'raw.txt')) if int(r.get('crop', 0)) == 0]
+    rows += [r for r in parse(os.path.join(HERE, 'results', 'flif-v1-rhythm-fix-cinc', 'raw.txt')) if r['cond'] in ('nsmt_lif_t4', 'nsmt_pop_t4')]
+    rows += [r for r in parse(os.path.join(HERE, 'results', 'flif-v1-rhythm-cinc', 'raw.txt'))
+             if int(r.get('crop', 0)) == 0 and r['cond'] in ('spk_ssa', 'nsmt_lif', 'nsmt_flif', 'nsmt_pop')]
+    lab = {'spk_ssa': 'Spikformer-style SSA (T=4)', 'nsmt_lif': 'NSMT T = N, spikeDE LIF', 'nsmt_flif': 'NSMT T = N, f-LIF',
+           'nsmt_pop': 'NSMT T = N, population f-LIF', 'nsmt_lif_t4': 'NSMT T_h 4, spikeDE LIF (copied to the 4 steps)',
+           'nsmt_flif_t4': 'NSMT T_h 4, f-LIF (copied)', 'nsmt_poplif_t4': 'NSMT T_h 4, population LIF with soma (copied)',
+           'nsmt_pop_t4': 'NSMT T_h 4, population f-LIF with soma (copied)', 'nsmt_popk_lif_t4': 'NSMT T_h 4, 4 LIF streams = 4 steps',
+           'nsmt_popk_flif_t4': 'NSMT T_h 4, 4 f-LIF streams = 4 steps'}
+    order = ['spk_ssa', 'nsmt_lif', 'nsmt_flif', 'nsmt_pop', 'nsmt_lif_t4', 'nsmt_flif_t4', 'nsmt_poplif_t4', 'nsmt_pop_t4', 'nsmt_popk_lif_t4', 'nsmt_popk_flif_t4']
+    Q = [('K1 streams = steps vs population with soma (copied)', 'nsmt_popk_lif_t4', 'nsmt_poplif_t4'),
+         ('K1 streams = steps vs population with soma (copied)', 'nsmt_popk_flif_t4', 'nsmt_pop_t4'),
+         ('K2 streams = steps vs one neuron (copied)', 'nsmt_popk_lif_t4', 'nsmt_lif_t4'),
+         ('K2 streams = steps vs one neuron (copied)', 'nsmt_popk_flif_t4', 'nsmt_flif_t4'),
+         ('K3 vs Spikformer (criterion 2)', 'nsmt_popk_lif_t4', 'spk_ssa'), ('K3 vs Spikformer (criterion 2)', 'nsmt_popk_flif_t4', 'spk_ssa'),
+         ('K4 (report) new baselines vs T = N', 'nsmt_flif_t4', 'nsmt_flif'), ('K4 (report) population LIF vs LIF, copied', 'nsmt_poplif_t4', 'nsmt_lif_t4')]
+    _table_and_verdicts(a, 'NSMT T_h = 4 with neocortex streams aligned to the hippocampus steps', rows, order, lab, Q,
+                        'Best-validation weights on the test set; CinC score and macro-F1; mean ± sd over seeds (42, 7, 2026) (%).')
+
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--decide', action='store_true')
@@ -398,5 +475,12 @@ if __name__ == '__main__':
     ap.add_argument('--fix', action='store_true')
     ap.add_argument('--bix', action='store_true')
     ap.add_argument('--lin', action='store_true')
+    ap.add_argument('--mem', action='store_true')
+    ap.add_argument('--t4k', action='store_true')
     a = ap.parse_args()
-    decide(a) if a.decide else (aux_summary(a) if a.aux else (fix_summary(a) if a.fix else (bix_summary(a) if a.bix else (lin_summary(a) if a.lin else summary(a)))))
+    if a.mem:
+        mem_summary(a)
+    elif a.t4k:
+        t4k_summary(a)
+    else:
+        decide(a) if a.decide else (aux_summary(a) if a.aux else (fix_summary(a) if a.fix else (bix_summary(a) if a.bix else (lin_summary(a) if a.lin else summary(a)))))

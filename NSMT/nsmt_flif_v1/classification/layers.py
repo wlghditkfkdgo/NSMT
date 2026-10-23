@@ -430,8 +430,57 @@ class NeoNeuron(nn.Module):
         s = self.neuron(x.reshape(T, B * N1, D))
         return s.reshape(T, B, N1, D)
 
+    def forward_charge(self, x):
+        """MODI 2026-10-23: (spikes, H - theta) in the layout of forward()'s output (layers.spikes_and_charge)."""
+        if x.ndim != 4:
+            raise ValueError(f'NeoNeuron expects a 4-D tensor, got {tuple(x.shape)}')
+        T, B = x.shape[0], x.shape[1]
+        if self.layout == 'DN':
+            D, N1 = x.shape[2], x.shape[3]
+            s, h = spikes_and_charge(self.neuron, x.permute(0, 1, 3, 2).reshape(T, B * N1, D))
+            back = lambda z: z.reshape(T, B, N1, D).permute(0, 1, 3, 2).contiguous()
+            return back(s), back(h)
+        N1, D = x.shape[2], x.shape[3]
+        s, h = spikes_and_charge(self.neuron, x.reshape(T, B * N1, D))
+        return s.reshape(T, B, N1, D), h.reshape(T, B, N1, D)
+
 
 NEO_NEURONS = ('sj_lif', 'lif', 'flif', 'pop_flif')
+
+
+def spikes_and_charge(n, x):
+    """MODI 2026-10-23 (membrane fusion): run a neurons.py neuron (LIFNeuron / FLIFNeuron / PopulationFLIF, members firing
+    or one soma) on the current x [T, B, D] through the SAME rhs / integrate / emit calls as its forward(), and also return,
+    with the graph attached, the value its threshold compares at every step minus the threshold:
+        members fire: H_t = u_t + (I_t - u_t) / tau (rhs's look-ahead),   soma: H_t = V_{t-1} + (a_t - V_{t-1}) / tau_s,
+    so spikes == (H - theta >= 0) exactly (arctan_spike's forward). -> (spikes [T, B, out_features], H - theta, same shape)"""
+    if x.ndim != 3:
+        raise ValueError('Expected [T, B, D] current')
+    T, B, D = x.shape
+    n._check_length(T)
+    u = x.new_zeros(B, D, n.num_members)
+    soma = n.initial_soma(x)
+    history = n.new_history()
+    out, charge = [], []
+    for t in range(T):
+        F, s = n.rhs(u, x[t])
+        nxt, _, _ = n.integrate(t, u, F, x[t], history, None)
+        if n.has_soma:
+            prev = soma
+            o, soma, drive = n.emit(nxt, s, soma)
+            h = prev + (drive - prev) / n.soma.tau_s - n.soma.threshold
+        else:
+            o, soma, _ = n.emit(nxt, s, soma)
+            h = (u + (x[t].unsqueeze(-1) - u) / n.tau - n.threshold).reshape(B, -1)
+        out.append(o)
+        charge.append(h)
+        u = nxt
+    out, charge = torch.stack(out), torch.stack(charge)
+    if n._forward_pre_hooks:
+        raise NotImplementedError('forward pre-hooks on a neuron run through spikes_and_charge')
+    for hook in list(n._forward_hooks.values()):                      # the energy / syops recorders see the call as forward()
+        hook(n, (x,), out)
+    return out, charge
 
 
 def build_neo_neuron(kind, size, T, layout, tau=2., alpha=.5, method='pred', step=1., memory=0, pop_taus=(4., 8., 16., 32.),
@@ -509,6 +558,14 @@ class GroupNeuron(nn.Module):
     def forward(self, x):
         xs = torch.split(x, self.G, dim=self.axis)
         return torch.cat([p(c.contiguous()) for p, c in zip(self.parts, xs)], dim=self.axis)
+
+    def forward_charge(self, x):
+        """MODI 2026-10-23: (spikes, H - theta) of the spikeDE groups (kind 'lif' / 'flif'), concatenated like forward()."""
+        if self.kind == 'sj':
+            raise ValueError('charge capture is defined for the spikeDE groups')
+        xs = torch.split(x, self.G, dim=self.axis)
+        parts = [p.forward_charge(c.contiguous()) for p, c in zip(self.parts, xs)]
+        return torch.cat([a for a, _ in parts], dim=self.axis), torch.cat([b for _, b in parts], dim=self.axis)
 
 
 def group_gamma(size, taus, family='sj'):

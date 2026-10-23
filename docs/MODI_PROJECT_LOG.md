@@ -2047,3 +2047,100 @@ c28의 K = 1·τ 2 비트 동일 검사는 그대로 통과(보정은 τ 4/8/16/
 **판단:** 학습 없이 본 합치기 지점에서는 "막전위로 합치면 낫다"를 지지하는 근거가 약하다. 학습해서 확인할 가치가 있는 것은 (i) 선형 합 입력을 막전위로 바꾼 것(`lin-mem`)과 (ii) f-LIF의 |H_f − H_r| 항 정도다. 진행 여부는 사용자 결정.
 
 **commit:** 이 항목·스크립트·결과를 commit 하고 `exp/nsmt-flif-neo`만 push (특징 캐시와 실행 로그는 로컬).
+
+---
+
+## 2026-10-23 21:30 KST — 기록 보충: 아이디어 묶음(54 run)·원인 분리 묶음(45 run)·선형 합 Neo-mixer(12 run) 결과 — 끝났지만 이 기록에 결과 항목이 없던 세 묶음
+
+**경위:** 세 묶음은 10-22–10-23에 모두 끝났고(`results/flif-v1-rhythm-{bix,fix,lin}-cinc/raw.txt`: 54 / 45 / 12 RESULT, SKIP 0), `summarize_rhythm.py`가 각 `summary.md`를 만들어 두었다. 그런데 결과 항목과 commit이 없었다. 이번에 막전위 합치기·해마 T = 4 정렬 실험(다음 항목)의 비교 기준이 되므로 여기에 정리하고 결과 파일을 commit 한다. 선형 합 summary는 10-22 15:32(12 중 일부만 끝났을 때) 판이라, 12 run 전부로 다시 만들었다(`summarize_rhythm.py --lin --suite flif-v1-rhythm-lin-cinc`). 나머지 두 summary는 모든 run이 끝난 뒤 만든 판 그대로다. 판정 규칙은 모두 "평균 ≥ +0.5%p이고 seed 3개 중 2개 이상"(CinC test, 최고 검증 가중치).
+
+**선형 합 (L, 10-22 사전 고정):**
+- L1 OR → 선형 합: LIF **+0.83 좋음**, f-LIF **+0.82 좋음**, population LIF **−0.71 나쁨**, population f-LIF **+1.40 좋음**.
+- L2 선형 합 vs BiX: LIF −0.13 차이 없음, f-LIF −0.53 나쁨, population LIF +0.43 차이 없음, population f-LIF **+2.51 좋음**.
+- L3 vs Spikformer식(기준 (2)): 네 뉴런 모두 나쁨(−3.24 ~ −5.02), 미충족.
+- 사전 예상(L1 LIF·f-LIF 좋음, population 차이 없음; L2 차이 없거나 BiX 약간 좋음; L3 미충족)과 비교: L1 LIF·f-LIF 맞음, population 두 개 틀림(f-LIF 좋음, LIF 나쁨). L3 맞음.
+
+**아이디어 묶음 (B·P·F·A, 10-21 사전 고정; `results/flif-v1-rhythm-bix-cinc/summary.md`):**
+- B1 OR → 교차 주의(BiX): LIF +0.96, f-LIF +1.36 좋음; population LIF −1.14, population f-LIF −1.11 나쁨; soma 없는 popg·popk 네 개 모두 크게 나쁨(−3.6 ~ −6.1).
+- B2 vs Spikformer식(기준 (2)): 8개 모두 나쁨(−3.7 ~ −12.5), 미충족. 주의 BN을 넣은 Spikformer식과 비교해도 같다.
+- B4 채널별(BiX-ch) vs 머리 묶음: f-LIF 차이 없음, 나머지 나쁨.
+- **P1 soma → soma 없는 population:** Neo-mixer에서 그룹(popg) −3.79 / −1.22, 스트림(popk) −3.81 / −2.43(LIF / f-LIF) 모두 나쁨. BiX 안에서는 −4.9 ~ −8.8로 더 나쁨.
+- F1 Neo-mixer population에서 f-LIF(α 0.5) − LIF(α 1): −2.33 나쁨. A1 SSA 주의 BN: 차이 없음.
+
+**원인 분리 묶음 (Y·Z·W·V, 10-21 사전 고정; `results/flif-v1-rhythm-fix-cinc/summary.md`):**
+- 위치(1-B): Y1 SSA의 상대 위치 bias를 빼면 −1.11 나쁨. Y2·Y3 NSMT·Neo-mixer에 절대 위치를 넣으면 LIF −1.34 / −1.97 나쁨, population은 +0.74 차이 없음 / −1.95 나쁨. 위치를 맞춰도(Y4) Spikformer식보다 −4.1 ~ −5.9.
+- 도달 거리(1-A): Z1 Neo-mixer에 recurrent LIF를 넣으면 크게 나쁨(−13.3 LIF, −10.5 population). Z2 느린 가지(τ 16–128) −0.63 나쁨. spikingjelly LIF − spikeDE LIF −1.26.
+- **해마 T = 4 + 토큰 교차 주의(1-C):** W1 NSMT LIF **+1.66 좋음**(0.6342 vs 0.6176), NSMT population f-LIF **−2.28 나쁨**(0.5866 vs 0.6094). W2 vs Spikformer식: −2.18 / −6.93, 미충족. LIF t4는 점수가 오르지만 macro-F1은 내려간다(Noisy F1 약 0.50 → 0.28–0.38).
+- soma 가중치(V1): 1.5·2.0 모두 차이 없음(NSMT·Neo-mixer).
+
+**종합:** 지금까지 어떤 신피질 변형도 Spikformer식(65.6)을 넘지 못했다. 가장 가까운 것은 NSMT LIF T_h 4(63.4, −2.2)와 population LIF Neo-mixer(63.1)다. soma 없는 population은 모든 형태에서 soma가 있는 population보다 나빴다.
+
+**commit:** 이 항목과 세 묶음의 `raw.txt`·`summary.md`(선형 합은 다시 만든 판)를 다음 항목과 함께 commit 한다.
+
+---
+
+## 2026-10-23 21:35 KST — 사전 고정: (A) Neo-mixer 막전위 합치기 ②·③ → ④ (CinC 36 run)와 (B) NSMT 해마 T = 4에 신피질 4개 스트림을 정렬 (CinC 12 run) — 점검 37/37, smoke 7/7
+
+**직전 commit:** `8acab9fa0` (합치기 지점 probe).
+
+**사용자 지시 (10-23):**
+1. "Neo-mixer에서 막전위로 합치기 항목의 ②, ③ → ④ 을 수행해보자." (앞선 답의 단계표: ① probe(완료), ② 선형 합 입력을 막전위로, ③ ②에 |H_f − H_r|, ④ 막전위 주의.)
+2. (다른 작업 계열 `exp/f-lif-pop-v3` 사전등록 2Z — 그쪽 기록.)
+3. "[NSMT 해마만 T=4] 모델에서 해마는 non-population neuron, Neocortex path는 population neuron으로 동작한 다음, population k=4로 설정하여 해마의 spiking 시간축(T=4)으로 일치시키는 것은 어때? 그리고 나서 cross-attention으로 두 정보를 합치는 거야. neo에서는 population을 구성하는 각 뉴런이 time-series를 받는데 그 4개의 뉴런들 각각이 4개의 상태를 갖고 있는 것이고, 해마는 일반적인 Spikformer와 유사하게 동작…하나의 시계열에 대해서 4번 반복해서 입력을 형성하는 것."
+
+### A. 막전위 합치기 (②·③·④)
+
+- **공통:** 각 방향 마지막 mixer 층의 문턱 전 충전값 H(LIF·f-LIF: u + (I − u)/τ, soma 있는 population: soma 충전값)에서 θ를 뺀 값을 그래프에 붙인 채로 꺼낸다. `layers.spikes_and_charge`는 뉴런의 forward와 똑같은 rhs / integrate / emit 호출을 따라가며 H를 같이 기록한다. 스파이크는 forward와 비트 단위로 같다(점검 c33). 마지막 층의 출력 스파이크는 쓰지 않고 H만 쓴다.
+- **② `mixlinmem_<n>`:** m = LIF(BN(W [H_f − θ; H_r − θ])), Linear 768 → 384. 선형 합(`mixlin_<n>`)과 모양·순서가 같아 같은 seed에서 초기값이 같다(c34).
+- **③ `mixlinmx_<n>`:** m = LIF(BN(W [H_f − θ; H_r − θ; |H_f − H_r|])), Linear 1152 → 384.
+- **④ `bixmem_<n>`:** BiX(머리 묶음, q = 순방향, k / v = 역방향)에서 q = BN(W_q (H_f − θ)), k = BN(W_k (H_r − θ))를 뉴런 없이 실수로 두고, v = LIF(BN(W_v R))은 스파이크 그대로다. 주의 BN·주의 뉴런·proj는 같다. 같은 seed에서 BiX와 초기값이 같다(c35).
+- 나머지(임베딩, 두 방향 2층, IAND, MLP, head, 학습 설정)는 Neo-mixer와 같다. 합친 출력은 0/1이다.
+- **뉴런:** `<n>` ∈ {lif, flif, pop_lif(soma 0.5), pop_flif(soma 1.0)}, seed 42 / 7 / 2026 → ② 12 + ③ 12 + ④ 12 = 36 run. suite `flif-v1-rhythm-mem-cinc`, 러너 `scripts/run_rhythm4.sh`(run_rhythm3.sh 복사본 + 새 조건). 학습 순서는 사용자 순서대로 ②·③ 먼저, ④ 뒤.
+- **soma 없는 population(popg / popk):** 이번 묶음에 넣지 않았다. 선형 합 자체가 soma 없는 형태로 정의되어 있지 않고(10-22 구현이 거부), 층별 BN 보정 표를 새 합치기마다 다시 만들어야 하며, run당 3–8시간이다. 아이디어 묶음에서 soma 없는 형태가 모든 비교에서 soma 있는 형태보다 나빴다(P1). ②·③·④ 결과를 본 뒤 필요하면 보충한다(뉴런 축 규칙의 예외로 기록).
+- **에너지:** syops는 입력이 0/1이 아니면 MAC으로 센다. 그래서 실수 입력의 합치기 Linear는 MAC이다. smoke에서 1 window 시냅스 에너지가 크게 늘었다: `mixlinmx_lif` 263 µJ, `mixlinmem_pop_flif` 222 µJ, `bixmem_pop_lif` 198 µJ(선형 합 smoke 26.6–66.0 µJ). 이유는 768 × 384 × 117 토큰 = 34.5 M MAC ≈ 159 µJ다. 주의 곱(q k^T, s v)은 이전처럼 세지 않는다.
+- **판정(같은 규칙):** M1 `mixlinmem` − `mixlin`(막전위 vs 스파이크, 같은 합치기; ②의 주 비교), M2 `mixlinmx` − `mixlinmem`(③: |H_f − H_r|의 몫), M3 `mixlinmx` − `mixlin`, M4 `bixmem` − `bix`(④), M5 각각 − OR, M6 각각 − Spikformer식(기준 (2)). `summarize_rhythm.py --mem --suite flif-v1-rhythm-mem-cinc`.
+- **예상(사전 기록; 근거 = 같은 날 학습 없는 probe):** M1은 대부분 차이 없음, LIF는 나쁠 수 있음(probe −3.3점). M2는 f-LIF에서 좋음(probe +3.2), 나머지 차이 없음. M4 차이 없음. M6 모두 미충족.
+
+### B. NSMT 해마 T = 4 + 신피질 4개 스트림 정렬
+
+- **구조:** 해마는 지금의 `nsmt_*_t4`와 같다. 각 패치를 4번 반복해 입력하고, spikingjelly LIF, 교차 주의(SSA_rel_scl, q = 해마)를 쓴다. 신피질은 soma 없는 population 4개 스트림(τ 4 / 8 / 16 / 32, 구성원이 직접 발화·리셋; stream_mixer의 `_Embed` + `_Stack` + `StreamNeurons`)이 토큰 축(T = N = 117)으로 돈다. 출력은 [N, B, 4, D]다.
+  - **정렬:** 해마 스텝 t의 key / value = 신피질 스트림 t(τ 순서). 지금의 t4 모델은 한 줄짜리 신피질 출력을 4 스텝에 복사한다.
+  - 보조 재구성 손실(α 0.1, DCT 저역 목표)은 스트림마다 같은 목표를 재구성한다.
+- **보정:** 층별 발화율 맞춤(10-22 규칙). 신피질 세 층(임베딩, 2층) 각각에서 스트림마다 BN 이득을 이분 탐색으로 정해, 같은 층의 기준 모델(같은 계열 단일 spikeDE 뉴런의 NSMT T_h 4 모델) 발화율과 같게 했다.
+  - 스크립트 `calibrate_nsmt_streams.py` → `calib/tau_gains_myModel_popk_{lif,flif}_xaT4.json`. CinC train 창 0..31, seed 0, 학습 모드 BN.
+  - popk_lif 이득: 임베딩 1.68 / 2.59 / 3.88 / 5.83, 1층 1.38 / 1.54 / 1.64 / 1.76, 2층 1.23 / 1.29 / 1.36 / 1.59. 목표 0.0309 / 0.0405 / 0.0445.
+  - popk_flif 이득: 임베딩 1.80 / 3.26 / 6.02 / 11.34, 1층 1.66 / 2.64 / 4.19 / 6.93, 2층 1.58 / 2.33 / 3.36 / 5.22. 목표 0.0360 / 0.0406 / 0.0434.
+  - 모든 층·스트림이 목표의 1.000배로 발화한다(c36).
+- **조건 (뉴런 축 규칙):**
+  - 새 모델: `nsmt_popk_lif_t4`(LIF 스트림), `nsmt_popk_flif_t4`(f-LIF α 0.5 스트림).
+  - 새 기준선: `nsmt_poplif_t4`(population LIF, soma 0.5, 복사), `nsmt_flif_t4`(f-LIF 하나, 복사).
+  - 기존 기준선: `nsmt_lif_t4`, `nsmt_pop_t4`(원인 분리 묶음), `spk_ssa`, `nsmt_*`(9단계).
+  - 4 조건 × seed 3 = 12 run. suite `flif-v1-rhythm-t4k-cinc`, 러너 `run_rhythm4.sh`.
+- **판정:** K1 스트림 정렬 − soma population 복사(popk_lif − poplif_t4, popk_flif − pop_t4), K2 스트림 정렬 − 단일 뉴런 복사(popk_lif − lif_t4, popk_flif − flif_t4), K3 − Spikformer식(기준 (2)). 보고만: flif_t4 − nsmt_flif, poplif_t4 − lif_t4. `summarize_rhythm.py --t4k --suite flif-v1-rhythm-t4k-cinc`.
+- **예상(사전 기록):** soma 없는 population이 이전 모든 비교에서 soma 있는 형태보다 2–4%p 나빴으므로 K1은 나쁨이거나 차이 없음, K2는 나쁨, K3 미충족. 스트림이 τ 순서로 해마 스텝에 들어가므로 해마 LIF가 스텝 사이에 상태를 이어 가는 것(τ 4 → 32)이 이득을 줄 가능성은 있다. 이것이 사용자 원안의 새로운 점이다.
+
+### 점검·smoke
+
+- **점검 37/37** (`results/checks/check_cls_mem.txt`): c1–c32 그대로 통과(기본 경로 비트 동일).
+  - c33: 네 뉴런 모두 충전값 경로의 스파이크 = forward(비트 단위), 스파이크 = (H − θ ≥ 0), H에 gradient, 에너지 기록기가 호출을 본다.
+  - c34: ②·③ Linear 모양, 출력 0/1, mix() = fuse(충전값), 실제 CinC 창에서 두 방향 마지막 층 모두 gradient, 순방향만·역방향만 바꿔도 출력이 바뀜, ②의 초기값 = 선형 합.
+  - c35: ④ q는 실수·v는 0/1·출력 0/1, 주의 지도 [8, 1, 8, 117, 117], 초기값 = BiX, 두 방향 gradient. 임의 입력에서는 population LIF의 역방향이 침묵해 순방향 gradient가 0이었으나, 실제 CinC 창에서는 0이 아니다.
+  - c36: 스트림 신피질 [117, B, 4, 384], 스트림 τ 4/8/16/32, kv[t] = 스트림 t(스트림 0 ≠ 3), 보정 표 적용과 발화율 1.000배, 스트림별 토큰 인과성, 보조 손실 목표가 스트림마다 같음, hippo_T 3·hippo_xattn 없음 거부.
+  - c37: population LIF·f-LIF 기준선이 돌고 에너지 기록기가 pop_lif / flif로 본다.
+- **smoke** (`results/smoke-rhythm-mem-20261023/raw.txt`, 1 epoch, seed 42, 7/7 끝까지):
+
+| 조건 | params | 시냅스 에너지 µJ | 시간 s |
+|---|---:|---:|---:|
+| mixlinmem_pop_flif | 1,218,048 | 222.5 | 300 |
+| mixlinmx_lif | 1,359,360 | 263.3 | 131 |
+| bixmem_pop_lif | 1,517,896 | 198.1 | 313 |
+| nsmt_popk_lif_t4 | 1,271,368 | 135.8 | 326 |
+| nsmt_popk_flif_t4 | 1,271,368 | 150.9 | 634 |
+| nsmt_poplif_t4 | 1,269,064 | 126.1 | 204 |
+| nsmt_flif_t4 | 1,264,456 | 137.8 | 281 |
+
+**코드:** `layers.py`(`spikes_and_charge`, `NeoNeuron.forward_charge`, `GroupNeuron.forward_charge`), `model.py`(`NeoLayer.forward_charge`; myModel의 `pop_lif`·`popk_lif`·`popk_flif`, 스트림 신피질, xattn의 K = T_h 확인, 스트림별 보조 목표), `neo_mixer.py`(`MixerStack.forward_charge`, `linmem` / `linmx` / `xattnmem`), `bix.py`(`TokenXAttn(qk_from='charge')`), `config.py`(선택지·디렉터리 접미사 `_linmem` / `_linmx` / `_xamem`), `load_model.py`(tau_calib), `calibrate_nsmt_streams.py`, `check_cls.py`(c33–c37), `summarize_rhythm.py`(`--mem`, `--t4k`), `scripts/run_rhythm4.sh`.
+
+**학습:** 이 commit 뒤 두 pool을 띄운다. A 36 run은 GPU당 2개(②·③ 먼저, ④ 뒤), B 12 run은 GPU당 1개. 대기열은 `scripts/queues/rhythm-mem-20261023.txt`, `rhythm-t4k-20261023.txt`.
+
+**commit:** 이 항목·코드·점검·보정 표·smoke와 앞 항목의 세 결과 묶음을 commit 하고 `exp/nsmt-flif-neo`만 push.

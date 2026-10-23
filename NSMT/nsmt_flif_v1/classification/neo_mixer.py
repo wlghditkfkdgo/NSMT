@@ -33,7 +33,11 @@ __all__ = ['NeoMixer']
 
 MIXERS = ('none', 'lif', 'flif', 'pop_flif', 'lif_rec', 'sj_lif',   # MODI 2026-10-21 (1-A): lif_rec = NeoLayer(recurrent=True), gated W_rec;
           'pop_lif', 'pop_rec', 'popg_lif', 'popg_flif')           # sj_lif = the same spikingjelly single-step LIF loop without recurrence (control)
-COMBS = ('or', 'xattn', 'xattn_ch', 'lin')   # lin (MODI 2026-10-22): m = neuron(BN(W [F; R])), learned per-token fusion, no attention
+COMBS = ('or', 'xattn', 'xattn_ch', 'lin',   # lin (MODI 2026-10-22): m = neuron(BN(W [F; R])), learned per-token fusion, no attention
+         'linmem', 'linmx', 'xattnmem')     # MODI 2026-10-23 membrane fusion: the last mixer layers' charges H - theta instead of
+                                            # their spikes: linmem neuron(BN(W [H_f; H_r])), linmx neuron(BN(W [H_f; H_r; |H_f - H_r|])),
+                                            # xattnmem = BiX with q / k from H_f / H_r (real-valued) and v from the reverse spikes
+MEM_COMBS = ('linmem', 'linmx', 'xattnmem')
 
 
 class MixerStack(nn.Module):
@@ -49,6 +53,12 @@ class MixerStack(nn.Module):
         for l in self.Mem:
             x = l(x)
         return x
+
+    def forward_charge(self, x):
+        """MODI 2026-10-23: the last layer's (spikes, H - theta); the earlier layers run as in forward()."""
+        for l in self.Mem[:-1]:
+            x = l(x)
+        return self.Mem[-1].forward_charge(x)
 
 
 class Block(nn.Module):
@@ -75,14 +85,18 @@ class Block(nn.Module):
                     for l in st.Mem:
                         with torch.no_grad():
                             l.bn.weight.copy_(group_gamma(dim, taus, mixer.split('_', 1)[1]))   # spikeDE lif / flif family
-        if comb == 'lin':                                                # MODI 2026-10-22: Linear(2D -> D) on [F; R] -> BN -> spikingjelly LIF
+        if comb in MEM_COMBS and (self.grouped or mixer not in ('lif', 'flif', 'pop_lif', 'pop_flif')):
+            raise NotImplementedError('membrane fusion is defined for the spikeDE mixers lif / flif / pop_lif / pop_flif')
+        if comb in ('lin', 'linmem', 'linmx'):                           # MODI 2026-10-22: Linear(2D -> D) on [F; R] -> BN -> spikingjelly LIF
             if self.grouped:
                 raise NotImplementedError('lin fusion is defined for single-tau mixers (lif / flif / pop_lif / pop_flif)')
-            self.fuse = StreamSpikeLinear(2 * dim, dim, 1, sj_lif(tau), bias=bias, bn_layout='flat')
+            width = 3 * dim if comb == 'linmx' else 2 * dim                # MODI 2026-10-23: [H_f; H_r] / [H_f; H_r; |H_f - H_r|]
+            self.fuse = StreamSpikeLinear(width, dim, 1, sj_lif(tau), bias=bias, bn_layout='flat')
         elif comb != 'or':                                               # MODI 2026-10-21: BiX, q = forward stream, k/v = reverse stream
             afn = (lambda: GroupNeuron(dim, taus, 'sj', axis=-1)) if self.grouped else (lambda: sj_lif(tau))
-            self.xattn = TokenXAttn(dim, T, K=1, heads=heads, form=('head' if comb == 'xattn' else 'channel'), neuron_fn=afn, bias=bias,
-                                    gamma=(group_gamma(dim, taus) if self.grouped else None))
+            self.xattn = TokenXAttn(dim, T, K=1, heads=heads, form=('channel' if comb == 'xattn_ch' else 'head'), neuron_fn=afn, bias=bias,
+                                    gamma=(group_gamma(dim, taus) if self.grouped else None),
+                                    qk_from=('charge' if comb == 'xattnmem' else 'spikes'))
         hidden = int(dim * mlp_ratio)
         if self.grouped:                                                 # MLP neurons in tau groups too (spikingjelly LIF per group)
             self.fc1 = SpikLinearLayer(dim, hidden, tau=tau, lif_bias=bias, neuron=GroupNeuron(hidden, taus, 'sj', axis=-1))
@@ -96,6 +110,15 @@ class Block(nn.Module):
     def mix(self, x):
         if self.mixer_kind == 'none':
             return None
+        if self.comb in MEM_COMBS:                                       # MODI 2026-10-23: membrane fusion
+            f, hf = self.mixer.forward_charge(x)
+            r, hr = self.mixer_rev.forward_charge(x.flip(0))
+            r, hr = r.flip(0), hr.flip(0)
+            if self.comb == 'linmem':
+                return self.fuse(torch.cat([hf, hr], dim=-1))
+            if self.comb == 'linmx':
+                return self.fuse(torch.cat([hf, hr, (hf - hr).abs()], dim=-1))
+            return self.xattn(f, r, hf, hr)
         m = self.mixer(x)
         if self.bidir:
             r = self.mixer_rev(x.flip(0)).flip(0)
