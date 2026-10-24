@@ -543,6 +543,10 @@ def folds_summary(a):
     from scipy import stats
     R = os.path.join(HERE, 'results', a.suite)
     rows = [r for r in parse(os.path.join(R, 'raw.txt')) if int(r.get('crop', 0)) == 0]
+    rows += [r for r in parse(os.path.join(R, 'raw_recovered.txt')) if int(r.get('crop', 0)) == 0]   # recover_fold_results.py (10-25)
+    keys = [(r['cond'], int(r['fold']), int(r['seed'])) for r in rows]
+    if len(keys) != len(set(keys)):
+        raise SystemExit('duplicate (cond, fold, seed) rows')
     rows += [r for r in _all_fold0() if r['cond'] in ('mixlinmx_lif', 'mixlin_lif', 'spk_ssa')]
     conds = ('spk_ssa', 'mixlin_lif', 'mixlinmx_lif')
     lab = {'spk_ssa': 'Spikformer-style SSA (T=4)', 'mixlin_lif': 'linear fusion of spikes, LIF', 'mixlinmx_lif': 'charges + |H_f - H_r|, LIF'}
