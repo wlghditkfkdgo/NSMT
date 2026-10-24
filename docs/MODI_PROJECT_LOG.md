@@ -2248,3 +2248,75 @@ c28의 K = 1·τ 2 비트 동일 검사는 그대로 통과(보정은 τ 4/8/16/
 **태그:** 이 기록을 담은 commit 에 `exp/nsmt-flif-neo-20261024`(annotated, 완료: 막전위 합치기 36 + 스트림 정렬 12).
 
 **commit:** 이 항목·결과를 commit 하고 `exp/nsmt-flif-neo`와 태그만 push.
+
+---
+
+## 2026-10-24 23:26 KST — 사전 고정: 네 가지 후속 (CinC 84 run) — (1) 스파이크 XOR 대조, (2) ③ LIF의 fold 1–4 확인, (3) 스트림 정렬의 순서 대조와 양방향 합치기, (4) soma 없는 popg의 선형 합 4종 — 점검 41/41, smoke 9/9, 보정 표 10개
+
+**직전 commit:** `7afd3d2fc` (스트림 정렬 결과, 태그 `exp/nsmt-flif-neo-20261024`).
+
+**사용자 지시 (10-24):** "4개 전부 진행". 앞 보고의 다음 결정 1–4다.
+
+### (1) 스파이크 XOR 대조 `mixlinxor_<n>` (12 run)
+- m = LIF(BN(W [F; R; |F − R|])). 0/1 스파이크에서 |F − R|은 F XOR R과 같다(c38). Linear 1152 → 384로 ③(`mixlinmx`)과 모양·순서가 같아, 같은 seed에서 초기값이 같다(c38). 막전위는 쓰지 않는다.
+- 입력이 0/1이라 합치기 Linear는 AC로 잡힌다. smoke 1 window: `mixlinxor_lif` 27.7 µJ(③ LIF 263 µJ).
+- 뉴런 4종(LIF, f-LIF, population LIF soma 0.5, population f-LIF soma 1.0) × seed 3. suite `flif-v1-rhythm-xor-cinc`.
+- 판정: X1 xor − 스파이크 선형 합(차이 항이 스파이크로도 돕는가), X2 xor − ③(실수 차이 vs 스파이크 차이), X3 − OR, X4 − Spikformer식(기준 (2)). `summarize_rhythm.py --xor --suite flif-v1-rhythm-xor-cinc`.
+- **예상(사전 기록):** X1은 LIF에서 좋음(+1 ~ +3), X2는 나쁨(−1 ~ −2, 크기 정보가 빠짐), X4는 LIF도 나쁨.
+
+### (2) ③ LIF fold 1–4 (36 run)
+- `mixlinmx_lif`, `mixlin_lif`, `spk_ssa` × fold 1–4 × seed 3. fold 0은 기존 suite에서 쓴다. CinC 분할 규칙(`rhythm_data.cinc_split`: 기록 단위 층화 5-fold, 검증 10%)은 그대로다. suite `flif-v1-rhythm-folds-cinc`.
+- 판정(`summarize_rhythm.py --folds --suite flif-v1-rhythm-folds-cinc`): F1 ③ − Spikformer식, F2 ③ − 스파이크 선형 합, F3 스파이크 선형 합 − Spikformer식.
+  - fold마다 기존 규칙(평균 ≥ +0.5%p, seed 2/3)으로 판정한다.
+  - fold 0–4의 15쌍(fold × seed)을 합친 평균, 95% t 구간(자유도 14), A > B 쌍 수도 낸다.
+- **예상:** F1 15쌍 평균 −1 ~ 0으로 차이 없음, F2 +3 ~ +4 좋음.
+
+### (3) 스트림 정렬 대조 (12 run)
+- **순서 대조** `nsmt_popk_{lif,flif}_t4_srev`: 해마 스텝 t에 스트림 3 − t(τ 32 → 4)를 넣는다. 신피질과 초기값은 원래 스트림 모델과 같다(c40).
+- **양방향 합치기** `nsmt_popk_{lif,flif}_t4_bimx`(사용자의 "③과 결합"을 이렇게 정의했다): 신피질 스트림을 순방향과 역방향(자기 파라미터)으로 두 번 돌린다. 스트림마다 m_k = LIF(BN(W [H_f,k; H_r,k; |H_f,k − H_r,k|]))로 합쳐(Linear 공유, BN은 스트림별) 해마 스텝 k에 넣는다.
+  - 역방향 스택도 같은 자리의 기준 층 발화율에 맞춰 보정했다(`calibrate_nsmt_streams.py --bimx` → `calib/tau_gains_myModel_popk_{lif,flif}_xaT4_bimx.json`, 6 층 모두 1.000배, c41).
+  - 순방향은 인과, 역방향은 반인과다(c41).
+  - **비용:** params 2.05 M(스트림 모델 1.27 M). 실수 입력 합치기가 4 스트림이라 smoke 1 window 에너지가 1,157 µJ다(f-LIF; 스트림 모델 151 µJ, Spikformer식 127 µJ). 성능이 좋아도 에너지 기준은 맞추지 못한다.
+- seed 3, suite `flif-v1-rhythm-t4k2-cinc`. 판정: S1 순서 뒤집기 − 원래, S2 양방향 합치기 − 원래, S3 − 단일 뉴런 복사, S4 − Spikformer식. `summarize_rhythm.py --t4k2`.
+- **예상:** S1 차이 없음, S2 LIF 좋음(+1 ~ +2)·f-LIF 차이 없음, S4 미충족.
+
+### (4) soma 없는 popg 선형 합 (24 run)
+- `mixlin` / `mixlinmem` / `mixlinmx` / `mixlinxor` × `popg_lif` / `popg_flif` × seed 3. 10-23에 뉴런 축 규칙의 예외로 뺀 부분을 보충한다.
+  - 합치기 뉴런은 τ 그룹 spikingjelly LIF(`GroupNeuron('sj')`, fc1·fc2와 같은 방식)다.
+  - 층별 BN 이득은 같은 합치기의 단일 spikeDE 뉴런 모델에 맞춘 표 8개(`calibrate_groups.py --combs lin linmem linmx linxor` → `calib/tau_gains_neoMixer_popg_{lif,flif}_{lin,linmem,linmx,linxor}.json`)다. 모든 층이 0.99–1.01배로 시작한다(c39).
+  - suite `flif-v1-rhythm-popg-cinc`.
+- 판정: G0 OR → 선형 합, G1 막전위 − 스파이크, G2 + 차이 항, G3 ③ − 스파이크, G4 + XOR, G5 soma 없음 − soma 있음(같은 합치기), G6 − Spikformer식. `summarize_rhythm.py --popg`.
+- **예상:** G5 모두 나쁨(이전 P1과 같음), G2·G4 차이 없음, G6 미충족.
+
+### 코드 (기본 경로 비트 동일, c1–c32 통과)
+- `neo_mixer.py`: `linxor`, popg 선형 합 4종(합치기 τ 그룹 LIF).
+- `layers.py` / `stream_mixer.py`: 충전값 경로가 모듈 호출을 거치도록 바꿨다. 계산은 같고 hook이 정상적으로 불린다. 보정 스크립트가 층을 찾으려면 필요하다. `StreamNeurons`·`_Stack` 충전값 경로를 추가했다.
+- `model.py`: `stream_rev`, `neo_stream_fuse mx`(양방향 스트림 + 스트림별 합치기).
+- `config.py` / `load_model.py`: 선택지와 디렉터리 접미사(`_linxor`, `_srev`, `_sfmx`).
+- `calibrate_groups.py`: `--combs`, `fuse` 층, 기존 표를 덮어쓰지 않음. `calibrate_nsmt_streams.py --bimx`.
+- `check_cls.py`: c38–c41. `summarize_rhythm.py`: `--xor`, `--popg`, `--t4k2`, `--folds`. 러너 `scripts/run_rhythm5.sh`(run_rhythm4.sh 복사본 + 새 조건, FOLD 사용).
+
+### 점검·smoke
+- **점검 41/41** (`results/checks/check_cls_b3.txt`). c33–c37은 충전값 경로를 바꾼 뒤에도 그대로 통과했다.
+- **smoke** (`results/smoke-rhythm-b3-20261024/raw.txt`, 1 epoch, seed 42, 9/9 끝까지):
+
+| 조건 | params | 에너지 µJ | 시간 s |
+|---|---:|---:|---:|
+| mixlinxor_lif | 1,359,360 | 27.7 | 124 |
+| mixlinxor_pop_flif | 1,365,504 | 67.3 | 175 |
+| mixlin_popg_lif | 1,211,904 | 30.6 | 373 |
+| mixlinmx_popg_flif | 1,359,360 | 269.4 | 525 |
+| mixlinxor_popg_lif | 1,359,360 | 33.8 | 247 |
+| nsmt_popk_lif_t4_srev | 1,271,368 | 136.7 | 209 |
+| nsmt_popk_flif_t4_bimx | 2,045,512 | 1,156.8 | 867 |
+| spk_ssa (fold 1) | 918,088 | 108.3 | 33 |
+| mixlinmx_lif (fold 1) | 1,359,360 | 263.3 | 98 |
+
+### 학습
+- 대기열 셋, 모두 `run_rhythm5.sh`:
+  - (1)+(2) 48 run: `scripts/queues/rhythm-b3-xorfolds-20261024.txt`, GPU당 2개.
+  - (3) 12 run: `rhythm-b3-streams-20261024.txt`, GPU당 1개, 느린 f-LIF 양방향을 먼저.
+  - (4) 24 run: `rhythm-b3-popg-20261024.txt`, GPU당 1개. (1)+(2)가 끝나면 같은 대기열에 worker를 더 붙인다.
+- 명령은 각 suite의 `run_commands.txt`.
+
+**commit:** 이 항목·코드·점검·보정 표·smoke를 commit 하고 `exp/nsmt-flif-neo`만 push.

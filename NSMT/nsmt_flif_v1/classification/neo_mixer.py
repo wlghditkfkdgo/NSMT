@@ -34,7 +34,8 @@ __all__ = ['NeoMixer']
 MIXERS = ('none', 'lif', 'flif', 'pop_flif', 'lif_rec', 'sj_lif',   # MODI 2026-10-21 (1-A): lif_rec = NeoLayer(recurrent=True), gated W_rec;
           'pop_lif', 'pop_rec', 'popg_lif', 'popg_flif')           # sj_lif = the same spikingjelly single-step LIF loop without recurrence (control)
 COMBS = ('or', 'xattn', 'xattn_ch', 'lin',   # lin (MODI 2026-10-22): m = neuron(BN(W [F; R])), learned per-token fusion, no attention
-         'linmem', 'linmx', 'xattnmem')     # MODI 2026-10-23 membrane fusion: the last mixer layers' charges H - theta instead of
+         'linmem', 'linmx', 'xattnmem',     # MODI 2026-10-23 membrane fusion: the last mixer layers' charges H - theta instead of
+         'linxor')                          # MODI 2026-10-24: spike control of linmx, neuron(BN(W [F; R; |F - R|])) (|F - R| = F xor R)
                                             # their spikes: linmem neuron(BN(W [H_f; H_r])), linmx neuron(BN(W [H_f; H_r; |H_f - H_r|])),
                                             # xattnmem = BiX with q / k from H_f / H_r (real-valued) and v from the reverse spikes
 MEM_COMBS = ('linmem', 'linmx', 'xattnmem')
@@ -85,13 +86,18 @@ class Block(nn.Module):
                     for l in st.Mem:
                         with torch.no_grad():
                             l.bn.weight.copy_(group_gamma(dim, taus, mixer.split('_', 1)[1]))   # spikeDE lif / flif family
-        if comb in MEM_COMBS and (self.grouped or mixer not in ('lif', 'flif', 'pop_lif', 'pop_flif')):
-            raise NotImplementedError('membrane fusion is defined for the spikeDE mixers lif / flif / pop_lif / pop_flif')
-        if comb in ('lin', 'linmem', 'linmx'):                           # MODI 2026-10-22: Linear(2D -> D) on [F; R] -> BN -> spikingjelly LIF
-            if self.grouped:
-                raise NotImplementedError('lin fusion is defined for single-tau mixers (lif / flif / pop_lif / pop_flif)')
-            width = 3 * dim if comb == 'linmx' else 2 * dim                # MODI 2026-10-23: [H_f; H_r] / [H_f; H_r; |H_f - H_r|]
-            self.fuse = StreamSpikeLinear(width, dim, 1, sj_lif(tau), bias=bias, bn_layout='flat')
+        spikede = ('lif', 'flif', 'pop_lif', 'pop_flif', 'popg_lif', 'popg_flif')
+        if comb in MEM_COMBS and (mixer not in spikede or (self.grouped and comb == 'xattnmem')):
+            raise NotImplementedError('membrane fusion is defined for the spikeDE mixers (xattnmem not for the tau groups)')
+        if comb in ('lin', 'linmem', 'linmx', 'linxor'):                 # MODI 2026-10-22: Linear(2D -> D) on [F; R] -> BN -> spikingjelly LIF
+            if self.grouped and comb not in ('lin', 'linmem', 'linmx', 'linxor'):
+                raise NotImplementedError(comb)
+            width = 3 * dim if comb in ('linmx', 'linxor') else 2 * dim   # MODI 2026-10-23: [H_f; H_r] / [H_f; H_r; |H_f - H_r|]
+            if self.grouped:                                             # MODI 2026-10-24: tau groups (spikingjelly LIF per group, as fc1 / fc2)
+                self.fuse = StreamSpikeLinear(width, dim, 1, GroupNeuron(dim, taus, 'sj', axis=-1), bias=bias, bn_layout='flat',
+                                              gamma=group_gamma(dim, taus))
+            else:
+                self.fuse = StreamSpikeLinear(width, dim, 1, sj_lif(tau), bias=bias, bn_layout='flat')
         elif comb != 'or':                                               # MODI 2026-10-21: BiX, q = forward stream, k/v = reverse stream
             afn = (lambda: GroupNeuron(dim, taus, 'sj', axis=-1)) if self.grouped else (lambda: sj_lif(tau))
             self.xattn = TokenXAttn(dim, T, K=1, heads=heads, form=('channel' if comb == 'xattn_ch' else 'head'), neuron_fn=afn, bias=bias,
@@ -126,6 +132,8 @@ class Block(nn.Module):
                 m = torch.maximum(m, r)
             elif self.comb == 'lin':
                 m = self.fuse(torch.cat([m, r], dim=-1))
+            elif self.comb == 'linxor':                                  # MODI 2026-10-24: |F - R| = F xor R for 0/1 spikes
+                m = self.fuse(torch.cat([m, r, (m - r).abs()], dim=-1))
             else:
                 m = self.xattn(m, r)
         return m

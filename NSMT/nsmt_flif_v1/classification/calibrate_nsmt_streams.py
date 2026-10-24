@@ -72,18 +72,26 @@ def part_rate(part, inp):
     return float(o.float().mean())
 
 
-def calibrate(neo, x, kw, steps=25):
+def slot(name):
+    """0 = embedding, 1 / 2 = first / second layer -- the same slot in the forward and the reverse (bimx) stack."""
+    if name.startswith('encoding_neo'):
+        return 0
+    return 1 + int(name.split('layers.')[1].split('.')[0])
+
+
+def calibrate(neo, x, kw, steps=25, extra=None):
     target, ref_order = ref_rates(STREAMS[neo], x, kw)
     set_random_seed(0)
-    m = LOAD_MODEL['myModel'](NS(**dict(KW, neo_neuron=neo, **kw)), True).cuda()
+    m = LOAD_MODEL['myModel'](NS(**dict(KW, neo_neuron=neo, **kw, **(extra or {}))), True).cuda()
     mods = dict(m.named_modules())
     order, hs = neo_layers(m, StreamNeurons)
     forward(m, x)
     for h in hs: h.remove()
-    if len(order) != len(target) or len(order) != 3:
+    if len(target) != 3 or len(order) not in (3, 6):
         raise SystemExit(f'{neo}: {len(order)} stream layers vs {len(target)} reference layers ({order} / {ref_order})')
     table, report = {}, []
-    for name, tgt, rname in zip(order, target, ref_order):
+    for name in order:
+        tgt, rname = target[slot(name)], ref_order[slot(name)]
         mod = mods[name]
         bn_name = name.rsplit('.', 1)[0] + '.bn'
         bn = mods[bn_name]
@@ -118,12 +126,14 @@ def calibrate(neo, x, kw, steps=25):
     report.append('calibrated firing per layer and stream: ' + '; '.join(
         f"{n}: " + '/'.join(f"{got[(n, k)]:.4f}" for k in range(len(mods[n].parts))) for n in order))
     del m; torch.cuda.empty_cache()
-    return table, report, dict(zip(order, target))
+    return table, report, {n: target[slot(n)] for n in order}
 
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument('--only', nargs='*', default=None); ap.add_argument('--n', type=int, default=32)
+    ap.add_argument('--bimx', action='store_true', help='MODI 2026-10-24: the bidirectional stream neocortex fused per stream (6 stream layers)')
     a = ap.parse_args()
+    extra = dict(neo_bidir=True, neo_stream_fuse='mx') if a.bimx else {}
     d = rd.build(NS(data='CINC2017', crop_tokens=0, patch_size=64, fs_target=125., fold=0, val_frac=0.1, win_s=30., hop_s=15.), 42)
     x = torch.stack([d['train'][i][0] for i in range(a.n)]).float().cuda()
     kw = dict(patch_size=64, seq_len=d['seq_len'], num_channels=d['num_channels'], num_classes=d['num_classes'])
@@ -131,10 +141,11 @@ def main():
     for neo in STREAMS:
         if a.only and neo not in a.only:
             continue
-        table, report, target = calibrate(neo, x, kw)
-        path = os.path.join(HERE, 'calib', f'tau_gains_myModel_{neo}_xaT4.json')
+        table, report, target = calibrate(neo, x, kw, extra=extra)
+        path = os.path.join(HERE, 'calib', f'tau_gains_myModel_{neo}_xaT4' + ('_bimx' if a.bimx else '') + '.json')
         with open(path, 'x') as handle:
-            json.dump(dict(model='myModel', neo_neuron=neo, hippo_T=4, reference=f'myModel neo_neuron {STREAMS[neo]} hippo_T 4 hippo_xattn',
+            json.dump(dict(model='myModel', neo_neuron=neo, hippo_T=4, variant=('bimx' if a.bimx else 'plain'),
+                           reference=f'myModel neo_neuron {STREAMS[neo]} hippo_T 4 hippo_xattn (the reverse stack takes the targets of the same slot)',
                            data='CINC2017 fold 0 seed 42 train windows 0..%d' % (a.n - 1), model_seed=0, targets=target, gains=table),
                       handle, indent=1)
         print(f'== {neo} -> {os.path.relpath(path, HERE)}'); print('\n'.join('   ' + r for r in report), flush=True)

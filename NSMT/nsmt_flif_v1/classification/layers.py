@@ -418,6 +418,9 @@ class NeoNeuron(nn.Module):
         self.layout = layout
 
     def forward(self, x):
+        if getattr(self, '_capture', False):                          # MODI 2026-10-24: forward_charge through __call__ (hooks fire)
+            s, self._charge = self._spikes_and_charge(x)
+            return s
         if x.ndim != 4:
             raise ValueError(f'NeoNeuron expects a 4-D tensor, got {tuple(x.shape)}')
         T, B = x.shape[0], x.shape[1]
@@ -431,7 +434,17 @@ class NeoNeuron(nn.Module):
         return s.reshape(T, B, N1, D)
 
     def forward_charge(self, x):
-        """MODI 2026-10-23: (spikes, H - theta) in the layout of forward()'s output (layers.spikes_and_charge)."""
+        """MODI 2026-10-23: (spikes, H - theta) in the layout of forward()'s output (layers.spikes_and_charge). Runs through
+        the module call (MODI 2026-10-24) so that forward hooks on this module see it, as for forward()."""
+        self._capture = True
+        try:
+            s = self(x)
+        finally:
+            self._capture = False
+        h, self._charge = self._charge, None
+        return s, h
+
+    def _spikes_and_charge(self, x):
         if x.ndim != 4:
             raise ValueError(f'NeoNeuron expects a 4-D tensor, got {tuple(x.shape)}')
         T, B = x.shape[0], x.shape[1]
@@ -557,15 +570,24 @@ class GroupNeuron(nn.Module):
 
     def forward(self, x):
         xs = torch.split(x, self.G, dim=self.axis)
+        if getattr(self, '_capture', False):                          # MODI 2026-10-24: forward_charge through __call__
+            parts = [p.forward_charge(c.contiguous()) for p, c in zip(self.parts, xs)]
+            self._charge = torch.cat([b for _, b in parts], dim=self.axis)
+            return torch.cat([a for a, _ in parts], dim=self.axis)
         return torch.cat([p(c.contiguous()) for p, c in zip(self.parts, xs)], dim=self.axis)
 
     def forward_charge(self, x):
-        """MODI 2026-10-23: (spikes, H - theta) of the spikeDE groups (kind 'lif' / 'flif'), concatenated like forward()."""
+        """MODI 2026-10-23: (spikes, H - theta) of the spikeDE groups (kind 'lif' / 'flif'), concatenated like forward(); through
+        the module call (MODI 2026-10-24) so that hooks on this module and on every group see it."""
         if self.kind == 'sj':
             raise ValueError('charge capture is defined for the spikeDE groups')
-        xs = torch.split(x, self.G, dim=self.axis)
-        parts = [p.forward_charge(c.contiguous()) for p, c in zip(self.parts, xs)]
-        return torch.cat([a for a, _ in parts], dim=self.axis), torch.cat([b for _, b in parts], dim=self.axis)
+        self._capture = True
+        try:
+            s = self(x)
+        finally:
+            self._capture = False
+        h, self._charge = self._charge, None
+        return s, h
 
 
 def group_gamma(size, taus, family='sj'):

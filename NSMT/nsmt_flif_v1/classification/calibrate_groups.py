@@ -36,7 +36,7 @@ BN_OF = {'emb_lif': 'emb_bn', 'lif': 'bn', 'neuron': 'bn', 'attn_neuron': 'attn_
 
 def layer_kind(name):
     for k in ('encoding', 'mixer_rev.Mem.0', 'mixer_rev.layers.0', 'mixer.Mem.0', 'mixer.layers.0', 'mixer_rev.Mem.1', 'mixer_rev.layers.1',
-              'mixer.Mem.1', 'mixer.layers.1', 'xattn.q', 'xattn.k', 'xattn.v', 'xattn.attn', 'xattn.proj', 'fc1', 'fc2'):
+              'mixer.Mem.1', 'mixer.layers.1', 'xattn.q', 'xattn.k', 'xattn.v', 'xattn.attn', 'xattn.proj', 'fuse', 'fc1', 'fc2'):
         if k in name:
             return k.replace('layers.', 'Mem.')                         # stream model 'layers.i' = NeoMixer 'Mem.i'
     raise KeyError(name)
@@ -126,17 +126,22 @@ def calibrate(model, mixer, comb, x, kw, steps=25):
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument('--only', nargs='*', default=None); ap.add_argument('--n', type=int, default=32)
+    ap.add_argument('--combs', nargs='*', default=['or', 'xattn'], help='MODI 2026-10-24: also lin / linmem / linmx / linxor (popg only)')
     a = ap.parse_args()
     d = rd.build(NS(data='CINC2017', crop_tokens=0, patch_size=64, fs_target=125., fold=0, val_frac=0.1, win_s=30., hop_s=15.), 42)
     x = torch.stack([d['train'][i][0] for i in range(a.n)]).float().cuda()
     kw = dict(patch_size=64, seq_len=d['seq_len'], num_channels=d['num_channels'], num_classes=d['num_classes'])
     os.makedirs(os.path.join(HERE, 'calib'), exist_ok=True)
     for model, mixer in MODELS:
-        for comb in ('or', 'xattn'):
+        for comb in a.combs:
+            if comb not in ('or', 'xattn') and model != 'neoMixer':
+                continue
             if a.only and f'{mixer}:{comb}' not in a.only:
                 continue
             table, report = calibrate(model, mixer, comb, x, kw)
             path = os.path.join(HERE, 'calib', f'tau_gains_{model}_{mixer}_{comb}.json')
+            if os.path.exists(path):                                   # MODI 2026-10-24: never overwrite a table runs were trained with
+                raise SystemExit(f'{path} exists')
             json.dump(dict(model=model, mixer=mixer, comb=comb, data='CINC2017 fold 0 seed 42 train windows 0..%d' % (a.n - 1), model_seed=0,
                            gains=table), open(path, 'w'), indent=1)
             print(f'== {mixer}/{comb} -> {os.path.relpath(path, HERE)}'); print('\n'.join('   ' + r for r in report), flush=True)

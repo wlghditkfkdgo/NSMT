@@ -17,7 +17,8 @@ def _neo_kwargs(args):
                 hippo_xattn=getattr(args, 'hippo_xattn', False), pos_emb=getattr(args, 'pos_emb', False),   # MODI 2026-10-21
                 ssa_pe=int(getattr(args, 'ssa_pe', 1)), attn_bn=getattr(args, 'attn_bn', False),
                 pop_taus=tuple(float(t) for t in str(getattr(args, 'pop_taus', '4,8,16,32')).split(',')),
-                tau_calib=getattr(args, 'tau_calib', True))                                         # MODI 2026-10-23 (popk streams)
+                tau_calib=getattr(args, 'tau_calib', True),                                         # MODI 2026-10-23 (popk streams)
+                stream_rev=getattr(args, 'stream_rev', False), neo_stream_fuse=getattr(args, 'neo_stream_fuse', 'none'))   # MODI 2026-10-24
 
 
 def load_mymodel(args, train=True):

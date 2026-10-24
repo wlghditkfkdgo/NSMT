@@ -38,11 +38,27 @@ class StreamNeurons(nn.Module):
             n = LIFNeuron(size, **common) if kind == 'lif' else FLIFNeuron(size, alpha=alpha, method='pred', memory=None, **common)
             return NeoNeuron(n, 'ND')
         self.parts = nn.ModuleList([mk(t) for t in taus])
+        self.kind = kind
 
     def forward(self, x):
+        if getattr(self, '_capture', False):                          # MODI 2026-10-24: (spikes, H - theta) per stream, as forward()
+            if self.kind == 'sj':
+                raise ValueError('charge capture is defined for the spikeDE streams')
+            parts = [p.forward_charge(x[:, :, k:k + 1].contiguous() if len(self.parts) > 1 else x) for k, p in enumerate(self.parts)]
+            self._charge = torch.cat([b for _, b in parts], dim=2)
+            return torch.cat([a for a, _ in parts], dim=2)
         if len(self.parts) == 1:
             return self.parts[0](x)
         return torch.cat([p(x[:, :, k:k + 1].contiguous()) for k, p in enumerate(self.parts)], dim=2)
+
+    def forward_charge(self, x):
+        self._capture = True
+        try:
+            s = self(x)
+        finally:
+            self._capture = False
+        h, self._charge = self._charge, None
+        return s, h
 
 
 class _Stack(nn.Module):
@@ -54,6 +70,13 @@ class _Stack(nn.Module):
         for l in self.layers:
             x = l(x)
         return x
+
+    def forward_charge(self, x):
+        """MODI 2026-10-24: the last layer's (spikes, H - theta) per stream; the earlier layers as in forward()."""
+        for l in self.layers[:-1]:
+            x = l(x)
+        last = self.layers[-1]
+        return last.neuron.forward_charge(last.bn_apply(last.linear(x)).contiguous())
 
 
 class _Embed(StreamSpikeLinear):

@@ -465,6 +465,120 @@ def t4k_summary(a):
                         'Best-validation weights on the test set; CinC score and macro-F1; mean ± sd over seeds (42, 7, 2026) (%).')
 
 
+def _fold0(path):
+    return [r for r in parse(path) if int(r.get('crop', 0)) == 0 and int(r.get('fold', 0)) == 0]
+
+
+def _all_fold0():
+    rows = []
+    for sub in ('flif-v1-rhythm-cinc', 'flif-v1-rhythm-lin-cinc', 'flif-v1-rhythm-bix-cinc', 'flif-v1-rhythm-mem-cinc', 'flif-v1-rhythm-xor-cinc',
+                'flif-v1-rhythm-popg-cinc', 'flif-v1-rhythm-t4k-cinc', 'flif-v1-rhythm-t4k2-cinc', 'flif-v1-rhythm-fix-cinc'):
+        rows += _fold0(os.path.join(HERE, 'results', sub, 'raw.txt'))
+    return rows
+
+
+def xor_summary(a):
+    """MODI 2026-10-24: spike-xor fusion mixlinxor_* -- does the |F - R| (= F xor R) term reproduce the gain of linmx without charges?"""
+    rows = _all_fold0()
+    ns = ('lif', 'flif', 'pop_lif', 'pop_flif')
+    lab = {'spk_ssa': 'Spikformer-style SSA (T=4)'}
+    for n in ns:
+        lab.update({_mix_cond(n): f'Neo-mixer OR, {BIX_NAME[n]}', f'mixlin_{n}': f'linear fusion of spikes, {BIX_NAME[n]}',
+                    f'mixlinmx_{n}': f'linear fusion of charges + |H_f - H_r|, {BIX_NAME[n]}', f'mixlinxor_{n}': f'linear fusion of spikes + F xor R, {BIX_NAME[n]}'})
+    order = ['spk_ssa'] + [c for n in ns for c in (_mix_cond(n), f'mixlin_{n}', f'mixlinxor_{n}', f'mixlinmx_{n}')]
+    Q = [('X1 + F xor R (spikes)', f'mixlinxor_{n}', f'mixlin_{n}') for n in ns]
+    Q += [('X2 spike xor vs charge difference', f'mixlinxor_{n}', f'mixlinmx_{n}') for n in ns]
+    Q += [('X3 vs OR', f'mixlinxor_{n}', _mix_cond(n)) for n in ns]
+    Q += [('X4 vs Spikformer (criterion 2)', f'mixlinxor_{n}', 'spk_ssa') for n in ns]
+    _table_and_verdicts(a, 'Spike-xor fusion Neo-mixer', rows, order, lab, Q,
+                        'Best-validation weights on the test set; CinC fold 0; mean ± sd over seeds (42, 7, 2026) (%).')
+
+
+def popg_summary(a):
+    """MODI 2026-10-24: tau-group (soma-less) Neo-mixer with the linear fusions (spikes, charges, charges + difference, spikes + xor)."""
+    rows = _all_fold0()
+    ns = ('popg_lif', 'popg_flif')
+    name = {'popg_lif': 'soma-less tau groups, LIF', 'popg_flif': 'soma-less tau groups, f-LIF'}
+    lab = {'spk_ssa': 'Spikformer-style SSA (T=4)'}
+    for n in ns:
+        lab.update({f'mix_{n}_bidir': f'Neo-mixer OR, {name[n]}', f'mixlin_{n}': f'linear fusion of spikes, {name[n]}',
+                    f'mixlinmem_{n}': f'linear fusion of charges, {name[n]}', f'mixlinmx_{n}': f'charges + |H_f - H_r|, {name[n]}',
+                    f'mixlinxor_{n}': f'spikes + F xor R, {name[n]}'})
+    order = ['spk_ssa'] + [c for n in ns for c in (f'mix_{n}_bidir', f'mixlin_{n}', f'mixlinmem_{n}', f'mixlinmx_{n}', f'mixlinxor_{n}')]
+    Q = [('G0 OR -> linear fusion', f'mixlin_{n}', f'mix_{n}_bidir') for n in ns]
+    Q += [('G1 charges vs spikes (M1)', f'mixlinmem_{n}', f'mixlin_{n}') for n in ns]
+    Q += [('G2 + |H_f - H_r| (M2)', f'mixlinmx_{n}', f'mixlinmem_{n}') for n in ns]
+    Q += [('G3 charges + difference vs spikes (M3)', f'mixlinmx_{n}', f'mixlin_{n}') for n in ns]
+    Q += [('G4 + F xor R (X1)', f'mixlinxor_{n}', f'mixlin_{n}') for n in ns]
+    Q += [('G5 soma-less vs soma (same fusion)', f'{c}_popg_{f}', f'{c}_pop_{f}') for f in ('lif', 'flif') for c in ('mixlin', 'mixlinmem', 'mixlinmx', 'mixlinxor')]
+    Q += [('G6 vs Spikformer (criterion 2)', f'{c}_{n}', 'spk_ssa') for n in ns for c in ('mixlin', 'mixlinmem', 'mixlinmx', 'mixlinxor')]
+    for f in ('lif', 'flif'):
+        for c in ('mixlin', 'mixlinmem', 'mixlinmx', 'mixlinxor'):
+            lab.setdefault(f'{c}_pop_{f}', f'{c}, population {f} with soma')
+    _table_and_verdicts(a, 'Tau-group Neo-mixer with linear fusions', rows, order, lab, Q,
+                        'Best-validation weights on the test set; CinC fold 0; mean ± sd over seeds (42, 7, 2026) (%).')
+
+
+def t4k2_summary(a):
+    """MODI 2026-10-24: stream-NSMT controls -- reversed stream order (srev) and the fused bidirectional streams (bimx)."""
+    rows = _all_fold0()
+    lab = {'spk_ssa': 'Spikformer-style SSA (T=4)', 'nsmt_lif_t4': 'T_h 4, LIF copied', 'nsmt_flif_t4': 'T_h 4, f-LIF copied',
+           'nsmt_popk_lif_t4': 'T_h 4, LIF streams = steps (tau 4 -> 32)', 'nsmt_popk_flif_t4': 'T_h 4, f-LIF streams = steps (tau 4 -> 32)',
+           'nsmt_popk_lif_t4_srev': 'T_h 4, LIF streams, reversed (tau 32 -> 4)', 'nsmt_popk_flif_t4_srev': 'T_h 4, f-LIF streams, reversed',
+           'nsmt_popk_lif_t4_bimx': 'T_h 4, LIF streams both directions fused (charges + difference)',
+           'nsmt_popk_flif_t4_bimx': 'T_h 4, f-LIF streams both directions fused'}
+    order = list(lab)
+    Q = [('S1 order reversed', f'nsmt_popk_{f}_t4_srev', f'nsmt_popk_{f}_t4') for f in ('lif', 'flif')]
+    Q += [('S2 both directions fused', f'nsmt_popk_{f}_t4_bimx', f'nsmt_popk_{f}_t4') for f in ('lif', 'flif')]
+    Q += [('S3 vs one neuron copied', f'nsmt_popk_{f}_t4_{v}', f'nsmt_{f}_t4') for f in ('lif', 'flif') for v in ('srev', 'bimx')]
+    Q += [('S4 vs Spikformer (criterion 2)', f'nsmt_popk_{f}_t4_{v}', 'spk_ssa') for f in ('lif', 'flif') for v in ('srev', 'bimx')]
+    _table_and_verdicts(a, 'Stream-NSMT controls', rows, order, lab, Q,
+                        'Best-validation weights on the test set; CinC fold 0; mean ± sd over seeds (42, 7, 2026) (%).')
+
+
+def folds_summary(a):
+    """MODI 2026-10-24: charges + |H_f - H_r| LIF (mixlinmx_lif), spike linear fusion LIF (mixlin_lif) and Spikformer-style (spk_ssa) on
+    CinC folds 0-4 (fold 0 from the earlier suites). Per fold: the usual verdict (3 seeds); pooled: the 15 (fold, seed) pairs, mean,
+    95% t-interval (14 df), and the number of pairs with A > B."""
+    from scipy import stats
+    R = os.path.join(HERE, 'results', a.suite)
+    rows = [r for r in parse(os.path.join(R, 'raw.txt')) if int(r.get('crop', 0)) == 0]
+    rows += [r for r in _all_fold0() if r['cond'] in ('mixlinmx_lif', 'mixlin_lif', 'spk_ssa')]
+    conds = ('spk_ssa', 'mixlin_lif', 'mixlinmx_lif')
+    lab = {'spk_ssa': 'Spikformer-style SSA (T=4)', 'mixlin_lif': 'linear fusion of spikes, LIF', 'mixlinmx_lif': 'charges + |H_f - H_r|, LIF'}
+    seeds = (42, 7, 2026)
+    L = [f'# CinC folds 0-4 `{a.suite}` — summary', '', 'Best-validation weights on each fold\'s test set; CinC score (%); fold 0 from the earlier suites.', '',
+         '| condition | ' + ' | '.join(f'fold {f}' for f in range(5)) + ' | all (15) | macro-F1 all | total µJ |', '|---|' + '---|' * 8]
+    def get(c, f, s, key='score'):
+        v = [float(r[key]) for r in rows if r['cond'] == c and int(r.get('fold', 0)) == f and int(r['seed']) == s]
+        return v[0] if len(v) == 1 else float('nan')
+    for c in conds:
+        cells = []
+        for f in range(5):
+            v = [get(c, f, s) for s in seeds]
+            cells.append(f'{100 * np.mean(v):.2f}' if np.all(np.isfinite(v)) else 'n/a')
+        allv = [get(c, f, s) for f in range(5) for s in seeds]; allm = [get(c, f, s, 'macro_f1') for f in range(5) for s in seeds]
+        en = [float(r['total_fft_uJ']) for r in rows if r['cond'] == c]
+        L.append(f"| {lab[c]} | " + ' | '.join(cells) + f" | {100 * np.mean(allv):.2f} ± {100 * np.std(allv, ddof=1):.2f} | {100 * np.mean(allm):.2f} | {np.mean(en):.1f} |")
+    L += ['', '## Comparisons (%p)', '', '| question | A | B | per fold (mean of 3 seeds) and verdict | pooled mean [95% CI] | A > B pairs |', '|---|---|---|---|---|---|']
+    for q, x, y in (('F1 charges + difference vs Spikformer', 'mixlinmx_lif', 'spk_ssa'), ('F2 charges + difference vs spike linear fusion', 'mixlinmx_lif', 'mixlin_lif'),
+                    ('F3 spike linear fusion vs Spikformer', 'mixlin_lif', 'spk_ssa')):
+        per = []
+        for f in range(5):
+            fr = [r for r in rows if int(r.get('fold', 0)) == f]
+            v, d, m = verdict(fr, x, y, seeds, 2)
+            per.append(f'f{f} {m:+.2f} {v}')
+        d = np.array([100 * (get(x, f, s) - get(y, f, s)) for f in range(5) for s in seeds])
+        if np.all(np.isfinite(d)):
+            half = stats.t.ppf(.975, len(d) - 1) * d.std(ddof=1) / math.sqrt(len(d))
+            pooled = f'{d.mean():+.2f} [{d.mean() - half:+.2f}, {d.mean() + half:+.2f}]'; wins = f'{int((d > 0).sum())}/15'
+        else:
+            pooled, wins = 'incomplete', 'n/a'
+        L.append(f'| {q} | {lab[x]} | {lab[y]} | ' + '; '.join(per) + f' | {pooled} | {wins} |')
+    open(os.path.join(R, 'summary.md'), 'w').write('\n'.join(L) + '\n')
+    print('\n'.join(L))
+
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--decide', action='store_true')
@@ -477,8 +591,20 @@ if __name__ == '__main__':
     ap.add_argument('--lin', action='store_true')
     ap.add_argument('--mem', action='store_true')
     ap.add_argument('--t4k', action='store_true')
+    ap.add_argument('--xor', action='store_true')
+    ap.add_argument('--popg', action='store_true')
+    ap.add_argument('--t4k2', action='store_true')
+    ap.add_argument('--folds', action='store_true')
     a = ap.parse_args()
-    if a.mem:
+    if a.xor:
+        xor_summary(a)
+    elif a.popg:
+        popg_summary(a)
+    elif a.t4k2:
+        t4k2_summary(a)
+    elif a.folds:
+        folds_summary(a)
+    elif a.mem:
         mem_summary(a)
     elif a.t4k:
         t4k_summary(a)

@@ -57,6 +57,7 @@ cannot run, or whose test is vacuous (no spikes), FAILs.
   c24 (MODI 2026-10-21) population branches tau 16/32/64/128: tau values, and the soma init in {1, 2, 4} whose initial firing on
       real data (training-mode BN) is closest to the tau 4-32 / psi 1 mixer (per dataset) -- the value is reported, not asserted
   c33-c37 (MODI 2026-10-23) membrane fusion and the K-stream neocortex: see the docstrings of c33 ... c37
+  c38-c41 (MODI 2026-10-24) spike-xor fusion, tau-group linear fusions, stream order, fused bidirectional streams
   c25 (MODI 2026-10-21) BiX (mixer_comb xattn): every spiking neuron runs T = N steps, attention map [B, 1, 8, N, N], the
       query Linear sees the forward stream and the key / value Linears the reverse stream, and changing input token j changes
       the mixer output before token j (bidirectional reach)
@@ -992,7 +993,7 @@ def _mixer_kw(**kw):
 
 def _layer_kind(name):
     for k in ('encoding', 'mixer_rev.Mem.0', 'mixer_rev.layers.0', 'mixer.Mem.0', 'mixer.layers.0', 'mixer_rev.Mem.1', 'mixer_rev.layers.1',
-              'mixer.Mem.1', 'mixer.layers.1', 'xattn.q', 'xattn.k', 'xattn.v', 'xattn.attn', 'xattn.proj', 'fc1', 'fc2'):
+              'mixer.Mem.1', 'mixer.layers.1', 'xattn.q', 'xattn.k', 'xattn.v', 'xattn.attn', 'xattn.proj', 'fuse', 'fc1', 'fc2'):
         if k in name:
             return k.replace('Mem.', 'L').replace('layers.', 'L').replace('mixer_rev', 'rev').replace('mixer', 'fwd')
     return name
@@ -1522,12 +1523,179 @@ def c37():
     report('c37', ok, '; '.join(rows))
 
 
+# ---- MODI 2026-10-24: spike xor control, tau-group linear fusions, stream order and the fused bidirectional stream neocortex ----
+@check('c38')
+def c38():
+    """linxor: Linear (384, 1152) on [F; R; |F - R|], |F - R| is 0/1 and equals F xor R, fused output 0/1, mix() == fuse() from the
+    two stacks; initial weights equal linmx at the same seed (same shapes and order); no charge is captured (spike-only path)."""
+    from spikingjelly.clock_driven import functional
+    x, _, _ = _real_batch('CINC2017', n=8)
+    rows, ok = [], True
+    for mixer, extra in MEM_NEURONS:
+        m = _cinc_mixer('linxor', mixer, extra, x)
+        mm_ = _cinc_mixer('linmx', mixer, extra, x)
+        same_init = all(torch.equal(a, b) for a, b in zip(m.state_dict().values(), mm_.state_dict().values())); del mm_
+        _bn_freeze_eval(m, x)
+        blk = m.blocks[0]
+        called = []
+        h = blk.mixer.Mem[-1].lif.register_forward_hook(lambda md, i, o: called.append(getattr(md, '_capture', False)))
+        with torch.no_grad():
+            e = m.encoding(m.tokens(x)); functional.reset_net(m)
+            F = blk.mixer(e); functional.reset_net(m)
+            R = blk.mixer_rev(e.flip(0)).flip(0); functional.reset_net(m)
+            xor = (F - R).abs()
+            m0 = blk.fuse(torch.cat([F, R, xor], -1)); functional.reset_net(m)
+            mm = blk.mix(e); functional.reset_net(m)
+        h.remove()
+        is_xor = torch.equal(xor, ((F + R) == 1).to(F.dtype))
+        good = tuple(blk.fuse.linear.weight.shape) == (384, 1152) and is_xor and torch.equal(m0, mm) and same_init \
+            and bool(((mm == 0) | (mm == 1)).all()) and not any(called) and 0.005 < float(mm.mean()) < 0.9
+        ok &= good
+        rows.append(f'{mixer}: Linear {tuple(blk.fuse.linear.weight.shape)}, |F-R| == xor {is_xor}, mix == fuse {torch.equal(m0, mm)}, '
+                    f'init == linmx {same_init}, no charge capture {not any(called)}, rate {float(mm.mean()):.3f}')
+    report('c38', ok, '; '.join(rows))
+
+
+@check('c39')
+def c39():
+    """tau-group (popg) linear fusions lin / linmem / linmx / linxor: the fusion neuron is a spikingjelly GroupNeuron (tau 4/8/16/32),
+    the calibration table of the combination is loaded, every grouped layer fires at 0.98-1.02x its reference layer on the
+    calibration windows (as c27 / c28), the charge path reproduces the spikes of the grouped mixer exactly, output 0/1."""
+    import json as _json
+    from load_model import LOAD_MODEL
+    from config import set_random_seed
+    from spikingjelly.clock_driven import functional
+    from layers import GroupNeuron
+    from calibrate_groups import KW, ref_rates, layer_kind
+    import rhythm_data as rd
+    d = rd.build(NS(data='CINC2017', crop_tokens=0, patch_size=64, fs_target=125., fold=0, val_frac=0.1, win_s=30., hop_s=15.), 42)
+    x = torch.stack([d['train'][i][0] for i in range(32)]).float().cuda()
+    kw = dict(patch_size=64, seq_len=d['seq_len'], num_channels=d['num_channels'], num_classes=d['num_classes'])
+    rows, ok = [], True
+    for mixer in ('popg_lif', 'popg_flif'):
+        for comb in ('lin', 'linmem', 'linmx', 'linxor'):
+            fam = mixer.split('_', 1)[1]
+            target = ref_rates('neoMixer', fam, comb, x, kw)
+            set_random_seed(0)
+            m = LOAD_MODEL['neoMixer'](NS(**dict(KW, model='neoMixer', mixer=mixer, mixer_comb=comb, tau_calib=True, **kw)), True).cuda()
+            fuse_group = isinstance(m.blocks[0].fuse.neuron, GroupNeuron) and m.blocks[0].fuse.neuron.kind == 'sj'
+            rates, hs = {}, []
+            for n, mod in m.named_modules():
+                if isinstance(mod, GroupNeuron):
+                    for k, part in enumerate(mod.parts):
+                        hs.append(part.register_forward_hook(lambda md, i, o, n=n, k=k: rates.__setitem__((n, k), float(o.float().mean()))))
+            m.train(); m.train_mode = 'testing'
+            with torch.no_grad():
+                out = m(x); functional.reset_net(m)
+            for h in hs: h.remove()
+            ratios = [rates[(n, k)] / target[layer_kind(n)] for (n, k) in rates]
+            band = min(ratios) >= 0.98 and max(ratios) <= 1.02
+            exact = True
+            if comb in ('linmem', 'linmx'):
+                with torch.no_grad():
+                    e = m.encoding(m.tokens(x[:8])); functional.reset_net(m)
+                    ref = m.blocks[0].mixer(e); functional.reset_net(m)
+                    s_, h_ = m.blocks[0].mixer.forward_charge(e); functional.reset_net(m)
+                exact = torch.equal(ref, s_) and torch.equal(s_, (h_ >= 0).to(s_.dtype))
+            good = m.tau_calibrated and fuse_group and band and exact
+            ok &= good
+            rows.append(f'{mixer}/{comb}: table {m.tau_calibrated}, fuse = sj groups {fuse_group}, firing / reference {min(ratios):.3f}-{max(ratios):.3f}, '
+                        f'charge path exact {exact}')
+            del m; torch.cuda.empty_cache()
+    report('c39', ok, '; '.join(rows))
+
+
+@check('c40')
+def c40():
+    """stream order control (stream_rev): the neocortex and its initial values are those of the plain stream model at the same seed,
+    and the key / value of hippocampus step t is stream 3 - t."""
+    from load_model import LOAD_MODEL
+    from config import set_random_seed
+    from spikingjelly.clock_driven import functional
+    x, _, _ = _real_batch('CINC2017', n=8)
+    base = dict(HP, patch_size=64, seq_len=3750, num_channels=1, num_classes=4, hippo_T=4, hippo_xattn=True, neo_alpha=0.5)
+    rows, ok = [], True
+    for neo in ('popk_lif', 'popk_flif'):
+        set_random_seed(0); m0 = LOAD_MODEL['myModel'](NS(**dict(base, neo_neuron=neo)), True).cuda()
+        set_random_seed(0); m1 = LOAD_MODEL['myModel'](NS(**dict(base, neo_neuron=neo, stream_rev=True)), True).cuda()
+        same = all(torch.equal(a, b) for a, b in zip(m0.state_dict().values(), m1.state_dict().values()))
+        m1.train(); m1.train_mode = 'testing'
+        seen = {}
+        ssa = m1.data_block[0].ssa; orig = ssa.forward
+        def rec_fwd(xx, mask=None, kv=None):
+            seen['kv'] = kv.detach(); return orig(xx, mask=mask, kv=kv)
+        ssa.forward = rec_fwd
+        with torch.no_grad():
+            _, neo_in = m1._tokens_mc(x)
+            _, xn = m1.neo_forward(neo_in); functional.reset_net(m1)
+            m1(x); functional.reset_net(m1)
+        ssa.forward = orig
+        rev = all(torch.equal(seen['kv'][t], xn[:, :, 3 - t].transpose(0, 1)) for t in range(4))
+        ok &= same and rev
+        rows.append(f'{neo}: same initial values as the plain model {same}, kv[t] = stream 3 - t {rev}')
+    report('c40', ok, '; '.join(rows))
+
+
+@check('c41')
+def c41():
+    """fused bidirectional stream neocortex (neo_bidir + neo_stream_fuse mx): forward and reverse stream stacks with their own
+    parameters, the output = LIF(BN(W [H_f; H_r; |H_f - H_r|])) per stream [N, B, 4, D] (0/1), recomputed from the two stacks
+    exactly; the forward stack is causal along the tokens and the reverse stack anti-causal; the bimx calibration table is
+    loaded and every stream layer of both stacks fires at 0.98-1.02x its reference slot; both stacks get a gradient."""
+    import json as _json
+    from load_model import LOAD_MODEL
+    from config import set_random_seed
+    from spikingjelly.clock_driven import functional
+    from stream_mixer import StreamNeurons
+    x, _, _ = _real_batch('CINC2017', n=32)
+    base = dict(HP, patch_size=64, seq_len=3750, num_channels=1, num_classes=4, hippo_T=4, hippo_xattn=True, neo_alpha=0.5,
+                neo_bidir=True, neo_stream_fuse='mx')
+    rows, ok = [], True
+    for neo in ('popk_lif', 'popk_flif'):
+        set_random_seed(0)
+        m = LOAD_MODEL['myModel'](NS(**dict(base, neo_neuron=neo)), True).cuda()
+        table = _json.load(open(os.path.join(HERE, 'calib', f'tau_gains_myModel_{neo}_xaT4_bimx.json')))
+        rates, hs = {}, []
+        for n, mod in m.named_modules():
+            if isinstance(mod, StreamNeurons) and n.startswith(('encoding_neo', 'time_block')):
+                for k, part in enumerate(mod.parts):
+                    hs.append(part.register_forward_hook(lambda md, i, o, n=n, k=k: rates.__setitem__((n, k), float(o.float().mean()))))
+        m.train(); m.train_mode = 'testing'
+        with torch.no_grad():
+            m(x); functional.reset_net(m)
+        for h in hs: h.remove()
+        band = all(0.98 <= rates[(n, k)] / table['targets'][n] <= 1.02 for (n, k) in rates) and len({n for n, _ in rates}) == 6
+        m.zero_grad()
+        z, *_ = m(x[:4]); functional.reset_net(m)
+        z.sum().backward()
+        gf = float(m.time_block.layers[-1].linear.weight.grad.abs().sum()); gr = float(m.time_block_rev.layers[-1].linear.weight.grad.abs().sum())
+        _bn_freeze_eval(m, x[:8])
+        with torch.no_grad():
+            _, neo_in = m._tokens_mc(x[:8])
+            _, o = m.neo_forward(neo_in); functional.reset_net(m)
+            _, hf = m.time_block.forward_charge(m.encoding_neo(neo_in)); functional.reset_net(m)
+            _, hr = m.time_block_rev.forward_charge(m.encoding_neo_rev(neo_in.flip(0))); functional.reset_net(m)
+            hr = hr.flip(0)
+            o2 = m.neo_fuse(torch.cat([hf, hr, (hf - hr).abs()], -1)); functional.reset_net(m)
+            j = 60; ni = neo_in.clone(); ni[j] = ni[j][torch.roll(torch.arange(8), 1).cuda()]
+            _, hf1 = m.time_block.forward_charge(m.encoding_neo(ni)); functional.reset_net(m)
+            _, hr1 = m.time_block_rev.forward_charge(m.encoding_neo_rev(ni.flip(0))); functional.reset_net(m)
+            hr1 = hr1.flip(0)
+        causal = torch.equal(hf[:j], hf1[:j]) and not torch.equal(hf[j:], hf1[j:]) and torch.equal(hr[j + 1:], hr1[j + 1:]) and not torch.equal(hr[:j + 1], hr1[:j + 1])
+        good = m.tau_calibrated and band and tuple(o.shape) == (m.num_patches, 8, 4, 384) and torch.equal(o, o2) \
+            and bool(((o == 0) | (o == 1)).all()) and causal and gf > 0 and gr > 0
+        ok &= good
+        rows.append(f'{neo}: table {m.tau_calibrated}, 6 stream layers in [0.98, 1.02] {band}, output {tuple(o.shape)} == fuse(charges) {torch.equal(o, o2)}, '
+                    f'forward causal / reverse anti-causal {causal}, grad fwd/rev {gf:.1e}/{gr:.1e}, rate {float(o.mean()):.3f}')
+    report('c41', ok, '; '.join(rows))
+
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', default=os.path.join(HERE, 'results', 'checks', 'check_cls.txt'))
     ap.add_argument('--only', nargs='*', default=None)
     a = ap.parse_args()
-    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30, c31, c32, c33, c34, c35, c36, c37):
+    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30, c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41):
         if a.only and fn.__name__ not in a.only:
             continue
         fn()

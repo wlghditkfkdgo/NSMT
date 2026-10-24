@@ -109,6 +109,10 @@ def parse_arguments():
     snn_arg.add_argument('--fde_memory', type=int, default=0, help='0 = full history')
     # stage 6 (MODI 2026-10-19): population f-LIF branches and the bidirectional neocortex
     snn_arg.add_argument('--pop_taus', type=str, default='4,8,16,32', help='pop_flif: branch time constants (soma uses --neo_tau)')
+    snn_arg.add_argument('--stream_rev', action='store_true', default=False,
+                         help='MODI 2026-10-24: popk streams feed the hippocampus steps in reverse tau order (order control)')
+    snn_arg.add_argument('--neo_stream_fuse', choices=['none', 'mx'], default='none',
+                         help="MODI 2026-10-24: with --neo_bidir and popk streams, fuse the two token directions per stream from the charges")
     snn_arg.add_argument('--neo_bidir', action='store_true', default=False,
                          help='stage 6: second neocortex over the reversed token axis, fused with the forward one by OR')
     # stage 7: --model neoMixer (attention replaced by the neocortex network; --layers = blocks, --time_layers = mixer layers)
@@ -120,7 +124,7 @@ def parse_arguments():
     # MODI 2026-10-21 (stage 9 cause-separation): 1-B position, 1-C hippocampus T_h with token cross-attention over neocortex tokens
     snn_arg.add_argument('--ssa_pe', type=int, choices=[0, 1], default=1, help='relative position bias in SSA / hippo_xattn (0 = none)')
     snn_arg.add_argument('--pos_emb', action='store_true', default=False, help='learned absolute position in the hippocampus / mixer embedding')
-    snn_arg.add_argument('--mixer_comb', choices=['or', 'xattn', 'xattn_ch', 'lin', 'linmem', 'linmx', 'xattnmem'], default='or',
+    snn_arg.add_argument('--mixer_comb', choices=['or', 'xattn', 'xattn_ch', 'lin', 'linmem', 'linmx', 'xattnmem', 'linxor'], default='or',
                          help='MODI 2026-10-21 BiX: how the two mixer directions are combined (OR, or token-axis cross-attention q = forward, k/v = reverse)')
     snn_arg.add_argument('--attn_bn', action='store_true', default=False, help='BN in front of the SSA attention neuron (spk_ssa_abn)')
     snn_arg.add_argument('--hippo_xattn', action='store_true', default=False, help='hippocampus T_h repeats with token cross-attention (q = hippocampus, k/v = neocortex tokens)')
@@ -216,6 +220,10 @@ class Config():
             _iso += "_hippoonly"
         if getattr(args, 'neo_bidir', False):
             _iso += "_bidir"
+        if getattr(args, 'stream_rev', False):                          # MODI 2026-10-24
+            _iso += "_srev"
+        if getattr(args, 'neo_stream_fuse', 'none') != 'none':
+            _iso += f"_sf{args.neo_stream_fuse}"
         if getattr(args, 'model', 'myModel') == 'streamMixer':        # MODI 2026-10-21 (popk)
             _iso += f"_smix-{args.mixer}-K{len(str(args.pop_taus).split(','))}-L{args.num_layers}-a{args.neo_alpha}"
         if getattr(args, 'model', 'myModel') == 'neoMixer':
@@ -233,7 +241,7 @@ class Config():
             _iso += "_nope"
         if getattr(args, 'mixer_comb', 'or') != 'or':                    # MODI 2026-10-21 (BiX)
             _iso += {'xattn': '_xa', 'xattn_ch': '_xach', 'lin': '_lin', 'linmem': '_linmem', 'linmx': '_linmx',
-                     'xattnmem': '_xamem'}[args.mixer_comb]                # MODI 2026-10-23: membrane fusion
+                     'xattnmem': '_xamem', 'linxor': '_linxor'}[args.mixer_comb]   # MODI 2026-10-23 / 24: membrane fusion, spike xor
         if getattr(args, 'attn_bn', False):
             _iso += "_abn"
         if getattr(args, 'pop_soma_init', None) is not None:

@@ -267,6 +267,8 @@ class Block(nn.Module):
             mx = (0.5 * mx + (1 - 0.5) * mx.detach())   # same gradient share as the memory-replay path
             if mx.shape[2] not in (1, x.shape[0]):      # MODI 2026-10-23: K neocortex streams must equal the T_h hippocampus steps
                 raise ValueError(f'{mx.shape[2]} neocortex streams for {x.shape[0]} hippocampus steps')
+            if getattr(self, 'stream_rev', False):      # MODI 2026-10-24: order control, stream K-1-t -> step t
+                mx = mx.flip(2)
             kv = mx.transpose(0, 2).expand(x.shape[0], -1, -1, -1).contiguous()   # [N, B, 1, D] -> [T_h, B, N, D]; [N, B, K, D] -> [K, B, N, D]
             x = x * (1. - self.ssa(x, kv=kv))
             x = x * (1. - self.mlp(x))
@@ -527,9 +529,17 @@ class myModel(nn.Module):
         if neo_neuron not in ('sj_lif', 'lif', 'flif', 'pop_flif', 'pop_lif', 'popk_lif', 'popk_flif') or neo_where not in ('both', 'mlp'):
             raise ValueError("neo_neuron in {sj_lif, lif, flif, pop_flif, pop_lif, popk_lif, popk_flif}, neo_where in {both, mlp}")
         self.neo_streams = neo_neuron.startswith('popk_')
-        if self.neo_streams and (not self.hippo_xattn or neo_where != 'both' or self.neo_bidir
+        # MODI 2026-10-24: stream_rev = stream K-1-t feeds hippocampus step t (order control); neo_stream_fuse 'mx' = a second
+        # (reverse-token) stream neocortex with its own parameters, fused per stream as neuron(BN(W [H_f; H_r; |H_f - H_r|]))
+        self.stream_rev = bool(kwargs.get('stream_rev', False))
+        self.neo_stream_fuse = str(kwargs.get('neo_stream_fuse', 'none'))
+        if self.neo_stream_fuse not in ('none', 'mx') or (self.neo_stream_fuse == 'mx') != (self.neo_streams and self.neo_bidir):
+            raise ValueError("neo_stream_fuse 'mx' goes with popk streams and neo_bidir (and only with them)")
+        if (self.stream_rev or self.neo_stream_fuse != 'none') and not self.neo_streams:
+            raise ValueError('stream_rev / neo_stream_fuse are for popk neocortex streams')
+        if self.neo_streams and (not self.hippo_xattn or neo_where != 'both'
                                  or self.T_h != len(tuple(kwargs.get('pop_taus', (4., 8., 16., 32.))))):
-            raise ValueError('popk neocortex streams need hippo_xattn, neo_where both, no neo_bidir and hippo_T = number of streams')
+            raise ValueError('popk neocortex streams need hippo_xattn, neo_where both and hippo_T = number of streams')
         if self.neo_bidir and (self.no_neo or self.hippo_only):
             raise ValueError('neo_bidir needs the neocortex path')
         if neo_neuron != 'sj_lif' and (self.no_neo or self.hippo_only):
@@ -591,7 +601,10 @@ class myModel(nn.Module):
                                     tau=tau,
                                     neuron=emb_neuron                  # nsmt_flif_v1
                                     )
-        if self.neo_bidir:                                             # stage 6: its own parameters and neurons
+        if self.neo_bidir and self.neo_streams:                        # MODI 2026-10-24: reverse-token streams + per-stream fusion
+            self.encoding_neo_rev = _Embed(self.tok_dim, embed_dim, K, StreamNeurons(kind, taus, embed_dim, self.T, _neo['alpha']),
+                                           bias=lif_bias, bn_layout='ncl', gamma=g)
+        elif self.neo_bidir:                                           # stage 6: its own parameters and neurons
             emb_neuron_rev = (build_neo_neuron(neo_neuron, embed_dim, self.T, 'DN', **_neo)
                               if (neo_neuron != 'sj_lif' and neo_where == 'both') else None)
             self.encoding_neo_rev = Embedding(num_patches=self.num_patches, patch_size=self.tok_dim, embed_dim=embed_dim,
@@ -620,7 +633,13 @@ class myModel(nn.Module):
                                         exact=self.neo_exact,
                                         mutual=False,
                                         neuron_fn=mlp_fn)              # nsmt_flif_v1
-        if self.neo_bidir:                                             # stage 6
+        if self.neo_bidir and self.neo_streams:                        # MODI 2026-10-24
+            from layers import sj_lif
+            self.time_block_rev = _Stack(embed_dim, time_num_layers, K, lambda: StreamNeurons(kind, taus, embed_dim, self.T, _neo['alpha']),
+                                         g, lif_bias)
+            from bix import StreamSpikeLinear
+            self.neo_fuse = StreamSpikeLinear(3 * embed_dim, embed_dim, K, sj_lif(tau), bias=lif_bias, bn_layout='flat')
+        elif self.neo_bidir:                                           # stage 6
             self.time_block_rev = TemporalBlock(T=self.T, num_layers=time_num_layers, patch_size=data_patch_size,
                                                 embed_dim=embed_dim, lif_bias=lif_bias, num_heads=num_heads, tau=self.neo_tau,
                                                 recurrent=self.neo_recurrent, rec_gate=self.neo_rec_gate, exact=self.neo_exact,
@@ -642,7 +661,10 @@ class myModel(nn.Module):
         self.apply(self._init_weights)
         self.tau_calibrated = False
         if self.neo_streams and kwargs.get('tau_calib', True):         # MODI 2026-10-23: layer-wise rate-matched gains (calibrate_nsmt_streams.py)
-            self.tau_calibrated = apply_tau_calibration(self, 'myModel', neo_neuron, f'xaT{self.T_h}', taus)
+            self.tau_calibrated = apply_tau_calibration(self, 'myModel', neo_neuron,
+                                                        f'xaT{self.T_h}' + ('_bimx' if self.neo_stream_fuse == 'mx' else ''), taus)
+        for blk in self.data_block:                                    # MODI 2026-10-24: alignment order of the streams
+            blk.stream_rev = self.stream_rev
         
         if ((self.train_mode != 'training') and (self.train_mode != 'pre_training')):
             for module in self.modules():
@@ -797,6 +819,11 @@ class myModel(nn.Module):
         the result is flipped back and fused with the forward output by OR (torch.maximum)."""
         e = self.encoding_neo(neo_in)
         if getattr(self, 'neo_streams', False):                        # MODI 2026-10-23: [N, B, K, D], stream k -> hippocampus step k
+            if getattr(self, 'neo_stream_fuse', 'none') == 'mx':       # MODI 2026-10-24: both token directions, fused per stream
+                _, hf = self.time_block.forward_charge(e)
+                _, hr = self.time_block_rev.forward_charge(self.encoding_neo_rev(neo_in.flip(0)))
+                hr = hr.flip(0)
+                return e, self.neo_fuse(torch.cat([hf, hr, (hf - hr).abs()], dim=-1))
             return e, self.time_block(e)
         o = self.time_block(e, org_seq)
         if getattr(self, 'neo_bidir', False):
