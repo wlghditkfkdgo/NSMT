@@ -583,8 +583,105 @@ def folds_summary(a):
     print('\n'.join(L))
 
 
+BUDGET_NS = ('lif', 'flif', 'pop_lif', 'pop_flif')
+
+
+def budget_summary(a):
+    """MODI 2026-10-26 (A): the same five CinC fold-0 models at 90 epochs (this suite) against their 30-epoch runs.
+    E1 each model 90 - 30; E2 change of the gap to Spikformer-style, g = (mix@90 - spk@90) - (mix@30 - spk@30) per seed:
+    'gap shrinks' if mean(g) >= +1.0 and g > 0 in >= 2 of 3 seeds, 'gap widens' for the mirror, else 'no clear change'
+    (primary: population LIF); E3 each Neo-mixer - Spikformer-style at 90 epochs (criterion 2)."""
+    seeds, need = (42, 7, 2026), 2
+    def tag(rows, ep):
+        return [dict(r, cond=f"{r['cond']}@{ep}") for r in rows]
+    r90 = tag(_fold0(os.path.join(HERE, 'results', a.suite, 'raw.txt')), 90)
+    base = [r for r in _fold0(os.path.join(HERE, 'results', 'flif-v1-rhythm-cinc', 'raw.txt'))
+            if r['cond'] in ('spk_ssa', 'mix_lif_bidir', 'mix_flif_bidir', 'mix_pop_bidir')]
+    base += [r for r in _fold0(os.path.join(HERE, 'results', 'flif-v1-rhythm-bix-cinc', 'raw.txt')) if r['cond'] == 'mix_pop_lif_bidir']
+    rows = r90 + tag(base, 30)
+    conds = ['spk_ssa'] + [_mix_cond(n) for n in BUDGET_NS]
+    lab = {'spk_ssa': 'Spikformer-style SSA (T=4)', **{_mix_cond(n): f'Neo-mixer OR, {BIX_NAME[n]}' for n in BUDGET_NS}}
+    def ms(v, sc=100., nd=2):
+        v = np.asarray(list(v), dtype=float)
+        return 'n/a' if len(v) == 0 or not np.all(np.isfinite(v)) else f'{sc * v.mean():.{nd}f} ± {sc * v.std(ddof=1) if len(v) > 1 else 0:.{nd}f}'
+    L = [f'# Training budget `{a.suite}` (CINC2017 fold 0) — summary', '',
+         'Best-validation weights on the test set; CinC score and macro-F1; mean ± sd over seeds (42, 7, 2026) (%). 30-epoch rows: '
+         'stage 9 (`flif-v1-rhythm-cinc`) and the idea batch (`flif-v1-rhythm-bix-cinc`, population LIF). Schedule: timm cosine with '
+         'warm-up 0.2 E, ending at 0 at epoch E.', '',
+         '| condition | epochs | n | score | macro-F1 | best val | best epoch | val − test | last-epoch train CE | total µJ (FFT) |',
+         '|---|---|---|---|---|---|---|---|---|---|']
+    energy = {}
+    for c in conds:
+        for ep in (30, 90):
+            rr = [r for r in rows if r['cond'] == f'{c}@{ep}']
+            if not rr:
+                L.append(f'| {lab[c]} | {ep} | 0 | n/a | | | | | | |'); continue
+            energy[f'{c}@{ep}'] = np.mean([float(r['total_fft_uJ']) for r in rr])
+            val = [best_val(r) for r in rr]; sc = [float(r['score']) for r in rr]
+            be = [float(str(r.get('best_epoch_val', 'nan:')).split(':')[0]) for r in rr]
+            ce = [_last_train(r['dir'])[0] for r in rr]
+            L.append(f"| {lab[c]} | {ep} | {len(rr)} | {ms(sc)} | {ms([r['macro_f1'] for r in rr])} | {ms(val)} | {np.mean(be):.1f} | "
+                     f"{ms([v - x for v, x in zip(val, sc)])} | {ms(ce, 1., 3)} | {energy[f'{c}@{ep}']:.1f} |")
+    L += ['', '## Pre-registered comparisons (%p, paired by seed; better = mean >= +0.5 and A > B in >= 2 of 3 seeds)', '',
+          '| question | A | B | A − B per seed | mean | verdict | energy A/B | criterion (2) |', '|---|---|---|---|---|---|---|---|']
+    Q = [('E1 90 vs 30 epochs', f'{c}@90', f'{c}@30') for c in conds]
+    Q += [('E3 vs Spikformer at 90 epochs (criterion 2)', f'{_mix_cond(n)}@90', 'spk_ssa@90') for n in BUDGET_NS]
+    for q, x, y in Q:
+        v, d, m = verdict(rows, x, y, seeds, need)
+        er = energy.get(x, float('nan')) / energy.get(y, float('nan')) if energy.get(y) else float('nan')
+        crit = ''
+        if 'criterion 2' in q and v != 'incomplete':
+            crit = 'met' if (v == 'better') or (m >= -0.5 and math.isfinite(er) and er <= 0.5) else 'not met'
+        nm = lambda z: f"{lab[z.split('@')[0]]} @{z.split('@')[1]}"
+        L.append(f"| {q} | {nm(x)} | {nm(y)} | {' / '.join(f'{z:+.2f}' for z in d)} | {m:+.2f} | {v} | {er:.2f} | {crit} |")
+    L += ['', '## E2 change of the gap to Spikformer-style (%p; g = gap@90 − gap@30, gap = Neo-mixer − Spikformer, same seed; primary: population LIF)', '',
+          '| Neo-mixer neuron | gap@30 per seed | gap@90 per seed | g per seed | mean g | verdict |', '|---|---|---|---|---|---|']
+    def per_seed(c):
+        return {int(r['seed']): float(r['score']) for r in rows if r['cond'] == c}
+    for n in BUDGET_NS:
+        m30, s30, m90, s90 = (per_seed(f'{_mix_cond(n)}@30'), per_seed('spk_ssa@30'), per_seed(f'{_mix_cond(n)}@90'), per_seed('spk_ssa@90'))
+        if not all(s in d and math.isfinite(d[s]) for d in (m30, s30, m90, s90) for s in seeds):
+            L.append(f'| {BIX_NAME[n]} | | | | | incomplete |'); continue
+        g30 = [100 * (m30[s] - s30[s]) for s in seeds]; g90 = [100 * (m90[s] - s90[s]) for s in seeds]
+        g = [b - c for b, c in zip(g90, g30)]; mg = float(np.mean(g))
+        v = ('gap shrinks' if mg >= 1.0 and sum(x > 0 for x in g) >= need else
+             'gap widens' if mg <= -1.0 and sum(x < 0 for x in g) >= need else 'no clear change')
+        f = lambda z: ' / '.join(f'{x:+.2f}' for x in z)
+        L.append(f'| {BIX_NAME[n]} | {f(g30)} | {f(g90)} | {f(g)} | {mg:+.2f} | {v} |')
+    os.makedirs(os.path.join(HERE, 'results', a.suite), exist_ok=True)
+    open(os.path.join(HERE, 'results', a.suite, 'summary.md'), 'w').write('\n'.join(L) + '\n')
+    print('\n'.join(L))
+
+
+def addneo_summary(a):
+    """MODI 2026-10-26 (B): Spikformer-style hippocampus (T_h 4, self-attention kept) + the T = N neocortex added as extra keys /
+    values (kv = [own tokens; neocortex tokens]), aux loss off, full task gradient to the neocortex. C1 each - Spikformer-style
+    (criterion 2), C2 each - the memoryless neocortex control (same parameters, state reset at every token), C3 (report) add vs
+    replace (nsmt_*_t4: neocortex keys / values instead of the own ones; those runs keep aux 0.1 and gradient share 0.5)."""
+    rows = _fold0(os.path.join(HERE, 'results', a.suite, 'raw.txt'))
+    rows += [r for r in _fold0(os.path.join(HERE, 'results', 'flif-v1-rhythm-cinc', 'raw.txt')) if r['cond'] == 'spk_ssa']
+    rows += [r for r in _fold0(os.path.join(HERE, 'results', 'flif-v1-rhythm-fix-cinc', 'raw.txt')) if r['cond'] in ('nsmt_lif_t4', 'nsmt_pop_t4')]
+    rows += [r for r in _fold0(os.path.join(HERE, 'results', 'flif-v1-rhythm-t4k-cinc', 'raw.txt')) if r['cond'] in ('nsmt_flif_t4', 'nsmt_poplif_t4')]
+    rep = {'lif': 'nsmt_lif_t4', 'flif': 'nsmt_flif_t4', 'pop_lif': 'nsmt_poplif_t4', 'pop_flif': 'nsmt_pop_t4'}
+    lab = {'spk_ssa': 'Spikformer-style SSA (T=4)', 'spkneo_lif_nomem': 'Spikformer + neocortex added, LIF, memoryless (reset every token)'}
+    for n in BUDGET_NS:
+        lab[f'spkneo_{n}'] = f'Spikformer + T = N neocortex added, {BIX_NAME[n]}'
+        lab[rep[n]] = f'NSMT T_h 4, neocortex replaces the own keys / values, {BIX_NAME[n]}'
+    order = ['spk_ssa', 'spkneo_lif_nomem'] + [f'spkneo_{n}' for n in BUDGET_NS] + [rep[n] for n in BUDGET_NS]
+    Q = [('C1 vs Spikformer (criterion 2)', f'spkneo_{n}', 'spk_ssa') for n in BUDGET_NS]
+    Q += [('C1 vs Spikformer (criterion 2)', 'spkneo_lif_nomem', 'spk_ssa')]
+    Q += [('C2 T = N memory vs memoryless neocortex', f'spkneo_{n}', 'spkneo_lif_nomem') for n in BUDGET_NS]
+    Q += [('C3 (report) add vs replace', f'spkneo_{n}', rep[n]) for n in BUDGET_NS]
+    _table_and_verdicts(a, 'Spikformer + T = N neocortex as extra keys / values', rows, order, lab, Q,
+                        'Best-validation weights on the test set; CinC score and macro-F1; mean ± sd over seeds (42, 7, 2026) (%). '
+                        'C2 is pre-registered as primary for LIF (same neuron); for the other neurons it also includes the neuron change. '
+                        'C3 is report only (the replace runs keep aux 0.1 and gradient share 0.5).')
+
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
+    ap.add_argument('--budget', action='store_true')
+    ap.add_argument('--addneo', action='store_true')
     ap.add_argument('--decide', action='store_true')
     ap.add_argument('--lr_suite', default='flif-v1-rhythm-lr')
     ap.add_argument('--crop_suite', default='flif-v1-rhythm-crop')
@@ -600,7 +697,11 @@ if __name__ == '__main__':
     ap.add_argument('--t4k2', action='store_true')
     ap.add_argument('--folds', action='store_true')
     a = ap.parse_args()
-    if a.xor:
+    if a.budget:
+        budget_summary(a)
+    elif a.addneo:
+        addneo_summary(a)
+    elif a.xor:
         xor_summary(a)
     elif a.popg:
         popg_summary(a)

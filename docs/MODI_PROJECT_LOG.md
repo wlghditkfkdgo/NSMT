@@ -2499,3 +2499,107 @@ c28의 K = 1·τ 2 비트 동일 검사는 그대로 통과(보정은 τ 4/8/16/
 **한계:** test 출력을 다시 읽은 진단이다. 문턱 최적 F1은 test에서 고른 상한이다. 길이 구간별 Noisy는 기록 수가 작다(긴 기록 10개).
 
 **commit:** 이 항목·분석 스크립트·결과를 commit 하고 `exp/nsmt-flif-neo`만 push.
+
+---
+
+## 2026-10-26 20:21 KST — 사전 고정: (A) 학습 예산 90 epoch (CinC 15 run)과 (B) Spikformer식 + T = N 신피질 덧붙임 (CinC 15 run) — 동기 분석: 마지막 epoch 학습 손실과 test 점수의 순위 상관 −0.72 (59 조건)
+
+**직전 commit:** `9cb3d3e95`.
+
+**사용자 지시 (10-26):**
+1. "다른 세션에서 진행하고 있는 실험 말고 현재 세션에서 진행하고 있던 실험들을 바탕으로 다음 실험을 제안해줘. 이전 실험들을 분석하여 현재 원인의 가설 파악 → 가장 유망한 세팅 및 모델 구조 제안, 다음 실험 제안."
+2. (제안: 가설 1–4, 실험 A 학습 예산 · B Spikformer식 + 신피질 덧붙임 · C population 설계) → "A와 B를 함께 사전 등록하고, A부터(B는 구현과 점검이 끝나는 대로) 시작."
+
+**범위:** 근거는 이 작업 계열의 9단계 결과(9단계 본 실험, 보조 손실 옵션, 아이디어 묶음, 원인 분리, 선형 합)로만 삼는다. 10-23–10-26의 막전위 합치기·스트림 정렬·fold 확인·class gap 항목은 다른 세션(nsmt-4f)이 쓴 것이라 사용자 지시대로 근거에서 뺐다. 그 세션은 10-26에 이 브랜치와 이 기록을 더 쓰지 않겠다고 알려 왔다(그쪽 기록은 `exp/f-lif-pop-v3`의 `docs/PROJECT_LOG.md`로 옮김). A·B가 그쪽 후속(스파이크 XOR, fold 1–4, 스트림 순서 대조, popg 선형 합)과 겹치지 않음을 확인했다.
+
+### 동기 분석 (보고만, 학습 없음; `fit_vs_score.py` → `results/fit-vs-score-20261026/fit_vs_score.{txt,csv}`)
+
+- 대상: suite `flif-v1-rhythm-{cinc, fix, bix, lin, aux}-cinc`의 CinC fold 0, crop 0, 30 epoch run 전부 = 59 조건 × seed 3 = 177 run. 조건마다 seed 42·7·2026 run이 정확히 하나이고 학습 기록이 30줄인지 확인한다(아니면 중단; 모두 통과).
+- 각 run의 마지막 epoch(29) 학습 CE(`log/best_log_0.csv`), 최고 검증 점수와 그 epoch, test 점수(최고 검증 가중치)를 seed 평균해 순위 상관을 잰다.
+
+| 결과 | 값 |
+|---|---|
+| 순위 상관(마지막 학습 CE, test 점수) | **−0.724** (p = 9.2e-11) |
+| 순위 상관(마지막 학습 CE, 최고 검증 점수) | −0.747 (p = 1.1e-11) |
+| 최고 검증 epoch이 마지막 6 epoch(24–29) 안인 run | 60.5 % (마지막 5 epoch 25–29: 52.0 %) |
+
+| 조건 | test 점수 | 마지막 학습 CE | 최고 검증 | 에너지 µJ |
+|---|---:|---:|---:|---:|
+| Spikformer식 (`spk_ssa`) | 65.60 | 0.245 | 68.79 | 127.4 |
+| NSMT LIF 해마 T_h 4 (`nsmt_lif_t4`) | 63.42 | **0.183** | 68.37 | 148.1 |
+| Neo-mixer population LIF (`mix_pop_lif_bidir`) | 63.06 | 0.290 | 65.45 | 36.5 |
+| NSMT LIF T = N (`nsmt_lif`) | 61.76 | 0.332 | 66.00 | 3,419.3 |
+| Neo-mixer population f-LIF (`mix_pop_bidir`) | 60.73 | 0.336 | 64.90 | 65.2 |
+| Neo-mixer LIF (`mix_lif_bidir`) | 60.54 | 0.413 | 64.02 | 28.0 |
+| Neo-mixer f-LIF (`mix_flif_bidir`) | 59.75 | 0.408 | 63.66 | 32.8 |
+| 토큰 섞기 없음 (`mix_none`) | 58.20 | 0.587 | 59.74 | 18.7 |
+| BiX soma 없는 스트림 LIF (`bix_popk_lif`) | 53.13 | 0.618 | 55.25 | 103.2 |
+| 재귀 LIF Neo-mixer (`mix_lif_rec_bidir`) | 45.99 | 0.965 | 44.18 | 30.2 |
+
+- 읽는 법: 같은 30 epoch 안에 학습 데이터를 더 많이 배운 조건일수록 test도 높다. 조건 사이의 상관이라 인과는 아니다. 예외는 `nsmt_lif_t4`로, 학습 CE가 가장 낮은데 Spikformer식보다 2.2점 낮다(검증 − test 4.95, macro-F1 55.80: 너무 외운 경우).
+- **정정(대화 내용):** 10-26 제안에서 "run의 52 %가 마지막 6 epoch(25–30)에서 최고 검증 점수"라고 말했다. 52.0 %는 epoch 25–29(0부터 셈, 마지막 5 epoch)의 값이다. 마지막 6 epoch(24–29)는 60.5 %다.
+
+### 원인 가설 (사전 기록; 근거는 위와 9단계 계열 결과)
+
+- **원인이 아닌 것:** 보조 손실(12개 비교 중 "좋음" 0), 위치 정보(Spikformer식에서 빼면 −1.11, Neo-mixer·NSMT에 넣으면 −1.3 ~ −2.0), 주의 앞 BN(−0.19), soma 초기값(1.5·2.0 차이 없음), 기억 길이(population은 50토큰 뒤에도 영향이 남지만 이득 없음; τ 16–128 −0.63).
+- **H1 덜 배움:** T = N 토큰 섞기 모델은 30 epoch 안에 학습 데이터를 Spikformer식보다 덜 배운다(위 표). 학습률(1e-3)은 NSMT LIF 하나로 골랐다.
+- **H2 토큰 비교:** 위치를 뺀 Spikformer식도 하한보다 +6.3점, 뉴런 상태로 섞는 모델은 +0.6 ~ +4.9점. 주의는 토큰 i와 j를 직접 비교하고, 뉴런 상태는 지나간 토큰의 새는 합이다.
+- **H3 해마 T = N 반복:** T_h 4로 줄이면 LIF +1.66, 에너지 1/23. population f-LIF는 −2.28이고 T_h 4는 너무 외운다.
+- **H4 뉴런:** population LIF가 Neo-mixer에서 가장 좋고 학습도 빠르다(CE 0.290 vs LIF 0.413). 분수 차수는 population 안에서 나쁘다(−2.33, −2.31). soma 없는 형태는 모두 나쁘다.
+
+### A. 학습 예산 (H1 검정) — suite `flif-v1-rhythm-budget-cinc`
+
+- **조건(뉴런 축 규칙):** `spk_ssa`, Neo-mixer 양방향 OR × {`mix_lif_bidir`(spikeDE LIF), `mix_flif_bidir`(f-LIF α 0.5), `mix_pop_lif_bidir`(population LIF, soma 0.5), `mix_pop_bidir`(population f-LIF, soma 1.0)}. 모델 설정은 30 epoch run과 같다(같은 러너 case 줄).
+- **바뀌는 것은 epoch 수 하나:** `EPOCHS=90`. 학습률 일정은 epoch 수에 비례해 늘어난다(timm cosine: 1e-5에서 0.2E epoch 동안 올라 정점, 그 뒤 E에서 0 근처로).
+  - 30 epoch: 정점 9.05e-4 (epoch 6), 마지막 2.7e-6, epoch별 학습률 합 0.0122
+  - 90 epoch: 정점 9.45e-4 (epoch 17), 마지막 3.1e-7, 합 0.0366 (3.0배)
+- 나머지: lr 1e-3, AdamW wd 1e-4, batch 32, CinC 클래스 가중 CE, fold 0, seed 42 / 7 / 2026 → 5 × 3 = 15 run. 최고 검증 가중치로 test.
+- 러너 `scripts/run_rhythm6.sh` = `run_rhythm5.sh` 복사본. 바뀐 것은 실행 폴더 찾기 하나다: 이제 폴더 이름의 epoch 수(`+epoch+90+`)와 CinC fold(`_f0`)까지 맞춰 찾는다. 같은 조건·seed의 30 / 90 epoch run이나 다른 fold가 서로의 폴더를 읽지 않게 하려는 것이다(10-25 다른 세션의 fold 반복에서 이 문제로 RESULT 11줄을 잃었다).
+- 30 epoch 기준: `spk_ssa`, `mix_lif_bidir`, `mix_flif_bidir`, `mix_pop_bidir`은 9단계 suite, `mix_pop_lif_bidir`은 아이디어 묶음 suite의 같은 seed run.
+- **판정** (`summarize_rhythm.py --budget --suite flif-v1-rhythm-budget-cinc`; 규칙은 이전과 같음, 평균 ≥ +0.5 %p이고 seed 3개 중 2개 이상):
+  - E1: 각 모델 90 − 30 epoch.
+  - **E2 (주 판정): Spikformer식과의 차이 변화** g = (Neo-mixer@90 − Spikformer식@90) − (Neo-mixer@30 − Spikformer식@30), seed별. 평균 g ≥ +1.0이고 g > 0인 seed가 2개 이상이면 "차이가 줄어듦", 거울이면 "벌어짐", 아니면 "뚜렷한 변화 없음". 주 판정은 population LIF, 나머지 세 뉴런은 같은 방식으로 보고.
+  - E3: 90 epoch에서 각 Neo-mixer − Spikformer식(기준 (2)).
+  - 보고: 마지막 epoch 학습 CE, 최고 검증 epoch, 검증 − test.
+- **해석 규칙(사전):** population LIF에서 E2가 "줄어듦"이면 H1을 격차 원인의 하나로 받아들이고, 다음 실험들의 epoch 수를 A 결과로 정한다. "뚜렷한 변화 없음"이면 두 모델 모두 더 배워도 격차가 그대로라는 뜻이므로 H1을 격차의 주원인에서 뺀다.
+- **예상(사전 기록):** E1 Spikformer식 0 ~ +1(차이 없음; 이미 CE 0.245라 더 외울 위험), Neo-mixer LIF·population LIF +1 ~ +2(좋음), f-LIF 계열 불확실. E2 population LIF는 차이가 줄어듦(−2.5 → 약 −1). E3 미충족(평균 −0.5보다 낮음).
+- **실행:** GPU 0–3에 2개씩(8 worker), tmux `flif_budget`, 대기열 `scripts/queues/rhythm-budget-20261026.txt`. 예상 시간: Spikformer식 run당 약 20분, Neo-mixer LIF 약 3시간, population·f-LIF 계열 약 6–7시간 → 약 반나절–하루.
+
+### B. Spikformer식 + T = N 신피질 덧붙임 (기여 시험) — suite `flif-v1-rhythm-addneo-cinc`
+
+- **동기:** `nsmt_*_t4`는 Spikformer식 해마의 키·값을 신피질 토큰으로 **바꿔 넣은** 구조이고 LIF에서 Spikformer식보다 2.18점 낮았다. B는 Spikformer식의 자기 주의를 그대로 두고 신피질을 **덧붙여**, T = N 신피질이 Spikformer식에 더할 정보가 있는지를 직접 잰다(연구 주장 "T = N이 효과가 있다"의 가장 직접적인 시험).
+- **구조:**
+  - 해마: Spikformer식과 같다(각 패치 4번 반복, T_h = 4, spikingjelly LIF, SSA_rel_scl, IAND, MLP, head).
+  - 주의의 키·값 = [자기 토큰 117개; 신피질 토큰 117개]. 신피질 쪽은 자기 Linear + BN + LIF(k_n, v_n)를 따로 둔다(입력 분포가 다르므로). 스파이킹 자기 주의에는 softmax가 없어서 이것은 두 주의 항의 합과 같다: y = (q k_sᵀ · s + b) v_s + (q k_nᵀ · s + b) v_n, b = 토큰 위치 차이의 상대 bias(두 항이 같은 표를 씀; 신피질 토큰 j는 위치 j). 그 뒤 주의 LIF, proj는 같다.
+  - 신피질: T = N(117 스텝), 단방향, 뉴런 {LIF, f-LIF α 0.5, population LIF soma 0.5, population f-LIF soma 1.0}(`nsmt_*_t4`와 같은 구성).
+  - **보조 손실 끔(α 0), 신피질로 가는 과제 기울기 100 %**(`--neo_grad 1.0`, 새 옵션; 기본 0.5는 지금까지의 모든 run과 같음). 사용자 방향(10-22: "보조 손실 OFF → 신피질 기울기 제한도 없애야")을 따른다.
+- **조건:** `spkneo_lif`, `spkneo_flif`, `spkneo_pop_lif`, `spkneo_pop_flif`, 대조 `spkneo_lif_nomem`(기억 없는 신피질: 같은 LIF 신피질이 토큰마다 막전위를 처음부터 시작 — 토큰을 1스텝 열로 따로 처리, 파라미터 수 같음). 30 epoch, lr 1e-3, fold 0, seed 3개 → 15 run. 러너 `scripts/run_rhythm_addneo.sh`(새 복사본; 이름 `run_rhythm7.sh`는 다른 세션이 쓰기로 해서 피함).
+- **코드(예정):** `model.py`(`hippo_xattn_mode` {replace(기본), cat}, `neo_grad`, `neo_memoryless`), `layers.py`(SSA_rel_scl의 두 번째 키·값 쌍), `config.py`(옵션, 폴더 접미사), `load_model.py`. 기본값에서 기존 경로는 비트 단위로 그대로여야 한다.
+- **점검(예정, 시작 전 모두 통과):** c38 `neo_grad`: 기본 0.5에서 기존과 비트 동일, 1.0에서 출력 동일·신피질 기울기 정확히 2배·해마 기울기 동일. c39 cat: 신피질 출력을 0으로 두고 Spikformer식 가중치를 복사하면 로짓이 Spikformer식과 비트 동일, 실제 신피질 출력에서는 달라지고 신피질에 기울기가 감. c40 기억 없는 신피질: 입력 토큰 j를 바꾸면 신피질 출력은 토큰 j에서만 바뀜(실제 CinC 창), 보통 신피질은 j 뒤로도 바뀜(양성 대조), 에너지 기록이 T = N 경우와 같은 식으로 셈. c41 옵션 조합 거부(cat인데 hippo_xattn 없음, 기억 없음 + 양방향/스트림)와 폴더 접미사 구분. 정식 배치 smoke 5/5.
+- **판정** (`summarize_rhythm.py --addneo --suite flif-v1-rhythm-addneo-cinc`):
+  - C1: 각 모델 − Spikformer식(9단계 30 epoch run; 기준 (2)). 에너지가 Spikformer식보다 크므로(예상 1.2–1.3배) 기준 (2)는 "좋음"일 때만 충족.
+  - C2: 각 모델 − 기억 없는 대조. 주 판정은 LIF(같은 뉴런). 다른 뉴런은 뉴런 차이가 섞여 있음을 함께 적는다.
+  - C3(보고만): 덧붙임 − 바꿔 넣기(`nsmt_*_t4`; 그 run들은 보조 손실 0.1, 기울기 0.5라 조건이 다름).
+- **해석 규칙(사전):** C1 "좋음"이고 C2 "좋음"이면 T = N 신피질의 시간 상태가 Spikformer식에 정보를 더한다는 첫 근거. C1 "좋음"이지만 C2 "차이 없음"이면 이득은 파라미터·토큰 인코딩이 늘어난 몫이지 T = N 기억이 아니다. C1 "차이 없음"이면 이 형태로는 기여가 보이지 않는다.
+- **예상(사전 기록):** C1 LIF·population LIF 차이 없음(0 ~ +1), f-LIF 계열 차이 없음 또는 나쁨; C2 차이 없음; 기준 (2) 미충족. 바꿔 넣었을 때 2.2점을 잃었으므로 신피질 정보는 자기 토큰보다 약해 보인다.
+- **시작:** 구현·점검·smoke 결과를 다음 항목에 적고 commit 한 뒤 시작(A와 함께 돎).
+
+### C (예정, 이번 사전 고정 아님)
+A의 epoch 수로 Neo-mixer population LIF의 가지 수 K ∈ {2, 4, 8}와 학습 가능한 가지 τ(PLIF, DH-SNN 계열)를 시험. 문헌은 사전 고정 전에 원문으로 확인.
+
+### smoke (A)
+`results/smoke-rhythm-ep90-20261026/raw.txt`: 1 epoch(`EPOCHS=1`), seed 42, GPU 0–3, **5/5 끝까지, SKIP 0**. 새 러너가 `+epoch+1+`·`_f0` 폴더를 찾아 RESULT를 썼다. 파라미터 수는 30 epoch run과 같다(918,088 / 916,224 / 916,224 / 922,368 / 922,368).
+
+| 조건 | 1 epoch 점수 | 에너지 µJ | 시간 s |
+|---|---:|---:|---:|
+| spk_ssa | 0.3788 | 107.6 | 41 |
+| mix_lif_bidir | 0.2836 | 24.4 | 85 |
+| mix_flif_bidir | 0.2899 | 29.5 | 158 |
+| mix_pop_lif_bidir | 0.3525 | 35.2 | 181 |
+| mix_pop_bidir | 0.3252 | 63.1 | 184 |
+
+`summarize_rhythm.py --budget --suite smoke-rhythm-ep90-20261026`는 표를 만들고, seed가 하나뿐이라 모든 판정을 incomplete로 남겼다(의도한 fail-closed).
+
+**코드:** `fit_vs_score.py`(새), `summarize_rhythm.py`(`--budget`, `--addneo`), `scripts/run_rhythm6.sh`(새 복사본).
+
+**commit:** 이 항목·분석 스크립트와 결과·요약 함수·러너·smoke 결과를 commit 하고 `exp/nsmt-flif-neo`만 push. 그 뒤 A pool 시작.
