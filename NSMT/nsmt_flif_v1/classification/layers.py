@@ -123,7 +123,7 @@ class MLP(nn.Module):
         return x
     
 class SSA_rel_scl(nn.Module):
-    def __init__(self, dim, seq_len, num_heads=8, pe=True, lif_bias=False, tau=2.0, topk_ratio=None, drop=0.1, attn_bn=False) -> None:
+    def __init__(self, dim, seq_len, num_heads=8, pe=True, lif_bias=False, tau=2.0, topk_ratio=None, drop=0.1, attn_bn=False, kv_cat=False) -> None:
         super().__init__()
         
         self.seq_len = seq_len
@@ -168,8 +168,19 @@ class SSA_rel_scl(nn.Module):
             rel_pos_idx = pos[None, :] - pos[:, None]           # (N, N), offset = j - i
             rel_pos_idx = rel_pos_idx + (self.seq_len - 1)              # shift to [0, 2N-2]
             self.register_buffer("rel_pos_idx", rel_pos_idx.long())
-        
-        
+
+        # MODI 2026-10-26 (B): kv_cat = the own tokens keep their key / value (Spikformer-style self-attention) and the kv tokens
+        # (neocortex) add a second key / value pair with their own Linear + BN + LIF. Without softmax, attention over the
+        # concatenated keys [own; kv] is the sum of the two attention terms; both use the same relative bias (kv token j = position j).
+        self.kv_cat = bool(kv_cat)
+        if self.kv_cat:
+            self.k2_linear = nn.Linear(dim, dim, bias=lif_bias)
+            self.k2_bn = nn.BatchNorm1d(dim)
+            self.k2_lif = MultiStepLIFNode(tau=tau, detach_reset=True, backend='cupy', surrogate_function=surrogate.Sigmoid())
+            self.v2_linear = nn.Linear(dim, dim, bias=lif_bias)
+            self.v2_bn = nn.BatchNorm1d(dim)
+            self.v2_lif = MultiStepLIFNode(tau=tau, detach_reset=True, backend='cupy', surrogate_function=surrogate.Sigmoid())
+
         # self.dropout = nn.Dropout(drop)
     def forward(self, x, mask=None, kv=None):
         T,B,N,C = x.shape
@@ -177,7 +188,7 @@ class SSA_rel_scl(nn.Module):
         # T, batch_size, seq_len, _ = x.shape 
         x_for_qkv = x.flatten(0, 1)  # TB, N, D
         # MODI 2026-10-21 (1-C): with kv [T, B, N, C] the keys / values come from kv and only the queries from x
-        x_for_kv = x_for_qkv if kv is None else kv.flatten(0, 1)
+        x_for_kv = x_for_qkv if (kv is None or self.kv_cat) else kv.flatten(0, 1)   # MODI 2026-10-26: kv_cat keeps the own k / v
         
         k = self.k_linear(x_for_kv)
         k = self.k_lif(self.k_bn(k.transpose(-1, -2)).transpose(-1, -2).reshape(T, B, N, C).contiguous())
@@ -226,6 +237,22 @@ class SSA_rel_scl(nn.Module):
         #     attn_scores = attn_scores.masked_fill(~topk_mask, 0.0)
         
         x = attn_scores @ v
+        if self.kv_cat:                                 # MODI 2026-10-26 (B): + the neocortex key / value term
+            if kv is None:
+                raise ValueError('kv_cat needs kv')
+            kv2 = kv.flatten(0, 1)
+            k2 = self.k2_linear(kv2)
+            k2 = self.k2_lif(self.k2_bn(k2.transpose(-1, -2)).transpose(-1, -2).reshape(T, B, N, C).contiguous())
+            k2 = k2.reshape(T, B, N, self.num_heads, C//self.num_heads).permute(0, 1, 3, 2, 4).contiguous()
+            v2 = self.v2_linear(kv2)
+            v2 = self.v2_lif(self.v2_bn(v2.transpose(-1, -2).contiguous()).transpose(-1, -2).contiguous().reshape(T, B, N, C).contiguous())
+            v2 = v2.reshape(T, B, N, self.num_heads, C//self.num_heads).permute(0, 1, 3, 2, 4).contiguous()
+            s2 = (q @ k2.transpose(-2, -1)) * self.scale
+            if mask is not None:
+                s2 = s2 + mask * float('-inf')
+            if self.pe:
+                s2 = s2 + relative_bias
+            x = x + s2 @ v2
 
         x = x.transpose(2, 3).reshape(T, B, N, C).contiguous()
         if self.attn_bn is not None:

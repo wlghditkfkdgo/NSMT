@@ -235,7 +235,7 @@ class HighFreqAmp(nn.Module):
 class Block(nn.Module):
     def __init__(self, T, dim, seq_len, num_heads, mlp_ratios=2., max_ratio=2, qkv_bias=False, qk_scale=None, drop=0., attn_drop=0.1,
                 drop_path=0.1, norm_layer=nn.LayerNorm, sr_ratio=1, lif_bias=False, tau=2.0, attn=False,
-                time_num_layers=1, patch_size=16, ssa=False, xattn=False, ssa_pe=True, attn_bn=False):
+                time_num_layers=1, patch_size=16, ssa=False, xattn=False, ssa_pe=True, attn_bn=False, xattn_mode='replace'):
         super().__init__()
         
         topk_ratio = None
@@ -245,7 +245,8 @@ class Block(nn.Module):
         # self.high_freq = HighFreqAmp(dim) if not attn else SSA_rel_scl(dim=dim, seq_len=seq_len, num_heads=num_heads, pe=True, lif_bias=lif_bias, tau=tau, drop=attn_drop)
         if self.use_ssa or self.use_xattn:
             self.ssa = SSA_rel_scl(dim=dim, seq_len=seq_len, num_heads=num_heads, pe=bool(ssa_pe), lif_bias=lif_bias, tau=tau, drop=attn_drop,
-                                   attn_bn=bool(attn_bn))              # MODI 2026-10-21: BN before the attention neuron (spk_ssa_abn)
+                                   attn_bn=bool(attn_bn),              # MODI 2026-10-21: BN before the attention neuron (spk_ssa_abn)
+                                   kv_cat=(self.use_xattn and xattn_mode == 'cat'))   # MODI 2026-10-26 (B): own + neocortex keys / values
         else:
             self.mca = MutualCrossAttention(dim=dim, out_seq=False, lif_bias=lif_bias, num_heads=num_heads, tau=tau, drop=drop)
         mlp_hidden_dim = int(dim * mlp_ratios)
@@ -264,7 +265,8 @@ class Block(nn.Module):
             return x
 
         if self.use_xattn:                              # MODI 2026-10-21 (1-C): hippocampus T_h repeats attend over the N neocortex tokens
-            mx = (0.5 * mx + (1 - 0.5) * mx.detach())   # same gradient share as the memory-replay path
+            g = getattr(self, 'neo_grad', 0.5)          # MODI 2026-10-26: task-gradient share to the neocortex (default 0.5)
+            mx = (g * mx + (1 - g) * mx.detach())       # same gradient share as the memory-replay path
             if mx.shape[2] not in (1, x.shape[0]):      # MODI 2026-10-23: K neocortex streams must equal the T_h hippocampus steps
                 raise ValueError(f'{mx.shape[2]} neocortex streams for {x.shape[0]} hippocampus steps')
             if getattr(self, 'stream_rev', False):      # MODI 2026-10-24: order control, stream K-1-t -> step t
@@ -286,7 +288,8 @@ class Block(nn.Module):
         if (not self.training) and self.shuffle_replay and mx is not None and B > 1:
             mx = cyclic_shift_batch_dim1(mx)
 
-        mx = (0.5 * mx + (1 - 0.5) * mx.detach()) # [1 B N D]
+        g = getattr(self, 'neo_grad', 0.5)              # MODI 2026-10-26 (default 0.5 = the ECG code)
+        mx = (g * mx + (1 - g) * mx.detach()) # [1 B N D]
         mx = mx.transpose(0, 2).contiguous() * x
 
         x = x * (1. - self.mca(x, mx))
@@ -507,6 +510,17 @@ class myModel(nn.Module):
         self.T_h = int(kwargs.get('hippo_T', 0) or 0) or self.T
         if self.T_h != self.T and not (self.hippo_ssa or self.hippo_xattn):
             raise ValueError('hippo_T != number of tokens is only allowed with hippo_ssa / hippo_xattn (the memory-replay cross-attention needs T = N)')
+        # MODI 2026-10-26 (B): hippo_xattn_mode 'cat' = the hippocampus keeps its own keys / values (Spikformer-style self-attention)
+        # and the neocortex tokens add a second key / value pair; neo_grad = task-gradient share to the neocortex through the
+        # cross-attention / memory replay (0.5 = the ECG code); neo_memoryless = every token runs through the neocortex as its own
+        # 1-step sequence (no state crosses tokens; the control for the T = N memory)
+        self.hippo_xattn_mode = str(kwargs.get('hippo_xattn_mode', 'replace'))
+        self.neo_grad = float(kwargs.get('neo_grad', 0.5))
+        self.neo_memoryless = bool(kwargs.get('neo_memoryless', False))
+        if self.hippo_xattn_mode not in ('replace', 'cat') or (self.hippo_xattn_mode == 'cat' and not self.hippo_xattn):
+            raise ValueError("hippo_xattn_mode in {replace, cat}; cat needs hippo_xattn")
+        if not 0. <= self.neo_grad <= 1.:
+            raise ValueError('neo_grad must be in [0, 1]')
 
         # sine spike-encoding: roll the Hippocampus patch sequence per spiking step T with a
         # raised-cosine causal shift schedule (APE-like, ported from forecasting ours_roll).
@@ -542,6 +556,9 @@ class myModel(nn.Module):
             raise ValueError('popk neocortex streams need hippo_xattn, neo_where both and hippo_T = number of streams')
         if self.neo_bidir and (self.no_neo or self.hippo_only):
             raise ValueError('neo_bidir needs the neocortex path')
+        if (self.hippo_xattn_mode == 'cat' and self.neo_streams) or (self.neo_memoryless and (self.neo_bidir or self.neo_streams or self.no_neo
+                                                                                             or self.hippo_only or self.hippo_ssa)):
+            raise ValueError('hippo_xattn_mode cat: not with popk streams; neo_memoryless: unidirectional single-stream neocortex only')
         if neo_neuron != 'sj_lif' and (self.no_neo or self.hippo_only):
             raise ValueError('no_neo / hippo_only have no neocortex path; do not combine them with --neo_neuron')
         if self.no_neo and self.hippo_only:
@@ -614,7 +631,8 @@ class myModel(nn.Module):
                     dim=embed_dim, seq_len=self.num_patches, num_heads=num_heads, mlp_ratios=mlp_ratios, qkv_bias=qkv_bias,
                     qk_scale=qk_scale, drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[j],
                     norm_layer=norm_layer, sr_ratio=sr_ratios, lif_bias=lif_bias, tau=tau, attn=(gating=='original'),
-                    ssa=self.hippo_ssa, xattn=self.hippo_xattn, ssa_pe=self.ssa_pe, attn_bn=self.attn_bn)
+                    ssa=self.hippo_ssa, xattn=self.hippo_xattn, ssa_pe=self.ssa_pe, attn_bn=self.attn_bn,
+                    xattn_mode=self.hippo_xattn_mode)                  # MODI 2026-10-26
                     for j in range(depths)])
 
         if self.neo_streams:
@@ -665,6 +683,7 @@ class myModel(nn.Module):
                                                         f'xaT{self.T_h}' + ('_bimx' if self.neo_stream_fuse == 'mx' else ''), taus)
         for blk in self.data_block:                                    # MODI 2026-10-24: alignment order of the streams
             blk.stream_rev = self.stream_rev
+            blk.neo_grad = self.neo_grad                               # MODI 2026-10-26
         
         if ((self.train_mode != 'training') and (self.train_mode != 'pre_training')):
             for module in self.modules():
@@ -817,6 +836,11 @@ class myModel(nn.Module):
         """Neocortex path on neo_in [N, B, 1, P] (token axis first). Returns (embedding spikes, output spikes), both
         [N, B, 1, D]. stage 6 bidirectional: the reversed token sequence goes through its own embedding + time_block,
         the result is flipped back and fused with the forward output by OR (torch.maximum)."""
+        if getattr(self, 'neo_memoryless', False):                     # MODI 2026-10-26 (B control): each token alone, 1 step
+            N, B = neo_in.shape[0], neo_in.shape[1]
+            e = self.encoding_neo(neo_in.reshape(1, N * B, *neo_in.shape[2:]))
+            o = self.time_block(e, org_seq)
+            return e.reshape(N, B, *e.shape[2:]), o.reshape(N, B, *o.shape[2:])
         e = self.encoding_neo(neo_in)
         if getattr(self, 'neo_streams', False):                        # MODI 2026-10-23: [N, B, K, D], stream k -> hippocampus step k
             if getattr(self, 'neo_stream_fuse', 'none') == 'mx':       # MODI 2026-10-24: both token directions, fused per stream

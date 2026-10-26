@@ -2603,3 +2603,47 @@ A의 epoch 수로 Neo-mixer population LIF의 가지 수 K ∈ {2, 4, 8}와 학�
 **코드:** `fit_vs_score.py`(새), `summarize_rhythm.py`(`--budget`, `--addneo`), `scripts/run_rhythm6.sh`(새 복사본).
 
 **commit:** 이 항목·분석 스크립트와 결과·요약 함수·러너·smoke 결과를 commit 하고 `exp/nsmt-flif-neo`만 push. 그 뒤 A pool 시작.
+
+---
+
+## 2026-10-26 20:34 KST — B 구현·점검·smoke (Spikformer식 + T = N 신피질 덧붙임, CinC 15 run): 점검 45/45, smoke 5/5 — 이 commit 뒤 B 시작; A는 20:22에 시작
+
+**직전 commit:** `e7bd92306` (A·B 사전 고정). 설계·판정·예상은 그 항목 그대로이고, 여기서는 구현과 점검만 적는다.
+
+**A 실행 상태:** `e7bd92306` commit 직후 20:22에 tmux `flif_budget`에서 시작했다(GPU 0–3에 2개씩, 대기열 `scripts/queues/rhythm-budget-20261026.txt` 15줄; 긴 run부터: population f-LIF, population LIF, f-LIF, LIF, Spikformer식). 처음 8개 run은 `e7bd92306` 코드로 돈다. 나머지 7개(LIF 일부, Spikformer식)는 시작할 때의 HEAD(이 commit)를 import 한다. 아래 코드 변경은 기본값에서 기존 경로를 비트 단위로 바꾸지 않는다(점검 c1–c41 통과, c42의 기본값 = 0.5 비교).
+
+**코드:**
+- `layers.py` `SSA_rel_scl(kv_cat=False)`: kv_cat이면 자기 토큰의 k·v는 그대로 두고, kv(신피질) 토큰에 두 번째 k·v 쌍(`k2_linear`/`k2_bn`/`k2_lif`, `v2_*`)을 만든다. 주의 출력 = (q k_sᵀ · s + b) v_s + (q k_nᵀ · s + b) v_n(같은 상대 bias 표). kv_cat이 꺼져 있으면 모듈도 계산도 없다.
+- `model.py`:
+  - `Block(xattn_mode)` → `SSA_rel_scl(kv_cat = xattn and mode == 'cat')`.
+  - 신피질 기울기 비율 `g = blk.neo_grad`: 교차 주의 경로와 T = N memory replay 경로 두 곳의 `0.5·mx + 0.5·mx.detach()`를 `g·mx + (1 − g)·mx.detach()`로 바꿨다(기본 0.5).
+  - `myModel(hippo_xattn_mode='replace'|'cat', neo_grad=0.5, neo_memoryless=False)`. 거부하는 조합: cat인데 hippo_xattn 없음, cat + popk 스트림, 기억 없음 + 양방향/스트림/신피질 없음, neo_grad가 [0, 1] 밖.
+  - `neo_forward`의 기억 없음 분기: 신피질 입력 [N, B, 1, P]를 [1, N·B, 1, P]로 바꿔 임베딩·2층을 돌리고 [N, B, 1, D]로 되돌린다. 모든 뉴런이 토큰마다 1스텝만 돌아서 상태가 토큰을 건너가지 않는다. BN 통계는 같은 원소 집합이라 같다.
+- `config.py`: `--hippo_xattn_mode {replace, cat}`, `--neo_grad`, `--neo_memoryless`. 폴더 접미사 `_xacat`, `_ng<g>`, `_nomem`(기본값이면 없음).
+- `load_model.py`: 세 옵션 전달.
+- `scripts/run_rhythm_addneo.sh`: `run_rhythm6.sh` 복사본 + 다섯 조건(`spkneo_*`는 ALPHA=0, `--hippo_T 4 --hippo_xattn --hippo_xattn_mode cat --neo_grad 1.0`; population LIF soma 0.5, population f-LIF soma 1.0; 대조는 `--neo_memoryless`).
+- `check_cls.py`: c42–c45.
+
+**점검 45/45** (`results/checks/check_cls_addneo.txt`; GPU 3, A pool과 함께):
+- c1–c41 그대로 통과. 기본 경로는 비트 동일이다.
+- **c42** `neo_grad`(실제 CinC 창 8개, CE만): T_h 4 교차 주의 경로와 T = N memory replay 경로 모두에서, 기본값·0.5·1.0의 로짓이 비트 동일하다. 기본값과 0.5의 기울기가 같다. 1.0에서 신피질 파라미터 9개의 기울기가 정확히 2배(최대 상대 오차 0.0)이고, 해마 파라미터 23 / 22개의 기울기는 비트 동일이다.
+- **c43** cat: Spikformer식(hippo_ssa, T 4) 가중치를 cat 모델에 복사하고(빠진 텐서 0) 신피질 출력을 0으로 두면 로짓이 Spikformer식과 **비트 동일**하다. 실제 신피질 출력에서는 달라진다. CE 기울기가 신피질(합 3.78e1)과 k2·v2(1.07e1)에 간다. 파라미터는 Spikformer식 918,088, 바꿔 넣기 1,264,456, cat 1,560,904(= 바꿔 넣기 + 2·384² + 4·384)다. cat에만 있는 모듈은 `ssa.k2_*`, `ssa.v2_*`, `encoding_neo`, `time_block`, `weak_decoder`(보조 손실 0이라 쓰이지 않음, 대조군에도 같이 있음)다. 에너지 기록기는 k2_lif·v2_lif를 해마 경로 T = 4로 본다.
+- **c44** 기억 없음: 파라미터가 T = N 모델과 같다. 입력 토큰 60을 다른 표본의 토큰으로 바꾸면 기억 없는 신피질 출력은 토큰 60에서만 바뀐다(앞 0개, 뒤 0개). T = N 신피질은 뒤로 16개 토큰이 더 바뀐다(양성 대조). 기록기는 기억 없는 쪽을 T = 1로 본다. 창당 뉴런 × 스텝 수는 두 모델이 같다(134,784).
+- **c45** 위 거부 조합 6개를 모두 거부한다. 폴더 이름 6개가 모두 다르다. 바꿔 넣기(기본) 이름에는 새 접미사가 없다.
+
+**smoke** (`results/smoke-rhythm-addneo-20261026/raw.txt`, 1 epoch, seed 42, GPU 0–2에서 A와 함께; **5/5 끝까지, SKIP 0**). `logargs.txt`의 alpha 0.0, neo_grad 1.0, hippo_xattn_mode cat, hippo_T 4, neo_memoryless, pop_soma_init이 의도와 같다. smoke는 commit 전 작업 트리로 돌아서 RESULT의 sha는 `e7bd92306`이다.
+
+| 조건 | 1 epoch 점수 | 에너지 µJ | params | 신피질 / 해마 발화율 | 시간 s | 최대 메모리 GB |
+|---|---:|---:|---:|---|---:|---:|
+| spkneo_lif | 0.3783 | 142.2 | 1,560,904 | 0.040 / 0.063 | 237 | 2.80 |
+| spkneo_flif | 0.3625 | 144.6 | 1,560,904 | 0.036 / 0.059 | 287 | 1.68 |
+| spkneo_pop_lif | 0.3315 | 150.4 | 1,565,512 | 0.041 / 0.055 | 370 | 1.68 |
+| spkneo_pop_flif | 0.3296 | 176.1 | 1,565,512 | 0.036 / 0.065 | 352 | 2.80 |
+| spkneo_lif_nomem | 0.3334 | 145.3 | 1,560,904 | 0.031 / 0.067 | 68 | 2.65 |
+
+- 같은 날 Spikformer식 1 epoch smoke는 107.6 µJ였다. 덧붙임 모델은 1 epoch 기준 1.3–1.6배다.
+- `summarize_rhythm.py --addneo --suite smoke-rhythm-addneo-20261026`은 표를 만들고, seed가 하나라 모든 판정을 incomplete로 남겼다.
+
+**학습:** 이 commit 뒤 tmux `flif_addneo`에서 GPU 0–3에 1개씩(A 2개 + B 1개 = GPU당 3개), 대기열 `scripts/queues/rhythm-addneo-20261026.txt` 15줄. suite `flif-v1-rhythm-addneo-cinc`.
+
+**commit:** 이 항목·코드·점검·smoke·러너를 commit 하고 `exp/nsmt-flif-neo`만 push.

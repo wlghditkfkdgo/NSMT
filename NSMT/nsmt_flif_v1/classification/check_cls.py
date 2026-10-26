@@ -58,6 +58,7 @@ cannot run, or whose test is vacuous (no spikes), FAILs.
       real data (training-mode BN) is closest to the tau 4-32 / psi 1 mixer (per dataset) -- the value is reported, not asserted
   c33-c37 (MODI 2026-10-23) membrane fusion and the K-stream neocortex: see the docstrings of c33 ... c37
   c38-c41 (MODI 2026-10-24) spike-xor fusion, tau-group linear fusions, stream order, fused bidirectional streams
+  c42-c45 (MODI 2026-10-26) B: neo_grad share, own + neocortex keys / values (cat), memoryless neocortex control, option rules
   c25 (MODI 2026-10-21) BiX (mixer_comb xattn): every spiking neuron runs T = N steps, attention map [B, 1, 8, N, N], the
       query Linear sees the forward stream and the key / value Linears the reverse stream, and changing input token j changes
       the mixer output before token j (bidirectional reach)
@@ -1690,12 +1691,193 @@ def c41():
     report('c41', ok, '; '.join(rows))
 
 
+B_BASE = dict(HP, patch_size=64, seq_len=3750, num_channels=1, num_classes=4, neo_alpha=0.5)   # MODI 2026-10-26 (B) checks
+
+
+def _ce_grads(m, x, y):
+    """train-mode forward, plain CE on the logits only, backward; returns (logits, {param name: grad})."""
+    from spikingjelly.clock_driven import functional
+    m.train(); m.zero_grad(set_to_none=True)
+    out = m(x); z = out[0] if isinstance(out, tuple) else out
+    torch.nn.functional.cross_entropy(z, y).backward(); functional.reset_net(m)
+    return z.detach(), {n: (p.grad.detach().clone() if p.grad is not None else None) for n, p in m.named_parameters()}
+
+
+@check('c42')
+def c42():
+    """(MODI 2026-10-26) --neo_grad: the default (no option) and 0.5 give bitwise equal logits; 1.0 gives bitwise equal logits too
+    (the forward value does not depend on the share), with CE only every neocortex parameter gradient is exactly 2x the 0.5 one
+    and every hippocampus parameter gradient is bitwise equal -- on both the T_h 4 cross-attention path and the T = N memory-replay
+    path, on real CinC windows."""
+    from load_model import LOAD_MODEL
+    from config import set_random_seed
+    x, _, _ = _real_batch('CINC2017', n=8)
+    y = torch.tensor([0, 1, 2, 3, 0, 1, 2, 3]).cuda()
+    rows, ok = [], True
+    for tag, extra in (('T_h 4 cross-attention', dict(hippo_T=4, hippo_xattn=True)), ('T = N memory replay', {})):
+        res = {}
+        for g in (None, 0.5, 1.0):
+            set_random_seed(0)
+            kw = dict(B_BASE, neo_neuron='lif', **extra)
+            if g is not None:
+                kw['neo_grad'] = g
+            m = LOAD_MODEL['myModel'](NS(**kw), True).cuda()
+            res[g] = _ce_grads(m, x, y)
+        neo = [n for n, gr in res[0.5][1].items() if n.startswith(('encoding_neo', 'time_block')) and gr is not None and gr.abs().sum() > 0]
+        hip = [n for n, gr in res[0.5][1].items() if not n.startswith(('encoding_neo', 'time_block', 'weak_decoder')) and gr is not None]
+        same_logits = torch.equal(res[None][0], res[0.5][0]) and torch.equal(res[0.5][0], res[1.0][0])
+        same_default = all((res[None][1][n] is None and res[0.5][1][n] is None) or torch.equal(res[None][1][n], res[0.5][1][n]) for n in res[0.5][1])
+        rel = max(float((res[1.0][1][n] - 2 * res[0.5][1][n]).abs().max() / (2 * res[0.5][1][n]).abs().max().clamp_min(1e-30)) for n in neo)
+        hip_eq = all(torch.equal(res[1.0][1][n], res[0.5][1][n]) for n in hip)
+        good = same_logits and same_default and len(neo) > 0 and rel < 1e-4 and hip_eq and len(hip) > 0
+        ok &= good
+        rows.append(f'{tag}: logits equal (default / 0.5 / 1.0) {same_logits}, default == 0.5 grads {same_default}, '
+                    f'{len(neo)} neocortex grads at 1.0 = 2x (max rel err {rel:.1e}), {len(hip)} hippocampus grads bitwise equal {hip_eq}')
+    report('c42', ok, '; '.join(rows))
+
+
+@check('c43')
+def c43():
+    """(MODI 2026-10-26) --hippo_xattn_mode cat: with the Spikformer-style (hippo_ssa, T 4) weights copied into the cat model and
+    the neocortex output forced to 0, the logits equal Spikformer-style bitwise (the extra key / value term vanishes); with the
+    real neocortex output they differ and the neocortex receives a CE gradient; the extra parameters are exactly the neocortex and
+    the second key / value pair; the replace model keeps its parameter count (1-C); the energy recorder sees k2 / v2 at T = 4."""
+    from load_model import LOAD_MODEL
+    from config import set_random_seed
+    from spikingjelly.clock_driven import functional
+    from energy import FiringRateRecorder
+    x, _, _ = _real_batch('CINC2017', n=8)
+    y = torch.tensor([0, 1, 2, 3, 0, 1, 2, 3]).cuda()
+    set_random_seed(0)
+    spk = LOAD_MODEL['myModel'](NS(**dict(B_BASE, hippo_ssa=True, hippo_T=4)), True).cuda()
+    set_random_seed(1)
+    cat = LOAD_MODEL['myModel'](NS(**dict(B_BASE, neo_neuron='lif', hippo_T=4, hippo_xattn=True, hippo_xattn_mode='cat', neo_grad=1.0)), True).cuda()
+    set_random_seed(0)
+    rep = LOAD_MODEL['myModel'](NS(**dict(B_BASE, neo_neuron='lif', hippo_T=4, hippo_xattn=True)), True).cuda()
+    sd_s, sd_c = spk.state_dict(), cat.state_dict()
+    missing = [k for k in sd_s if k not in sd_c or sd_c[k].shape != sd_s[k].shape]
+    cat.load_state_dict({**sd_c, **{k: v for k, v in sd_s.items() if k in sd_c}})
+    extra = sorted({k.split('.')[0] if not k.startswith('data_block') else '.'.join(k.split('.')[:4]) for k in sd_c if k not in sd_s})
+    n_par = lambda m: sum(p.numel() for p in m.parameters())
+    for m in (spk, cat):
+        m.train(); m.train_mode = 'testing'
+    with torch.no_grad():
+        zs = spk(x)[0]; functional.reset_net(spk)
+        orig = cat.neo_forward
+        cat.neo_forward = lambda ni, org=None: (lambda e, o: (e, torch.zeros_like(o)))(*orig(ni, org))
+        zc0 = cat(x)[0]; functional.reset_net(cat)
+        cat.neo_forward = orig
+        zc1 = cat(x)[0]; functional.reset_net(cat)
+    zero_eq = torch.equal(zs, zc0)
+    differs = not torch.equal(zs, zc1)
+    cat.train_mode = 'training'
+    _, gr = _ce_grads(cat, x, y)
+    neo_grad = sum(float(g.abs().sum()) for n, g in gr.items() if n.startswith(('encoding_neo', 'time_block')) and g is not None)
+    kv2_grad = sum(float(g.abs().sum()) for n, g in gr.items() if '.k2_' in n or '.v2_' in n if g is not None)
+    cat.train_mode = 'testing'
+    rec = FiringRateRecorder(cat)
+    with torch.no_grad():
+        cat(x[:4]); functional.reset_net(cat)
+    rec.add_samples(4)
+    kv2 = {n: (st['T'], st['path']) for n, st in rec.stats.items() if ('k2_lif' in n or 'v2_lif' in n)}
+    rec.detach()
+    counts = (n_par(spk), n_par(rep), n_par(cat))
+    good = (not missing and zero_eq and differs and neo_grad > 0 and kv2_grad > 0 and counts[1] == 1264456 and counts[0] == 918088
+            and counts[2] == counts[1] + 2 * 384 * 384 + 4 * 384 and len(kv2) == 2 and all(v == (4, 'hippo') for v in kv2.values()))
+    report('c43', good, f'Spikformer tensors copied (missing {missing}), neocortex output 0 -> logits == Spikformer-style bitwise {zero_eq}, '
+                        f'real neocortex -> differ {differs}, CE grad |neocortex| {neo_grad:.3e} |k2, v2| {kv2_grad:.3e}, '
+                        f'params Spikformer / replace / cat {counts}, cat-only modules {extra}, recorder k2 / v2 {kv2}')
+
+
+@check('c44')
+def c44():
+    """(MODI 2026-10-26) --neo_memoryless: same parameters as the T = N neocortex; replacing input token j changes the memoryless
+    neocortex output at token j only (all other tokens bitwise equal) while the T = N neocortex also changes later tokens
+    (positive control); the energy recorder sees the memoryless neocortex neurons at T = 1 with N x the neurons per window, so
+    neurons x steps per window equals the T = N model's."""
+    from load_model import LOAD_MODEL
+    from config import set_random_seed
+    from spikingjelly.clock_driven import functional
+    from energy import FiringRateRecorder
+    x, _, _ = _real_batch('CINC2017', n=8)
+    ms = {}
+    for tag, extra in (('memoryless', dict(neo_memoryless=True)), ('T = N', {})):
+        set_random_seed(0)
+        ms[tag] = LOAD_MODEL['myModel'](NS(**dict(B_BASE, neo_neuron='lif', hippo_T=4, hippo_xattn=True, hippo_xattn_mode='cat',
+                                                   neo_grad=1.0, **extra)), True).cuda()
+    same_params = all(torch.equal(a, b) for a, b in zip(ms['memoryless'].state_dict().values(), ms['T = N'].state_dict().values()))
+    rows, change = [], {}
+    j = 60
+    for tag, m in ms.items():
+        m.train_mode = 'testing'
+        _bn_freeze_eval(m, x)
+        with torch.no_grad():
+            _, ni = m._tokens_mc(x)
+            _, a0 = m.neo_forward(ni); functional.reset_net(m)
+            ni2 = ni.clone(); ni2[j] = ni2[j][torch.roll(torch.arange(8), 1).cuda()]
+            _, a1 = m.neo_forward(ni2); functional.reset_net(m)
+        d = (a0 != a1).flatten(1).any(1)                                     # which tokens changed
+        change[tag] = (bool(d[j]), int(d[:j].sum()), int(d[j + 1:].sum()), tuple(a0.shape))
+        rec = FiringRateRecorder(m); m.train()
+        with torch.no_grad():
+            m(x[:4]); functional.reset_net(m)
+        rec.add_samples(4)
+        lay = [r for r in rec.layers() if r['path'] == 'neo']
+        rec.detach()
+        change[tag] += (sorted({r['T'] for r in lay}), sum(r['neurons_per_sample'] * r['T'] for r in lay))
+    mm, tn = change['memoryless'], change['T = N']
+    good = (same_params and mm[0] and mm[1] == 0 and mm[2] == 0 and tn[0] and tn[1] == 0 and tn[2] > 0 and mm[3] == tn[3]
+            and mm[4] == [1] and tn[4] == [ms['T = N'].num_patches] and abs(mm[5] - tn[5]) < 1e-6 * tn[5])
+    report('c44', good, f'same parameters {same_params}; token {j} replaced -> (changed at j, # earlier changed, # later changed, shape, '
+                        f'recorder T, neurons x steps per window): memoryless {mm}, T = N {tn}')
+
+
+@check('c45')
+def c45():
+    """(MODI 2026-10-26) option rules and run directories: cat without hippo_xattn, cat with popk streams, memoryless with
+    neo_bidir / hippo_ssa / popk streams, neo_grad 1.5 are refused; the run directories of the five B conditions and of the
+    replace model are distinct and the replace / default names carry no new suffix."""
+    from load_model import LOAD_MODEL
+    import config as cfg
+    bad = [dict(neo_neuron='lif', hippo_T=4, hippo_xattn_mode='cat'),
+           dict(neo_neuron='popk_lif', hippo_T=4, hippo_xattn=True, hippo_xattn_mode='cat'),
+           dict(neo_neuron='lif', neo_bidir=True, neo_memoryless=True),
+           dict(hippo_ssa=True, hippo_T=4, neo_memoryless=True),
+           dict(neo_neuron='popk_lif', hippo_T=4, hippo_xattn=True, neo_memoryless=True),
+           dict(neo_neuron='lif', neo_grad=1.5)]
+    refused = []
+    for b in bad:
+        try:
+            LOAD_MODEL['myModel'](NS(**dict(B_BASE, **b)), True); refused.append(False)
+        except ValueError:
+            refused.append(True)
+    tmp = tempfile.mkdtemp(dir=os.environ.get('CHECK_TMP'))
+    common = ['--data', 'CINC2017', '--patch_size', '64', '--model', 'myModel', '--hippo_T', '4', '--hippo_xattn']
+    flags = {'replace_lif': ['--neo_neuron', 'lif'],
+             'spkneo_lif': ['--neo_neuron', 'lif', '--hippo_xattn_mode', 'cat', '--neo_grad', '1.0'],
+             'spkneo_flif': ['--neo_neuron', 'flif', '--hippo_xattn_mode', 'cat', '--neo_grad', '1.0'],
+             'spkneo_pop_lif': ['--neo_neuron', 'pop_lif', '--pop_soma_init', '0.5', '--hippo_xattn_mode', 'cat', '--neo_grad', '1.0'],
+             'spkneo_pop_flif': ['--neo_neuron', 'pop_flif', '--pop_soma_init', '1.0', '--hippo_xattn_mode', 'cat', '--neo_grad', '1.0'],
+             'spkneo_lif_nomem': ['--neo_neuron', 'lif', '--hippo_xattn_mode', 'cat', '--neo_grad', '1.0', '--neo_memoryless']}
+    names, argv0 = {}, sys.argv
+    try:
+        for c, f in flags.items():
+            sys.argv = ['train_rhythm.py', '--log_dir', tmp, '--seed', '42', '-s'] + common + f
+            a = cfg.Config(); a.set_args(cfg.parse_arguments()); names[c] = os.path.basename(a.save_result_path)
+    finally:
+        sys.argv = argv0
+    plain = not any(s in names['replace_lif'] for s in ('_xacat', '_ng', '_nomem'))
+    ok = all(refused) and len(set(names.values())) == len(names) and plain and all('_xacat_ng1' in names[c] for c in flags if c != 'replace_lif') \
+        and names['spkneo_lif_nomem'].endswith('_nomem_f0')
+    report('c45', ok, f'refused {refused}; ' + ', '.join(f'{c}={n}' for c, n in names.items()))
+
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', default=os.path.join(HERE, 'results', 'checks', 'check_cls.txt'))
     ap.add_argument('--only', nargs='*', default=None)
     a = ap.parse_args()
-    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30, c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41):
+    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30, c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44, c45):
         if a.only and fn.__name__ not in a.only:
             continue
         fn()

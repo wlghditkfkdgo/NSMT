@@ -128,6 +128,12 @@ def parse_arguments():
                          help='MODI 2026-10-21 BiX: how the two mixer directions are combined (OR, or token-axis cross-attention q = forward, k/v = reverse)')
     snn_arg.add_argument('--attn_bn', action='store_true', default=False, help='BN in front of the SSA attention neuron (spk_ssa_abn)')
     snn_arg.add_argument('--hippo_xattn', action='store_true', default=False, help='hippocampus T_h repeats with token cross-attention (q = hippocampus, k/v = neocortex tokens)')
+    # MODI 2026-10-26 (B): Spikformer-style self-attention kept + the neocortex tokens as extra keys / values; gradient share; memoryless control
+    snn_arg.add_argument('--hippo_xattn_mode', choices=['replace', 'cat'], default='replace',
+                         help='replace = neocortex keys / values instead of the own ones (1-C); cat = own + neocortex keys / values')
+    snn_arg.add_argument('--neo_grad', type=float, default=0.5, help='task-gradient share to the neocortex (0.5 = the ECG code)')
+    snn_arg.add_argument('--neo_memoryless', action='store_true', default=False,
+                         help='every token runs through the neocortex as its own 1-step sequence (no state crosses tokens)')
     snn_arg.add_argument('--pop_soma_init', type=float, default=None, help='pop_flif soma mixing weight init (None = 1/K)')
     snn_arg.add_argument('--fold', type=int, default=0, help='CinC 2017: test fold 0..4 of the record-wise stratified 5-fold split')
     snn_arg.add_argument('--val_frac', type=float, default=0.1, help='share of the training part held out for validation')
@@ -244,6 +250,12 @@ class Config():
                      'xattnmem': '_xamem', 'linxor': '_linxor'}[args.mixer_comb]   # MODI 2026-10-23 / 24: membrane fusion, spike xor
         if getattr(args, 'attn_bn', False):
             _iso += "_abn"
+        if getattr(args, 'hippo_xattn_mode', 'replace') != 'replace':      # MODI 2026-10-26 (B)
+            _iso += f"_xa{args.hippo_xattn_mode}"
+        if float(getattr(args, 'neo_grad', 0.5)) != 0.5:
+            _iso += f"_ng{float(args.neo_grad):g}"
+        if getattr(args, 'neo_memoryless', False):
+            _iso += "_nomem"
         if getattr(args, 'pop_soma_init', None) is not None:
             _iso += f"_psi{args.pop_soma_init:g}"
         if str(getattr(args, 'data', '')).upper() in ('CINC2017', 'SHD'):
