@@ -124,7 +124,7 @@ def parse_arguments():
     # MODI 2026-10-21 (stage 9 cause-separation): 1-B position, 1-C hippocampus T_h with token cross-attention over neocortex tokens
     snn_arg.add_argument('--ssa_pe', type=int, choices=[0, 1], default=1, help='relative position bias in SSA / hippo_xattn (0 = none)')
     snn_arg.add_argument('--pos_emb', action='store_true', default=False, help='learned absolute position in the hippocampus / mixer embedding')
-    snn_arg.add_argument('--mixer_comb', choices=['or', 'xattn', 'xattn_ch', 'lin', 'linmem', 'linmx', 'xattnmem', 'linxor'], default='or',
+    snn_arg.add_argument('--mixer_comb', choices=['or', 'xattn', 'xattn_ch', 'lin', 'linmem', 'linmx', 'xattnmem', 'linxor', 'linsd'], default='or',
                          help='MODI 2026-10-21 BiX: how the two mixer directions are combined (OR, or token-axis cross-attention q = forward, k/v = reverse)')
     snn_arg.add_argument('--attn_bn', action='store_true', default=False, help='BN in front of the SSA attention neuron (spk_ssa_abn)')
     snn_arg.add_argument('--hippo_xattn', action='store_true', default=False, help='hippocampus T_h repeats with token cross-attention (q = hippocampus, k/v = neocortex tokens)')
@@ -241,7 +241,7 @@ class Config():
             _iso += "_nope"
         if getattr(args, 'mixer_comb', 'or') != 'or':                    # MODI 2026-10-21 (BiX)
             _iso += {'xattn': '_xa', 'xattn_ch': '_xach', 'lin': '_lin', 'linmem': '_linmem', 'linmx': '_linmx',
-                     'xattnmem': '_xamem', 'linxor': '_linxor'}[args.mixer_comb]   # MODI 2026-10-23 / 24: membrane fusion, spike xor
+                     'xattnmem': '_xamem', 'linxor': '_linxor', 'linsd': '_linsd'}[args.mixer_comb]   # 10-23 / 24 / 27: membrane fusion, spike xor, spiking difference
         if getattr(args, 'attn_bn', False):
             _iso += "_abn"
         if getattr(args, 'pop_soma_init', None) is not None:

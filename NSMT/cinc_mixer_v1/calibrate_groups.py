@@ -31,12 +31,12 @@ KW = dict(keep_ratio=0.15, gating='attn', embed_dim=384, num_heads=8, mlp_ratios
           tau=2.0, spk_encoding=False, neo_alpha=0.5, pop_taus='4,8,16,32', neo_tau=2.0, fde_method='pred', fde_step=1.0, fde_memory=0,
           mixer_bidir=True, pos_emb=False, tau_calib=False)                    # build uncalibrated, then calibrate
 MODELS = [('neoMixer', 'popg_lif'), ('neoMixer', 'popg_flif'), ('streamMixer', 'popk_lif'), ('streamMixer', 'popk_flif')]
-BN_OF = {'emb_lif': 'emb_bn', 'lif': 'bn', 'neuron': 'bn', 'attn_neuron': 'attn_bn'}
+BN_OF = {'emb_lif': 'emb_bn', 'lif': 'bn', 'neuron': 'bn', 'attn_neuron': 'attn_bn', 'sd_neuron': 'sd_bn'}   # 10-27: linsd
 
 
 def layer_kind(name):
     for k in ('encoding', 'mixer_rev.Mem.0', 'mixer_rev.layers.0', 'mixer.Mem.0', 'mixer.layers.0', 'mixer_rev.Mem.1', 'mixer_rev.layers.1',
-              'mixer.Mem.1', 'mixer.layers.1', 'xattn.q', 'xattn.k', 'xattn.v', 'xattn.attn', 'xattn.proj', 'fuse', 'fc1', 'fc2'):
+              'mixer.Mem.1', 'mixer.layers.1', 'xattn.q', 'xattn.k', 'xattn.v', 'xattn.attn', 'xattn.proj', 'fuse', 'sd_neuron', 'fc1', 'fc2'):
         if k in name:
             return k.replace('layers.', 'Mem.')                         # stream model 'layers.i' = NeoMixer 'Mem.i'
     raise KeyError(name)

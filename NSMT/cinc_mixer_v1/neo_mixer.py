@@ -35,10 +35,12 @@ MIXERS = ('none', 'lif', 'flif', 'pop_flif', 'lif_rec', 'sj_lif',   # MODI 2026-
           'pop_lif', 'pop_rec', 'popg_lif', 'popg_flif')           # sj_lif = the same spikingjelly single-step LIF loop without recurrence (control)
 COMBS = ('or', 'xattn', 'xattn_ch', 'lin',   # lin (MODI 2026-10-22): m = neuron(BN(W [F; R])), learned per-token fusion, no attention
          'linmem', 'linmx', 'xattnmem',     # MODI 2026-10-23 membrane fusion: the last mixer layers' charges H - theta instead of
-         'linxor')                          # MODI 2026-10-24: spike control of linmx, neuron(BN(W [F; R; |F - R|])) (|F - R| = F xor R)
+         'linxor',                          # MODI 2026-10-24: spike control of linmx, neuron(BN(W [F; R; |F - R|])) (|F - R| = F xor R)
+         'linsd')                           # 2026-10-27 (PROJECT_LOG, exp/f-lif-pop-v3): s_d = LIF(BN(|H_f - H_r|)) as an activation,
+                                            # then neuron(BN(W [F; R; s_d])) -- the charge difference reaches the fusion as spikes
                                             # their spikes: linmem neuron(BN(W [H_f; H_r])), linmx neuron(BN(W [H_f; H_r; |H_f - H_r|])),
                                             # xattnmem = BiX with q / k from H_f / H_r (real-valued) and v from the reverse spikes
-MEM_COMBS = ('linmem', 'linmx', 'xattnmem')
+MEM_COMBS = ('linmem', 'linmx', 'xattnmem', 'linsd')
 
 
 class MixerStack(nn.Module):
@@ -89,15 +91,23 @@ class Block(nn.Module):
         spikede = ('lif', 'flif', 'pop_lif', 'pop_flif', 'popg_lif', 'popg_flif')
         if comb in MEM_COMBS and (mixer not in spikede or (self.grouped and comb == 'xattnmem')):
             raise NotImplementedError('membrane fusion is defined for the spikeDE mixers (xattnmem not for the tau groups)')
-        if comb in ('lin', 'linmem', 'linmx', 'linxor'):                 # MODI 2026-10-22: Linear(2D -> D) on [F; R] -> BN -> spikingjelly LIF
-            if self.grouped and comb not in ('lin', 'linmem', 'linmx', 'linxor'):
-                raise NotImplementedError(comb)
-            width = 3 * dim if comb in ('linmx', 'linxor') else 2 * dim   # MODI 2026-10-23: [H_f; H_r] / [H_f; H_r; |H_f - H_r|]
+        if comb in ('lin', 'linmem', 'linmx', 'linxor', 'linsd'):        # MODI 2026-10-22: Linear(2D -> D) on [F; R] -> BN -> spikingjelly LIF
+            width = 3 * dim if comb in ('linmx', 'linxor', 'linsd') else 2 * dim   # MODI 2026-10-23: [H_f; H_r] / [H_f; H_r; |H_f - H_r|]
             if self.grouped:                                             # MODI 2026-10-24: tau groups (spikingjelly LIF per group, as fc1 / fc2)
                 self.fuse = StreamSpikeLinear(width, dim, 1, GroupNeuron(dim, taus, 'sj', axis=-1), bias=bias, bn_layout='flat',
                                               gamma=group_gamma(dim, taus))
             else:
                 self.fuse = StreamSpikeLinear(width, dim, 1, sj_lif(tau), bias=bias, bn_layout='flat')
+            if comb == 'linsd':                                          # 2026-10-27: BN + spiking neuron on the charge difference
+                # created after fuse; BN starts at weight 1 / bias 0 and the neuron has no parameters, so the random stream -- and
+                # every initial value shared with linmx / linxor -- is unchanged at the same seed
+                self.sd_bn = nn.BatchNorm1d(dim)
+                if self.grouped:
+                    self.sd_neuron = GroupNeuron(dim, taus, 'sj', axis=-1)
+                    with torch.no_grad():
+                        self.sd_bn.weight.copy_(group_gamma(dim, taus))
+                else:
+                    self.sd_neuron = sj_lif(tau)
         elif comb != 'or':                                               # MODI 2026-10-21: BiX, q = forward stream, k/v = reverse stream
             afn = (lambda: GroupNeuron(dim, taus, 'sj', axis=-1)) if self.grouped else (lambda: sj_lif(tau))
             self.xattn = TokenXAttn(dim, T, K=1, heads=heads, form=('channel' if comb == 'xattn_ch' else 'head'), neuron_fn=afn, bias=bias,
@@ -124,6 +134,11 @@ class Block(nn.Module):
                 return self.fuse(torch.cat([hf, hr], dim=-1))
             if self.comb == 'linmx':
                 return self.fuse(torch.cat([hf, hr, (hf - hr).abs()], dim=-1))
+            if self.comb == 'linsd':                                     # 2026-10-27: spikes of the difference, over the token axis
+                d = (hf - hr).abs()
+                N, B, K, D = d.shape
+                sd = self.sd_neuron(self.sd_bn(d.reshape(-1, D)).reshape(N, B, K, D).contiguous())
+                return self.fuse(torch.cat([f, r, sd], dim=-1))
             return self.xattn(f, r, hf, hr)
         m = self.mixer(x)
         if self.bidir:

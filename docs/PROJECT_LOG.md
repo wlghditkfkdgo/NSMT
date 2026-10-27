@@ -8290,3 +8290,68 @@ SUITE=neurons-smoke-20261014b-nocal EXTRA='--no-require_calibration --input_scal
 **실수:** 첫 실행(무작위 대조 없음, 출력 폴더 `mask-probe-20261026`)을 멈출 때 `kill $(pgrep -f …)`를 써서 내 셸 명령까지 종료했다. 다른 세션의 학습 run은 영향이 없었다(같은 직후 `ps`로 확인). 멈춘 실행의 빈 출력 폴더는 지웠고, 무작위 대조를 더해 `mask-probe-20261026b`로 다시 돌렸다. 메모리 `kill-by-pid`를 따로 두었다.
 
 **commit:** 이 항목·고정판 코드·스크립트·결과를 `exp/f-lif-pop-v3`에 commit·push (해시는 다음 항목에).
+
+---
+
+## 2026-10-27 17:27 KST — 사전 고정: 막전위 차이를 스파이킹 뉴런에 "활성화"처럼 통과시키는 합치기(`mixlinsd`, CinC fold 0, 18 run) — 점검 19/19, smoke 2/2
+
+**직전 commit:** `facb9604e` (가림 평가 사전 확인).
+
+**목적:** 사용자 결정(10-27) "1번 먼저 수행해보자". 사전 확인에서 학습된 ③의 막전위 차이 정보는 발화 자리가 아니라 문턱 아래 전체에 퍼져 있었다. 그래서 발화 자리에만 값을 싣는 게이트 안 대신, d 전체를 받아 자기 스파이크로 내보내는 안을 먼저 학습한다.
+
+**설계:**
+- 블록: s_d = LIF_d(BN_d(|H_f − H_r|)), 이어서 m = LIF(BN(W [F; R; s_d])).
+  - BN_d는 단위마다 학습되는 이득·치우침이고 θ = 1이므로, 각 단위가 자기 문턱을 학습한다.
+  - LIF_d는 같은 블록의 합치기·MLP 뉴런과 같은 spikingjelly LIF(τ 2)이고, 토큰 축(T = N = 117)으로 돈다.
+  - 크기 정보는 토큰을 따라 적분된 발화로 전달된다. 새로 정한 값은 없다.
+- 합치기 입력이 전부 0/1이라 Linear는 AC다. W(384, 1152)는 ③·스파이크 XOR와 모양·순서가 같아, 같은 seed에서 초기값이 같다(BN_d 두 벡터만 추가, c42).
+- 뉴런 6종: LIF, f-LIF(α 0.5), population LIF(soma 0.5), population f-LIF(soma 1.0), soma 없는 τ 그룹 popg_lif, popg_flif. seed 42·7·2026 → 18 run.
+  - popg는 LIF_d도 τ 그룹 spikingjelly LIF다. 층별 BN 이득은 같은 합치기의 단일 spikeDE 뉴런 모델에 맞췄다(`calibrate_groups.py --combs linsd` → `calib/tau_gains_neoMixer_popg_{lif,flif}_linsd.json`, 모든 층 0.99–1.01배, c43). 기준 모델의 LIF_d 초기 발화율은 0.0598(LIF)·0.0590(f-LIF)이다.
+- 나머지는 Neo-mixer 공통 설정과 같다(D 384, 양방향 mixer 2층, IAND, MLP, 토큰 평균 head, 30 epoch, AdamW 1e-3, batch 32, CAL 가중 CE + 0.1 보조 없음 — Neo-mixer는 CE만).
+
+**코드 (이 브랜치, `NSMT/cinc_mixer_v1/` 고정판에 추가):**
+- `neo_mixer.py`: `linsd`.
+- `config.py`: 선택지와 접미사 `_linsd`.
+- `layers.py` / `calibrate_groups.py`: `sd_neuron` → `sd_bn` 대응.
+- `check_cls.py`: c42·c43.
+- `summarize_rhythm.py`: `--sd`.
+- `scripts/run_rhythm_sd.sh`: 원래 `run_rhythm5.sh`의 복사본에 `mixlinsd_*`를 더했다. 결과 디렉터리를 찾는 패턴에 `_f<fold>`를 넣어 10-25 fold 버그를 막았다.
+
+**기준선:** 이미 끝난 suite의 `raw.txt`를 이 브랜치에 복사했다(`results/BASELINE_COPIES.txt`에 sha256 기록). 대상은 9단계, 아이디어 묶음, 선형 합, 막전위 합치기, 스파이크 XOR, popg다. 원본은 메인 트리이고 읽기만 했다.
+
+**점검 19/19** (`results/checks/check_cls_sd.txt`, c25–c43):
+- c25–c41: 고정판에서 그대로 통과했다. c1–c24는 이 브랜치에 없는 `nsmt_base` 참조 코드가 필요해 돌리지 않았다. 고정판의 그 부분은 바꾸지 않았다.
+- c42: LIF_d 초기 발화율 0.058–0.080, 합치기 입력 0/1, 두 방향과 BN_d에 gradient.
+- c43: popg 보정 표가 적용되고 모든 층 0.993–1.005배.
+
+**smoke** (`results/smoke-rhythm-sd-20261027/raw.txt`, 1 epoch, seed 42, 2/2):
+
+| 조건 | params | 시냅스 에너지 µJ | 전체 에너지 µJ | 시간 s |
+|---|---:|---:|---:|---:|
+| mixlinsd_lif | 1,360,128 | 23.7 | 28.3 | 141 |
+| mixlinsd_popg_flif | 1,360,128 | 27.7 | 37.4 | 1,232 |
+
+에너지는 ③(267 µJ)의 약 1/9, Spikformer식(127 µJ)의 0.22–0.29배다. d를 구하는 뺄셈(384 × 117 / window)은 세지 않았다.
+
+**판정 (같은 규칙: 평균 ≥ +0.5%p, seed 2/3):**
+- SD1 sd − 스파이크 선형 합
+- SD2 sd − 스파이크 XOR
+- SD3 sd − ③
+- SD4 sd − OR
+- SD5 sd − Spikformer식(기준 (2): 에너지 0.5배 이하라 −0.5%p 안이면 충족)
+
+요약 명령은 `summarize_rhythm.py --sd --suite flif-v1-rhythm-sd-cinc`다.
+
+**예상(사전 기록):**
+- LIF: SD1 +2 ~ +3 좋음, SD2 +1 ~ +2 좋음, SD3 −1 ~ −2 나쁨, SD5 −1.5 ~ −3이라 미충족.
+- f-LIF는 LIF보다 작은 효과.
+- population(soma)·popg는 SD1이 차이 없음(③·XOR에서도 그랬다).
+
+**정직하게 밝혀 둘 점:** 두 뉴런의 막전위를 빼는 연결은 스파이크가 아니라 실수를 주고받는다(단위·토큰당 뺄셈 하나). "스파이크만으로 소통"하는 주장에서는 이 연결을 예외로 적는다.
+
+**학습:**
+- 이 commit 뒤 대기열 `NSMT/cinc_mixer_v1/scripts/queues/rhythm-sd-20261027.txt`(18 run, 느린 popg 먼저)를 `NSMT/scripts/gpu_pool2.sh <queue> 0,1,2,3`로 돌린다. GPU당 1개다.
+- 다른 세션이 GPU 0–1에서 GPU당 2개를 돌리고 있으며, 함께 쓰는 데 동의했다.
+- 명령은 `results/flif-v1-rhythm-sd-cinc/run_commands.txt`.
+
+**commit:** 이 기록·코드·점검·보정 표·기준선 복사·smoke를 `exp/f-lif-pop-v3`에 commit·push.

@@ -993,7 +993,7 @@ def _mixer_kw(**kw):
 
 def _layer_kind(name):
     for k in ('encoding', 'mixer_rev.Mem.0', 'mixer_rev.layers.0', 'mixer.Mem.0', 'mixer.layers.0', 'mixer_rev.Mem.1', 'mixer_rev.layers.1',
-              'mixer.Mem.1', 'mixer.layers.1', 'xattn.q', 'xattn.k', 'xattn.v', 'xattn.attn', 'xattn.proj', 'fuse', 'fc1', 'fc2'):
+              'mixer.Mem.1', 'mixer.layers.1', 'xattn.q', 'xattn.k', 'xattn.v', 'xattn.attn', 'xattn.proj', 'fuse', 'sd_neuron', 'fc1', 'fc2'):
         if k in name:
             return k.replace('Mem.', 'L').replace('layers.', 'L').replace('mixer_rev', 'rev').replace('mixer', 'fwd')
     return name
@@ -1690,12 +1690,88 @@ def c41():
     report('c41', ok, '; '.join(rows))
 
 
+# ---- 2026-10-27 (PROJECT_LOG, exp/f-lif-pop-v3): spiking-difference fusion linsd ---------------------------------------------
+@check('c42')
+def c42():
+    """linsd: s_d = LIF(BN(|H_f - H_r|)) per unit over the token axis (T = N), then LIF(BN(W [F; R; s_d])) with W (384, 1152); s_d and
+    the fusion output are 0/1, mix() == the same computation from the two stacks; the fusion input is entirely 0/1 (so the fusion
+    Linear is AC); initial values equal linmx / linxor at the same seed except the two extra BN vectors (weight 1, bias 0);
+    on real CinC windows (training-mode BN) both directions' last layers get a gradient through s_d, s_d fires at 1-30 %."""
+    from spikingjelly.clock_driven import functional
+    x, _, _ = _real_batch('CINC2017', n=8)
+    rows, ok = [], True
+    for mixer, extra in MEM_NEURONS:
+        m = _cinc_mixer('linsd', mixer, extra, x)
+        mx = _cinc_mixer('linmx', mixer, extra, x)
+        sd_keys = [k for k in m.state_dict() if '.sd_bn.' in k]
+        same = all(torch.equal(m.state_dict()[k], v) for k, v in mx.state_dict().items()) and \
+            set(m.state_dict()) - set(mx.state_dict()) == set(sd_keys); del mx
+        blk = m.blocks[0]
+        m.train(); m.zero_grad()
+        z, *_ = m.forward_parts(x); z.sum().backward(); functional.reset_net(m)
+        gf = float(blk.mixer.Mem[-1].w_in.weight.grad.abs().sum()); gr = float(blk.mixer_rev.Mem[-1].w_in.weight.grad.abs().sum())
+        gsd = float(blk.sd_bn.weight.grad.abs().sum())
+        m.train()
+        seen = {}
+        h1 = blk.fuse.linear.register_forward_pre_hook(lambda md, i: seen.__setitem__('fin', i[0].detach()))
+        h2 = blk.sd_neuron.register_forward_hook(lambda md, i, o: seen.__setitem__('sd', o.detach()))
+        with torch.no_grad():
+            e = m.encoding(m.tokens(x)); functional.reset_net(m)
+            mm = blk.mix(e); functional.reset_net(m)
+        h1.remove(); h2.remove()
+        fin_bin = bool(((seen['fin'] == 0) | (seen['fin'] == 1)).all())
+        sd_rate = float(seen['sd'].mean())
+        good = tuple(blk.fuse.linear.weight.shape) == (384, 1152) and same and fin_bin and bool(((mm == 0) | (mm == 1)).all()) \
+            and gf > 0 and gr > 0 and gsd > 0 and 0.01 <= sd_rate <= 0.30
+        ok &= good
+        rows.append(f'{mixer}: W {tuple(blk.fuse.linear.weight.shape)}, init == linmx except sd_bn {same}, fusion input 0/1 {fin_bin}, '
+                    f's_d rate {sd_rate:.3f}, grad fwd/rev/sd_bn {gf:.1e}/{gr:.1e}/{gsd:.1e}, out rate {float(mm.mean()):.3f}')
+    report('c42', ok, '; '.join(rows))
+
+
+@check('c43')
+def c43():
+    """tau-group linsd (popg_lif / popg_flif): the sd neuron is a spikingjelly GroupNeuron, the calibration table is loaded, and every
+    grouped layer (incl. sd_neuron and fuse) fires at 0.98-1.02x its reference layer on the calibration windows."""
+    from load_model import LOAD_MODEL
+    from config import set_random_seed
+    from spikingjelly.clock_driven import functional
+    from layers import GroupNeuron
+    from calibrate_groups import KW, ref_rates, layer_kind
+    import rhythm_data as rd
+    d = rd.build(NS(data='CINC2017', crop_tokens=0, patch_size=64, fs_target=125., fold=0, val_frac=0.1, win_s=30., hop_s=15.), 42)
+    x = torch.stack([d['train'][i][0] for i in range(32)]).float().cuda()
+    kw = dict(patch_size=64, seq_len=d['seq_len'], num_channels=d['num_channels'], num_classes=d['num_classes'])
+    rows, ok = [], True
+    for mixer in ('popg_lif', 'popg_flif'):
+        target = ref_rates('neoMixer', mixer.split('_', 1)[1], 'linsd', x, kw)
+        set_random_seed(0)
+        m = LOAD_MODEL['neoMixer'](NS(**dict(KW, model='neoMixer', mixer=mixer, mixer_comb='linsd', tau_calib=True, **kw)), True).cuda()
+        grp = isinstance(m.blocks[0].sd_neuron, GroupNeuron)
+        rates, hs = {}, []
+        for n, mod in m.named_modules():
+            if isinstance(mod, GroupNeuron):
+                for k, part in enumerate(mod.parts):
+                    hs.append(part.register_forward_hook(lambda md, i, o, n=n, k=k: rates.__setitem__((n, k), float(o.float().mean()))))
+        m.train(); m.train_mode = 'testing'
+        with torch.no_grad():
+            m(x); functional.reset_net(m)
+        for h in hs: h.remove()
+        ratios = [rates[(n, k)] / target[layer_kind(n)] for (n, k) in rates]
+        has_sd = any(n.endswith('sd_neuron') for n, _ in rates)
+        good = m.tau_calibrated and grp and has_sd and min(ratios) >= 0.98 and max(ratios) <= 1.02
+        ok &= good
+        rows.append(f'{mixer}: table {m.tau_calibrated}, sd = groups {grp}, sd layer calibrated {has_sd}, firing / reference {min(ratios):.3f}-{max(ratios):.3f}')
+        del m; torch.cuda.empty_cache()
+    report('c43', ok, '; '.join(rows))
+
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', default=os.path.join(HERE, 'results', 'checks', 'check_cls.txt'))
     ap.add_argument('--only', nargs='*', default=None)
     a = ap.parse_args()
-    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30, c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41):
+    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30, c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43):
         if a.only and fn.__name__ not in a.only:
             continue
         fn()

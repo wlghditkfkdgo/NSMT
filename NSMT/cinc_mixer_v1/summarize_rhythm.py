@@ -583,6 +583,27 @@ def folds_summary(a):
     print('\n'.join(L))
 
 
+def sd_summary(a):
+    """2026-10-27 (PROJECT_LOG, exp/f-lif-pop-v3): spiking-difference fusion mixlinsd_<n> against the spike linear fusion, the spike xor,
+    the charge-difference fusion (③ linmx), OR and Spikformer-style. Baselines are copies of the finished suites (results/BASELINE_COPIES.txt)."""
+    rows = _all_fold0() + _fold0(os.path.join(HERE, 'results', a.suite, 'raw.txt'))
+    ns = ('lif', 'flif', 'pop_lif', 'pop_flif', 'popg_lif', 'popg_flif')
+    name = dict(BIX_NAME, popg_lif='soma-less tau groups, LIF', popg_flif='soma-less tau groups, f-LIF')
+    orc = lambda n: f'mix_{n}_bidir' if n.startswith('popg') else _mix_cond(n)
+    lab = {'spk_ssa': 'Spikformer-style SSA (T=4)'}
+    for n in ns:
+        lab.update({orc(n): f'Neo-mixer OR, {name[n]}', f'mixlin_{n}': f'spike linear fusion, {name[n]}', f'mixlinxor_{n}': f'spikes + F xor R, {name[n]}',
+                    f'mixlinmx_{n}': f'charges + |H_f - H_r| (3), {name[n]}', f'mixlinsd_{n}': f'spikes + LIF(BN(|H_f - H_r|)), {name[n]}'})
+    order = ['spk_ssa'] + [c for n in ns for c in (orc(n), f'mixlin_{n}', f'mixlinxor_{n}', f'mixlinsd_{n}', f'mixlinmx_{n}')]
+    Q = [('SD1 vs spike linear fusion', f'mixlinsd_{n}', f'mixlin_{n}') for n in ns]
+    Q += [('SD2 vs spike xor', f'mixlinsd_{n}', f'mixlinxor_{n}') for n in ns]
+    Q += [('SD3 vs charge difference (3)', f'mixlinsd_{n}', f'mixlinmx_{n}') for n in ns]
+    Q += [('SD4 vs OR', f'mixlinsd_{n}', orc(n)) for n in ns]
+    Q += [('SD5 vs Spikformer (criterion 2)', f'mixlinsd_{n}', 'spk_ssa') for n in ns]
+    _table_and_verdicts(a, 'Spiking-difference fusion Neo-mixer', rows, order, lab, Q,
+                        'Best-validation weights on the test set; CinC fold 0; mean ± sd over seeds (42, 7, 2026) (%). The fusion input is 0/1 (AC).')
+
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--decide', action='store_true')
@@ -599,8 +620,11 @@ if __name__ == '__main__':
     ap.add_argument('--popg', action='store_true')
     ap.add_argument('--t4k2', action='store_true')
     ap.add_argument('--folds', action='store_true')
+    ap.add_argument('--sd', action='store_true')
     a = ap.parse_args()
-    if a.xor:
+    if a.sd:
+        sd_summary(a)
+    elif a.xor:
         xor_summary(a)
     elif a.popg:
         popg_summary(a)

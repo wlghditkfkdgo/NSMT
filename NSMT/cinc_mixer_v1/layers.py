@@ -643,7 +643,7 @@ def apply_tau_calibration(model, model_name, mixer, comb, taus):
         parts = getattr(mod, 'parts', None)
         if parts is not None and len(parts) > 1 and type(mod).__name__ in ('GroupNeuron', 'StreamNeurons'):
             parent, leaf = name.rsplit('.', 1)
-            bn_name = parent + '.' + {'emb_lif': 'emb_bn', 'attn_neuron': 'attn_bn'}.get(leaf, 'bn')
+            bn_name = parent + '.' + {'emb_lif': 'emb_bn', 'attn_neuron': 'attn_bn', 'sd_neuron': 'sd_bn'}.get(leaf, 'bn')   # 10-27: linsd
             if bn_name not in table:
                 raise KeyError(f'{path}: no calibrated gains for {bn_name}')
     with torch.no_grad():
