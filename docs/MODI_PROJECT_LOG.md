@@ -2734,3 +2734,38 @@ A의 epoch 수로 Neo-mixer population LIF의 가지 수 K ∈ {2, 4, 8}와 학�
 **태그:** 이 기록을 담은 commit 에 `exp/nsmt-flif-neo-20261027`(annotated, 완료: A 15 + B 15).
 
 **commit:** 이 항목, 두 suite의 `raw.txt`·`summary.md`·`pool_runs.txt`, `scripts/make_queue_budget_addneo.sh`를 commit 하고 `exp/nsmt-flif-neo`와 태그만 push.
+
+---
+
+## 2026-10-27 17:06 KST — 사전 고정: B를 90 epoch으로 다시 (Spikformer식 + T = N 신피질 덧붙임, CinC 15 run) — ETT·MIT-BIH 일반화 묶음은 구현 뒤 별도 항목
+
+**직전 commit:** `119344691` (태그 `exp/nsmt-flif-neo-20261027`).
+
+**사용자 지시 (10-27):** "2번을 실험하면서 3번에 대해서 검토해보자. 우선, 지금까지 가장 contribution에 가까우면서도 좋은 성능을 보였던 모델 구조와 세팅을 선택하고 이것을 ETT 예측과 MIT-BIH 분류 과제로 수행해보자. 그리고 나서 3번의 과제 재검토를 수행하자." (2번 = B를 90 epoch으로 다시 재기, 3번 = CinC 말고 시간 순서·기억이 더 중요한 과제 찾기 — 10-27 브리핑의 선택지.)
+
+**이 항목의 범위:** 2번만. 코드 변경 없이 돌릴 수 있어 GPU 0·1에서 먼저 시작한다. ETT 예측·MIT-BIH 분류 묶음(선택한 모델, 구현·점검 필요)은 GPU 2·3에서, 구현이 끝나면 별도 사전 고정 항목으로 시작한다. 3번(과제 재검토, 학습 없음)은 그 뒤에 한다.
+
+**동기:** A에서 T = N 모델은 30 epoch에 덜 배운다는 것이 확인됐다(Neo-mixer 네 뉴런 모두 90 epoch에서 좋아짐). B(덧붙인 T = N 신피질)는 30 epoch로만 쟀으므로, 더 배우면 기억 없는 대조나 Spikformer식과의 관계가 바뀌는지 본다. 반대로 A에서 Spikformer식은 90 epoch에 너무 외워 나빠졌고(−0.70, 검증 − test 6.68), B는 Spikformer식에 파라미터를 더한 모델(1,560,904–1,565,512 vs 918,088)이라 같은 일이 생길 수 있다.
+
+**설정:** B와 같다(러너 `scripts/run_rhythm_addneo.sh`의 같은 case 줄; 보조 손실 끔, `--neo_grad 1.0`, cat 모드). 바뀌는 것은 `EPOCHS=90` 하나다(학습률 일정은 A와 같은 방식으로 늘어남: 정점 9.45e-4 epoch 17). 러너의 폴더 찾기는 epoch 수와 fold까지 맞추므로 30 epoch run과 섞이지 않는다.
+- 조건: `spkneo_lif`, `spkneo_flif`, `spkneo_pop_lif`(soma 0.5), `spkneo_pop_flif`(soma 1.0), `spkneo_lif_nomem`. soma 없는 population(popg)은 넣지 않는다: B에 그 형태가 구현되어 있지 않고, 사용자가 10-22에 "줄기 분리 아이디어는 폐기, soma 디자인에 더 신경쓰기"로 정했으며, CinC에서 soma 없는 형태는 모든 비교에서 soma보다 나빴다(아이디어 묶음·후속 (4)).
+- CinC 2017 fold 0, lr 1e-3, AdamW wd 1e-4, batch 32, 클래스 가중 CE, seed 42 / 7 / 2026 → 5 × 3 = **15 run**. 최고 검증 가중치로 test(마지막 epoch는 보고용).
+- suite `flif-v1-rhythm-addneo90-cinc`, 대기열 `scripts/queues/rhythm-addneo90-20261027.txt`(git 제외; 재생성 `scripts/make_queue_addneo90.sh`).
+
+**판정** (`summarize_rhythm.py --addneo90 --suite flif-v1-rhythm-addneo90-cinc`, 새 함수; 규칙은 이전과 같음 — 평균 ≥ +0.5 %p이고 seed 3개 중 2개 이상이면 "좋음", 거울이면 "나쁨"; seed가 빠지거나 값이 유한하지 않으면 incomplete):
+- **D1 (주 판정):** 각 조건@90 − Spikformer식@90(A의 run, 64.89; 기준 (2)).
+- **D2:** 각 T = N 조건@90 − 기억 없는 대조@90. 주 판정은 LIF(같은 뉴런).
+- D3: 각 조건@90 − 같은 조건@30(B의 run).
+- D4(보고만): 각 조건@90 − Spikformer식@30(65.60; 각자 더 나은 예산끼리).
+- 보고: 마지막 epoch 학습 CE, 최고 검증 epoch, 검증 − test, 에너지.
+- 요약 함수는 빈 suite에서 모든 판정을 incomplete로 남기는 것을 확인했다(30 epoch suite로 표 형식만 시험; 그 값은 결과가 아님).
+
+**해석 규칙(사전):** D1 "좋음"이고 D2 "좋음"이면 T = N 신피질의 시간 상태가 충분히 배운 Spikformer식에 정보를 더한다는 근거. D1 "좋음"이지만 D2 "차이 없음"이면 이득은 덧붙인 파라미터·인코딩 몫이다. D1 "차이 없음/나쁨"이면 B 형태는 90 epoch에서도 기여가 보이지 않는다(B는 닫는다).
+
+**예상(사전 기록):** D3: 덧붙인 모델도 Spikformer식처럼 더 외워 나빠지거나 차이 없음(0 ~ −1). D1: Spikformer식@90이 낮아졌으므로(64.89) population LIF는 "좋음"일 수 있음(+0.5 ~ +1.5), 나머지는 차이 없음. D2: LIF 차이 없음 또는 나쁨. 즉 D1이 좋아져도 D2가 따라오지 않아 "T = N 기억의 기여"는 여전히 보이지 않을 것으로 본다.
+
+**실행:** tmux `flif_addneo90`, `bash scripts/gpu_pool2.sh <대기열> 0,1,0,1`(GPU 0·1에 2개씩). B 30 epoch run 시간(A와 GPU 공유)으로 어림하면 population·f-LIF run당 약 3–4시간, LIF 약 2시간, 기억 없음 약 25분 → 약 10시간.
+
+**코드:** `summarize_rhythm.py`(`--addneo90`), `scripts/make_queue_addneo90.sh`(새). 모델 코드 변경 없음.
+
+**commit:** 이 항목과 위 두 파일을 commit 하고 `exp/nsmt-flif-neo`만 push. 그 뒤 pool 시작.

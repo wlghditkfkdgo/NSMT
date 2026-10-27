@@ -678,10 +678,67 @@ def addneo_summary(a):
                         'C3 is report only (the replace runs keep aux 0.1 and gradient share 0.5).')
 
 
+def addneo90_summary(a):
+    """MODI 2026-10-27 (B at 90 epochs): the five added-neocortex conditions of addneo_summary trained for 90 epochs (this suite).
+    D1 each @90 - Spikformer-style @90 (the training-budget suite; criterion 2), D2 each @90 - the memoryless control @90 (primary
+    for LIF), D3 each @90 - the same condition @30 (flif-v1-rhythm-addneo-cinc), D4 (report) each @90 - Spikformer-style @30
+    (each at its better budget)."""
+    seeds, need = (42, 7, 2026), 2
+    def tag(rows, ep):
+        return [dict(r, cond=f"{r['cond']}@{ep}") for r in rows]
+    rows = tag(_fold0(os.path.join(HERE, 'results', a.suite, 'raw.txt')), 90)
+    rows += tag(_fold0(os.path.join(HERE, 'results', 'flif-v1-rhythm-addneo-cinc', 'raw.txt')), 30)
+    rows += tag([r for r in _fold0(os.path.join(HERE, 'results', 'flif-v1-rhythm-budget-cinc', 'raw.txt')) if r['cond'] == 'spk_ssa'], 90)
+    rows += tag([r for r in _fold0(os.path.join(HERE, 'results', 'flif-v1-rhythm-cinc', 'raw.txt')) if r['cond'] == 'spk_ssa'], 30)
+    conds = ['spk_ssa', 'spkneo_lif_nomem'] + [f'spkneo_{n}' for n in BUDGET_NS]
+    lab = {'spk_ssa': 'Spikformer-style SSA (T=4)', 'spkneo_lif_nomem': 'Spikformer + neocortex added, LIF, memoryless (reset every token)',
+           **{f'spkneo_{n}': f'Spikformer + T = N neocortex added, {BIX_NAME[n]}' for n in BUDGET_NS}}
+    def ms(v, sc=100., nd=2):
+        v = np.asarray(list(v), dtype=float)
+        return 'n/a' if len(v) == 0 or not np.all(np.isfinite(v)) else f'{sc * v.mean():.{nd}f} ± {sc * v.std(ddof=1) if len(v) > 1 else 0:.{nd}f}'
+    L = [f'# Spikformer + T = N neocortex added, 90 epochs `{a.suite}` (CINC2017 fold 0) — summary', '',
+         'Best-validation weights on the test set; CinC score and macro-F1; mean ± sd over seeds (42, 7, 2026) (%). 30-epoch rows: '
+         '`flif-v1-rhythm-addneo-cinc` and stage 9 (`flif-v1-rhythm-cinc`, Spikformer-style); Spikformer-style @90: '
+         '`flif-v1-rhythm-budget-cinc`.', '',
+         '| condition | epochs | n | score | macro-F1 | best val | best epoch | val − test | last-epoch train CE | total µJ (FFT) |',
+         '|---|---|---|---|---|---|---|---|---|---|']
+    energy = {}
+    for c in conds:
+        for ep in (30, 90):
+            rr = [r for r in rows if r['cond'] == f'{c}@{ep}']
+            if not rr:
+                L.append(f'| {lab[c]} | {ep} | 0 | n/a | | | | | | |'); continue
+            energy[f'{c}@{ep}'] = np.mean([float(r['total_fft_uJ']) for r in rr])
+            val = [best_val(r) for r in rr]; sc = [float(r['score']) for r in rr]
+            be = [float(str(r.get('best_epoch_val', 'nan:')).split(':')[0]) for r in rr]
+            ce = [_last_train(r['dir'])[0] for r in rr]
+            L.append(f"| {lab[c]} | {ep} | {len(rr)} | {ms(sc)} | {ms([r['macro_f1'] for r in rr])} | {ms(val)} | {np.mean(be):.1f} | "
+                     f"{ms([v - x for v, x in zip(val, sc)])} | {ms(ce, 1., 3)} | {energy[f'{c}@{ep}']:.1f} |")
+    L += ['', '## Pre-registered comparisons (%p, paired by seed; better = mean >= +0.5 and A > B in >= 2 of 3 seeds)', '',
+          '| question | A | B | A − B per seed | mean | verdict | energy A/B | criterion (2) |', '|---|---|---|---|---|---|---|---|']
+    added = conds[1:]
+    Q = [('D1 vs Spikformer at 90 epochs (criterion 2)', f'{c}@90', 'spk_ssa@90') for c in added]
+    Q += [('D2 T = N memory vs memoryless neocortex at 90 epochs', f'spkneo_{n}@90', 'spkneo_lif_nomem@90') for n in BUDGET_NS]
+    Q += [('D3 90 vs 30 epochs', f'{c}@90', f'{c}@30') for c in added]
+    Q += [('D4 (report) @90 vs Spikformer @30', f'{c}@90', 'spk_ssa@30') for c in added]
+    for q, x, y in Q:
+        v, d, m = verdict(rows, x, y, seeds, need)
+        er = energy.get(x, float('nan')) / energy.get(y, float('nan')) if energy.get(y) else float('nan')
+        crit = ''
+        if 'criterion 2' in q and v != 'incomplete':
+            crit = 'met' if (v == 'better') or (m >= -0.5 and math.isfinite(er) and er <= 0.5) else 'not met'
+        nm = lambda z: f"{lab[z.split('@')[0]]} @{z.split('@')[1]}"
+        L.append(f"| {q} | {nm(x)} | {nm(y)} | {' / '.join(f'{z:+.2f}' for z in d)} | {m:+.2f} | {v} | {er:.2f} | {crit} |")
+    os.makedirs(os.path.join(HERE, 'results', a.suite), exist_ok=True)
+    open(os.path.join(HERE, 'results', a.suite, 'summary.md'), 'w').write('\n'.join(L) + '\n')
+    print('\n'.join(L))
+
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--budget', action='store_true')
     ap.add_argument('--addneo', action='store_true')
+    ap.add_argument('--addneo90', action='store_true')
     ap.add_argument('--decide', action='store_true')
     ap.add_argument('--lr_suite', default='flif-v1-rhythm-lr')
     ap.add_argument('--crop_suite', default='flif-v1-rhythm-crop')
@@ -701,6 +758,8 @@ if __name__ == '__main__':
         budget_summary(a)
     elif a.addneo:
         addneo_summary(a)
+    elif a.addneo90:
+        addneo90_summary(a)
     elif a.xor:
         xor_summary(a)
     elif a.popg:
