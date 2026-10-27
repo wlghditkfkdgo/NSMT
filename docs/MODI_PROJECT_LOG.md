@@ -2647,3 +2647,90 @@ A의 epoch 수로 Neo-mixer population LIF의 가지 수 K ∈ {2, 4, 8}와 학�
 **학습:** 이 commit 뒤 tmux `flif_addneo`에서 GPU 0–3에 1개씩(A 2개 + B 1개 = GPU당 3개), 대기열 `scripts/queues/rhythm-addneo-20261026.txt` 15줄. suite `flif-v1-rhythm-addneo-cinc`.
 
 **commit:** 이 항목·코드·점검·smoke·러너를 commit 하고 `exp/nsmt-flif-neo`만 push.
+
+---
+
+## 2026-10-27 15:34 KST — A·B 결과 (CinC 30 run): **(A) 90 epoch에서 Neo-mixer는 네 뉴런 모두 좋아지고 Spikformer식은 나빠짐 → population LIF와의 차이 −2.53 → −1.01 (E2 "줄어듦"), 그래도 기준 (2) 미충족; (B) 덧붙인 T = N 신피질은 Spikformer식보다 좋지 않고(C1 "좋음" 0), LIF는 기억 없는 대조보다 나쁨(C2 −2.50) — 이 형태에서는 T = N 기억의 기여가 보이지 않음**
+
+**직전 commit:** `78b8fc51c` (B 구현). 사전 고정은 `e7bd92306`.
+
+**학습:**
+- B 15 run: 10-26 20:34 – 10-27 00:19(SKIP 0, GPU당 1개; A 2개와 함께). run당 시간: 기억 없는 대조 461–477 s, LIF 2,094–2,326 s, f-LIF 4,260–4,707 s, population LIF 4,554–4,681 s, population f-LIF 4,876–5,060 s. 모든 run의 sha는 `78b8fc51c`.
+- A 15 run: 10-26 20:22 – 10-27 03:23(SKIP 0, GPU당 2개). run당 시간: Spikformer식 1,335–1,508 s, LIF 4,173–4,919 s, f-LIF 9,221–16,079 s, population LIF 16,923–17,136 s, population f-LIF 16,440–17,015 s.
+  - 처음 8개 run(population f-LIF 3, population LIF 3, f-LIF seed 42·7)의 sha는 `e7bd92306`, 나머지 7개는 `78b8fc51c`다. 두 코드의 기본 경로는 비트 동일하다(점검 c1–c42).
+- GPU·시각은 `results/flif-v1-rhythm-{budget,addneo}-cinc/pool_runs.txt`(pool 로그 복사). 대기열은 `scripts/make_queue_budget_addneo.sh`가 그대로 다시 만든다(대기열 파일은 git 제외).
+- 요약: `summarize_rhythm.py --budget --suite flif-v1-rhythm-budget-cinc`, `--addneo --suite flif-v1-rhythm-addneo-cinc` → 각 `summary.md`.
+
+점수는 CinC 점수(N·AF·Other F1 평균, %)이고, test는 최고 검증 가중치로 잰다. seed 42 / 7 / 2026의 평균 ± 표준편차다. 판정 규칙은 사전 고정 그대로다(평균 ≥ +0.5 %p이고 seed 3개 중 2개 이상).
+
+### A. 학습 예산 (30 → 90 epoch)
+
+| 모델 | epoch | 점수 | macro-F1 | 최고 검증 (epoch) | 검증 − test | 마지막 학습 CE | 에너지 µJ |
+|---|---:|---:|---:|---|---:|---:|---:|
+| Spikformer식 | 30 | 65.60 ± 1.48 | 61.94 | 68.79 (28.0) | 3.19 | 0.245 | 127.4 |
+| Spikformer식 | 90 | **64.89 ± 0.80** | 60.26 | 71.58 (57.7) | **6.68** | 0.070 | 130.9 |
+| Neo-mixer LIF | 30 | 60.54 ± 0.56 | 56.07 | 64.02 (23.0) | 3.48 | 0.413 | 28.0 |
+| Neo-mixer LIF | 90 | 62.37 ± 0.88 | 56.31 | 67.10 (61.7) | 4.73 | 0.089 | 29.2 |
+| Neo-mixer f-LIF | 30 | 59.75 ± 0.39 | 55.44 | 63.66 (25.0) | 3.91 | 0.408 | 32.8 |
+| Neo-mixer f-LIF | 90 | 61.06 ± 2.05 | 55.52 | 67.35 (62.7) | 6.30 | 0.082 | 34.4 |
+| Neo-mixer population LIF | 30 | 63.06 ± 0.83 | 57.22 | 65.45 (26.0) | 2.39 | 0.290 | 36.5 |
+| Neo-mixer population LIF | 90 | **63.88 ± 1.08** | **59.85** | 65.80 (73.0) | **1.92** | 0.084 | 36.4 |
+| Neo-mixer population f-LIF | 30 | 60.73 ± 1.67 | 55.74 | 64.90 (25.7) | 4.17 | 0.336 | 65.2 |
+| Neo-mixer population f-LIF | 90 | 61.32 ± 0.55 | 56.70 | 67.02 (80.3) | 5.70 | 0.091 | 65.3 |
+
+| 판정 | 결과 |
+|---|---|
+| E1 90 − 30: Spikformer식 | **−0.70 나쁨** (−1.60 / +0.56 / −1.06) |
+| E1 90 − 30: Neo-mixer LIF / f-LIF / population LIF / population f-LIF | **+1.83 / +1.31 / +0.82 / +0.59, 모두 좋음** |
+| **E2 (주) 차이 변화, population LIF** | **+1.52 "줄어듦"** (+2.82 / +0.80 / +0.93): 차이 −2.53(−5.11 / −0.66 / −1.83) → −1.01(−2.28 / +0.15 / −0.90) |
+| E2 LIF / f-LIF / population f-LIF | +2.53 / +2.01 / +1.29, 모두 "줄어듦" |
+| E3 90 epoch에서 Spikformer식 대비 (기준 (2)) | LIF −2.52, f-LIF −3.84, **population LIF −1.01**(에너지 0.28배), population f-LIF −3.58(0.50배): 모두 나쁨, 미충족 |
+
+- **사전 예상과 비교:** E1 Spikformer식 "0 ~ +1, 차이 없음"은 **틀렸다**(−0.70 나쁨). Neo-mixer LIF·population LIF "+1 ~ +2 좋음"은 LIF +1.83으로 맞았고, population LIF는 +0.82로 작았다. E2 population LIF "−2.5 → 약 −1"은 맞았다(−1.01). E3 미충족도 맞았다.
+- **사전 해석 규칙에 따른 결론:** population LIF의 E2가 "줄어듦"이므로 **H1(덜 배움)을 격차 원인의 하나로 받아들인다.** 다만 범위를 정확히 적는다.
+  1. 줄어든 1.52점 중 0.70점은 Spikformer식이 **나빠진 몫**이다. 90 epoch Spikformer식은 학습 CE 0.070까지 외우고 검증 − test가 6.68로 벌어졌다. 최고 검증은 71.58로 오르지만 test는 내린다.
+  2. 90 epoch에서는 모든 모델의 마지막 학습 CE가 0.070–0.091로 비슷하다. 그런데도 Neo-mixer는 Spikformer식보다 1.0–3.8점 낮다. **덜 배운 것은 격차의 일부일 뿐이고, 같은 만큼 배운 뒤에도 격차가 남는다.**
+  3. (보고만, 사전 고정 아님) 각 모델이 더 나은 쪽 epoch끼리 비교하면 Neo-mixer population LIF@90 63.88과 Spikformer식@30 65.60의 차이는 −1.72다.
+- **population LIF Neo-mixer@90의 특징:** macro-F1이 59.85로 2.63 올랐고, 검증 − test는 1.92로 가장 작다(가장 덜 외움). 클래스별 F1(seed 42 / 7 / 2026)은 다음과 같다.
+  - Noisy 0.491 / 0.470 / 0.472로 Spikformer식@30(0.456 / 0.531 / 0.542)과 비슷하다.
+  - AF 0.633 / 0.648 / 0.614로 높다.
+  - Other 0.484 / 0.511 / 0.492로 낮다(Spikformer식@30 0.558 / 0.546 / 0.537).
+
+### B. Spikformer식 + T = N 신피질 덧붙임 (30 epoch)
+
+| 모델 | 점수 | macro-F1 | 최고 검증 | 검증 − test | 마지막 학습 CE | 에너지 µJ (Spikformer식 대비) |
+|---|---:|---:|---:|---:|---:|---:|
+| Spikformer식 (9단계) | 65.60 ± 1.48 | 61.94 | 68.79 | 3.19 | 0.245 | 127.4 |
+| + 기억 없는 신피질 (LIF, 토큰마다 리셋) | 65.84 ± 1.92 | 59.43 | 69.21 | 3.38 | 0.194–0.199 | 161.6 (1.27) |
+| + T = N 신피질, LIF | 63.34 ± 1.55 | 57.32 | 67.38 | 4.04 | 0.197–0.214 | 165.4 (1.30) |
+| + T = N 신피질, f-LIF | 64.35 ± 0.43 | 59.89 | 68.24 | 3.89 | 0.192–0.194 | 170.1 (1.34) |
+| + T = N 신피질, population LIF | **66.06 ± 0.71** | 59.62 | 70.21 | 4.14 | 0.208–0.234 | 172.8 (1.36) |
+| + T = N 신피질, population f-LIF | 64.72 ± 0.40 | 59.15 | 69.89 | 5.17 | 0.220–0.227 | 191.5 (1.50) |
+
+| 판정 | 결과 |
+|---|---|
+| C1 − Spikformer식 (기준 (2)) | LIF **−2.26 나쁨**, f-LIF −1.24 나쁨, population LIF +0.47 차이 없음(−0.44 / +1.55 / +0.29), population f-LIF −0.87 나쁨, 기억 없음 +0.24 차이 없음; **모두 미충족**(에너지 1.27–1.50배라 "좋음"이어야 충족) |
+| **C2 (주: LIF) T = N 기억 − 기억 없음** | **LIF −2.50 나쁨 (−4.35 / −0.82 / −2.34, 3/3)**; f-LIF −1.48 나쁨, population LIF +0.23 차이 없음, population f-LIF −1.11 나쁨(뉴런 차이가 섞인 비교) |
+| C3 (보고) 덧붙임 − 바꿔 넣기 | LIF −0.08 차이 없음, f-LIF +2.51, population LIF +3.57, population f-LIF +6.06(보조 손실·기울기 비율이 다른 비교) |
+
+- **사전 예상과 비교:** C1 "LIF·population LIF 차이 없음(0 ~ +1)"은 population LIF만 맞았고, **LIF는 틀렸다(−2.26 나쁨).** f-LIF 계열 "차이 없음 또는 나쁨"은 맞았다. C2 "차이 없음"은 population LIF만 맞았고, **LIF는 틀렸다(−2.50 나쁨).** 기준 (2) 미충족은 맞았다.
+- **사전 해석 규칙에 따른 결론:** C1에 "좋음"이 없으므로 **이 형태로는 T = N 신피질의 기여가 보이지 않는다.** 같은 뉴런(LIF)에서는 토큰 사이에 상태를 이어 가는 T = N 신피질이 기억 없는 신피질보다 오히려 나쁘다.
+  - 기억 없는 신피질을 덧붙인 모델은 Spikformer식과 같다(+0.24). 파라미터를 늘린 것만으로는 얻는 것도 잃는 것도 없다.
+  - C2의 LIF 열세는 덜 배운 탓으로 보이지 않는다. 마지막 학습 CE가 두 쪽 모두 0.19–0.21로 비슷하다.
+- population LIF 덧붙임(66.06)은 평균 점수로 이 작업 계열에서 가장 높다. 그러나 Spikformer식과 "차이 없음"이고, 기억 없는 대조와도 "차이 없음"(+0.23)이다. 그래서 이 점수를 T = N 기억의 효과로 말할 수 없다.
+
+### 종합 (탐색, CinC fold 0, seed 3개)
+- 9단계 계열 가설에 대한 갱신:
+  - **H1(덜 배움):** 일부만 맞다. 학습을 늘리면 T = N Neo-mixer는 좋아지고 Spikformer식은 외워서 나빠진다. 같은 학습 손실에서도 격차가 남는다.
+  - **H2(토큰 비교):** 지지가 늘었다. Spikformer식 주의에 T = N 신피질의 시간 상태를 더해도 정보가 늘지 않는다(C1·C2).
+- 현재 가장 가까운 후보는 Neo-mixer population LIF@90이다. Spikformer식@90 대비 −1.01, Spikformer식@30 대비 −1.72이고 에너지는 0.28배다. 기준 (2)의 문턱 −0.5까지 0.5–1.2점이 남았다.
+
+### 한계
+- CinC fold 0, seed 3개. seed 간 표준편차 0.4–2.1점이 판정 문턱 0.5보다 크다.
+- 학습률(1e-3)은 이번에도 조정하지 않았다. 90 epoch 일정은 30 epoch 일정을 늘인 것이고, epoch 수 외의 정규화는 바꾸지 않았다.
+- B는 30 epoch 하나만 돌렸다. A에서 Spikformer식은 90 epoch에서 나빠졌으므로, B를 90 epoch으로 돌리면 결과가 달라질 수 있다. 확인하지 않았다.
+- 에너지 추정에는 주의 곱셈(q k^T, s v)이 빠져 있다(이전과 같음). B의 두 번째 주의 항도 같은 방식으로 빠져 있다.
+
+**태그:** 이 기록을 담은 commit 에 `exp/nsmt-flif-neo-20261027`(annotated, 완료: A 15 + B 15).
+
+**commit:** 이 항목, 두 suite의 `raw.txt`·`summary.md`·`pool_runs.txt`, `scripts/make_queue_budget_addneo.sh`를 commit 하고 `exp/nsmt-flif-neo`와 태그만 push.
