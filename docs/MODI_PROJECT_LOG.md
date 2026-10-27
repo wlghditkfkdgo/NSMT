@@ -2769,3 +2769,169 @@ A의 epoch 수로 Neo-mixer population LIF의 가지 수 K ∈ {2, 4, 8}와 학�
 **코드:** `summarize_rhythm.py`(`--addneo90`), `scripts/make_queue_addneo90.sh`(새). 모델 코드 변경 없음.
 
 **commit:** 이 항목과 위 두 파일을 commit 하고 `exp/nsmt-flif-neo`만 push. 그 뒤 pool 시작.
+
+---
+
+## 2026-10-27 17:32 KST — 사전 고정: 일반화 묶음 — CinC에서 고른 모델(막전위 차이 Neo-mixer LIF)과 비교 모델을 MIT-BIH 분류(27 run)와 ETT 예측(432 run)으로 — 점검 47/47, smoke 20/20
+
+**직전 commit:** `637f67345` (B 90 epoch 사전 고정; 그 pool은 17:07부터 GPU 0·1에서 돌고 있음).
+
+**사용자 지시 (10-27):** 앞 항목과 같다 — "지금까지 가장 contribution에 가까우면서도 좋은 성능을 보였던 모델 구조와 세팅을 선택하고 이것을 ETT 예측과 MIT-BIH 분류 과제로 수행해보자. 그리고 나서 3번의 과제 재검토를 수행하자."
+
+### 모델 선택 (내 판단; 사용자가 고르라고 맡김)
+
+- **선택: 막전위 차이 Neo-mixer, LIF** (`mixlinmx_lif`). 주의(attention) 없이 순방향·역방향 신피질 스택(T = N, 토큰 축이 곧 스파이킹 시간 축)으로 토큰을 섞는다. 두 방향을 합치는 법: 각 스택 마지막 층의 막전위 여유 H(막전위 − 문턱)를 [H_f; H_r; |H_f − H_r|]로 이어 Linear → BN → LIF로 스파이크를 만든다.
+- **근거:** CinC에서 Spikformer식과 차이가 보이지 않은 유일한 구조다. fold 0 65.61 대 65.60이고, fold 0–4 × seed 3(15쌍) 평균 차이 −0.21 %p(95 % 구간 −1.11 ~ +0.70)이다. 스파이크 선형 합보다는 15/15쌍 좋다(+3.33).
+- **약점:** 에너지가 Spikformer식의 2.1배다(267 대 127 µJ). H가 실수값이라 합치는 Linear가 곱셈-누적(MAC) 연산이 된다.
+- **출처를 밝힘:** 이 결과는 다른 세션(nsmt-4f)이 이 기록에 쓴 10-23–10-25 항목에서 나왔다. 10-26 사전 고정에서 그 항목들을 근거에서 뺀 것은 그때 사용자 지시("다른 세션 실험 말고") 때문이었다. 이번 지시는 "지금까지" 가장 좋은 구조이므로 포함했다. 사용자가 다르게 보면 바꾼다.
+- **고려했지만 고르지 않은 것:**
+  - Spikformer식 + T = N population LIF 신피질 덧붙임: 66.06으로 평균은 가장 높다. 하지만 기억 없는 대조(65.84)와 차이가 없어 T = N 기여의 근거가 아니다.
+  - Neo-mixer OR population LIF @90: Spikformer식@90 대비 −1.01, 에너지 0.28배로 에너지 대비 가장 낫다. 비교 G4(에너지 후보)로 넣었다.
+- **조건 (9개, 뉴런 축 규칙):**
+  - `spk_ssa`: Spikformer식, 비교 기준.
+  - `mixlinmx_{lif, flif, pop_lif, pop_flif}`: 막전위 차이 합치기.
+  - `mix_{lif, flif, pop_lif, pop_flif}_bidir`: OR 합치기. 같은 뉴런끼리 합치기 방식을 비교하기 위해 넣었다.
+  - 뉴런 설정은 CinC와 같다: f-LIF α 0.5; population LIF는 α 1에 soma 0.5; population f-LIF는 soma 1.0.
+  - soma 없는 population(popg)은 넣지 않았다. 사용자 10-22 결정("줄기 분리 폐기, soma에 집중")에 따랐고, CinC에서 soma 없는 형태는 모든 비교에서 soma보다 나빴다(선형 합 4종 포함).
+
+### 과제와 프로토콜
+
+**MIT-BIH 분류 — suite `flif-v1-gen-mitbih`, 러너 `scripts/run_mitbih2.sh`**
+- 러너는 `run_mitbih.sh` 복사본에 새 조건 case만 더한 것이다. 5–7단계 ECG 프레임워크를 그대로 쓴다.
+- 데이터: 5클래스, 심박 187 샘플. 학습 76,612 / 시험 32,833(70:30 파일).
+- 모델: 패치 32, 간격 16 → 11토큰. 임베딩 384, 헤드 8, MLP 1, mixer 층 2, 블록 1.
+- 학습: batch 512, lr 0.01, cosine 30 epoch, CAL 클래스 가중 CE. 검증 분할이 없어 마지막 epoch 가중치로 시험한다(5–7단계와 같음).
+- Spikformer식도 같은 설정이다(T_h 4). 신피질이 없어 보조 손실이 없다(`time_block` 없음 → CE만).
+
+**ETT 예측 — suite `flif-v1-gen-ett`, 러너 `nsmt_flif_v1/forecasting/scripts/run_ett_mixer.sh`, 학습 `classification/train_forecast.py`**
+- 데이터: ETTh1·ETTh2·ETTm1·ETTm2, 7채널 전부 입력·예측(features M).
+- 창: 과거 96 스텝 → 미래 H ∈ {96, 192, 336, 720}.
+- 분할과 스케일: 예측 프레임워크의 data_provider를 그대로 쓴다. 분할은 표준 12 / 4 / 4개월(m은 15분 단위)이고, 학습 구간 통계로 표준화한다. 분할 크기는 이전 ETT run과 같음을 c46에서 확인했다.
+- **모델 몸통은 분류 코드 그대로**(`classification/forecast_wrap.py`). 입력 끝과 출력 끝만 NSMT 예측 모델식으로 바꿨다:
+  1. 창마다 채널별 평균·표준편차로 정규화한다(학습 파라미터 없음).
+  2. 채널을 따로 [B·C, 1, 96]로 넣는다.
+  3. 패치 8, 간격 4 → 24토큰.
+  4. head는 Linear(24·D → H)이고 토큰별 스파이크를 펼쳐 입력한다.
+  5. 정규화를 되돌린다.
+  - Spikformer식은 T_h 4 스텝의 토큰 스파이크를 평균해 head에 넣는다(분류의 읽기와 같음).
+  - 분류용 head는 제거했다(nn.Identity).
+- 데이터셋별 설정(논문 Table 13, `run_ett.sh`와 같음):
+
+  | | 패치 | D | 헤드 | MLP | mixer 층 | lr | batch | 최대 epoch |
+  |---|---|---|---|---|---|---|---|---|
+  | ETTh1 | 8 | 32 | 2 | 1 | 2 | 5e-4 | 64 | 50 |
+  | ETTh2 | 8 | 64 | 8 | 0.5 | 1 | 5e-4 | 64 | 100 |
+  | ETTm1 | 8 | 64 | 8 | 1 | 2 | 1e-3 | 64 | 50 |
+  | ETTm2 | 8 | 64 | 16 | 1 | 2 | 5e-4 | 64 | 50 |
+
+- 학습: L1 손실(보조 손실 없음), AdamW wd 0.06, ReduceLROnPlateau(검증 L1, patience 2, 0.1배).
+- 조기 종료는 검증 L1에 patience 10으로 한다. 최고 검증 가중치로 시험하고, 마지막 epoch는 보고용이다. 2단계 이후 ETT 프로토콜과 같다.
+- 지표: 표준화된 값에서 시험 창 전체의 MSE / MAE.
+- **이전 ETT run과 다른 점(참고값으로만 씀):** 1–4단계 NSMT run은 보조 디코더가 있고 해마가 각 패치를 T = N번 반복한다. 2단계의 `base`·`hippo_only`(ETTh2·ETTm2 × H96·H720)는 결과 항목에 참고로만 적는다.
+- 공통: seed 42 / 7 / 2026. MIT-BIH 9 × 3 = **27 run**, ETT 9 × 16칸 × 3 = **432 run**.
+
+### 코드 (기존 모델 코드 변경 없음)
+- 새 파일:
+  - `classification/forecast_wrap.py`(Forecaster), `classification/train_forecast.py`(ETT 학습·시험·에너지).
+  - `forecasting/scripts/run_ett_mixer.sh`, `forecasting/scripts/make_queue_gen.sh`(대기열 재생성; MIT-BIH 27을 먼저, 그 뒤 무거운 ETT부터), `classification/scripts/run_mitbih2.sh`.
+  - `classification/summarize_gen.py`(`--mitbih`, `--ett`).
+- 수정: `check_cls.py`에 c46·c47 추가.
+- 예측 프레임워크의 `train.py`는 쓰지 않는다. 모듈 이름(config, layers, model 등)이 분류 폴더와 겹치기 때문이다. 대신 그 학습 규칙(L1, AdamW, ReduceLROnPlateau, 검증 L1 조기 종료)을 `train_forecast.py`에 옮겼다.
+
+### 점검 — `results/checks/check_cls_gen.txt` **47/47** (c1–c45 그대로 통과 + 새 2개)
+- **c46:**
+  - 분할 크기가 이전 run의 stdout과 같다(ETTh2 H96 8449 / 2785 / 2785, ETTm2 H720 33745 / 10801 / 10801).
+  - 9개 조건 모두 출력이 [B, H, 7]이고 토큰은 24개다. `inner.head` 파라미터가 없다.
+  - 에너지 기록기 기준으로 Neo-mixer는 모든 뉴런이 T = 24 스텝, Spikformer식은 T_h = 4 스텝으로 돈다.
+  - 몸통 출력이 분류 모델 자신의 forward와 비트 단위로 같다(Neo-mixer `forward_parts`, Spikformer식은 testing forward를 T_h 평균한 것).
+  - 몸통 발화율이 1 % 초과다.
+- **c47:**
+  - a·x + b(채널마다 임의의 a > 0, b)에서 몸통 입력이 창·채널별 float64 기준값과 float32 반올림 한계 안에서 같다(최대 오차 / 한계 0.10). 몸통 출력을 고정했을 때 최종 출력도 head × 표준편차 + 평균과 같다(상대 오차 1.9e-7).
+  - 채널 0만 바꾸면 출력 채널 0만 바뀐다(나머지는 비트 단위로 같음).
+  - L1 손실에서 새 head가 기울기를 받는다.
+  - `evaluate`의 MSE / MAE가 수동 계산과 같다.
+- **작성 중 실패 2건(기록):**
+  1. c46 첫 판은 초기화 직후 eval 모드 BN 때문에 모든 뉴런이 침묵(발화율 0)해 비교가 공허했다. 발화율 > 1 % 조건이 걸러냈고, BN 통계를 배치로 한 번 고정한 뒤 시험하도록 고쳤다(c16·c43과 같은 방식).
+  2. c47의 "a·x + b의 출력 = a·f(x) + b" 시험은 정규화의 eps(1e-5) 때문에 정확히 성립하지 않았다. 창 하나 안에서 표준편차가 작은 채널은 상대 영향이 0.1 % 수준이고, 문턱 근처 스파이크가 2e-5–1.2e-4 비율로 뒤집혔다. 그래서 float64 기준값 비교로 다시 설계했다.
+
+### smoke (1 epoch, seed 42, GPU 3; 실험 아님 — 1 epoch 값은 판단 근거가 아님)
+`forecasting/results/smoke-gen-ett-20261027/raw.txt`, `classification/results/smoke-gen-mitbih-20261027/raw.txt`: **20/20 끝까지, SKIP 0.**
+
+| ETT 조건 | 칸 | MSE | 총 µJ | 파라미터 | 시간 s |
+|---|---|---:|---:|---:|---:|
+| spk_ssa | ETTh1 H96 | 0.4019 | 6.97 | 80,670 | 28 |
+| mix_lif_bidir | ETTh1 H96 | 0.4216 | 1.08 | 80,576 | 38 |
+| mix_flif_bidir | ETTh1 H96 | 0.4210 | 1.40 | 80,576 | 47 |
+| mix_pop_lif_bidir | ETTh1 H96 | 0.4188 | 2.38 | 81,088 | 56 |
+| mix_pop_flif_bidir | ETTh1 H96 | 0.4203 | 4.63 | 81,088 | 51 |
+| mixlinmx_lif | ETTh1 H96 | 0.4210 | 3.56 | 83,712 | 42 |
+| mixlinmx_flif | ETTh1 H96 | 0.4199 | 3.89 | 83,712 | 50 |
+| mixlinmx_pop_lif | ETTh1 H96 | 0.4154 | 4.87 | 84,224 | 53 |
+| mixlinmx_pop_flif | ETTh1 H96 | 0.4193 | 7.12 | 84,224 | 54 |
+| spk_ssa | ETTm1 H720 | 0.4650 | 45.56 | 1,132,280 | 63 |
+| mixlinmx_pop_flif | ETTm1 H720 | 0.4712 | 19.52 | 1,145,344 | 145 |
+
+| MIT-BIH 조건 | macro-F1 | 정확도 | 총 µJ | 파라미터 | 시간 s |
+|---|---:|---:|---:|---:|---:|
+| spk_ssa | 63.81 | 94.02 | 8.10 | 904,488 | 25 |
+| mix_lif_bidir | 72.43 | 94.60 | 1.99 | 904,320 | 34 |
+| mix_flif_bidir | 71.19 | 94.67 | 2.10 | 904,320 | 42 |
+| mix_pop_lif_bidir | 73.71 | 93.72 | 3.00 | 910,464 | 48 |
+| mix_pop_flif_bidir | 64.46 | 87.38 | 4.35 | 910,464 | 44 |
+| mixlinmx_lif | 67.34 | 94.27 | 24.51 | 1,347,456 | 30 |
+| mixlinmx_flif | 70.61 | 94.12 | 24.60 | 1,347,456 | 48 |
+| mixlinmx_pop_lif | 66.33 | 91.88 | 25.48 | 1,353,600 | 51 |
+| mixlinmx_pop_flif | 65.83 | 85.33 | 26.82 | 1,353,600 | 50 |
+
+- 읽는 법:
+  - ETT 파라미터는 대부분 head다(24·D·H).
+  - 막전위 차이 합치기의 에너지는 MIT-BIH에서 Spikformer식의 약 3배다(합치는 Linear가 MAC). ETT에서는 0.5배 안팎이다(1 epoch 값; 원인은 따로 보지 않았다).
+- **smoke 뒤 수정 1건:**
+  - 문제: ETT 결과의 신피질 발화율 열이 비었다(None). 래퍼 안에서는 모듈 이름 앞에 `inner.`가 붙어 기록기가 신피질 층 이름(`blocks.0.mixer` 등)을 못 찾았다.
+  - 수정: 기록기에 몸통(`model.inner`)을 넘긴다. 모든 뉴런이 몸통 안에 있다.
+  - 확인: `smoke-gen-ett-20261027-recfix`(mixlinmx_lif ETTh1 H96 1 epoch)에서 MSE 0.420951과 총 µJ 3.564630이 수정 전과 같고, 신피질 발화율 0.0419가 기록된다.
+
+### 판정 (사전 고정; `summarize_gen.py`, 같은 seed끼리 짝; seed·칸이 빠지거나 값이 유한하지 않으면 incomplete)
+
+**비교 목록:**
+- **G1 (주 판정):** `mixlinmx_lif` − `spk_ssa`, 기준 (2).
+- G2: 다른 세 뉴런의 `mixlinmx_*` − `spk_ssa`, 기준 (2).
+- G3: 같은 뉴런끼리 `mixlinmx_*` − `mix_*_bidir` (합치기 방식).
+- G4: `mix_pop_lif_bidir` − `spk_ssa`, 기준 (2) (에너지 후보).
+- G5(보고): 나머지 OR 세 뉴런 − `spk_ssa`.
+
+**MIT-BIH:**
+- 지표: 시험 macro-F1(마지막 가중치).
+- "좋음" = 평균 ≥ +0.5 %p이고 seed 3개 중 2개 이상, "나쁨"은 그 거울.
+- 기준 (2) = "좋음", 또는 평균 ≥ −0.5 %p이면서 에너지 ≤ 0.5배.
+
+**ETT:**
+- 지표: 시험 MSE(최고 검증 가중치).
+- seed별 r = 100·(MSE_A − MSE_B) / MSE_B (%).
+- 칸(데이터셋 × H) 판정: 평균 r ≤ −1 %이고 seed 2/3 이상에서 r < 0이면 "좋음", 거울이면 "나쁨".
+- 전체 판정: R = 16칸 평균 r의 평균. R ≤ −1 %이고 48쌍 중 32쌍 이상에서 r < 0이면 "좋음", 거울이면 "나쁨", 아니면 "차이 없음".
+- 기준 (2) = "좋음", 또는 R ≤ +1 %이면서 에너지 ≤ 0.5배. 에너지는 칸별 평균 `total_fft_uJ` 비의 16칸 평균이다.
+- MAE와 칸별 표는 보고만 한다.
+
+**해석 규칙(사전):**
+- G1이 두 과제 모두 "차이 없음" 이상이면, CinC의 "주의 없이 Spikformer식과 동급"이 다른 과제로도 이어진다는 탐색 근거다. 에너지 약점은 그대로 남는다.
+- G1이 "나쁨"이면 CinC 결과는 그 과제(긴 연속 신호 분류)에 한정된다.
+- G4가 기준 (2)를 충족하는 과제가 있으면, "에너지 효율" 주장(10-27 선택지 1)의 후보가 된다.
+
+**예상(사전 기록):**
+- **MIT-BIH:** 심박은 11토큰으로 짧고 7단계에서 OR Neo-mixer는 NSMT 교차 주의보다 −0.68 ~ −1.21이었다.
+  - G1: 차이 없음 또는 나쁨(−0.3 ~ −1.0).
+  - G3: 차이 없음.
+  - G4: 나쁨(−0.5 ~ −1.2)이고 기준 (2) 미충족.
+- **ETT:** 정규화된 창에 대한 선형 head가 성능 대부분을 정한다(4단계에서 선형 기준선이 신피질 단독보다 좋았음). 그래서 몸통 차이는 작을 것이다.
+  - G1: 차이 없음(|R| < 1 %). smoke 에너지 비가 0.5 근처라 기준 (2)는 경계다.
+  - G4: 차이 없음이고 에너지 약 0.3배라 기준 (2) 충족.
+  - G3: 차이 없음.
+
+### 실행
+- tmux `flif_gen`, `bash scripts/gpu_pool2.sh nsmt_flif_v1/forecasting/scripts/queues/gen-20261027.txt 2,3,2,3,2,3,2,3,2,3`(GPU 2·3에 5개씩).
+- 다른 세션(nsmt-4f)도 GPU 0–3에 1개씩 CinC pool을 돌릴 예정이라고 알려 왔다(공유 합의).
+- 예상 시간: MIT-BIH run당 10–20분, ETT는 ETTh 3–10분·ETTm 10–50분 → ETT 약 100 GPU-시간, 10개 동시로 약 12–15시간.
+- 이 묶음이 도는 동안 3번(과제 재검토, 학습 없음)을 진행한다.
+
+**commit:** 이 항목, 새 코드·러너·요약·점검 파일, smoke 결과(raw.txt·실행 폴더의 텍스트 기록)를 commit 하고 `exp/nsmt-flif-neo`만 push. 그 뒤 pool 시작.

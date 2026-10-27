@@ -59,6 +59,8 @@ cannot run, or whose test is vacuous (no spikes), FAILs.
   c33-c37 (MODI 2026-10-23) membrane fusion and the K-stream neocortex: see the docstrings of c33 ... c37
   c38-c41 (MODI 2026-10-24) spike-xor fusion, tau-group linear fusions, stream order, fused bidirectional streams
   c42-c45 (MODI 2026-10-26) B: neo_grad share, own + neocortex keys / values (cat), memoryless neocortex control, option rules
+  c46-c47 (MODI 2026-10-27) ETT forecasting wrapper (forecast_wrap.Forecaster + train_forecast.py): data splits, structure,
+      body equal to the classification model, per-channel affine equivariance, channel independence, metrics
   c25 (MODI 2026-10-21) BiX (mixer_comb xattn): every spiking neuron runs T = N steps, attention map [B, 1, 8, N, N], the
       query Linear sees the forward stream and the key / value Linears the reverse stream, and changing input token j changes
       the mixer output before token j (bidirectional reach)
@@ -1872,12 +1874,158 @@ def c45():
     report('c45', ok, f'refused {refused}; ' + ', '.join(f'{c}={n}' for c, n in names.items()))
 
 
+ETT_GEN = dict(keep_ratio=0.15, gating='attn', patch_size=8, embed_dim=64, num_heads=8, num_classes=1, num_channels=1, seq_len=96,
+               mlp_ratios=0.5, num_layers=1, time_num_layers=1, bias=False, tau=2.0, spk_encoding=False, neo_alpha=0.5,
+               pop_taus='4,8,16,32', neo_tau=2.0, fde_method='pred', fde_step=1.0, fde_memory=0)       # ETTh2 (run_ett_mixer.sh)
+GEN_CONDS = {'spk_ssa': dict(model='myModel', hippo_ssa=True, hippo_T=4),
+             'mix_lif_bidir': dict(model='neoMixer', mixer='lif', mixer_bidir=True),
+             'mix_flif_bidir': dict(model='neoMixer', mixer='flif', mixer_bidir=True),
+             'mix_pop_lif_bidir': dict(model='neoMixer', mixer='pop_lif', mixer_bidir=True, pop_soma_init=0.5),
+             'mix_pop_flif_bidir': dict(model='neoMixer', mixer='pop_flif', mixer_bidir=True, pop_soma_init=1.0),
+             'mixlinmx_lif': dict(model='neoMixer', mixer='lif', mixer_bidir=True, mixer_comb='linmx'),
+             'mixlinmx_flif': dict(model='neoMixer', mixer='flif', mixer_bidir=True, mixer_comb='linmx'),
+             'mixlinmx_pop_lif': dict(model='neoMixer', mixer='pop_lif', mixer_bidir=True, pop_soma_init=0.5, mixer_comb='linmx'),
+             'mixlinmx_pop_flif': dict(model='neoMixer', mixer='pop_flif', mixer_bidir=True, pop_soma_init=1.0, mixer_comb='linmx')}
+
+
+def _ett(ds='ETTh2', pl=96, bs=32):
+    sys.path.append(os.path.join(HERE, '..', 'forecasting'))
+    from data_provider.data_factory import data_provider
+    da = NS(data=ds, embed='timeF', batch_size=bs, freq='h', task_name='forecasting', root_path=os.path.join(HERE, '..', 'forecasting', 'dataset', 'ETT-small'),
+            data_path=f'{ds}.csv', seq_len=96, label_len=48, pred_len=pl, features='M', target='OT', seasonal_patterns='Monthly',
+            num_workers=0, augmentation_ratio=0)
+    return {f: data_provider(da, f) for f in ('train', 'val', 'test')}
+
+
+def _gen_model(cond, pl=96, seed=0):
+    from config import set_random_seed
+    from load_model import LOAD_MODEL
+    from forecast_wrap import Forecaster
+    set_random_seed(seed)
+    a = NS(**dict(ETT_GEN, **GEN_CONDS[cond]))
+    return Forecaster(LOAD_MODEL[a.model](a, True), a.embed_dim, pl, bias=False).cuda()
+
+
+@check('c46')
+def c46():
+    """(MODI 2026-10-27) ETT data through train_forecast's data provider: split sizes equal the earlier ETT runs (stage-2
+    stdout: ETTh2 H96 8449 / 2785 / 2785, ETTm2 H720 33745 / 10801 / 10801). Forecaster for all 9 conditions (ETTh2
+    hyperparameters; BN statistics fixed on the batch, body firing > 1 %): output [B, H, 7], 24 tokens, no parameter under
+    inner.head, every spiking neuron runs T = 24 (Neo-mixer)
+    or the SSA blocks see T_h = 4 (energy recorder); the body equals the classification model's own forward: Neo-mixer token
+    spikes == forward_parts()[4], Spikformer-style == the testing-mode token spikes of myModel averaged over T_h (bitwise)."""
+    from spikingjelly.clock_driven import functional
+    from energy import FiringRateRecorder
+    sizes = {}
+    for ds, pl in (('ETTh2', 96), ('ETTm2', 720)):
+        d = _ett(ds, pl)
+        sizes[f'{ds} H{pl}'] = tuple(len(d[f][0]) for f in ('train', 'val', 'test'))
+    ok_sizes = sizes == {'ETTh2 H96': (8449, 2785, 2785), 'ETTm2 H720': (33745, 10801, 10801)}
+    d = _ett('ETTh2', 96)
+    x = next(iter(d['test'][1]))[0].float().cuda()
+    rows, ok = [], ok_sizes
+    for cond in GEN_CONDS:
+        m = _gen_model(cond); _bn_freeze_eval(m, x); m.train_mode = 'testing'      # eval-mode BN at init silences every neuron
+        rec = FiringRateRecorder(m)
+        with torch.no_grad():
+            y = m(x); functional.reset_net(m)
+        rec.add_samples(x.shape[0])
+        Ts = sorted({int(r['T']) for r in rec.layers()})
+        rec.detach()
+        z = ((x - x.mean(1, keepdim=True)) / torch.sqrt(torch.var(x - x.mean(1, keepdim=True), dim=1, keepdim=True, unbiased=False) + 1e-5))
+        z = z.permute(0, 2, 1).reshape(-1, 1, 96)
+        with torch.no_grad():
+            f = m.features(z); functional.reset_net(m)
+            if m.kind == 'mixer':
+                ref = m.inner.forward_parts(z)[4][:, :, 0].transpose(0, 1)
+            else:
+                ref = m.inner(z)[1].mean(0)
+            functional.reset_net(m)
+        no_head = not any(n.startswith('inner.head') for n, _ in m.named_parameters())
+        good = tuple(y.shape) == (x.shape[0], 96, 7) and m.num_patches == 24 and no_head and torch.equal(f, ref) and float(f.mean()) > 0.01
+        good &= (m.inner.T_h == 4 and Ts == [4]) if m.kind == 'ssa' else (m.T == 24 and Ts == [24])
+        ok &= good
+        rows.append(f'{cond}: out {tuple(y.shape)}, body == own forward {torch.equal(f, ref)}, rate {float(f.mean()):.3f}, '
+                    f"{'T_h ' + str(m.inner.T_h) if m.kind == 'ssa' else 'T ' + str(m.T)}, recorder T {Ts}")
+    report('c46', ok, f'splits {sizes}; ' + '; '.join(rows))
+
+
+@check('c47')
+def c47():
+    """(MODI 2026-10-27) Forecaster in eval mode (BN statistics fixed on the batch, body firing > 1 %) on a real ETTh2 test batch
+    (all 9 conditions): both ends on a x + b (random per-channel a > 0, b) against a float64 reference built window by window and
+    channel by channel -- the body input equals (x - mean) / sqrt(var + 1e-5) per window and channel in row order b * C + c
+    (every element within a float32 rounding bound 32 * 2^-24 * max|x| / std + 1e-6 of that window and channel) and, with the
+    body output held fixed, the output equals head * std + mean per channel (relative error < 1e-5); the
+    share of body spikes that differ between x and a x + b (the eps makes the normalisation not exactly affine-invariant) is
+    reported -- channel independence (changing channel 0 changes only output
+    channel 0, the rest bitwise), the new head receives a gradient under the L1 loss; train_forecast.evaluate MSE / MAE equal a
+    manual computation over 3 batches."""
+    from spikingjelly.clock_driven import functional
+    import train_forecast as tf
+    d = _ett('ETTh2', 96)
+    x, yb = [t.float().cuda() for t in next(iter(d['test'][1]))[:2]]
+    g = torch.Generator().manual_seed(3)
+    a = (torch.rand(1, 1, 7, generator=g) * 3 + 0.5).cuda(); b = (torch.randn(1, 1, 7, generator=g) * 5).cuda()
+    rows, ok = [], True
+    for cond in GEN_CONDS:
+        m = _gen_model(cond); _bn_freeze_eval(m, x); m.train_mode = 'testing'
+        with torch.no_grad():
+            y0 = m(x); functional.reset_net(m)
+            z0 = ((x - x.mean(1, keepdim=True)) / torch.sqrt(torch.var(x - x.mean(1, keepdim=True), dim=1, keepdim=True, unbiased=False) + 1e-5))
+            f0 = m.features(z0.permute(0, 2, 1).reshape(-1, 1, 96)); functional.reset_net(m)
+            rate = float(f0.mean())
+            x2 = x.clone(); x2[:, :, 0] = x2[:, :, 0].flip(1)
+            y2 = m(x2); functional.reset_net(m)
+            seen = []
+            m.features = lambda z: (seen.append(z), f0)[1]                 # body output held fixed: tests both ends only
+            yf1 = m(a * x + b)
+            del m.features
+            f1 = m.features(seen[0]); functional.reset_net(m)
+            xa = (a * x + b).double().cpu(); B_, L_, C_ = xa.shape          # float64 reference, per window and channel
+            mu = xa.mean(1); sd = torch.sqrt(xa.var(1, unbiased=False) + 1e-5)
+            zref = ((xa - mu[:, None]) / sd[:, None]).permute(0, 2, 1).reshape(B_ * C_, 1, L_)
+            hz = m.head(f0.reshape(B_ * C_, -1)).double().cpu().reshape(B_, C_, -1)
+            yref = (hz * sd[:, :, None] + mu[:, :, None]).permute(0, 2, 1)
+        bound = (32 * 2 ** -24 * xa.abs().amax(1) / sd).permute(0, 1).reshape(B_ * C_, 1, 1) + 1e-6   # float32 rounding of x - mean, / std
+        zerr = (seen[0].double().cpu() - zref).abs()
+        norm_ok = bool((zerr <= bound).all())
+        yerr = float(((yf1.double().cpu() - yref).abs() / (yref.abs() + 1.)).max())
+        eqv = norm_ok and yerr < 1e-5
+        flip = float((f1 != f0).float().mean())
+        indep = torch.equal(y2[:, :, 1:], y0[:, :, 1:]) and not torch.equal(y2[:, :, 0], y0[:, :, 0])
+        m.train(); m.train_mode = 'training'; m.zero_grad(set_to_none=True)
+        torch.nn.functional.l1_loss(m(x), yb[:, -96:]).backward(); functional.reset_net(m)
+        hg = m.head.weight.grad is not None and float(m.head.weight.grad.abs().sum()) > 0
+        good = eqv and indep and hg and rate > 0.01
+        ok &= good
+        rows.append(f'{cond}: body rate {rate:.3f}, body input == reference {norm_ok} (max err {float(zerr.max()):.1e}, '
+                    f'max err / float32 bound {float((zerr / bound).max()):.2f}), both ends == reference {eqv} (rel err {yerr:.1e}; body spikes x vs a x + b differ '
+                    f'{flip:.2e}), channel-independent {indep}, head grad {hg}')
+    m = _gen_model('mixlinmx_lif'); _bn_freeze_eval(m, x)
+    batches = []
+    for i, bt in enumerate(d['test'][1]):
+        if i == 3:
+            break
+        batches.append(bt)
+    got = tf.evaluate(m, batches, 96, 'cuda')
+    se = ae = n = 0.
+    with torch.no_grad():
+        for xb, yy, _, _ in batches:
+            o = m(xb.float().cuda()).double(); functional.reset_net(m)
+            dd = o - yy.float().cuda()[:, -96:].double()
+            se += float((dd ** 2).sum()); ae += float(dd.abs().sum()); n += dd.numel()
+    met = abs(got['mse'] - se / n) < 1e-9 and abs(got['mae'] - ae / n) < 1e-9 and got['n'] == n
+    ok &= met
+    report('c47', ok, '; '.join(rows) + f"; evaluate mse {got['mse']:.6f} mae {got['mae']:.6f} == manual {met}")
+
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', default=os.path.join(HERE, 'results', 'checks', 'check_cls.txt'))
     ap.add_argument('--only', nargs='*', default=None)
     a = ap.parse_args()
-    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30, c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44, c45):
+    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30, c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44, c45, c46, c47):
         if a.only and fn.__name__ not in a.only:
             continue
         fn()
