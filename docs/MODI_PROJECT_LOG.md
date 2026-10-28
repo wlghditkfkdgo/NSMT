@@ -3584,3 +3584,69 @@ n = LIF, f-LIF(α 0.5), population LIF(soma 0.5), population f-LIF(soma 1.0)이�
 - 설계·판정 규칙은 바뀌지 않는다. 사전 고정 항목의 "공통 옵션"에 이 한 가지만 다르다. 폴더 이름의 `keep_ratio+0.15`는 `keep_ratio+0.0`이 된다.
 
 **다시 시작:** `bash nsmt_flif_v1/classification/scripts/make_queue_ppg.sh` 다음 `bash scripts/gpu_pool2.sh nsmt_flif_v1/classification/scripts/queues/ppg-20261028.txt 0,1,2,3,0,1,2,3`(tmux `flif_ppg`)을 실행한다. 메모리가 줄어 run당 시간도 줄 수 있다.
+
+---
+
+## 2026-10-29 06:19 KST — 결과: 순서 섞어 재학습 (CinC fold 0, 90 epoch, 15/15 run) — **Spikformer식은 섞은 순서로 학습해도 점수가 같다(S1 −0.06 %p, 차이 없음) → S2 "CinC가 순서에 보상하는가" 아니오. Neo-mixer 네 뉴런은 모두 "순서가 도움"(+0.71 ~ +3.74 %p; f-LIF는 문턱 근처). 섞어 학습한 Neo-mixer는 섞어 학습한 Spikformer식보다 4.60–6.17 %p 낮다(12/12 seed). 원인 분석에서 평가 때만 섞어 본 하락(9.25–17.50 %p)은 대부분 처음 보는 입력 때문이었다**
+
+**직전 commit:** `07be57b37` (PPG 정정 2). 사전 고정은 2026-10-28 17:42 항목(commit `5f4e4c632`)이다.
+
+**실행:**
+- `tmux flif_shuf`, `scripts/gpu_pool2.sh`(GPU 0–3, GPU당 2개). 첫 8개는 10-28 17:43:29에 시작했다. 나머지 7개는 10-29 00:16:40부터 시작했다. 마지막 run이 06:15:47에 끝났다. 15/15 `DONE(rc=0)`, SKIP 0이다.
+- run 시간(s): Spikformer식 1,343–1,435, Neo-mixer LIF 10,891–11,589, f-LIF 21,547–23,895, population LIF 25,112–25,144, population f-LIF 24,281–25,169. PPG 묶음과 GPU를 나눠 썼다.
+- **코드 버전이 둘이다.** 첫 8개(f-LIF seed 42 / 7, population LIF 3개, population f-LIF 3개)는 `5f4e4c632`에서 시작했다. 나중 7개(f-LIF seed 2026, LIF 3개, Spikformer식 3개)는 `07be57b37`에서 시작했다. 그 사이 변경은 PPG 코드와 SSA의 과거만 보는 띠(`attn_window`, 기본 0 = 꺼짐)다. 이 변경 뒤에도 기본 경로가 기록된 run(`spk_ssa` seed 7 포함)을 그대로 재현함을 18:15 항목에서 확인했다. 섞기 코드(`token_order.py`와 호출부)는 두 버전에서 같다.
+- 기록: `results/flif-v1-rhythm-shuf-cinc/{raw.txt, summary.md, pool_runs.txt}`. run 폴더(`log/flif-v1-rhythm-shuf-cinc/…`, 체크포인트와 TensorBoard)는 로컬에 둔다.
+- 요약: `python summarize_shuf.py` (기본 `--suite flif-v1-rhythm-shuf-cinc`).
+
+**점검:**
+- 15개 `logargs.txt` 모두 `token_shuffle True`, `epoch 90`이다. population soma 초기값은 의도와 같다(population LIF 0.5 ×3, population f-LIF 1.0 ×3, 나머지 None ×9). 폴더 이름에 모두 `_tshuf`가 붙었다.
+- 요약은 정상 순서 기준(`flif-v1-rhythm-budget-cinc`)과 평가 때 섞기(`flif-v1-cause-cinc`의 `score_shuf1`)를 seed로 짝지었다. 빠진 값은 없다(미완 0).
+
+**결과** (test 점수 %, 검증 최고 가중치; 평균 (seed 42 / 7 / 2026); 섞어 학습한 모델은 고정 순열 `default_rng(0).permutation(117)` 하나로 검증·시험):
+
+| 모델 | 정상 순서 | 섞어 학습 | 정상 모델을 섞어 평가 | S1 정상 − 섞어 학습 (%p) | 판정 | 회복 (%p) |
+|---|---|---|---|---|---|---|
+| Spikformer식 | 64.89 (65.65 / 64.98 / 64.06) | 64.96 (64.25 / 64.91 / 65.72) | 63.40 (64.25 / 64.08 / 61.88) | −0.06 (+1.40 / +0.07 / −1.66) | 차이 없음 | 1.55 (−0.01 / 0.83 / 3.83) |
+| Neo-mixer LIF | 62.37 (61.36 / 62.80 / 62.96) | 59.79 (58.79 / 59.85 / 60.72) | 53.12 (53.87 / 52.96 / 52.55) | +2.59 (+2.57 / +2.95 / +2.24) | 순서가 도움 | 6.67 (4.93 / 6.89 / 8.18) |
+| Neo-mixer f-LIF | 61.06 (62.56 / 61.89 / 58.72) | 60.35 (59.66 / 61.55 / 59.85) | 47.19 (49.00 / 48.38 / 44.19) | +0.71 (+2.90 / +0.35 / −1.13) | 순서가 도움 (문턱 근처) | 13.16 (10.66 / 13.17 / 15.66) |
+| Neo-mixer population LIF | 63.88 (63.37 / 65.12 / 63.16) | 60.15 (59.88 / 59.53 / 61.04) | 46.38 (46.92 / 47.41 / 44.81) | +3.74 (+3.49 / +5.60 / +2.12) | 순서가 도움 | 13.77 (12.95 / 12.12 / 16.23) |
+| Neo-mixer population f-LIF | 61.32 (60.89 / 61.94 / 61.13) | 58.78 (60.02 / 58.65 / 57.67) | 49.72 (50.69 / 49.57 / 48.90) | +2.53 (+0.86 / +3.29 / +3.45) | 순서가 도움 | 9.06 (9.33 / 9.08 / 8.77) |
+
+- **S2 CinC가 순서에 보상하는가: 아니오** (Spikformer식 S1 = 차이 없음).
+- Neo-mixer와 Spikformer식의 격차(%p; 정상 순서는 위 표 평균의 차, 섞어 학습은 seed별 차의 평균):
+
+| Neo-mixer | 정상 순서: − Spikformer식 | 섞어 학습: − 섞어 학습 Spikformer식 (seed 42 / 7 / 2026) |
+|---|---|---|
+| LIF | −2.52 | −5.17 (−5.45 / −5.06 / −4.99) |
+| f-LIF | −3.83 | −4.60 (−4.59 / −3.36 / −5.87) |
+| population LIF | −1.01 | −4.81 (−4.37 / −5.38 / −4.68) |
+| population f-LIF | −3.57 | −6.17 (−4.22 / −6.26 / −8.04) |
+
+**사전 예상과 비교:**
+- Spikformer식 S1 "차이 없음": 맞았다(−0.06 %p).
+- S2 "아니오": 맞았다.
+- Neo-mixer 네 뉴런 "순서가 도움(1–5 %p)": 판정은 4/4 맞았다. 크기는 LIF 2.59, population LIF 3.74, population f-LIF 2.53 %p로 범위 안이다. f-LIF는 0.71 %p로 범위보다 작다(seed 2026은 −1.13).
+- 회복은 Neo-mixer에서 크다: 맞았다(6.67–13.77 vs Spikformer식 1.55 %p).
+- 섞어 학습한 Neo-mixer가 섞어 학습한 Spikformer식보다 낮다: 맞았다(12/12 seed 음수).
+
+**읽는 법 (탐색, CinC fold 0, seed 3):**
+- 미리 적은 읽는 법 표의 첫 줄(Spikformer식 차이 없음 + Neo-mixer 순서가 도움)에 해당한다. CinC에서 0.5 s보다 긴 토큰 순서는 Spikformer식 점수에 보탬이 되지 않는다. Neo-mixer는 순서를 쓰지만, 순서를 쓰고도 순서 없는 Spikformer식보다 낮다.
+- **Neo-mixer가 Spikformer식보다 낮은 이유는 순서가 아니다.** 순서를 없애면 격차가 1.01–3.83 %p에서 4.60–6.17 %p로 커진다. 순서는 Neo-mixer의 부족분 일부를 메운다. 남은 격차의 원인은 이 실험으로 알 수 없다.
+- 원인 분석에서 평가 때만 섞었을 때 Neo-mixer 하락은 9.25–17.50 %p였다. 섞어 학습하면 6.67–13.77 %p가 돌아온다. 그 하락의 대부분은 처음 보는 입력 효과였고, 순서 자체의 몫은 0.71–3.74 %p다.
+- 원인 분석 (나)와 합치면 다음과 같다. CinC는 긴 맥락(마지막 약 4 s만 주면 Spikformer식 −6.06 %p)의 순서 없는 통계로 대부분 풀린다. T = N 기억이 순서를 나르는 성질은 CinC에서 Spikformer식을 넘는 형태로 드러나기 어렵다. 순서·상태가 정답에 필요한 PPG-DaLiA(진행 중)로 옮긴 이유가 이것이다.
+
+**한계와 다른 해석:**
+- S2는 사전 고정대로 Spikformer식 하나로 정한다. Spikformer식이 순서를 아는 통로는 상대 위치 편향뿐이다. 그래서 "CinC에 쓸모 있는 긴 순서 정보가 없다"와 "Spikformer식이 그 정보를 쓰지 못한다"를 이 실험만으로 가를 수 없다.
+- Neo-mixer의 "순서가 도움"도 두 가지로 읽힌다. 순서에 정답 정보가 있을 수 있다. 또는 T = N 뉴런이 이웃 토큰을 이어 받는 구조라서, 이웃이 무작위면 상태에 잡음이 쌓여 손해를 볼 수 있다(사전 예상의 근거). 이 실험으로는 둘을 가를 수 없다.
+- seed 간 흔들림이 크다. Spikformer식 d는 seed별 +1.40 / +0.07 / −1.66 %p다. seed 3개로는 약 1.5 %p보다 작은 차이를 가를 수 없다. f-LIF의 "순서가 도움"은 문턱 근처(평균 0.71, seed 2026 −1.13)라 약하다.
+- 토큰(64샘플)이 반씩 겹쳐 0.5 s 안의 순서는 남는다. 시험 순서는 고정 순열 하나다. 정상 순서 run과 섞어 학습한 run은 따로 학습된 모델이다(같은 seed, 같은 다른 난수).
+- 에너지는 사전 고정 비교에 없어 보지 않았다.
+
+**PPG-DaLiA 진행 상황 (판정 없음)과 브리핑 정정:**
+- 10-29 06:17 현재 4/42 run이 끝났다(Neo-mixer population LIF·f-LIF, seed 42 / 7). 8개가 돌고 30개가 대기 중이며 SKIP은 0이다.
+- **정정 (사용자 브리핑):** 10-28 20:22 브리핑에서 "PPG 8개 run 모두 검증 MSE가 epoch 3–14에서 가장 낮고 그 뒤 오른다 — 과적합 징후"라고 말했다. 틀린 해석이었다. 이 프레임워크의 cosine 스케줄(`utils.get_scheduler` → timm `create_scheduler_v2`)은 처음 20 %(PPG에서는 20 epoch) 동안 학습률을 0.00001에서 0.001까지 올리고, 학습률에 무작위 흔들림(`noise_pct` 0.67)을 섞는다. 검증 MSE가 오른 시기는 이 예열과 겹친다. 22:40 브리핑에서 바로잡았다. 그 뒤 Neo-mixer run은 예열 이후 최저값을 새로 찍었다. B형 population seed 42 / 7은 epoch 50–62에서 최저(검증 MSE 0.0959–0.1041; 진행 중 값, 판정에 쓰지 않음)다.
+- 검증 MSE가 epoch마다 크게 흔들린다(예: 0.10 ↔ 0.20; 검증 창 106개). 검증 최저 시점을 고르는 데 운이 섞일 수 있다. PPG 결과 항목의 한계로 적는다.
+
+**commit / tag:** 이 항목, `results/flif-v1-rhythm-shuf-cinc/`, smoke 요약 두 개(`results/smoke-rhythm-shuf-20261028/summary.md`, `results/smoke-ppg-20261028/summary.md`; seed가 하나뿐이라 모두 "미완"으로 처리된 것 — fail-closed 확인 기록)를 commit 한다. annotated tag `exp/nsmt-flif-neo-20261029-shuf`(완료된 학습 묶음)를 붙인다. 이 항목의 commit은 이 tag로 가리킨다. `exp/nsmt-flif-neo`와 이 tag만 push 한다. `results/flif-v1-ppg/raw.txt`는 진행 중이라 이번 commit에 넣지 않는다.
+
+---
