@@ -182,6 +182,14 @@ class SSA_rel_scl(nn.Module):
             self.v2_lif = MultiStepLIFNode(tau=tau, detach_reset=True, backend='cupy', surrogate_function=surrogate.Sigmoid())
 
         # self.dropout = nn.Dropout(drop)
+    def _band(self, N, ref):
+        """MODI 2026-10-28 (PPG): 0/1 mask [N, N]; query token i keeps key tokens j with 0 <= i - j < W (attn_window W > 0) or
+        0 <= i - j (W = -1, all past). Set by the owner (ppg_model.TokenRegressor); absent = no mask (the default path)."""
+        W = int(self.attn_window)
+        d = torch.arange(N, device=ref.device)
+        d = d[:, None] - d[None, :]
+        return ((d >= 0) & (d < (N if W < 0 else W))).to(ref.dtype)
+
     def forward(self, x, mask=None, kv=None):
         T,B,N,C = x.shape
         
@@ -215,6 +223,9 @@ class SSA_rel_scl(nn.Module):
             relative_bias = relative_bias.permute(2, 0, 1).unsqueeze(0).unsqueeze(0)
             
             attn_scores = attn_scores + relative_bias
+        band = self._band(N, attn_scores) if getattr(self, 'attn_window', 0) else None
+        if band is not None:                            # MODI 2026-10-28 (PPG): causal band (no softmax -> multiply, not -inf)
+            attn_scores = attn_scores * band
         
         # if self.topk is not None and self.topk > 0:
         #     T_, B_, H_, Nq, Nk = attn_scores.shape
@@ -252,6 +263,8 @@ class SSA_rel_scl(nn.Module):
                 s2 = s2 + mask * float('-inf')
             if self.pe:
                 s2 = s2 + relative_bias
+            if band is not None:
+                s2 = s2 * band
             x = x + s2 @ v2
 
         x = x.transpose(2, 3).reshape(T, B, N, C).contiguous()

@@ -86,6 +86,12 @@ cannot run, or whose test is vacuous (no spikes), FAILs.
       (= the cause analysis b = 1) and differ from the unshuffled logits; on, training: every sample gets its own permutation,
       each row is a permutation, the token multiset of every sample is kept, two calls differ, the global torch RNG is not
       consumed; myModel without hippo_ssa refuses the flag; run folders get the suffix _tshuf (Spikformer-style and Neo-mixer)
+  c49 (MODI 2026-10-28) PPG-DaLiA (ppg_data / ppg_model / train_ppg): window counts 1020 / 106 / 106 with every window equal to its
+      slice, S13 train = 72 windows (the shorter of input / label), values in [-1, 1]; label k reads token k - 1 (token end = label
+      end); on real windows with frozen BN, changing input samples [128 j, 128 j + 128) leaves every token before j - 1 unchanged
+      (all models causal), the window-W attention reaches exactly W - 1 tokens further (W = 1, 3) and all past reaches far, the
+      memoryless B form stops at the window, the T = N B form and the forward Neo-mixer reach beyond it; the head reads 0/1 spikes,
+      equals the head of the averaged spikes, and syops books it as AC (0 MAC); the GRU reference is causal
 usage: python check_cls.py [--out results/checks/check_cls.txt]
 """
 import argparse
@@ -2113,12 +2119,142 @@ def c48():
                       f'({names[("spk_ssa", True)]}, {names[("mix_lif_bidir", True)]})')
 
 
+@check('c49')
+def c49():
+    """PPG-DaLiA (MODI 2026-10-28); see the module docstring."""
+    import re as _re
+    import numpy as np
+    from load_model import LOAD_MODEL
+    from config import set_random_seed
+    from spikingjelly.clock_driven import functional
+    from ppg_data import PPGWindows, ROOT, STRIDE, LSTRIDE, WIN, LWIN
+    from ppg_model import TokenRegressor, GRURegressor, label_tokens
+    from syops import get_model_complexity_info
+    from syops.ops import LIF_syops_counter_hook
+    from neurons import LIFNeuron, FLIFNeuron
+    from torch.utils.data import DataLoader, Subset
+    npz = os.path.join(ROOT, 'processed', 'logncde_seed0.npz')
+    ds = {sp: PPGWindows(npz, sp) for sp in ('train', 'val', 'test')}
+    raw = np.load(npz)
+    counts = {sp: len(d) for sp, d in ds.items()}
+    slice_ok = True
+    for sp, d in ds.items():
+        for k in (0, len(d) // 2, len(d) - 1):
+            si, j = d.idx[k]; x, y, s_ = d[k]
+            slice_ok &= s_ == si and torch.equal(x, torch.from_numpy(raw[f'S{si + 1}_{sp}_x'][j * STRIDE:j * STRIDE + WIN])) \
+                and torch.equal(y, torch.from_numpy(raw[f'S{si + 1}_{sp}_y'][j * LSTRIDE:j * LSTRIDE + LWIN]))
+    s13 = sum(1 for si, _ in ds['train'].idx if si == 12)
+    rng_ok = all(float(raw[k].min()) >= -1 and float(raw[k].max()) <= 1 for k in raw.files if k.endswith(('_x', '_y')))
+    idx = label_tokens(390)
+    map_ok = int(idx[0]) == 0 and all(int(idx[k]) == k - 1 and 128 * (int(idx[k]) + 2) == 128 * (k + 1) for k in range(1, 390))
+    ok = counts == {'train': 1020, 'val': 106, 'test': 106} and slice_ok and s13 == 72 and rng_ok and map_ok
+    rows = [f'windows {counts}, slices equal {slice_ok}, S13 train {s13}, range ok {rng_ok}, label -> token k - 1 {map_ok}']
+    x = torch.stack([ds['test'][i][0] for i in range(2)]).float().cuda()            # [2, 49920, 6]
+    j = 200                                                                          # samples [128 j, 128 j + 128) -> tokens j - 1, j
+    xp = x.clone(); xp[:, 128 * j:128 * j + 128] = torch.rand(2, 128, 6, generator=torch.Generator().manual_seed(3)).cuda() * 2 - 1
+    base = dict(HP, patch_size=256, seq_len=49920, num_channels=6, num_classes=1, seed=42)
+    ssa = dict(base, model='myModel', hippo_ssa=True, hippo_T=4)
+    bf = dict(base, model='myModel', hippo_T=4, hippo_xattn=True, hippo_xattn_mode='cat', neo_grad=1.0, neo_where='both', neo_neuron='lif')
+    cases = [('P0 window 1', ssa, 1, 'stop', 1), ('P1 window 3', ssa, 3, 'stop', 3), ('P3 all past', ssa, -1, 'far', None),
+             ('P4 mixer LIF', dict(base, model='neoMixer', mixer='lif'), 0, 'far', None),
+             ('P5 B T = N LIF', bf, 3, 'far', None), ('P6 B memoryless', dict(bf, neo_memoryless=True), 3, 'stop', 3)]
+    for name, kw, W, kind, Wr in cases:
+        set_random_seed(0)
+        m = TokenRegressor(LOAD_MODEL[kw['model']](NS(**kw), True), 384, attn_window=W).cuda()
+        with torch.no_grad():                                              # give the relative bias values (zero init)
+            for n_, p_ in m.named_parameters():
+                if 'relative_bias_table' in n_:
+                    p_.copy_(torch.randn(p_.shape, generator=torch.Generator().manual_seed(5)).to(p_.device) * 0.1)
+        _bn_freeze_eval(m, x)
+        with torch.no_grad():
+            s0 = m.spikes(x.permute(0, 2, 1).contiguous()); functional.reset_net(m)
+            s1 = m.spikes(xp.permute(0, 2, 1).contiguous()); functional.reset_net(m)
+            y0 = m(x); functional.reset_net(m)
+        ch = (s0 != s1).any(-1).any(1).any(0)                              # [N] tokens whose spikes changed
+        first = int(torch.nonzero(ch)[0]) if bool(ch.any()) else -1
+        last = int(torch.nonzero(ch)[-1]) if bool(ch.any()) else -1
+        causal = bool(ch.any()) and not bool(ch[:j - 1].any())
+        # reach by surrogate gradients (non-zero everywhere): d(per-token outputs) / d(input samples of tokens j - 1, j)
+        det = torch.are_deterministic_algorithms_enabled()
+        torch.use_deterministic_algorithms(False)                          # ReplicationPad1d backward (input grad only; not used in training)
+        xg = x.clone().requires_grad_(True)
+        out = m.head(m.spikes(xg.permute(0, 2, 1).contiguous())).squeeze(-1).mean(0)   # [B, N]
+        def g_of(sel):
+            return float(torch.autograd.grad(out[:, sel].sum(), xg, retain_graph=True)[0][:, 128 * j:128 * j + 128].abs().sum())
+        g_before = g_of(slice(0, j - 1))
+        if kind == 'stop':                                                 # exact zero beyond the window (the positive side: unit test below)
+            g_in, g_out = g_of(slice(j + Wr - 1, j + Wr)), g_of(slice(j + Wr, None))
+            reach = g_out == 0.
+        else:
+            g_in, g_out = g_of(slice(j, j + 1)), g_of(slice(j + 5, None))
+            reach = g_in > 0 and g_out > 0
+        functional.reset_net(m); del out, xg
+        torch.use_deterministic_algorithms(det)
+        causal = causal and g_before == 0.
+        binary = bool(((s0 == 0) | (s0 == 1)).all())
+        head_eq = bool(torch.allclose(y0, m.head(s0.mean(0)).squeeze(-1)[:, m.lab_idx], rtol=1e-5, atol=1e-6))
+        good = causal and reach and binary and head_eq
+        ok &= good
+        rows.append(f'{name}: spikes changed at tokens {first}..{last} (input at tokens {j - 1}..{j}), causal {causal} (grad before {g_before:.1e}), '
+                    f'reach as expected {reach} (grad in reach {g_in:.1e}, beyond {g_out:.1e}), '
+                    f'head input 0/1 {binary}, head == head(mean) {head_eq}')
+        if name == 'P1 window 3':
+            dl = DataLoader(Subset(ds['test'], [0, 1]), batch_size=2)
+            path = os.path.join(tempfile.mkdtemp(dir=os.environ.get('CHECK_TMP')), 'layers.txt')
+            m.train_mode = 'testing'
+            with open(path, 'w', encoding='utf-8') as fo:
+                get_model_complexity_info(model=m, input_res=((49920, 6),), dataloader=dl, as_strings=False, print_per_layer_stat=True,
+                                          verbose=False, ost=fo, custom_modules_hooks={LIFNeuron: LIF_syops_counter_hook, FLIFNeuron: LIF_syops_counter_hook})
+            hl = [l for l in open(path, encoding='utf-8').read().splitlines() if l.startswith('  (head): Linear(')]
+            mac = _re.search(r'ACs,\s*([\d.]+)\s*([KMG]?)\s*Ops', hl[0]) if hl else None
+            ac_ok = bool(hl) and mac is not None and float(mac.group(1)) == 0.
+            ok &= ac_ok
+            rows.append(f'P1 head line found {bool(hl)}, head MAC = 0 {ac_ok} ({hl[0].strip()[:160] if hl else ""})')
+    from layers import SSA_rel_scl                                     # unit test of the causal band on active spikes
+    set_random_seed(0)
+    a = SSA_rel_scl(dim=384, seq_len=390, num_heads=8, kv_cat=True).cuda().eval()
+    with torch.no_grad():
+        for lin in (a.q_linear, a.k_linear, a.v_linear, a.k2_linear, a.v2_linear):
+            lin.weight.mul_(4.)                                            # enough activity at the init BN statistics
+        a.relative_bias_table.copy_(torch.randn(a.relative_bias_table.shape, generator=torch.Generator().manual_seed(5)).cuda() * 0.1)
+    gen = torch.Generator().manual_seed(7)
+    xs = (torch.rand(4, 2, 390, 384, generator=gen) < 0.3).float().cuda(); kvs = (torch.rand(4, 2, 390, 384, generator=gen) < 0.3).float().cuda()
+    pre = {}
+    hk = a.attn_lif.register_forward_hook(lambda mod, i, o: pre.__setitem__('x', i[0].detach().clone()))
+    unit = []
+    for W in (1, 3, 15, -1):
+        a.attn_window = W
+        res = []
+        for which in ('x', 'kv'):
+            x1, kv1 = xs.clone(), kvs.clone()
+            (x1 if which == 'x' else kv1)[:, :, j] = 1. - (x1 if which == 'x' else kv1)[:, :, j]
+            with torch.no_grad():
+                a(xs, kv=kvs); functional.reset_net(a); p0 = pre['x']
+                a(x1, kv=kv1); functional.reset_net(a); p1 = pre['x']
+            chg = torch.nonzero((p0 != p1).any(-1).any(1).any(0)).flatten().tolist()
+            want = list(range(j, 390 if W < 0 else min(390, j + W)))
+            res.append(chg == want)
+        unit.append(all(res))
+    hk.remove(); del a.attn_window
+    unit_ok = all(unit)
+    ok &= unit_ok
+    rows.append(f'SSA band unit test (pre-activation changes exactly at tokens j .. j + W - 1, own and neocortex keys) W = 1 / 3 / 15 / all: {unit}')
+    set_random_seed(0)
+    g = GRURegressor().cuda().eval()
+    with torch.no_grad():
+        o0, o1 = g(x), g(xp)
+    lab_ch = (o0 != o1).any(0)
+    g_causal = not bool(lab_ch[:j - 1].any()) and bool(lab_ch[j + 50:].any())   # label k reads token k - 1
+    ok &= g_causal
+    rows.append(f'GRU causal and long reach {g_causal}')
+    report('c49', ok, '; '.join(rows))
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', default=os.path.join(HERE, 'results', 'checks', 'check_cls.txt'))
     ap.add_argument('--only', nargs='*', default=None)
     a = ap.parse_args()
-    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30, c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44, c45, c46, c47, c48):
+    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30, c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44, c45, c46, c47, c48, c49):
         if a.only and fn.__name__ not in a.only:
             continue
         fn()

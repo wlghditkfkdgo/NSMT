@@ -68,6 +68,7 @@ def prepare(seed=0):
             raise RuntimeError(f'S{i}.pkl: {member}')
         raw = SafeUnpickler(io.BytesIO(src.read(member[0])), encoding='latin1').load()
         x, y, lab = load_subject(raw)
+        out[f'S{i}_bpm_range'] = np.array([np.min(lab), np.max(lab)], dtype=np.float64)   # undoes the label scaling (BPM)
         v = rng.randint(0, 5)
         row = dict(subject=i, variant=v, n_in=len(x), n_lab=len(y), n_in_over_128=len(x) / SPL)
         for split, (lo, hi) in zip(('train', 'val', 'test'), VARIANTS[v]):
@@ -85,10 +86,12 @@ def prepare(seed=0):
 
 
 class PPGWindows(Dataset):
-    """windows of one split: x [WIN, 6] float32, y [LWIN] float32 (the original pairs input window j with label window j)."""
+    """windows of one split: x [WIN, 6] float32, y [LWIN] float32, subject index 0..14 (the original pairs input window j with
+    label window j). bpm_range[s] = (min, max) heart rate of subject s, to undo the label scaling."""
     def __init__(self, npz, split):
         d = np.load(npz)
         self.x, self.y, self.idx = [], [], []
+        self.bpm_range = np.stack([d[f'S{i}_bpm_range'] for i in range(1, 16)])
         for i in range(1, 16):
             xs, ys = d[f'S{i}_{split}_x'], d[f'S{i}_{split}_y']
             n = min((len(xs) - WIN) // STRIDE + 1 if len(xs) >= WIN else 0, (len(ys) - LWIN) // LSTRIDE + 1 if len(ys) >= LWIN else 0)
@@ -101,7 +104,7 @@ class PPGWindows(Dataset):
     def __getitem__(self, k):
         s, j = self.idx[k]
         x = self.x[s][j * STRIDE:j * STRIDE + WIN]; y = self.y[s][j * LSTRIDE:j * LSTRIDE + LWIN]
-        return torch.from_numpy(np.ascontiguousarray(x)), torch.from_numpy(np.ascontiguousarray(y))
+        return torch.from_numpy(np.ascontiguousarray(x)), torch.from_numpy(np.ascontiguousarray(y)), s
 
 
 if __name__ == '__main__':
