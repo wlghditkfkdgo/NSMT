@@ -134,6 +134,8 @@ def parse_arguments():
     snn_arg.add_argument('--neo_grad', type=float, default=0.5, help='task-gradient share to the neocortex (0.5 = the ECG code)')
     snn_arg.add_argument('--neo_memoryless', action='store_true', default=False,
                          help='every token runs through the neocortex as its own 1-step sequence (no state crosses tokens)')
+    snn_arg.add_argument('--token_shuffle', action='store_true', default=False,
+                         help='MODI 2026-10-28 shuffle-retrain: random token order per sample in training, one fixed order in evaluation')
     snn_arg.add_argument('--pop_soma_init', type=float, default=None, help='pop_flif soma mixing weight init (None = 1/K)')
     snn_arg.add_argument('--fold', type=int, default=0, help='CinC 2017: test fold 0..4 of the record-wise stratified 5-fold split')
     snn_arg.add_argument('--val_frac', type=float, default=0.1, help='share of the training part held out for validation')
@@ -256,6 +258,8 @@ class Config():
             _iso += f"_ng{float(args.neo_grad):g}"
         if getattr(args, 'neo_memoryless', False):
             _iso += "_nomem"
+        if getattr(args, 'token_shuffle', False):                         # MODI 2026-10-28
+            _iso += "_tshuf"
         if getattr(args, 'pop_soma_init', None) is not None:
             _iso += f"_psi{args.pop_soma_init:g}"
         if str(getattr(args, 'data', '')).upper() in ('CINC2017', 'SHD'):

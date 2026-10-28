@@ -17,6 +17,7 @@ from timm.utils import *
 from layers import SpkEncoder, SpikLinearLayer, SpikLinearMaxLayer, MLP, SSA_rel_scl, MutualCrossAttention
 from layers import build_neo_neuron, NeoNeuron, apply_tau_calibration   # nsmt_flif_v1
 from positional import tAPE
+from token_order import TokenShuffle, permute_tokens   # MODI 2026-10-28 (shuffle-retrain)
 from utils import random_masking_3D, cyclic_shift_batch_dim1
 from einops import rearrange
 
@@ -567,6 +568,10 @@ class myModel(nn.Module):
             raise ValueError('hippo_ssa has no neocortex path; do not combine it with no_neo / hippo_only / neo options')
         if self.hippo_xattn and (self.no_neo or self.hippo_only):
             raise ValueError('hippo_xattn needs the neocortex path')
+        # MODI 2026-10-28: token_shuffle = shuffle-retrain diagnostic (token_order.TokenShuffle); Spikformer-style only (no aux target)
+        self.token_shuffle = TokenShuffle(self.num_patches, kwargs.get('shuffle_seed', 0)) if kwargs.get('token_shuffle', False) else None
+        if self.token_shuffle is not None and not self.hippo_ssa:
+            raise ValueError('token_shuffle is implemented for hippo_ssa (Spikformer-style) only')
         self.neo_neuron, self.neo_where = neo_neuron, neo_where
         _neo = dict(tau=self.neo_tau, alpha=float(kwargs.get('neo_alpha', 0.5)), method=str(kwargs.get('fde_method', 'pred')),
                     step=float(kwargs.get('fde_step', 1.0)), memory=int(kwargs.get('fde_memory', 0)),
@@ -830,6 +835,9 @@ class myModel(nn.Module):
             self.org_x = patch(low).detach().transpose(0, 1).unsqueeze(2).contiguous()
         hippo = tok.unsqueeze(0).expand(self.T_h, -1, -1, -1).contiguous()     # [T_h, B, N, C*P]
         neo = tok.transpose(0, 1).unsqueeze(2).contiguous()                    # [N, B, 1, C*P]
+        if getattr(self, 'token_shuffle', None) is not None:                   # MODI 2026-10-28: same order for both paths
+            perm = self.token_shuffle.perms(B, tok.device, self.training)
+            hippo, neo = permute_tokens(hippo, 2, perm), permute_tokens(neo, 0, perm)
         return hippo, neo
 
     def neo_forward(self, neo_in, org_seq=None):

@@ -20,7 +20,8 @@ def _neo_kwargs(args):
                 tau_calib=getattr(args, 'tau_calib', True),                                         # MODI 2026-10-23 (popk streams)
                 stream_rev=getattr(args, 'stream_rev', False), neo_stream_fuse=getattr(args, 'neo_stream_fuse', 'none'),   # MODI 2026-10-24
                 hippo_xattn_mode=getattr(args, 'hippo_xattn_mode', 'replace'), neo_grad=float(getattr(args, 'neo_grad', 0.5)),   # MODI 2026-10-26
-                neo_memoryless=getattr(args, 'neo_memoryless', False))
+                neo_memoryless=getattr(args, 'neo_memoryless', False),
+                token_shuffle=getattr(args, 'token_shuffle', False), shuffle_seed=int(getattr(args, 'seed', 0)))   # MODI 2026-10-28
 
 
 def load_mymodel(args, train=True):
@@ -149,7 +150,8 @@ def load_neo_mixer(args, train=True):
                      bias=args.bias, tau=args.tau, train_mode='training',
                      in_channels=getattr(args, 'num_channels', 1), pop_soma_init=getattr(args, 'pop_soma_init', None),   # stage 9
                      pos_emb=getattr(args, 'pos_emb', False),                                                          # MODI 2026-10-21
-                     mixer_comb=getattr(args, 'mixer_comb', 'or'), heads=args.num_heads, tau_calib=getattr(args, 'tau_calib', True))
+                     mixer_comb=getattr(args, 'mixer_comb', 'or'), heads=args.num_heads, tau_calib=getattr(args, 'tau_calib', True),
+                     token_shuffle=getattr(args, 'token_shuffle', False), shuffle_seed=int(getattr(args, 'seed', 0)))   # MODI 2026-10-28
     if not train:
         saved_model_path = os.path.join(args.save_result_path, "model_state", "best+model.pt")
         model.load_state_dict(torch.load(saved_model_path, map_location='cpu'))

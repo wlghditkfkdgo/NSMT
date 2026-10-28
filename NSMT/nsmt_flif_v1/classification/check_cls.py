@@ -81,6 +81,11 @@ cannot run, or whose test is vacuous (no spikes), FAILs.
       output is 0/1; initial firing on real CinC / SHD data is reported
   c32 (MODI 2026-10-22) linear fusion (mixer_comb lin): one Linear 768 -> 384 + BN + spikingjelly LIF on [F; R], no attention
       module, output 0/1, every neuron T = N, changing only the forward (resp. reverse) stream changes the fused output
+  c48 (MODI 2026-10-28) --token_shuffle (shuffle-retrain): off = no shuffle module and the default model unchanged bitwise;
+      on, evaluation: the logits equal the normal model (same weights) fed the tokens in the fixed order default_rng(0).permutation(N)
+      (= the cause analysis b = 1) and differ from the unshuffled logits; on, training: every sample gets its own permutation,
+      each row is a permutation, the token multiset of every sample is kept, two calls differ, the global torch RNG is not
+      consumed; myModel without hippo_ssa refuses the flag; run folders get the suffix _tshuf (Spikformer-style and Neo-mixer)
 usage: python check_cls.py [--out results/checks/check_cls.txt]
 """
 import argparse
@@ -2020,12 +2025,100 @@ def c47():
     report('c47', ok, '; '.join(rows) + f"; evaluate mse {got['mse']:.6f} mae {got['mae']:.6f} == manual {met}")
 
 
+@check('c48')
+def c48():
+    """--token_shuffle (MODI 2026-10-28); see the module docstring."""
+    import numpy as np
+    from load_model import LOAD_MODEL
+    from config import set_random_seed
+    import config as cfg
+    from spikingjelly.clock_driven import functional
+    x, d, P = _real_batch('CINC2017', n=8)
+    base = dict(HP, patch_size=64, seq_len=d['seq_len'], num_channels=1, num_classes=4, seed=42)
+    builds = {'spk_ssa': dict(base, model='myModel', hippo_ssa=True, hippo_T=4),
+              'mix_lif_bidir': dict(base, model='neoMixer', mixer='lif', mixer_bidir=True),
+              'mix_pop_lif_bidir': dict(base, model='neoMixer', mixer='pop_lif', mixer_bidir=True, pop_soma_init=0.5, neo_alpha=0.5)}
+    rows, ok = [], True
+    for name, kw in builds.items():
+        set_random_seed(0); m0 = LOAD_MODEL[kw['model']](NS(**kw), True).cuda()
+        set_random_seed(0); m1 = LOAD_MODEL[kw['model']](NS(**dict(kw, token_shuffle=True)), True).cuda()
+        same_w = all(torch.equal(a, b) for a, b in zip(m0.state_dict().values(), m1.state_dict().values()))
+        off_ok = m0.token_shuffle is None and m1.token_shuffle is not None
+        with torch.no_grad():                                              # the zero-initialised relative bias makes SSA order-blind;
+            for n_, p_ in m0.named_parameters():                           # give it values so that token order matters
+                if 'relative_bias_table' in n_:
+                    p_.copy_(torch.randn(p_.shape, generator=torch.Generator().manual_seed(5)).to(p_.device))
+        _bn_freeze_eval(m0, x); m1.load_state_dict(m0.state_dict()); m1.eval()
+        for mm in (m0, m1):
+            mm.train_mode = 'testing'
+        N = m0.num_patches
+        perm = torch.as_tensor(np.random.default_rng(0).permutation(N)).cuda()
+        tok_fn = (lambda f: (lambda xx: f(xx)[perm]))
+        with torch.no_grad():
+            z0 = m0(x); z0 = z0[0] if isinstance(z0, tuple) else z0; functional.reset_net(m0)
+            z1 = m1(x); z1 = z1[0] if isinstance(z1, tuple) else z1; functional.reset_net(m1)
+            if kw['model'] == 'neoMixer':
+                orig = m0.tokens; m0.tokens = tok_fn(orig)
+            else:
+                orig = m0._tokens_mc
+                def f(xx, orig=orig):
+                    h, n = orig(xx); return h[:, :, perm].contiguous(), n[perm].contiguous()
+                m0._tokens_mc = f
+            zr = m0(x); zr = zr[0] if isinstance(zr, tuple) else zr; functional.reset_net(m0)
+            del m0.__dict__['tokens' if kw['model'] == 'neoMixer' else '_tokens_mc']
+        eval_ok = torch.equal(z1, zr) and not torch.equal(z1, z0)
+        m1.train()
+        rng0 = torch.get_rng_state().clone(); crng0 = torch.cuda.get_rng_state().clone()
+        with torch.no_grad():
+            if kw['model'] == 'neoMixer':
+                t_a = m1.tokens(x); t_b = m1.tokens(x); m1.token_shuffle = None; t_ref = m1.tokens(x)
+            else:
+                _, t_a = m1._tokens_mc(x); _, t_b = m1._tokens_mc(x); sh = m1.token_shuffle; m1.token_shuffle = None
+                _, t_ref = m1._tokens_mc(x); m1.token_shuffle = sh
+        rng_ok = torch.equal(rng0, torch.get_rng_state()) and torch.equal(crng0, torch.cuda.get_rng_state())
+        B = x.shape[0]
+        flat = lambda t: t[:, :, 0].permute(1, 0, 2)                       # [B, N, P]
+        a, r = flat(t_a), flat(t_ref)
+        multiset = all(torch.equal(torch.sort(a[b], 0)[0], torch.sort(r[b], 0)[0]) for b in range(B))
+        rows_perm = []
+        for b in range(B):                                                 # recover the permutation row by row
+            idx = [int(torch.nonzero((r[b] == a[b, t]).all(-1))[0]) for t in range(N)]
+            rows_perm.append(tuple(idx))
+        is_perm = all(sorted(p) == list(range(N)) for p in rows_perm)
+        distinct = len(set(rows_perm)) == B and not torch.equal(t_a, t_b) and rows_perm[0] != tuple(range(N))
+        good = same_w and off_ok and eval_ok and rng_ok and multiset and is_perm and distinct
+        ok &= good
+        rows.append(f'{name}: same init {same_w}, module only when on {off_ok}, eval == fixed-order normal model {eval_ok}, '
+                    f'train: rows are permutations {is_perm}, multiset kept {multiset}, {len(set(rows_perm))}/{B} distinct and calls differ {distinct}, '
+                    f'global RNG untouched {rng_ok}')
+    try:
+        LOAD_MODEL['myModel'](NS(**dict(base, model='myModel', neo_neuron='lif', token_shuffle=True)), True)
+        refused = False
+    except ValueError:
+        refused = True
+    ok &= refused
+    tmp = tempfile.mkdtemp(dir=os.environ.get('CHECK_TMP'))
+    flags = {'spk_ssa': ['--model', 'myModel', '--hippo_ssa', '--hippo_T', '4'], 'mix_lif_bidir': ['--model', 'neoMixer', '--mixer', 'lif', '--mixer_bidir']}
+    names, argv0 = {}, sys.argv
+    try:
+        for c, f in flags.items():
+            for on in (False, True):
+                sys.argv = ['train_rhythm.py', '--log_dir', tmp, '--seed', '42', '-s', '--data', 'CINC2017', '--patch_size', '64'] + f + (['--token_shuffle'] if on else [])
+                a_ = cfg.Config(); a_.set_args(cfg.parse_arguments()); names[(c, on)] = os.path.basename(a_.save_result_path)
+    finally:
+        sys.argv = argv0
+    sfx = [('_tshuf' in n) == on for (c, on), n in names.items()] + [names[(c, True)] == names[(c, False)].replace('_f0', '_tshuf_f0') for c in flags]
+    ok &= all(sfx)
+    report('c48', ok, '; '.join(rows) + f'; NSMT without hippo_ssa refused {refused}; folder suffix _tshuf only when on {all(sfx)} '
+                      f'({names[("spk_ssa", True)]}, {names[("mix_lif_bidir", True)]})')
+
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', default=os.path.join(HERE, 'results', 'checks', 'check_cls.txt'))
     ap.add_argument('--only', nargs='*', default=None)
     a = ap.parse_args()
-    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30, c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44, c45, c46, c47):
+    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30, c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44, c45, c46, c47, c48):
         if a.only and fn.__name__ not in a.only:
             continue
         fn()

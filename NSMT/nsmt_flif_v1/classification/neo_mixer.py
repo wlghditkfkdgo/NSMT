@@ -27,6 +27,7 @@ from spikingjelly.clock_driven.neuron import MultiStepLIFNode, surrogate
 
 from layers import SpikLinearLayer, build_neo_neuron, GroupNeuron, group_gamma, sj_lif, apply_tau_calibration
 from model import Embedding, NeoLayer
+from token_order import TokenShuffle, permute_tokens   # MODI 2026-10-28 (shuffle-retrain)
 from bix import TokenXAttn, StreamSpikeLinear
 
 __all__ = ['NeoMixer']
@@ -152,7 +153,8 @@ class NeoMixer(nn.Module):
     def __init__(self, seq_len=187, data_patch_size=32, embed_dim=384, num_classes=5, depths=1, mlp_ratios=1.0,
                  mixer='pop_flif', mixer_bidir=True, mixer_layers=2, neo_tau=2.0, neo_alpha=0.5, fde_method='pred',
                  fde_step=1.0, fde_memory=0, pop_taus=(4., 8., 16., 32.), bias=False, tau=2.0, train_mode='training',
-                 in_channels=1, pop_soma_init=None, pos_emb=False, mixer_comb='or', heads=8, tau_calib=True, **kwargs):
+                 in_channels=1, pop_soma_init=None, pos_emb=False, mixer_comb='or', heads=8, tau_calib=True, token_shuffle=False,
+                 shuffle_seed=0, **kwargs):
         super().__init__()
         if mixer not in MIXERS:
             raise ValueError(f'mixer must be one of {MIXERS}')
@@ -162,6 +164,7 @@ class NeoMixer(nn.Module):
         self.patch_size, self.stride = data_patch_size, data_patch_size // 2
         self.num_patches = int((seq_len - data_patch_size) / self.stride + 1) + 1
         self.T = self.num_patches                                          # T = N
+        self.token_shuffle = TokenShuffle(self.num_patches, shuffle_seed) if token_shuffle else None   # MODI 2026-10-28
         self.padding_patch_layer = nn.ReplicationPad1d((0, self.stride))
         self.mixer_kind, self.mixer_bidir, self.mixer_layers, self.depths = mixer, bool(mixer_bidir), int(mixer_layers), int(depths)
         self.no_neo = self.hippo_only = False                              # for the shared evaluators
@@ -198,11 +201,15 @@ class NeoMixer(nn.Module):
         B = x.shape[0]
         if self.in_channels == 1:                                          # unchanged single-channel path (stage 7)
             xp = self.padding_patch_layer(x[:, 0]).unfold(-1, self.patch_size, self.stride)   # [B, N, P]
-            return xp.transpose(0, 1).unsqueeze(2).contiguous()                              # [N, B, 1, P]
-        C = x.shape[1]                                                     # stage 9: [B, C, L] -> [N, B, 1, C*P]
-        p = self.padding_patch_layer(x).unfold(-1, self.patch_size, self.stride)              # [B, C, N, P]
-        p = p.permute(0, 2, 1, 3).reshape(B, p.shape[2], C * self.patch_size)
-        return p.transpose(0, 1).unsqueeze(2).contiguous()
+            tok = xp.transpose(0, 1).unsqueeze(2).contiguous()                               # [N, B, 1, P]
+        else:
+            C = x.shape[1]                                                 # stage 9: [B, C, L] -> [N, B, 1, C*P]
+            p = self.padding_patch_layer(x).unfold(-1, self.patch_size, self.stride)          # [B, C, N, P]
+            p = p.permute(0, 2, 1, 3).reshape(B, p.shape[2], C * self.patch_size)
+            tok = p.transpose(0, 1).unsqueeze(2).contiguous()
+        if self.token_shuffle is not None:                                 # MODI 2026-10-28 (shuffle-retrain)
+            tok = permute_tokens(tok, 0, self.token_shuffle.perms(B, tok.device, self.training))
+        return tok
 
     def forward_parts(self, x, tok_fn=None, mix_fns=None):
         """Returns logits, embedding spikes [N, B, 1, D], first block's mixer output (None for 'none'), head input [B, D],

@@ -3409,3 +3409,53 @@ A의 epoch 수로 Neo-mixer population LIF의 가지 수 K ∈ {2, 4, 8}와 학�
 3. (가)를 더 파려면 "의존하는데 손해"의 기제를 따로 사전 등록한다(예: 학습 중 신피질 항을 무작위로 끄는 대조). 근거가 아직 약해 추천 순위는 1·2보다 낮다.
 
 **commit / 태그:** 이 항목과 결과(`summary.md`, `pool_runs.txt`, run별 `cause.json`·`by_position.json`)를 commit 한다. 태그 `exp/nsmt-flif-neo-20261028-cause`(annotated, 학습 없는 분석 완료)를 만든다. `exp/nsmt-flif-neo`와 이 태그만 push 한다.
+
+---
+
+## 2026-10-28 17:42 KST — 사전 고정: 순서 섞어 재학습 (CinC fold 0, 90 epoch, 15 run) — CinC가 토큰 순서에 보상하는가; 점검 c48 통과, 기본 경로 재현 3/3, smoke 2/2. PPG-DaLiA는 데이터 준비 시작(설계는 사용자 확인 뒤 별도 사전 고정)
+
+**직전 commit:** `22dec22e9` (원인 분석 결과). 태그 `exp/nsmt-flif-neo-20261028-cause` 이후 첫 항목이다.
+
+**배경 (사용자 10-28 "1과 2를 동시에 수행하자"):** 원인 분석 뒤 다음 후보 1(순서 섞어 재학습)과 2(순서·상태가 정답에 필요한 과제)를 함께 진행한다. 2번 과제는 사용자가 **PPG-DaLiA만** 골랐다. 지연 단서 ECG와 EigenWorms는 하지 않는다. 사용자가 "PPG-DaLiA가 시계열 연구에서 자주 쓰이는 과제인가"를 물었다. 답은 다음과 같다(10-27 조사 노트 + TSER 확인). 손목 웨어러블 심박 추정에서는 표준 데이터셋이다(Reiss 외 2019; BeliefPPG UAI 2023, LoSo·MAE BPM). 긴 시계열 모델 분야(2024–)에서는 Log-NCDE(ICML 2024)의 "UEA 6종 + PPG-DaLiA" 표준 묶음에 들어 있다(LinOSS ICLR 2025, D-LinOSS, LrcSSM NeurIPS 2025, 2026 논문; 스파이킹 PMSN·SHaRe-SSM). Monash/UEA/UCR TSER archive(19종)에도 있다. 일반 시계열 분석의 주류 벤치마크(예측 ETT·Weather, 분류 UCR/UEA, 이상 탐지)에는 들지 않는다.
+
+**목적:** 원인 분석의 H5 결과(Spikformer식은 평가 때 순서를 섞어도 −1.49 %p, Neo-mixer는 −9.3 ~ −17.5 %p)는 평가 때만 섞은 것이다. 순서에 기대는 모델에게는 처음 보는 입력이다. 그래서 "과제가 순서에 보상하는가"는 섞은 순서로 처음부터 학습해야 답할 수 있다. 이것이 (나) "Neo-mixer가 Spikformer식을 넘지 못하는 이유"의 마지막 고리다.
+
+**조건 (15 run):** Spikformer식(`spk_ssa`)과 양방향 OR Neo-mixer 네 뉴런(`mix_lif_bidir`, `mix_flif_bidir`, `mix_pop_lif_bidir`, `mix_pop_bidir` = population f-LIF)에 `_shuf`를 붙인다. 각 3 seed(42 / 7 / 2026), CinC fold 0, 90 epoch이다. 나머지 설정은 `flif-v1-rhythm-budget-cinc`(A@90)와 같다(`run_rhythm6.sh`의 사본 `run_rhythm_shuf.sh`; population f-LIF soma 1.0, population LIF soma 0.5). 기준은 A@90의 정상 순서 run 15개(새 학습 없음)다.
+
+**섞는 방법 (`token_order.py`):** 학습 때는 표본마다 117토큰의 무작위 순열을 쓴다. 순열은 모델 전용 생성기(seed + 1)에서 뽑는다. 그래서 초기화·dropout·데이터 순서·crop 같은 다른 난수는 정상 순서 run과 같다. 검증·시험 때는 모든 창에 같은 고정 순열 `default_rng(0).permutation(117)`을 쓴다. 이것은 원인 분석의 b = 1 섞기와 같은 순서다. 토큰(64샘플 조각, 반씩 겹침) 내용은 그대로이고 위치만 바뀐다. 따라서 0.5 s 안의 파형은 남고, 그보다 긴 순서만 사라진다. Spikformer식은 해마·신피질 입력에 같은 순열을 쓴다. NSMT(신피질 경로가 있는 모델)에서는 보조 손실 목표와 어긋나므로 이 옵션을 거부한다.
+
+**판정 규칙 (사전 고정, `summarize_shuf.py` docstring과 같음):**
+- **S1 모델마다:** d = 정상 순서 점수 − 섞어 학습한 점수(각자 자기 시험 순서), seed로 짝짓는다. "순서가 도움" = 평균 ≥ +0.5 %p이고 2/3 seed 이상 양수다. "섞어 학습이 더 좋음" = 평균 ≤ −0.5 %p이고 2/3 이상 음수다. 그 밖은 "차이 없음"이다.
+- **S2 CinC가 순서에 보상하는가:** Spikformer식의 S1이 "순서가 도움"일 때만 "예"다.
+- **보고:** 섞어 학습한 Neo-mixer − 섞어 학습한 Spikformer식; 회복 = 섞어 학습한 점수 − 정상 모델을 같은 고정 순서로 평가한 점수(원인 분석 `score_shuf1`).
+- run이 빠지거나 값이 유한하지 않으면 "미완"이다.
+
+**사전 예상:** Spikformer식 S1은 "차이 없음"이다(평가 때 섞어도 −1.49 %p였고, 다시 학습하면 위치 편향 없이도 회복할 것). 따라서 S2는 "아니오"다. Neo-mixer 네 뉴런은 모두 "순서가 도움"이다(1–5 %p). T = N 뉴런은 이웃 토큰을 이어 받아 특징을 만드는데, 이웃이 무작위면 상태에 잡음이 쌓인다. 회복은 Neo-mixer에서 크다(섞어 학습한 점수 ≫ 평가 때만 섞은 점수). 섞어 학습한 Neo-mixer는 섞어 학습한 Spikformer식보다 낮을 것이다.
+
+**읽는 법 (미리 적음):**
+
+| Spikformer식 S1 | Neo-mixer S1 | 해석 |
+|---|---|---|
+| 차이 없음 | 순서가 도움 | CinC는 0.5 s보다 긴 순서에 보상하지 않는다. Neo-mixer가 순서를 쓰는 것은 구조의 성질이고, CinC에서는 순서 없는 해법보다 나을 것이 없다 |
+| 차이 없음 | 차이 없음 | Neo-mixer의 T = N 상태가 CinC에서 순서 정보를 보태지 않는다 |
+| 순서가 도움 | — | CinC가 순서에 보상한다. 원인 분석의 "순서 없는 통계" 해석은 틀렸다 |
+
+**코드 (기본값에서 기존 경로는 비트 단위로 그대로):** `token_order.py`(새), `model.py`(`_tokens_mc` 끝에서 섞기, `hippo_ssa`가 아니면 거부), `neo_mixer.py`(`tokens` 끝에서 섞기), `load_model.py`(`token_shuffle`, `shuffle_seed` = 학습 seed 전달), `config.py`(`--token_shuffle`, 폴더 접미사 `_tshuf`), `check_cls.py`(c48), `scripts/run_rhythm_shuf.sh`(`run_rhythm6.sh` 사본, `_shuf` 접미사 처리만 추가), `scripts/make_queue_shuf.sh`(대기열 생성), `summarize_shuf.py`.
+
+**점검:**
+- **c48 통과:** Spikformer식·Neo-mixer LIF·Neo-mixer population LIF 각각에서 확인했다. 옵션을 켜도 초기 가중치가 같고, 섞기 모듈은 켤 때만 생긴다. 평가 때 로짓은 같은 가중치의 정상 모델에 고정 순서로 섞은 토큰을 넣은 결과와 비트 단위로 같고, 섞지 않은 로짓과는 다르다. 학습 때는 표본마다 다른 순열을 쓰고(8/8), 각 행이 순열이며, 토큰 묶음이 보존되고, 두 번 부르면 달라지고, 전역 torch 난수를 쓰지 않는다. NSMT에서는 옵션을 거부하고, 폴더 접미사 `_tshuf`는 켤 때만 붙는다.
+  - 처음 한 번은 Spikformer식에서 "섞으면 출력이 달라져야 한다"가 실패했다. 원인은 초기 상대 위치 편향 표가 0이라 초기 Spikformer식이 순서와 무관한 것이었다(코드 결함 아님). 점검에서 편향 표를 무작위 값으로 채우게 고친 뒤 통과했다. 결과는 `results/checks/check_cls_c48.txt`에 있다.
+- **기본 경로 재현:** 코드 변경 뒤 `rhythm_cause.py --check_only`로 `spk_ssa` seed 42, `mix_pop_lif_bidir` seed 7, `spkneo_lif` seed 42가 기록된 test 점수와 `test_probs.npz`를 그대로 재현함을 확인했다(3/3).
+- **smoke 2/2:** `spk_ssa_shuf`, `mix_lif_bidir_shuf`, 1 epoch, seed 42가 시험·에너지까지 끝났다. `logargs.txt`에 `token_shuffle True`가 찍혔고, 폴더는 `…_ssaT4_tshuf_f0` / `…_mix-lif-bidir-L1-a0.5_tshuf_f0`이다. 결과는 `results/smoke-rhythm-shuf-20261028/raw.txt`에 있다. 요약 스크립트는 seed가 하나뿐이라 모두 "미완"으로 처리했다(fail-closed 확인).
+
+**실행:** `bash nsmt_flif_v1/classification/scripts/make_queue_shuf.sh` 다음 `bash scripts/gpu_pool2.sh nsmt_flif_v1/classification/scripts/queues/rhythm-shuf-20261028.txt 0,1,2,3,0,1,2,3`(tmux `flif_shuf`, GPU당 2개, 긴 run부터)을 실행한다. 예상 시간은 A@90과 같은 반나절–하루다(Neo-mixer population 계열 run당 약 4.5–7시간).
+
+**한계:** 토큰이 반씩 겹쳐 0.5 s 안의 순서는 남는다. 시험 순서가 하나의 고정 순열이다. 정상 순서 run과 섞어 학습한 run은 따로 학습된 모델이다(같은 seed, 같은 다른 난수).
+
+**PPG-DaLiA 준비 상황 (학습 없음):**
+- UCI(`archive.ics.uci.edu/dataset/495`)에서 내려받는 중이다. 저장 위치는 `nsmt_flif_v1/classification/dataset/ppg_dalia/`(git 제외)다.
+- Log-NCDE 전처리 코드 `data_dir/process_ppg.py`를 읽었다(실행하지 않음). 이 코드는 사람마다 6가지 구간 배치 중 하나를 `random.randint(0, 5)`로 고르는데 **seed를 고정하지 않는다.** LinOSS 저장소의 같은 파일도 똑같다(diff 없음). 따라서 문헌의 "같은 분할"은 코드로 재현되지 않는다. 우리 모델끼리는 seed를 고정한 한 분할로 비교하고, 문헌 수치(MSE×10⁻²)는 분할이 달라 참고로만 쓴다.
+- 코드에서 확인한 사실은 다음과 같다. 입력은 ACC 3축(32 → 64 Hz 반복), BVP(64 Hz), EDA·TEMP(4 → 64 Hz 반복) 6채널이고, 사람마다 전체 기록의 최소·최대로 [−1, 1]에 맞춘다(ACC는 세 축을 함께). 라벨은 앞에 첫 값을 3개 덧붙여 토큰 k(128샘플 = 2 s)의 라벨이 "토큰 k 끝에서 끝나는 8 s 창의 평균 심박"이 되게 맞춘다. 창은 49,920샘플(780 s), 간격 4,992이고 라벨은 390개, 간격 39다.
+- 모델·대조·run 수가 큰 설계라 사용자 확인 뒤 별도 항목으로 사전 고정한다.
+
+**commit:** 이 항목과 코드·smoke 결과를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 섞어 학습을 시작한다.
