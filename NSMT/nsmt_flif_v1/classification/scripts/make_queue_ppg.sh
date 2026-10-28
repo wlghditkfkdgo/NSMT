@@ -2,7 +2,7 @@
 # MODI 2026-10-28: regenerates the (git-ignored) queue of the PPG-DaLiA suite (42 runs, seeds 42 / 7 / 2026) exactly as it is run.
 # Order: the first eight lines start together on workers 0,1,2,3,0,1,2,3 -> one B-form population run (about 19 GB) and one
 # Neo-mixer population run per GPU; then the remaining heavy runs, then the light ones.
-# Pool (from NSMT/): PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True bash scripts/gpu_pool2.sh \
+# Pool (from NSMT/): bash scripts/gpu_pool2.sh \
 #   nsmt_flif_v1/classification/scripts/queues/ppg-20261028.txt 0,1,2,3,0,1,2,3
 set -u
 W="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; Q=$W/scripts/queues/ppg-20261028.txt; mkdir -p "$(dirname "$Q")"

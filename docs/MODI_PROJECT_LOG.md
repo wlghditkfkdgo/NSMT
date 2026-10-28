@@ -3553,3 +3553,15 @@ n = LIF, f-LIF(α 0.5), population LIF(soma 0.5), population f-LIF(soma 1.0)이�
 **한계:** 분할이 문헌과 다르다(원 코드에 seed 없음). 그래서 문헌 수치(Log-NCDE 9.56, LinOSS-IM 6.4, SHaRe-SSM 9.1, PMSN 5.17; MSE × 10⁻², 대부분 과거·미래를 모두 봄)는 참고로만 쓴다. 라벨은 입력보다 0–2.25 s 앞선 구간을 가리킨다(프로토콜 그대로). 라벨 0은 2 s를 미리 본다. GRU는 에너지를 세지 않는다. 학습 중 BN은 배치 통계를 쓰므로 학습 때만 미래 토큰의 통계가 섞인다(평가는 고정 통계, 과거만). 5회 반복이 아니라 seed 3개다.
 
 **commit:** 이 항목, 코드(`layers.py`, `ppg_model.py`, `train_ppg.py`, `ppg_smooth.py`, `summarize_ppg.py`, `ppg_data.py`, `check_cls.py`, `scripts/run_ppg.sh`, `scripts/make_queue_ppg.sh`), c49 결과, smoke 결과를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 시작한다.
+
+---
+
+## 2026-10-28 18:20 KST — 정정: PPG-DaLiA 첫 실행 실패 (학습 시작 전) — 대기열 명령의 메모리 옵션을 이 서버 PyTorch가 지원하지 않음
+
+**직전 commit:** `80884fdce` (PPG 사전 고정).
+
+18:16에 시작한 첫 실행(tmux `flif_ppg`)에서 42 run이 모두 몇 초 만에 SKIP으로 끝났다. 원인은 앞 항목의 실행 명령에 넣은 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`다. 이 환경의 PyTorch는 이 옵션을 모르고, 모델을 GPU로 옮길 때 `RuntimeError: Unrecognized CachingAllocator option: expandable_segments`를 낸다. 학습은 한 번도 시작되지 않았다. smoke는 이 옵션 없이 돌렸기 때문에 이 문제를 잡지 못했다.
+
+**조치:** 실패 기록은 지우지 않고 이름을 바꿨다: `results/flif-v1-ppg/raw_failed_launch_1816.txt`(SKIP 42줄), `log/flif-v1-ppg-pool-failed-1816.log`. 옵션 없이 같은 대기열(`make_queue_ppg.sh`로 다시 만듦, 주석의 명령도 고침)로 다시 시작한다: `bash scripts/gpu_pool2.sh nsmt_flif_v1/classification/scripts/queues/ppg-20261028.txt 0,1,2,3,0,1,2,3`(tmux `flif_ppg`). 설계·판정 규칙·코드는 바뀌지 않는다. 메모리 단편화를 줄이는 장치가 없으므로, 같은 GPU에 B형 population run 두 개가 겹치면 메모리 부족 위험이 앞 항목보다 조금 크다. 실패하면 SKIP으로 남고 다시 돌린다.
+
+**교훈:** 실행 명령은 smoke 때와 글자 그대로 같아야 한다. 본 실행에만 붙인 환경 변수가 smoke를 우회했다.
