@@ -12,6 +12,7 @@
 #   ppg_gru            non-spiking GRU reference (hidden 384)
 #   common: D 384, 8 heads, mlp 1, 1 block, 2 neocortex layers, tau 2, patch 256 (stride 128, 390 tokens), AdamW wd 1e-4, timm cosine,
 #           lr 1e-3, batch 8, 100 epochs, MSE; B form: alpha 0 (no aux loss), --neo_grad 1.0; population LIF soma 0.5, f-LIF soma 1.0
+#   keep_ratio 0 (18:2x fix): the aux low-pass target (a DCT over the whole 49,920-sample window, 9.3 GB) is not built; no loss uses it
 set -u
 S=${1:?}; GPU=${2:?}
 W="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; R="$(cd "$W/../.." && pwd)"
@@ -45,7 +46,7 @@ SHA=$(cd "$R" && git rev-parse --short HEAD); TS=$(date +%Y%m%d)
 OUT=$LOG/PPG_${COND}_seed${S}_lr${LR}_${TS}_${SHA}.stdout; t0=$(date +%s)
 (cd "$W" && CUDA_VISIBLE_DEVICES=$GPU OMP_NUM_THREADS=${THREADS:-4} $PY ./train_ppg.py \
   --data PPG --seed $S --log_dir "$LOG/PPG" --gating attn -s -nd 0 --warm_up_epoch 0 \
-  -emb 384 -nh 8 --mlp_ratios 1 --layers 1 --time_layers 2 --keep_ratio 0.15 --alpha 0 --tau 2.0 --no-bias \
+  -emb 384 -nh 8 --mlp_ratios 1 --layers 1 --time_layers 2 --keep_ratio 0 --alpha 0 --tau 2.0 --no-bias \
   --scheduler cosine -bs ${BS:-8} --eval_bs ${BS:-8} -lr $LR --weight_decay 1e-4 --max_lr 0.005 --patch_size 256 --seq_len 49920 -e $EP \
   --smoke_windows ${SMOKE:-0} $CF --tag $COND lr$LR seed$S > "$OUT" 2>&1)
 RC=$?

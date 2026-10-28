@@ -3565,3 +3565,22 @@ n = LIF, f-LIF(α 0.5), population LIF(soma 0.5), population f-LIF(soma 1.0)이�
 **조치:** 실패 기록은 지우지 않고 이름을 바꿨다: `results/flif-v1-ppg/raw_failed_launch_1816.txt`(SKIP 42줄), `log/flif-v1-ppg-pool-failed-1816.log`. 옵션 없이 같은 대기열(`make_queue_ppg.sh`로 다시 만듦, 주석의 명령도 고침)로 다시 시작한다: `bash scripts/gpu_pool2.sh nsmt_flif_v1/classification/scripts/queues/ppg-20261028.txt 0,1,2,3,0,1,2,3`(tmux `flif_ppg`). 설계·판정 규칙·코드는 바뀌지 않는다. 메모리 단편화를 줄이는 장치가 없으므로, 같은 GPU에 B형 population run 두 개가 겹치면 메모리 부족 위험이 앞 항목보다 조금 크다. 실패하면 SKIP으로 남고 다시 돌린다.
 
 **교훈:** 실행 명령은 smoke 때와 글자 그대로 같아야 한다. 본 실행에만 붙인 환경 변수가 smoke를 우회했다.
+
+---
+
+## 2026-10-28 18:22 KST — 정정 2: PPG-DaLiA 두 번째 실행도 중단 — B형이 쓰지 않는 보조 목표(창 전체 DCT, 9.3 GB) 때문에 메모리 부족; `--keep_ratio 0`으로 고침(학습 결과는 소수 8자리까지 같음), 그리고 앞 항목 제목의 시각 정정
+
+**시각 정정:** 바로 앞 항목("정정: PPG-DaLiA 첫 실행 실패")의 실제 작성 시각은 **18:18**이다. 제목에 18:20을 미리 적었다(`date`를 같은 명령에서 먼저 돌렸지만, 출력을 보기 전에 제목을 써 넣었다).
+
+**무엇이 일어났나:** 18:18에 다시 시작한 실행에서 몇 분 안에 4개가 SKIP이 됐다(B형 population LIF seed 42·2026, B형 population f-LIF seed 7·2026). 원인은 둘이다.
+1. **작업자 배치:** gpu_pool2의 작업자가 GPU에 붙는 순서가 대기열 순서와 같지 않다. 그래서 GPU 0에 B형 population run 두 개가 겹쳤다. 그 뒤 GPU 0의 작업자가 다음 무거운 run을 연달아 받았다가 함께 실패했다. 앞 항목의 "처음 8개를 GPU마다 하나씩 배치"는 실제로 지켜지지 않았다.
+2. **필요 없는 큰 계산:** `myModel._tokens_mc`는 학습 모드에서 `keep_ratio > 0`이면 보조 손실 목표(저주파 성분)를 만든다. 이때 신호 전체(PPG는 50,048샘플)에 DCT 행렬을 만들어 9.33 GiB를 한 번에 잡는다(실패 메시지 `CUDA out of memory. Tried to allocate 9.33 GiB` at `model.dct_matrix`). 사전 고정 항목의 실측 18.8 GB도 대부분 이것이었다. CinC에서는 신호가 3,782샘플이라 57 MB여서 드러나지 않았다. PPG 모델(`TokenRegressor`)은 이 목표를 어디에도 쓰지 않는다(alpha 0, decoder 미사용).
+
+**조치:**
+- pool을 PID로 멈췄다(섞어 학습 8개는 그대로 돎).
+- `scripts/run_ppg.sh`의 공통 옵션을 `--keep_ratio 0.15` → `--keep_ratio 0`으로 바꿨다. `keep_ratio`는 모델 코드에서 이 보조 목표에만 쓰인다(grep으로 확인).
+- **확인 smoke** (`results/smoke-ppg-20261028b/raw.txt`, B형 다섯 조건, 1 epoch, 창 16개, seed 42): 시험 MSE가 바꾸기 전 smoke와 소수 8자리까지 같다(기억 없는 LIF 0.56422885, LIF 0.56469164, f-LIF 0.56452994, population LIF 0.56419125, population f-LIF 0.56452492). 최대 메모리는 1.72–4.56 GB로 줄었다(이전 실측 18.8 GB). 그래서 한 GPU에 PPG run 두 개와 섞어 학습 두 개가 겹쳐도 약 15 GB이고, 배치 순서 문제도 메모리 면에서는 사라진다.
+- 실패 기록은 이름을 바꿔 남겼다: `results/flif-v1-ppg/raw_failed_launch_1818.txt`(SKIP 5줄; 같은 run이 두 번 실패한 줄 포함), `log/flif-v1-ppg-pool-failed-1818.log`.
+- 설계·판정 규칙은 바뀌지 않는다. 사전 고정 항목의 "공통 옵션"에 이 한 가지만 다르다. 폴더 이름의 `keep_ratio+0.15`는 `keep_ratio+0.0`이 된다.
+
+**다시 시작:** `bash nsmt_flif_v1/classification/scripts/make_queue_ppg.sh` 다음 `bash scripts/gpu_pool2.sh nsmt_flif_v1/classification/scripts/queues/ppg-20261028.txt 0,1,2,3,0,1,2,3`(tmux `flif_ppg`)을 실행한다. 메모리가 줄어 run당 시간도 줄 수 있다.
