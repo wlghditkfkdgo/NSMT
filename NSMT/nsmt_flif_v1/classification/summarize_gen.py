@@ -14,6 +14,7 @@ of cell-mean total_fft_uJ). A missing seed / cell or a non-finite value makes th
 usage: python summarize_gen.py --ett --suite flif-v1-gen-ett-cinc   |   python summarize_gen.py --mitbih --suite flif-v1-gen-mitbih
 """
 import argparse
+import csv
 import math
 import os
 
@@ -89,15 +90,25 @@ def mitbih(a):
 def ett(a):
     R = os.path.join(FC, 'results', a.suite)
     rows = parse(os.path.join(R, 'raw.txt'))
+    if a.energy_fix:                                    # MODI 2026-10-28: energy_recount_ett.py (Spikformer-style head as spike ACs)
+        fix = {(f['ds'], int(f['pl']), f['cond'], int(f['seed'])): float(f['total_fft_uJ_corr'])
+               for f in csv.DictReader(open(os.path.join(R, 'energy_recount.csv')))}
+        for r in rows:
+            r['total_fft_uJ'] = fix.get((r['ds'], int(r['pl']), r['cond'], int(r['seed'])), float('nan'))   # missing -> incomplete
     by = {}
     for r in rows:
         by.setdefault((r['ds'], int(r['pl']), r['cond'], int(r['seed'])), []).append(r)
     dup = [k for k, v in by.items() if len(v) > 1]
     get = lambda ds, pl, c, s: by[(ds, pl, c, s)][0] if len(by.get((ds, pl, c, s), [])) == 1 else None
     cells = [(ds, pl) for ds in DSS for pl in PLS]
-    L = [f'# Generalization batch, ETT forecasting `{a.suite}` — summary', '',
+    L = [f'# Generalization batch, ETT forecasting `{a.suite}` — summary' + (' (corrected head energy)' if a.energy_fix else ''), '',
          'Best-validation weights (early stopping on the validation L1, patience 10) on the test set; MSE / MAE on the scaled data, '
          'mean over seeds (42, 7, 2026).' + (f' **Duplicate RESULT rows (treated as missing): {dup}**' if dup else ''), '']
+    if a.energy_fix:
+        L += ['**Post-hoc energy correction (2026-10-28, not pre-registered):** total µJ of the Spikformer-style runs from '
+              '`energy_recount.csv` (`energy_recount_ett.py`: the flat head counted as spike-driven ACs on each of the T_h binary '
+              'steps instead of MACs on their average; same model function, MSE unchanged). Neo-mixer energies unchanged. The '
+              'pre-registered numbers are in `summary.md`.', '']
     for metric in ('mse', 'mae'):
         L += [f'## Test {metric.upper()} (mean over seeds; n < 3 marked)', '',
               '| condition | ' + ' | '.join(f'{ds} H{pl}' for ds, pl in cells) + ' |', '|---|' + '---|' * len(cells)]
@@ -149,7 +160,7 @@ def ett(a):
         L.append(f"| {q} | {LAB[x]} | {LAB[y]} | {cv.count('b')} / {cv.count('.')} / {cv.count('w')} | {Rm:+.2f} | {nlow}/48 | {v} | {er:.2f} | {crit} |")
         detail.append(f'| {x} − {y} | ' + ' | '.join(f'{m:+.1f} {c}' for m, c in zip(cm, cv)) + ' |')
     L += detail
-    out = os.path.join(R, 'summary.md'); open(out, 'w').write('\n'.join(L) + '\n'); print('\n'.join(L))
+    out = os.path.join(R, 'summary_energyfix.md' if a.energy_fix else 'summary.md'); open(out, 'w').write('\n'.join(L) + '\n'); print('\n'.join(L))
 
 
 if __name__ == '__main__':
@@ -157,6 +168,7 @@ if __name__ == '__main__':
     ap.add_argument('--ett', action='store_true')
     ap.add_argument('--mitbih', action='store_true')
     ap.add_argument('--suite', required=True)
+    ap.add_argument('--energy_fix', action='store_true', help='ETT: use energy_recount.csv (corrected head energy) -> summary_energyfix.md')
     a = ap.parse_args()
     if a.ett:
         ett(a)
