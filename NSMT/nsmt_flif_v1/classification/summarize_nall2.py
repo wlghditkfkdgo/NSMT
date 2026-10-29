@@ -19,6 +19,11 @@ ETTh2 H96), W5 mixall_n - spk_ssa (report; criterion 2), C1 mixlb_n - mix_n_bidi
 C2 mixall_n - mixlb_n (neuron type outside the mixer); CinC: D1w spkneoall_n - spkneoall_n_nomem (main), D2w spkneoall_n - spkall_n,
 D3w (report) spkneoall_n - spkneo_n, spkall_n - spk_ssa, spkneoall_n_nomem - spkneo_lif_nomem.
 ETT cells (correction 2026-10-29 13:3x, user decision 12 of 10-14): ETTh2 and ETTm2 x H96 and H720 only (4 cells), not 16.
+Design change 2026-10-29 17:1x (user): a dual-path model (hippocampus + neocortex, the B form) swaps ONLY the neocortex neuron
+(= the earlier spkneo_<n> runs), the hippocampus-free Neo-mixer swaps every layer, and the Spikformer-style baseline keeps
+spikingjelly LIF. Dropped: W2, W3, the Spikformer-style W4 line and the whole CinC part (D1w-D3w); the 8 running spkneoall_* runs
+were stopped and their lines held. W5 (Neo-mixer every layer vs the spikingjelly Spikformer-style baseline, criterion 2) is now the
+baseline comparison (same rule; it was 'report' while W2 existed). Q3 (ETTh2 H96, done) stays as a report.
 usage: python summarize_nall2.py [--energy_fix]   ->  results/flif-v1-nall-summary.md
 """
 import argparse
@@ -51,11 +56,8 @@ def mlb(n):                                                    # the control of 
 
 def pairs_q():
     W = [(f'W1 every layer vs neocortex only, {NL[n]}', f'mixall_{n}_bidir', f'mix_{n}_bidir', False) for n in NS]
-    W += [(f'W2 Neo-mixer vs Spikformer-style, both every layer, {NL[n]} (criterion 2)', f'mixall_{n}_bidir', f'spkall_{n}', True) for n in NS]
-    W += [(f'W3 (report) Spikformer-style every layer vs spikingjelly, {NL[n]}', f'spkall_{n}', 'spk_ssa', False) for n in NS]
-    W += [('W4 fractional order, Neo-mixer every layer', 'mixall_flif_bidir', 'mixall_lif_bidir', False),
-          ('W4 fractional order, Spikformer-style every layer', 'spkall_flif', 'spkall_lif', False)]
-    W += [(f'W5 (report) Neo-mixer every layer vs Spikformer-style, {NL[n]} (criterion 2)', f'mixall_{n}_bidir', 'spk_ssa', True) for n in NS]
+    W += [('W4 fractional order, Neo-mixer every layer', 'mixall_flif_bidir', 'mixall_lif_bidir', False)]
+    W += [(f'W5 Neo-mixer every layer vs Spikformer-style (spikingjelly LIF), {NL[n]} (criterion 2)', f'mixall_{n}_bidir', 'spk_ssa', True) for n in NS]
     C = [(f'C1 implementation: spikeDE LIF outside the mixer, {NL[n]}', mlb(n), f'mix_{n}_bidir', False) for n in NS]
     C += [(f'C2 neuron type outside the mixer, {NL[n]}', f'mixall_{n}_bidir', mlb(n), False) for n in NS[1:]]
     return W, C
@@ -102,7 +104,7 @@ def ett(energy_fix):
             L.append(f'| {q}{" (3 cells)" if q.startswith("W4") else ""} | {x} | {y} | | | | incomplete | | |'); continue
         c2 = ('met' if o['v'] == 'better' or (o['R'] <= 1 and o['er'] <= 0.5) else 'not met') if crit else ''
         L.append(f"| {q}{' (3 cells)' if q.startswith('W4') else ''} | {x} | {y} | {o['cells']} | {o['R']:+.2f} | {o['lo']}/{o['n']} | {o['v']} | {o['er']:.2f} | {c2} |")
-    L += ['', '### ETTh2 H96 (quick cell; better / worse need 3/3 seeds)', '',
+    L += ['', '### ETTh2 H96 (quick cell; better / worse need 3/3 seeds; Q3 = report since 10-29 17:1x)', '',
           '| question | A | B | r per seed | R | verdict | energy A/B |', '|---|---|---|---|---|---|---|']
     for q, x, y, _ in C + [(f'Q3 Spikformer-style every layer vs spikingjelly, {NL[n]}', f'spkall_{n}', 'spk_ssa', False) for n in NS]:
         o = cmp(x, y, [('ETTh2', 96)], quick=True)
@@ -145,14 +147,9 @@ def main():
     W, C = pairs_q()
     mit = [r for s in ('flif-v1-gen-mitbih', 'flif-v1-mitbih-nall') for r in parse(os.path.join(HERE, 'results', s, 'raw.txt')) if r.get('dataset') == 'MITBIH']
     L += [''] + table('## MIT-BIH (test macro-F1 %, last-epoch weights)', mit, 'f1', W + C)
-    cin = [r for s in ('flif-v1-rhythm-nall-cinc', 'flif-v1-rhythm-addneo90-cinc', 'flif-v1-rhythm-budget-cinc')
-           for r in parse(os.path.join(HERE, 'results', s, 'raw.txt')) if r.get('data') == 'CINC2017']
-    D = [(f'D1w T = N neocortex vs memoryless, every layer {NL[n]} (main)', f'spkneoall_{n}', f'spkneoall_{n}_nomem', False) for n in NS]
-    D += [(f'D2w B form vs Spikformer-style, both every layer, {NL[n]}', f'spkneoall_{n}', f'spkall_{n}', False) for n in NS]
-    D += [(f'D3w (report) B form every layer vs neocortex only, {NL[n]}', f'spkneoall_{n}', f'spkneo_{n}', False) for n in NS]
-    D += [(f'D3w (report) Spikformer-style every layer vs spikingjelly, {NL[n]}', f'spkall_{n}', 'spk_ssa', False) for n in NS]
-    D += [(f'D3w (report) memoryless control every layer vs neocortex-only LIF control, {NL[n]}', f'spkneoall_{n}_nomem', 'spkneo_lif_nomem', False) for n in NS]
-    L += [''] + table('## CinC 2017 fold 0, 90 epochs (test score %, best-validation weights)', cin, 'score', D)
+    L += ['', '## CinC 2017', '', 'Dropped on 2026-10-29 17:1x (user): the B form is a dual-path model, so its neuron conditions swap only '
+          'the neocortex -- the existing spkneo_<n> runs (flif-v1-rhythm-addneo90-cinc). The 8 B form every-layer runs were stopped '
+          'at epoch 34-44 of 90 (SKIP rc=143 in flif-v1-rhythm-nall-cinc/raw.txt) and are not used.']
     out = os.path.join(HERE, 'results', 'flif-v1-nall-summary' + ('-energyfix' if a.energy_fix else '') + '.md')
     open(out, 'w').write('\n'.join(L) + '\n')
     print('\n'.join(L))

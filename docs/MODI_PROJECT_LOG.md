@@ -3913,3 +3913,124 @@ Spikformer식: MSE 0.2903 (0.2916 / 0.2903 / 0.2891), 에너지 13.78 µJ. 에�
 - 10-27 일반화 묶음과 `NSMT/reports/스파이킹 신경망 기억 모델 실험 경과 보고.md`의 ETT 표는 16칸 평균이다. 사용자 결정의 4칸으로 다시 계산할 수 있다(기존 run 재사용, 학습 없음). 사용자가 원하면 별도 항목으로 한다.
 
 ---
+
+## 2026-10-29 17:16 KST — 사용자 결정 두 가지 반영 (학습 없음) — (1) **PPG-DaLiA 보류**: 지금까지 결과에 긍정적 근거가 없음(주 비교는 대조 run이 없어 판정 불가, 판정 가능한 뉴런 비교는 차이 없음); (2) **뉴런 교체 범위 정정**: 해마·신피질 두 경로 모델은 신피질만, 해마가 없는 Neo-mixer는 모든 층 → 모든 층 교체 묶음에서 B형 모든 층 교체(돌던 8개 멈춤, 16줄 보류)와 Spikformer식 모든 층 교체(60줄 보류)를 뺌
+
+**직전 commit:** `52fb5899a` (ETT 범위 정정, 13:35).
+
+### (1) PPG-DaLiA 보류
+
+**사용자 결정 (10-29, 16:14 브리핑에 대한 답):** "현재까지의 PPG 결과가 긍정적이라면 원칙대로 모든 층 교체를 하고, 그렇지 않다면 PPG 실험 자체를 보류하는 것으로 하자."
+
+**판단할 때의 상태 (17:04):** 42 run 중 13개가 끝났고(RESULT 13, SKIP 0), 8개가 돌고 있었고, 21개가 대기 중이었다. 끝난 것은 population 조건 12개(B형 P5와 Neo-mixer P4, 각 seed 3개)와 Neo-mixer f-LIF seed 42 하나다. 사전 고정 주 비교 V1(P5 대 기억 없는 대조 P6)의 대조 P6과 어텐션 기준 P0–P3, GRU는 아직 돌지 않았다.
+
+**지금 계산할 수 있는 비교** (시험 MSE, seed로 짝지은 r = 100 (A − B) / B; 사전 고정 PPG 규칙은 평균 ≤ −10 %이고 3/3이면 "좋음"):
+
+| 비교 | r (seed 42 / 7 / 2026) | 평균 | 규칙 적용 | 지위 |
+|---|---|---|---|---|
+| B형 안 population f-LIF − population LIF | −1.62 / +4.48 / −8.06 | −1.73 | 차이 없음 | 사전 고정 "뉴런 (보고)" |
+| Neo-mixer 안 population f-LIF − population LIF | +7.05 / −7.56 / +24.63 | +8.04 | 차이 없음 | 사전 고정 "뉴런 (보고)" |
+| B형 − Neo-mixer, population LIF | −7.40 / −19.58 / +0.59 | −8.80 | 차이 없음 | 사후, 사전 고정 아님 |
+| B형 − Neo-mixer, population f-LIF | −14.89 / −9.11 / −25.80 | −16.60 | "좋음"에 해당 | 사후, 사전 고정 아님 |
+
+- 평균 MSE: Neo-mixer population LIF 0.13098, population f-LIF 0.14008; B형 population LIF 0.11854, population f-LIF 0.11643; Neo-mixer f-LIF(seed 42) 0.12133. BPM 오차는 12.75–14.17이다.
+- 창 하나당 에너지는 B형 5,697–5,808 µJ, Neo-mixer 1,112–1,180 µJ이다.
+- 참고(분할이 달라 비교 불가): 문헌 MSE는 5.17–9.56 × 10⁻²(대부분 과거·미래를 모두 봄)이고, 여기 값은 11.0–14.8 × 10⁻²다.
+
+**판단: 긍정적이지 않다 → 보류.**
+- 이 과제의 질문(8초 창 밖 과거를 신피질 상태가 나르는가, V1)은 대조 P6이 없어 판정할 수 없다.
+- 판정할 수 있는 뉴런 비교 두 개는 모두 차이 없음이다. 분수 차수는 이득이 없다.
+- 유일하게 문턱을 넘은 "B형 − Neo-mixer, population f-LIF"(−16.60 %)는 사후 비교다. 내용도 "8초 어텐션이 있는 모델이 어텐션 없는 모델보다 낫다"이고 기억에 대해서는 말하지 않는다. 에너지도 약 5배다.
+- "아직 모름"을 "긍정적"으로 읽지 않았다. 이것은 제 해석이며 사용자에게 보고한다.
+
+**조치:**
+- 17:07 대기열 21줄(`ppg_spkneo_lif_nomem`, `ppg_mix_lif`, `ppg_ssa_full`·`_w32`·`_w8`, `ppg_tok`, `ppg_gru` × seed 3)을 pool 잠금을 잡은 채 `classification/scripts/queues/ppg-20261028-held-20261029.txt`(git 제외, 로컬)로 옮기고 대기열을 비웠다.
+- 17:08 막 시작한 `ppg_spkneo_lif` 3개(22–40분, epoch 4–8)를 PID로 멈췄다. `results/flif-v1-ppg/raw.txt`에 `SKIP(rc=143)` 3줄이 남았는데, 의도한 중단이다.
+- 절반을 넘은 5개는 끝까지 둔다. `ppg_spkneo_flif` × 3은 epoch 74–81/100, `ppg_mix_flif` seed 7·2026은 52/100이다. 3–5시간 뒤 끝나며, 재개할 때 이 조건이 seed 3개를 갖추게 된다. 끝나면 pool 기록을 복사하고 결과를 짧게 기록한다.
+- PPG의 모든 층 교체는 구현하지 않았다.
+
+**재개하려면:** 보류한 줄을 대기열로 되돌린다. V1 판정에 필요한 최소 묶음은 P6 × 3과 P5 LIF × 3이다(이번에 멈춘 run, run당 약 13시간). V2에는 P1 × 3과 평활 대조를 더한다. 아래 (2)의 정정에 따르면 B형(P5·P6)은 지금 설계(신피질만 교체)가 맞고, Neo-mixer(P4)는 모든 층 교체로 다시 돌려야 한다.
+
+### (2) 뉴런 교체 범위 정정
+
+**사용자 정정 (10-29 17:1x):** "내가 잘못 지시했어. 만약 hippo와 neo가 분리된 이중 병렬 모델이면, neo만 뉴런 모델을 바꾸는 것이 원래 목적이었어. 하지만 hippo가 없어지고 neo-mixer가 있는 모델이면, 전체 뉴런을 교체하는 것이 맞아."
+- 10:55 지시("전체 아키텍처 뉴런을 바꿔야지")를 저는 B형에도 적용했다(12:08 사전 고정의 (3), `--neuron_all`).
+- 정정된 규칙은 다음과 같다. 두 경로 모델(B형, NSMT)은 신피질 뉴런만 바꾼다. 이것은 기존 `spkneo_<n>` run(`flif-v1-rhythm-addneo90-cinc`)과 같다. Neo-mixer는 모든 층을 바꾼다(`--neuron_scope all`).
+
+**사용자 결정 (17:14, 질문 두 개):**
+1. 돌고 있던 B형 모든 층 교체 8개는 "지금 멈춤".
+2. Spikformer식 모든 층 교체는 "빼기, 기존 LIF 기준선만". 비교 모델은 원래 뉴런(spikingjelly LIF)을 쓴다.
+
+**조치 (모두 pool 잠금을 잡은 채, 돌고 있는 스크립트는 수정하지 않음):**
+- 17:13 아직 시작하지 않은 B형 줄 16개(`spkneoall_flif` seed 2026, `spkneoall_lif` × 3, `spkneoall_<n>_nomem` × 12)를 `scripts/queues/nall-20261029-held-bform-20261029.txt`로 옮겼다.
+- 17:14 Spikformer식 줄 60개(`spkall_<n>`: MIT-BIH 12, CinC 12, ETT 36)를 `scripts/queues/nall-20261029-held-spkall-20261029.txt`로 옮겼다.
+- 17:15 돌던 B형 8개를 PID로 멈췄다. `spkneoall_pop_flif` × 3, `spkneoall_pop_lif` × 3, `spkneoall_flif` seed 42·7이고, 4시간 44분 학습해 epoch 34–44/90이었다. `results/flif-v1-rhythm-nall-cinc/raw.txt`에 `SKIP(rc=143)` 8줄이 남았는데, 의도한 중단이다.
+  - 멈추기 전 최고 검증 점수는 f-LIF 0.678 / 0.680, population f-LIF 0.680 / 0.709 / 0.711, population LIF 0.679 / 0.699 / 0.703이었다.
+  - population 계열은 처음 6–9 epoch 동안 0.249(모두 '정상'으로 찍는 값)에 머물다 7–10 epoch에 빠져나왔다.
+  - 이 값들은 판정에 쓰지 않는다.
+- 비워진 8칸은 17:14:58부터 MIT-BIH run을 받았다. 남은 본 묶음은 57 run이다. MIT-BIH 21개(`mixall_<n>_bidir` × 4, `mixlb_<flif|pop_lif|pop_flif>_bidir` × 3; 8개 진행 중)와 ETT 36개(`mixall_<n>_bidir`, ETTh2 H720·ETTm2 H96·ETTm2 H720)다.
+- `scripts/make_queue_nall.sh`: 본 대기열에서 `spkneoall_*`와 `spkall_*`를 뺐다(smoke·quick은 실행된 그대로 둠). 출력 위치만 바꾼 복사본으로 돌려, 생성된 57줄이 진행 중 8개 + 대기 49개와 같음을 확인했다.
+- `summarize_nall2.py`: W2, W3, Spikformer식 W4 줄, CinC D1w–D3w를 뺐다. CinC 절에는 뺀 이유를 적는다.
+  - W2(Neo-mixer 모든 층 대 Spikformer식 모든 층)가 없어졌으므로, W5(Neo-mixer 모든 층 대 spikingjelly LIF Spikformer식, 기준 (2))가 기준선 비교가 된다. 규칙은 같고, W2가 있을 때는 "보고"였다.
+  - 끝난 ETTh2 H96 값(C1, C2, Q3)은 다시 돌려도 같다. Q3는 보고로 남긴다.
+- 기억 파일을 정정된 규칙으로 고쳤다.
+
+**남은 묶음의 판정 항목:** W1(모든 층 대 신피질만), W4(Neo-mixer 모든 층 f-LIF 대 LIF, ETT는 ETTh2 H96을 뺀 3칸), W5(대 Spikformer식, 기준 (2)), C1·C2(MIT-BIH; ETTh2 H96은 끝남). ETT는 4칸(ETTh2·ETTm2 × H96·H720)이다.
+
+**끝나는 시점 (어림):** MIT-BIH 21개와 ETT 36개를 8칸에서 돌리면 오늘 22시–자정 무렵이다. PPG 5개와 다른 세션의 smoke가 같은 GPU를 쓴다.
+
+**한계:** 멈춘 run 11개(PPG 3, CinC 8)의 계산은 버려졌다. PPG 판단은 사후 비교와 뉴런 비교에 기댄 것이고, 주 질문은 판정되지 않은 채 보류됐다.
+
+**commit:** 이 항목, `make_queue_nall.sh`, `summarize_nall2.py`, 다시 만든 `results/flif-v1-nall-summary[-energyfix].md`를 아래 ETT 재계산 항목과 함께 commit 하고 `exp/nsmt-flif-neo`만 push 한다.
+
+---
+
+## 2026-10-29 17:17 KST — 다시 계산 (학습 없음): 일반화 묶음 ETT를 사용자 지정 4칸(ETTh2·ETTm2 × H96·H720)으로, 실험 경과 보고서의 ETT 표 고침 — **결론은 16칸과 같다: 막전위 차이 Neo-mixer LIF는 Spikformer식과 차이 없음(R +0.58 %, 에너지 1.14배, 기준 (2) 미충족); OR LIF·f-LIF·population LIF는 기준 (2) 충족(R +0.22 / +0.28 / +0.47 %, 0.20 / 0.25 / 0.39배)**
+
+**직전 commit:** `52fb5899a`. 같은 시각의 PPG 보류·뉴런 교체 범위 항목과 함께 commit 한다.
+
+**사용자 지시 (10-29):** "ETT 표와 보고서 표를 다시 작성해." 13:35 정정 항목에서, 10-27 일반화 묶음의 ETT 표(10-28 12:29 항목)와 보고서 표가 사용자 결정 12(10-14: ETTh2 + ETTm2, H96·H720) 밖의 16칸 평균이라고 적었다. 그 표들을 지시 범위로 다시 계산한다.
+
+**방법:** 같은 run(`forecasting/results/flif-v1-gen-ett/raw.txt`, 432개 중 4칸 108개)에 사전 고정 규칙을 그대로 쓰고 칸만 4개로 줄였다. 전체 "좋음/나쁨"은 R(4칸 평균) ≤ −1 % / ≥ +1 %이면서 seed 쌍 12개 중 8개 이상(2/3)이다. 기준 (2)는 "좋음", 또는 R ≤ +1 %이면서 에너지 ≤ 0.5배다. 에너지는 10-28에 바로잡은 값이다(Spikformer식 head를 스파이크 덧셈으로 다시 셈). 사전 고정에 없던 사후 재계산이며, 16칸 결과는 10-28 항목과 `summary.md`·`summary_energyfix.md`에 그대로 남는다.
+
+**코드:** `classification/summarize_gen.py --cells4`를 추가했다. 출력은 `summary4.md`·`summary4_energyfix.md`이고, 필요한 seed 쌍 수는 칸 수에서 계산한다(16칸 32/48, 4칸 8/12). 옵션 없이 돌린 `summary.md`·`summary_energyfix.md`는 수정 전과 바이트 단위로 같다(`cmp`).
+
+**결과** (시험 MSE; 에너지는 바로잡은 값; 괄호는 10-28 16칸 값):
+
+| 비교 | 칸 좋음 / 없음 / 나쁨 | R | A < B seed 쌍 | 판정 | 에너지 A/B | 기준 (2) |
+|---|---|---:|---:|---|---:|---|
+| **G1** 막전위 차이 LIF − Spikformer식 | 0 / 3 / 1 | **+0.58** (+0.34) | 3/12 | 차이 없음 | **1.14** (1.03) | 미충족 (미충족) |
+| G2 막전위 차이 f-LIF − Spikformer식 | 0 / 4 / 0 | +0.32 (+0.51) | 4/12 | 차이 없음 | 1.19 (1.09) | 미충족 |
+| G2 막전위 차이 population LIF − Spikformer식 | 0 / 1 / 3 | +1.40 (+1.59) | 2/12 | **나쁨** (나쁨) | 1.32 (1.25) | 미충족 |
+| G2 막전위 차이 population f-LIF − Spikformer식 | 0 / 4 / 0 | +0.41 (+0.74) | 5/12 | 차이 없음 | 1.64 (1.62) | 미충족 |
+| G3 막전위 차이 − OR, LIF / f-LIF / population LIF / population f-LIF | 0 / 3 / 1, 0 / 4 / 0, 0 / 3 / 1, 0 / 4 / 0 | +0.36 / +0.05 / +0.93 / +0.45 | 4, 4, 2, 3 /12 | 모두 차이 없음 | 5.72 / 4.88 / 3.53 / 2.42 | |
+| **G4** OR population LIF − Spikformer식 | 0 / 3 / 1 | **+0.47** (+0.90) | 4/12 | 차이 없음 | **0.39** (0.43) | **충족** (충족) |
+| G5(보고) OR LIF − Spikformer식 | 0 / 4 / 0 | +0.22 (+0.24) | 4/12 | 차이 없음 | 0.20 (0.22) | 충족 |
+| G5(보고) OR f-LIF − Spikformer식 | 0 / 4 / 0 | +0.28 (+0.25) | 5/12 | 차이 없음 | 0.25 (0.27) | 충족 |
+| G5(보고) OR population f-LIF − Spikformer식 | 0 / 4 / 0 | −0.04 (+0.35) | 6/12 | 차이 없음 | 0.71 (0.81) | 미충족 |
+
+- 사전 고정 에너지 계산(바로잡기 전)으로는 G1 0.54배(미충족), G4 0.19배(충족)이다(`summary4.md`).
+- 4칸 평균 시험 MSE: Spikformer식 0.3234. 막전위 차이 LIF / f-LIF / population LIF / population f-LIF는 0.3248 / 0.3241 / 0.3279 / 0.3245, OR은 0.3237 / 0.3240 / 0.3247 / 0.3230이다.
+- 4칸 평균 에너지(µJ, 창 하나): Spikformer식 10.46. 막전위 차이 11.87 / 12.35 / 13.82 / 17.19, OR 2.13 / 2.62 / 4.11 / 7.48이다.
+
+**읽는 법 (탐색, seed 3):**
+- 판정과 기준 (2)의 충족 여부는 16칸과 모두 같다.
+- 크기는 조금 달라졌다. G1이 +0.34 → +0.58 %, 에너지 1.03 → 1.14배로 약간 불리해졌다. G4는 R +0.90 → +0.47 %, "나쁨" 칸이 16칸 중 10개에서 4칸 중 1개로 줄었다.
+- 칸이 4개라 칸 하나가 평균을 크게 움직인다. ETTh2 H96에서 막전위 차이 LIF·population LIF와 OR population LIF가 "나쁨"이다(막전위 차이 population LIF는 ETTh2 H720·ETTm2 H96에서도 "나쁨").
+
+**보고서 고침 (`NSMT/reports/스파이킹 신경망 기억 모델 실험 경과 보고.md`):** 이 파일은 git에 없다(사용자 파일, 10-29 11:00 작성). 원본은 `/tmp/claude-1001/-home-yschoi-CLS-spiking-transformer-Bio-inspired-Spiking-Memory-Transformer-for-time-series-representation-learning-NSMT/29521dc8-0b33-46a4-a392-cfde9e653c36/scratchpad/report_before_ett4_20261029.md`에 복사해 두었다.
+- 머리말: "ETT는 지정 범위(ETTh2·ETTm2 × horizon 96·720)만 씁니다(10월 29일 다시 계산)"를 더했다.
+- 표 3: 4칸 MSE(칸별 열), 평균, R, 에너지, 기준으로 바꿨다. 막전위 차이와 OR의 네 뉴런을 모두 넣었다(population 두 종류를 늘 넣는 규칙). 표 아래에 계산 방법과 출처를 적었다.
+- 1절 Energy 줄은 "0.22–0.43배, MSE +1 % 이내" → "OR(LIF·f-LIF·population LIF) 0.20–0.39배, MSE +0.22 ~ +0.47 %"로, 4.1절 기준 (2) 줄은 "0.22–0.43배" → "0.20–0.39배"로, 4.2절 Task 줄은 "ETT 4 × 4" → "ETT 2 × 2 (ETTh2·ETTm2 × horizon 96·720)"로 고쳤다.
+- 표 4(다른 작업 f_lif_pop_v3의 look-back 336 → H96 계열, `exp/f-lif-pop-v3` PROJECT_LOG 10-23 21:19 "2Z 결과")는 ETTh2 열만 남기고 ETTh1 열을 뺐다. 이 계열에는 ETTm2와 H720이 없다.
+  - 같은 구조의 "state 유지" 행(0.4097 / 0.3106)을 더했다.
+  - 원래 표는 기존 구조(2T)와 개편 구조(reset)만 보여 주었는데, 2.2절의 −2.53 %·−12.88 %는 개편 구조 안의 state 유지 대 reset 비교(Z1)라서 표에서 확인할 수 없었다.
+- 2.2절 예측 줄: "ETT, 4개 setting −2.53 ~ −12.88 %" → "ETTh2 H96, window norm. on −2.53 %, off −12.88 %, 둘 다 8/8". 1절 Memory 줄의 "2.5–12.9 %"는 ETTh2 두 값과 같아 그대로 둔다.
+- 4.1절 f-LIF 줄: "forecasting validation에서만 −2.6 ~ −3.7 %" → "forecasting validation(ETTh2 horizon 96)에서만 −3.7 %". 출처는 같은 PROJECT_LOG 2P 재평가로, ETTh1 −2.62 %, ETTh2 −3.71 %이다.
+- PPG 절(1절 진행 중, 2.4, 4.3)은 이번 지시 범위가 아니라 고치지 않았다. 위 항목의 보류 결정 때문에 지금은 낡은 내용이다.
+
+**한계:** 사후 재계산이다. ETT 시험 세트는 여러 번 열었다. seed 3개, 칸 4개다.
+
+**commit:** 이 항목, `summarize_gen.py`, `forecasting/results/flif-v1-gen-ett/summary4.md`·`summary4_energyfix.md`를 commit 하고 `exp/nsmt-flif-neo`만 push 한다. 보고서 파일은 git에 없으므로 commit 하지 않는다(사용자에게 물음).
+
+---

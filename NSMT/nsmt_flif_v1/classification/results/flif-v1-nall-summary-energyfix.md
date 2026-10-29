@@ -10,22 +10,13 @@ See the module docstring for names and rules. Exploratory (one CinC fold, 3 seed
 | W1 every layer vs neocortex only, f-LIF | mixall_flif_bidir | mix_flif_bidir | | | | incomplete | | |
 | W1 every layer vs neocortex only, pop LIF | mixall_pop_lif_bidir | mix_pop_lif_bidir | | | | incomplete | | |
 | W1 every layer vs neocortex only, pop f-LIF | mixall_pop_flif_bidir | mix_pop_flif_bidir | | | | incomplete | | |
-| W2 Neo-mixer vs Spikformer-style, both every layer, LIF (criterion 2) | mixall_lif_bidir | spkall_lif | | | | incomplete | | |
-| W2 Neo-mixer vs Spikformer-style, both every layer, f-LIF (criterion 2) | mixall_flif_bidir | spkall_flif | | | | incomplete | | |
-| W2 Neo-mixer vs Spikformer-style, both every layer, pop LIF (criterion 2) | mixall_pop_lif_bidir | spkall_pop_lif | | | | incomplete | | |
-| W2 Neo-mixer vs Spikformer-style, both every layer, pop f-LIF (criterion 2) | mixall_pop_flif_bidir | spkall_pop_flif | | | | incomplete | | |
-| W3 (report) Spikformer-style every layer vs spikingjelly, LIF | spkall_lif | spk_ssa | | | | incomplete | | |
-| W3 (report) Spikformer-style every layer vs spikingjelly, f-LIF | spkall_flif | spk_ssa | | | | incomplete | | |
-| W3 (report) Spikformer-style every layer vs spikingjelly, pop LIF | spkall_pop_lif | spk_ssa | | | | incomplete | | |
-| W3 (report) Spikformer-style every layer vs spikingjelly, pop f-LIF | spkall_pop_flif | spk_ssa | | | | incomplete | | |
-| W4 fractional order, Neo-mixer every layer (15 cells) | mixall_flif_bidir | mixall_lif_bidir | | | | incomplete | | |
-| W4 fractional order, Spikformer-style every layer (15 cells) | spkall_flif | spkall_lif | | | | incomplete | | |
-| W5 (report) Neo-mixer every layer vs Spikformer-style, LIF (criterion 2) | mixall_lif_bidir | spk_ssa | | | | incomplete | | |
-| W5 (report) Neo-mixer every layer vs Spikformer-style, f-LIF (criterion 2) | mixall_flif_bidir | spk_ssa | | | | incomplete | | |
-| W5 (report) Neo-mixer every layer vs Spikformer-style, pop LIF (criterion 2) | mixall_pop_lif_bidir | spk_ssa | | | | incomplete | | |
-| W5 (report) Neo-mixer every layer vs Spikformer-style, pop f-LIF (criterion 2) | mixall_pop_flif_bidir | spk_ssa | | | | incomplete | | |
+| W4 fractional order, Neo-mixer every layer (3 cells) | mixall_flif_bidir | mixall_lif_bidir | | | | incomplete | | |
+| W5 Neo-mixer every layer vs Spikformer-style (spikingjelly LIF), LIF (criterion 2) | mixall_lif_bidir | spk_ssa | | | | incomplete | | |
+| W5 Neo-mixer every layer vs Spikformer-style (spikingjelly LIF), f-LIF (criterion 2) | mixall_flif_bidir | spk_ssa | | | | incomplete | | |
+| W5 Neo-mixer every layer vs Spikformer-style (spikingjelly LIF), pop LIF (criterion 2) | mixall_pop_lif_bidir | spk_ssa | | | | incomplete | | |
+| W5 Neo-mixer every layer vs Spikformer-style (spikingjelly LIF), pop f-LIF (criterion 2) | mixall_pop_flif_bidir | spk_ssa | | | | incomplete | | |
 
-### ETTh2 H96 (quick cell; better / worse need 3/3 seeds)
+### ETTh2 H96 (quick cell; better / worse need 3/3 seeds; Q3 = report since 10-29 17:1x)
 
 | question | A | B | r per seed | R | verdict | energy A/B |
 |---|---|---|---|---|---|---|
@@ -49,20 +40,11 @@ See the module docstring for names and rules. Exploratory (one CinC fold, 3 seed
 | W1 every layer vs neocortex only, f-LIF | mixall_flif_bidir | mix_flif_bidir | | | | | incomplete | | |
 | W1 every layer vs neocortex only, pop LIF | mixall_pop_lif_bidir | mix_pop_lif_bidir | | | | | incomplete | | |
 | W1 every layer vs neocortex only, pop f-LIF | mixall_pop_flif_bidir | mix_pop_flif_bidir | | | | | incomplete | | |
-| W2 Neo-mixer vs Spikformer-style, both every layer, LIF (criterion 2) | mixall_lif_bidir | spkall_lif | | | | | incomplete | | |
-| W2 Neo-mixer vs Spikformer-style, both every layer, f-LIF (criterion 2) | mixall_flif_bidir | spkall_flif | | | | | incomplete | | |
-| W2 Neo-mixer vs Spikformer-style, both every layer, pop LIF (criterion 2) | mixall_pop_lif_bidir | spkall_pop_lif | | | | | incomplete | | |
-| W2 Neo-mixer vs Spikformer-style, both every layer, pop f-LIF (criterion 2) | mixall_pop_flif_bidir | spkall_pop_flif | | | | | incomplete | | |
-| W3 (report) Spikformer-style every layer vs spikingjelly, LIF | spkall_lif | spk_ssa | | | | | incomplete | | |
-| W3 (report) Spikformer-style every layer vs spikingjelly, f-LIF | spkall_flif | spk_ssa | | | | | incomplete | | |
-| W3 (report) Spikformer-style every layer vs spikingjelly, pop LIF | spkall_pop_lif | spk_ssa | | | | | incomplete | | |
-| W3 (report) Spikformer-style every layer vs spikingjelly, pop f-LIF | spkall_pop_flif | spk_ssa | | | | | incomplete | | |
 | W4 fractional order, Neo-mixer every layer | mixall_flif_bidir | mixall_lif_bidir | | | | | incomplete | | |
-| W4 fractional order, Spikformer-style every layer | spkall_flif | spkall_lif | | | | | incomplete | | |
-| W5 (report) Neo-mixer every layer vs Spikformer-style, LIF (criterion 2) | mixall_lif_bidir | spk_ssa | | | | | incomplete | | |
-| W5 (report) Neo-mixer every layer vs Spikformer-style, f-LIF (criterion 2) | mixall_flif_bidir | spk_ssa | | | | | incomplete | | |
-| W5 (report) Neo-mixer every layer vs Spikformer-style, pop LIF (criterion 2) | mixall_pop_lif_bidir | spk_ssa | | | | | incomplete | | |
-| W5 (report) Neo-mixer every layer vs Spikformer-style, pop f-LIF (criterion 2) | mixall_pop_flif_bidir | spk_ssa | | | | | incomplete | | |
+| W5 Neo-mixer every layer vs Spikformer-style (spikingjelly LIF), LIF (criterion 2) | mixall_lif_bidir | spk_ssa | | | | | incomplete | | |
+| W5 Neo-mixer every layer vs Spikformer-style (spikingjelly LIF), f-LIF (criterion 2) | mixall_flif_bidir | spk_ssa | | | | | incomplete | | |
+| W5 Neo-mixer every layer vs Spikformer-style (spikingjelly LIF), pop LIF (criterion 2) | mixall_pop_lif_bidir | spk_ssa | | | | | incomplete | | |
+| W5 Neo-mixer every layer vs Spikformer-style (spikingjelly LIF), pop f-LIF (criterion 2) | mixall_pop_flif_bidir | spk_ssa | | | | | incomplete | | |
 | C1 implementation: spikeDE LIF outside the mixer, LIF | mixall_lif_bidir | mix_lif_bidir | | | | | incomplete | | |
 | C1 implementation: spikeDE LIF outside the mixer, f-LIF | mixlb_flif_bidir | mix_flif_bidir | | | | | incomplete | | |
 | C1 implementation: spikeDE LIF outside the mixer, pop LIF | mixlb_pop_lif_bidir | mix_pop_lif_bidir | | | | | incomplete | | |
@@ -71,27 +53,6 @@ See the module docstring for names and rules. Exploratory (one CinC fold, 3 seed
 | C2 neuron type outside the mixer, pop LIF | mixall_pop_lif_bidir | mixlb_pop_lif_bidir | | | | | incomplete | | |
 | C2 neuron type outside the mixer, pop f-LIF | mixall_pop_flif_bidir | mixlb_pop_flif_bidir | | | | | incomplete | | |
 
-## CinC 2017 fold 0, 90 epochs (test score %, best-validation weights)
+## CinC 2017
 
-| question | A | B | A (mean) | B (mean) | A − B per seed (%p) | mean | verdict | energy A/B | criterion (2) |
-|---|---|---|---|---|---|---|---|---|---|
-| D1w T = N neocortex vs memoryless, every layer LIF (main) | spkneoall_lif | spkneoall_lif_nomem | | | | | incomplete | | |
-| D1w T = N neocortex vs memoryless, every layer f-LIF (main) | spkneoall_flif | spkneoall_flif_nomem | | | | | incomplete | | |
-| D1w T = N neocortex vs memoryless, every layer pop LIF (main) | spkneoall_pop_lif | spkneoall_pop_lif_nomem | | | | | incomplete | | |
-| D1w T = N neocortex vs memoryless, every layer pop f-LIF (main) | spkneoall_pop_flif | spkneoall_pop_flif_nomem | | | | | incomplete | | |
-| D2w B form vs Spikformer-style, both every layer, LIF | spkneoall_lif | spkall_lif | | | | | incomplete | | |
-| D2w B form vs Spikformer-style, both every layer, f-LIF | spkneoall_flif | spkall_flif | | | | | incomplete | | |
-| D2w B form vs Spikformer-style, both every layer, pop LIF | spkneoall_pop_lif | spkall_pop_lif | | | | | incomplete | | |
-| D2w B form vs Spikformer-style, both every layer, pop f-LIF | spkneoall_pop_flif | spkall_pop_flif | | | | | incomplete | | |
-| D3w (report) B form every layer vs neocortex only, LIF | spkneoall_lif | spkneo_lif | | | | | incomplete | | |
-| D3w (report) B form every layer vs neocortex only, f-LIF | spkneoall_flif | spkneo_flif | | | | | incomplete | | |
-| D3w (report) B form every layer vs neocortex only, pop LIF | spkneoall_pop_lif | spkneo_pop_lif | | | | | incomplete | | |
-| D3w (report) B form every layer vs neocortex only, pop f-LIF | spkneoall_pop_flif | spkneo_pop_flif | | | | | incomplete | | |
-| D3w (report) Spikformer-style every layer vs spikingjelly, LIF | spkall_lif | spk_ssa | | | | | incomplete | | |
-| D3w (report) Spikformer-style every layer vs spikingjelly, f-LIF | spkall_flif | spk_ssa | | | | | incomplete | | |
-| D3w (report) Spikformer-style every layer vs spikingjelly, pop LIF | spkall_pop_lif | spk_ssa | | | | | incomplete | | |
-| D3w (report) Spikformer-style every layer vs spikingjelly, pop f-LIF | spkall_pop_flif | spk_ssa | | | | | incomplete | | |
-| D3w (report) memoryless control every layer vs neocortex-only LIF control, LIF | spkneoall_lif_nomem | spkneo_lif_nomem | | | | | incomplete | | |
-| D3w (report) memoryless control every layer vs neocortex-only LIF control, f-LIF | spkneoall_flif_nomem | spkneo_lif_nomem | | | | | incomplete | | |
-| D3w (report) memoryless control every layer vs neocortex-only LIF control, pop LIF | spkneoall_pop_lif_nomem | spkneo_lif_nomem | | | | | incomplete | | |
-| D3w (report) memoryless control every layer vs neocortex-only LIF control, pop f-LIF | spkneoall_pop_flif_nomem | spkneo_lif_nomem | | | | | incomplete | | |
+Dropped on 2026-10-29 17:1x (user): the B form is a dual-path model, so its neuron conditions swap only the neocortex -- the existing spkneo_<n> runs (flif-v1-rhythm-addneo90-cinc). The 8 B form every-layer runs were stopped at epoch 34-44 of 90 (SKIP rc=143 in flif-v1-rhythm-nall-cinc/raw.txt) and are not used.

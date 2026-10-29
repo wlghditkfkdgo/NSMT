@@ -11,6 +11,8 @@ ETT: test MSE of the best-validation weights; per seed r = 100 (MSE_A - MSE_B) /
 <= -1 % and r < 0 in >= 2 of 3 seeds, worse = mirror. Overall: R = mean of the 16 cell means; better = R <= -1 % and r < 0 in >= 2/3
 of the 48 seed pairs, worse = mirror; criterion 2 = better, or R <= +1 % with energy <= 0.5x (energy = mean over cells of the ratio
 of cell-mean total_fft_uJ). A missing seed / cell or a non-finite value makes the comparison incomplete (fail-closed).
+MODI 2026-10-29 --cells4: the same rules on the user's ETT scope (decision 12 of 2026-10-14: ETTh2 + ETTm2 x H96 / H720), R over
+the 4 cells and >= 8 of the 12 seed pairs -> summary4[_energyfix].md (post hoc recomputation, no new training).
 usage: python summarize_gen.py --ett --suite flif-v1-gen-ett-cinc   |   python summarize_gen.py --mitbih --suite flif-v1-gen-mitbih
 """
 import argparse
@@ -32,6 +34,7 @@ LAB = {'spk_ssa': 'Spikformer-style SSA (T=4)', **{f'mix_{n}_bidir': f'Neo-mixer
 ORDER = ['spk_ssa'] + [f'mixlinmx_{n}' for n in NS] + [f'mix_{n}_bidir' for n in NS]
 DSS = ('ETTh1', 'ETTh2', 'ETTm1', 'ETTm2')
 PLS = (96, 192, 336, 720)
+CELLS4 = (('ETTh2', 96), ('ETTh2', 720), ('ETTm2', 96), ('ETTm2', 720))   # user decision 12 (2026-10-14)
 Q = ([('G1 linmx LIF vs Spikformer (primary, criterion 2)', 'mixlinmx_lif', 'spk_ssa')]
      + [('G2 linmx vs Spikformer (criterion 2)', f'mixlinmx_{n}', 'spk_ssa') for n in NS[1:]]
      + [('G3 linmx vs OR (fusion)', f'mixlinmx_{n}', f'mix_{n}_bidir') for n in NS]
@@ -100,8 +103,9 @@ def ett(a):
         by.setdefault((r['ds'], int(r['pl']), r['cond'], int(r['seed'])), []).append(r)
     dup = [k for k, v in by.items() if len(v) > 1]
     get = lambda ds, pl, c, s: by[(ds, pl, c, s)][0] if len(by.get((ds, pl, c, s), [])) == 1 else None
-    cells = [(ds, pl) for ds in DSS for pl in PLS]
-    L = [f'# Generalization batch, ETT forecasting `{a.suite}` — summary' + (' (corrected head energy)' if a.energy_fix else ''), '',
+    cells = list(CELLS4) if a.cells4 else [(ds, pl) for ds in DSS for pl in PLS]
+    L = [f'# Generalization batch, ETT forecasting `{a.suite}` — summary' + (' (corrected head energy)' if a.energy_fix else '')
+         + (', user scope ETTh2 + ETTm2 x H96 / H720 (4 cells)' if a.cells4 else ''), '',
          'Best-validation weights (early stopping on the validation L1, patience 10) on the test set; MSE / MAE on the scaled data, '
          'mean over seeds (42, 7, 2026).' + (f' **Duplicate RESULT rows (treated as missing): {dup}**' if dup else ''), '']
     if a.energy_fix:
@@ -109,6 +113,10 @@ def ett(a):
               '`energy_recount.csv` (`energy_recount_ett.py`: the flat head counted as spike-driven ACs on each of the T_h binary '
               'steps instead of MACs on their average; same model function, MSE unchanged). Neo-mixer energies unchanged. The '
               'pre-registered numbers are in `summary.md`.', '']
+    if a.cells4:
+        L += ['**Post-hoc recomputation (2026-10-29, not pre-registered):** the pre-registered rules applied to the 4 cells of the '
+              "user's ETT scope (decision 12 of 2026-10-14) instead of the 16-cell grid; overall verdict needs >= 8 of the 12 seed "
+              'pairs. Same runs, no new training. The 16-cell numbers are in `summary.md` / `summary_energyfix.md`.', '']
     for metric in ('mse', 'mae'):
         L += [f'## Test {metric.upper()} (mean over seeds; n < 3 marked)', '',
               '| condition | ' + ' | '.join(f'{ds} H{pl}' for ds, pl in cells) + ' |', '|---|' + '---|' * len(cells)]
@@ -120,7 +128,7 @@ def ett(a):
             L.append(f'| {LAB[c]} | ' + ' | '.join(cs) + ' |')
         L.append('')
     energy = {}
-    L += ['## Energy and size (mean over the 16 cells and seeds)', '', '| condition | runs | total µJ (FFT) per window | neocortex firing | epochs run | params (H96 / H720) |',
+    L += [f'## Energy and size (mean over the {len(cells)} cells and seeds)', '', '| condition | runs | total µJ (FFT) per window | neocortex firing | epochs run | params (H96 / H720) |',
           '|---|---|---|---|---|---|']
     for c in ORDER:
         rr = [get(ds, pl, c, s) for ds, pl in cells for s in SEEDS if get(ds, pl, c, s) is not None]
@@ -153,14 +161,16 @@ def ett(a):
         if not ok:
             L.append(f'| {q} | {LAB[x]} | {LAB[y]} | | | | incomplete | | |'); continue
         Rm = float(np.mean(cm)); nlow = sum(z < 0 for z in pairs); nhigh = sum(z > 0 for z in pairs); er = float(np.mean(ers))
-        v = 'better' if Rm <= -1 and nlow >= 32 else 'worse' if Rm >= 1 and nhigh >= 32 else 'no clear difference'
+        need = 2 * len(pairs) // 3                      # 2/3 of the seed pairs: 32 of 48 (16 cells), 8 of 12 (4 cells)
+        v = 'better' if Rm <= -1 and nlow >= need else 'worse' if Rm >= 1 and nhigh >= need else 'no clear difference'
         crit = ''
         if 'criterion 2' in q:
             crit = 'met' if v == 'better' or (Rm <= 1 and er <= 0.5) else 'not met'
-        L.append(f"| {q} | {LAB[x]} | {LAB[y]} | {cv.count('b')} / {cv.count('.')} / {cv.count('w')} | {Rm:+.2f} | {nlow}/48 | {v} | {er:.2f} | {crit} |")
+        L.append(f"| {q} | {LAB[x]} | {LAB[y]} | {cv.count('b')} / {cv.count('.')} / {cv.count('w')} | {Rm:+.2f} | {nlow}/{len(pairs)} | {v} | {er:.2f} | {crit} |")
         detail.append(f'| {x} − {y} | ' + ' | '.join(f'{m:+.1f} {c}' for m, c in zip(cm, cv)) + ' |')
     L += detail
-    out = os.path.join(R, 'summary_energyfix.md' if a.energy_fix else 'summary.md'); open(out, 'w').write('\n'.join(L) + '\n'); print('\n'.join(L))
+    out = os.path.join(R, ('summary4' if a.cells4 else 'summary') + ('_energyfix' if a.energy_fix else '') + '.md')
+    open(out, 'w').write('\n'.join(L) + '\n'); print('\n'.join(L))
 
 
 if __name__ == '__main__':
@@ -169,6 +179,7 @@ if __name__ == '__main__':
     ap.add_argument('--mitbih', action='store_true')
     ap.add_argument('--suite', required=True)
     ap.add_argument('--energy_fix', action='store_true', help='ETT: use energy_recount.csv (corrected head energy) -> summary_energyfix.md')
+    ap.add_argument('--cells4', action='store_true', help='ETT: only ETTh2 + ETTm2 x H96 / H720 (user decision 12) -> summary4*.md')
     a = ap.parse_args()
     if a.ett:
         ett(a)

@@ -6,6 +6,9 @@
 #          MIT-BIH -- mixall_<n>_bidir, mixlb_<...>, spkall_<n>; ETT ETTh2 / ETTm2 x H96 / H720 (corrected 10-29: user decision 12 of
 #          10-14; first written with 16 cells) -- mixall_<n>_bidir (ETTh2 H96 done in flif-v1-ett-nall)
 #          and spkall_<n> (ETTh2 H96 in quick); seeds 42 / 7 / 2026; long CinC runs first, ETT H96 cells before longer horizons
+#   main after the user's correction of 10-29 17:1x (dual-path models swap ONLY the neocortex neuron; the Neo-mixer swaps every
+#          layer; the Spikformer-style baseline keeps spikingjelly LIF): MIT-BIH mixall_<n>_bidir + mixlb_<...>, ETT mixall_<n>_bidir.
+#          Dropped: B form spkneoall_* (+ _nomem) and spkall_* outside the quick cell (lines kept in queues/nall-20261029-held-*.txt).
 # Pools (from NSMT/): scripts/nall_driver.sh
 set -u
 W="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; QD=$W/scripts/queues; mkdir -p $QD
@@ -25,14 +28,11 @@ for c in mixlb_pop_flif_bidir mixlb_pop_lif_bidir mixlb_flif_bidir spkall_pop_fl
   echo "COND=$c SUITE=flif-v1-ett-nall bash $ETT ETTh2 96 $s"; done; done >> $Q
 echo "$Q: $(grep -c . $Q) jobs"
 Q=$QD/nall-20261029.txt; : > $Q
-for n in pop_flif pop_lif flif lif; do for s in $SEEDS; do
-  echo "COND=spkneoall_$n DATA=CINC2017 SUITE=flif-v1-rhythm-nall-cinc LR=0.001 EPOCHS=90 bash $CIN $s"; done; done >> $Q
-for c in $MITC; do for s in $SEEDS; do echo "COND=$c SUITE=flif-v1-mitbih-nall bash $MIT $s"; done; done >> $Q
-for n in pop_flif pop_lif flif lif; do for c in spkneoall_${n}_nomem spkall_$n; do for s in $SEEDS; do
-  echo "COND=$c DATA=CINC2017 SUITE=flif-v1-rhythm-nall-cinc LR=0.001 EPOCHS=90 bash $CIN $s"; done; done; done >> $Q
+MITM="$(for n in $NS; do echo -n "mixall_${n}_bidir "; done)mixlb_flif_bidir mixlb_pop_lif_bidir mixlb_pop_flif_bidir"
+for c in $MITM; do for s in $SEEDS; do echo "COND=$c SUITE=flif-v1-mitbih-nall bash $MIT $s"; done; done >> $Q
 for pl in 96 720; do for ds in ETTm2 ETTh2; do                     # user decision 12 (10-14): ETTh2 + ETTm2, H96 / H720
   for n in pop_flif pop_lif flif lif; do
-    for c in mixall_${n}_bidir spkall_$n; do
+    for c in mixall_${n}_bidir; do
       [ "$ds$pl" = ETTh296 ] && continue                       # done: mixall in the 11:01 quick test, spkall in the quick queue
       for s in $SEEDS; do echo "COND=$c SUITE=flif-v1-ett-nall bash $ETT $ds $pl $s"; done
     done
