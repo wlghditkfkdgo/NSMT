@@ -4034,3 +4034,69 @@ Spikformer식: MSE 0.2903 (0.2916 / 0.2903 / 0.2891), 에너지 13.78 µJ. 에�
 **commit:** 이 항목, `summarize_gen.py`, `forecasting/results/flif-v1-gen-ett/summary4.md`·`summary4_energyfix.md`를 commit 하고 `exp/nsmt-flif-neo`만 push 한다. 보고서 파일은 git에 없으므로 commit 하지 않는다(사용자에게 물음).
 
 ---
+
+## 2026-10-29 18:58 KST — 모델 전체 뉴런 교체 묶음 중간 결과 2/3: MIT-BIH 21/21 run (CinC가 빠져 4단계 → 3단계) — **Neo-mixer는 모든 층을 바꿔도 Spikformer식보다 나쁘다(네 뉴런 모두 −1.10 ~ −3.39 %p, 기준 (2) 미충족). population 두 종류는 모든 층 교체가 신피질만 바꾼 것보다 나쁘다(−2.44 / −1.49 %p). LIF·f-LIF는 차이 없음. 구현 교체 몫은 −0.44 ~ −0.74 %p, 신피질 밖을 f-LIF로 바꾸는 몫은 +0.73 %p("좋음")로 ETTh2 H96과 같은 방향**
+
+**직전 commit:** `91160fe42` (PPG 보류·뉴런 교체 범위 정정·ETT 4칸 재계산, 17:16–17:17).
+
+**실행:** 본 pool에서 MIT-BIH 21 run(`mixall_<n>_bidir` × 4, `mixlb_<flif|pop_lif|pop_flif>_bidir` × 3, seed 42 / 7 / 2026)이 17:14:58–18:56:14에 돌았다. 21/21 RESULT, SKIP 0, pool 기록 21개 모두 rc = 0이다. run 시간은 1,155–2,952 s다. GPU는 PPG 5개, 다른 대화(f_lif_pop_v3)의 CinC 8개와 함께 썼다.
+- sha: 8개는 `52fb5899a`, 13개는 `91160fe42`이다. 두 commit 사이에 `nsmt_flif_v1/`에서 바뀐 것은 대기열 생성기, 요약 스크립트 두 개, 요약 결과 파일뿐이다. 학습 코드는 같다.
+- 산출물: `classification/results/flif-v1-mitbih-nall/{raw.txt, pool_runs.txt}`. 실행 폴더는 로컬에 둔다.
+- 요약: `python summarize_nall2.py --energy_fix` → `results/flif-v1-nall-summary-energyfix.md`(바로잡지 않은 판은 `flif-v1-nall-summary.md`). MIT-BIH Spikformer식 head 에너지는 사전 고정대로 기존 방식이다(10-28 확인: 9.49 µJ 중 0.035 µJ).
+- 비교 대상: `flif-v1-gen-mitbih`의 `mix_<n>_bidir`(신피질만 교체)와 `spk_ssa`(10-27, `583e842f3`–`f0950c9a1`).
+
+**결과** (시험 macro-F1 %, 마지막 epoch 가중치; seed별 A − B %p; 규칙은 평균 ≥ +0.5 %p이고 2/3 seed 이상이면 "좋음", 거울이면 "나쁨"):
+
+| 비교 | A − B (seed 42 / 7 / 2026) | 평균 | 판정 | 에너지 A/B | 기준 (2) |
+|---|---|---:|---|---:|---|
+| **W5** 모든 층 LIF − Spikformer식 | −1.71 / −1.60 / −1.26 | −1.52 | **나쁨** | 0.23 | 미충족 |
+| **W5** 모든 층 f-LIF − Spikformer식 | −1.21 / −1.26 / −0.84 | −1.10 | **나쁨** | 0.25 | 미충족 |
+| **W5** 모든 층 population LIF − Spikformer식 | −3.48 / −3.33 / −3.34 | −3.39 | **나쁨** | 0.39 | 미충족 |
+| **W5** 모든 층 population f-LIF − Spikformer식 | −2.47 / −2.99 / −2.11 | −2.52 | **나쁨** | 0.64 | 미충족 |
+| W1 모든 층 − 신피질만, LIF | −0.36 / −0.58 / −0.39 | −0.44 | 차이 없음 | 1.03 | |
+| W1 모든 층 − 신피질만, f-LIF | −0.11 / +0.08 / −0.00 | −0.01 | 차이 없음 | 1.06 | |
+| W1 모든 층 − 신피질만, population LIF | −2.47 / −2.52 / −2.31 | −2.44 | **나쁨** | 1.24 | |
+| W1 모든 층 − 신피질만, population f-LIF | −1.63 / −1.44 / −1.40 | −1.49 | **나쁨** | 1.39 | |
+| W4 모든 층 f-LIF − 모든 층 LIF | +0.50 / +0.34 / +0.42 | +0.42 | 차이 없음 | 1.07 | |
+| C1 구현 몫, LIF (= W1 LIF) | −0.36 / −0.58 / −0.39 | −0.44 | 차이 없음 | 1.03 | |
+| C1 구현 몫, f-LIF | −1.26 / −0.14 / −0.83 | −0.74 | 나쁨 | 1.03 | |
+| C1 구현 몫, population LIF | −0.73 / −0.40 / −0.20 | −0.44 | 차이 없음 | 0.99 | |
+| C1 구현 몫, population f-LIF | −1.03 / +0.08 / −0.67 | −0.54 | 나쁨 | 1.00 | |
+| C2 신피질 밖 뉴런 종류, f-LIF | +1.15 / +0.22 / +0.83 | +0.73 | **좋음** | 1.02 | |
+| C2 신피질 밖 뉴런 종류, population LIF | −1.75 / −2.12 / −2.12 | −1.99 | 나쁨 | 1.25 | |
+| C2 신피질 밖 뉴런 종류, population f-LIF | −0.59 / −1.52 / −0.73 | −0.95 | 나쁨 | 1.39 | |
+
+평균 macro-F1(%)과 에너지(µJ, 샘플 하나):
+
+| 뉴런 | 신피질만 (10-27) | spikeDE LIF 바탕 (`mixlb`) | 모든 층 (`mixall`) | 에너지: 모든 층 |
+|---|---:|---:|---:|---:|
+| LIF | 91.14 | (= 모든 층) | 90.70 | 2.21 |
+| f-LIF | 91.13 | 90.39 | 91.12 | 2.37 |
+| population LIF | 91.27 | 90.83 | 88.84 | 3.71 |
+| population f-LIF | 91.19 | 90.64 | 89.70 | 6.10 |
+
+Spikformer식은 92.22 %, 9.55 µJ다.
+
+**사전 예상과 비교 (12:08):**
+- C1 "나쁨 또는 차이 없음": 맞았다(나쁨 2, 차이 없음 2). 크기는 −0.44 ~ −0.74 %p다.
+- C2 f-LIF "좋음"과 population LIF "나쁨"은 맞았다. population f-LIF "차이 없음"은 **틀렸다**(−0.95, 나쁨). ETTh2 H96에서는 population f-LIF가 "좋음"이었다.
+- W1 MIT-BIH "넷 모두 차이 없음": LIF·f-LIF는 맞았다. population 둘은 **틀렸다**(나쁨).
+- W4 "차이 없음": 맞았다. 다만 3/3 seed가 f-LIF 쪽이고 +0.42 %p로 문턱 아래다.
+- W2는 빠졌다. W2에 적었던 "MIT-BIH는 나쁨(11토큰이라 Neo-mixer가 불리)"과 같은 방향으로 W5가 넷 모두 "나쁨"이다.
+
+**읽는 법 (탐색, seed 3):**
+- **MIT-BIH에서 Neo-mixer는 어떤 뉴런 구성으로도 Spikformer식에 못 미친다.** 가장 가까운 것은 모든 층 f-LIF(−1.10 %p, 0.25배 에너지)이고, 신피질만 바꾼 LIF(−1.08 %p, 일반화 묶음 G5)와 비슷하다.
+- **population을 모든 층에 넣으면 분명히 나빠진다**(신피질만 대비 −2.44 / −1.49 %p, 3/3). ETTh2 H96에서도 population LIF는 나빴다(+2.89 % MSE). 원인 후보는 임베딩 층의 초기 침묵이다(11:03 점검에서 초기 발화율 0.001–0.003). 확인은 하지 않았다.
+- **두 몫의 분해는 ETTh2 H96과 대체로 같다.**
+  - 구현 교체(spikingjelly → spikeDE LIF)는 손해이고, 그 위에 신피질 밖까지 f-LIF로 바꾸면 손해를 되찾는다. 그래서 f-LIF 모든 층은 신피질만과 같다(−0.01 %p).
+  - LIF는 구현 손해만 남는다(−0.44 %p).
+  - 다른 점: population f-LIF는 ETTh2 H96에서 신피질 밖 교체가 이득(−1.01 % MSE)이었지만, MIT-BIH에서는 손해(−0.95 %p)다.
+- 모든 층이 같은 뉴런일 때 f-LIF가 LIF보다 높은 방향(+0.42 %p, 3/3)은 ETTh2 H96(MSE −1.26 %, 3/3, 사후)과 같다. 두 과제 모두 문턱 아래이거나 사후라 확증이 아니다. ETT 3칸 판정(W4)이 남았다.
+
+**한계:** seed 3, MIT-BIH는 11토큰이다. 비교 대상은 다른 날·다른 GPU 부하에서 학습됐다. 학습률·soma 초기값은 신피질만 교체한 설정을 그대로 썼다. population 모든 층의 침묵 원인은 확인하지 않았다.
+
+**진행:** 남은 본 묶음은 ETT 36 run(`mixall_<n>_bidir`; ETTh2 H720, ETTm2 H96, ETTm2 H720)이고, 18:56부터 돌고 있다. 끝나면 결과 3/3(마지막)을 기록하고 tag를 붙인다. PPG 5개는 자정 무렵 끝날 것으로 어림한다.
+
+**commit:** 이 항목, `results/flif-v1-mitbih-nall/{raw.txt, pool_runs.txt}`, 다시 만든 `results/flif-v1-nall-summary[-energyfix].md`를 commit 하고 `exp/nsmt-flif-neo`만 push 한다.
+
+---
