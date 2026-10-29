@@ -8710,3 +8710,77 @@ LIF에서 z 구간별 항목 비율은 13.9 / 44.1 / 26.3 / 11.0 / 4.7%다. 발�
 - 결정 필요: A-③ 합의 형태, A-④ 잔차 후보, B의 범위(6종 전부인지), C.
 
 **commit:** 이 기록만 `exp/f-lif-pop-v3`에 commit·push한다(코드 변경 없음).
+
+## 2026-10-29 17:03 KST — 사전등록 + 구현: 고친 구조에서 합치기 계열을 다시 돌림 — SpkMixer(Spikformer식 모델의 self-attention 블록만 양방향 토큰 축 Neo-mixer로 교체, 고른 뉴런을 모든 층에, 임베딩 [4, B, N, D] → mixer [N, B, 4, D] → MLP [4, B, N, D]), 합치기는 사용자 의도대로 "스파이크 OR + 막전위 차이 스파이크", 잔차 {IAND, OR, ADD} 대조 — A(구조) → B1(LIF 27 run, 잔차 선택) → B2(5종 45 run) → C(③ 참조 3 run); 점검 8/8, smoke 10/10, SKIP 0
+
+**직전 commit:** `46df4acc2` (설계 정정). **사용자 결정(10-29):** "A → B → C", 합치기 형태는 **둘 다**(OR 형, 학습 Linear 형), 잔차에 **ADD도 포함**, 뉴런 **6종 전부**, ③은 **참조로 한 번** 돌림.
+
+### A. 구조 (`NSMT/cinc_mixer_v1/spk_mixer.py`, `--model spkMixer`)
+- Spikformer식 모델(`myModel --hippo_ssa --hippo_T 4`, 9단계 기준 65.60)과 **토큰 자르기·임베딩·MLP·head·잔차 형태가 같고**, self-attention 블록 자리만 Neo-mixer다(점검 s6: 토큰 텐서 비트 동일, Linear 모양 동일).
+  - 토큰 [4, B, 117, 64](같은 패치를 4번) → 임베딩 Linear(64→384) → BN → 뉴런(**반복 축 4스텝**) → [4, B, N, D].
+  - 블록: x를 [N, B, 4, D]로 바꿔(반복 4개는 같은 가중치를 지나는 독립된 토큰열 4개) 앞방향·뒷방향 mixer(각 NeoLayer 2층, 뉴런은 **토큰 축 117스텝**) → 합치기 m → [4, B, N, D]로 되돌림 → 잔차 → MLP(SpikLinearLayer 2개, 반복 축) → 잔차.
+  - head: 토큰 평균 → Linear(384→4) → 반복 축 평균(`myModel._testing`과 같음).
+- **뉴런 전체 일치(사용자 지시 1):** 임베딩, mixer 두 방향, s_d, 합치기, MLP의 모든 뉴런층이 고른 클래스다. lif / flif(α 0.5) / pop_lif(soma 0.5) / pop_flif(soma 1.0)는 spikeDE 클래스(`build_neo_neuron`), popg_lif / popg_flif는 모든 층이 spikeDE τ 그룹(4/8/16/32; NeoMixer의 popg는 mixer 밖이 spikingjelly 그룹이었다). spikingjelly 뉴런은 0개(점검 s1).
+- **합치기(사용자 지시 4):** 두 방향 스파이크는 OR로 합치고(F ∨ R), 막전위 차이는 스파이크로만 들어간다: s_d = 뉴런_d(BN_d(|H_f − H_r|)).
+  - `or`: m = F ∨ R (기준; 파라미터 없음).
+  - `sdor`: m = F ∨ R ∨ s_d (OR 형, 파라미터 없음).
+  - `sdlin`: m = 뉴런(BN(W [F ∨ R; s_d])), W 768→384, 입력 0/1(AC).
+  - `linmx`(③ 참조, C 단계): m = 뉴런(BN(W [H_f − θ; H_r − θ; |H_f − H_r|])), 실수 입력(MAC). sd(10-27)의 [F; R; s_d]와 ③의 [H_f − θ; H_r − θ; ·]는 더 쓰지 않는다.
+  - 같은 seed에서 임베딩·mixer·MLP·head 초기값은 네 합치기와 세 잔차에서 모두 같다(합치기 Linear만 분기된 RNG에서 만든다; 점검 s3).
+- **잔차(사용자 지시 2):** `--connect_f` IAND x·(1 − m) / OR max(x, m) / ADD x + m. mixer 잔차와 MLP 잔차에 같은 것을 쓴다(Spikformer식 IAND와 같은 자리). ADD에서 블록 출력은 {0, 1, 2, 3}이다(점검 s4).
+- **에너지 규칙(사용자 결정: ADD 포함):** 기존 syops 규칙(0/1 입력 = AC, 아니면 MAC; 뉴런은 스텝당 AC 1개)을 그대로 두고, `energy.SynOpRecorder`가 같은 통과에서 **정수 규칙**(음이 아닌 정수 입력 = 값의 합 × 출력 수 AC, 곱셈기 없음; 실수 = MAC)으로 Linear를 다시 센다. 0/1 입력에서 두 규칙은 같고 syops 총계와 소수점 9자리까지 일치한다(점검 s5). 결과 열 `rec_AC_M, rec_MAC_M, rec_syn_uJ, int_AC_M, int_MAC_M, syn_energy_int_uJ, total_fft_int_uJ`를 추가했다. **기준 (2)의 에너지는 모든 조건에서 기록기 총계 `total_fft_int_uJ`다**(syops 규칙 `total_fft_uJ`는 함께 보고). 이유 둘: ADD는 정수 규칙이어야 하고, syops의 뉴런 AC 항(입력 원소마다 AC 1개)은 뉴런 클래스를 정확한 형으로 맞춰 `LIFNeuron`·`FLIFNeuron`만 세므로 `PopulationFLIF`(pop_lif·pop_flif)에서는 빠진다 — smoke에서 pop 두 조건의 `total_fft_uJ`가 기록기보다 정확히 1.46 µJ(9층 × 179,712 입력 × 0.9 pJ) 작았다. 기록기는 `isinstance`로 모든 뉴런 클래스를 같은 규칙으로 센다. lif·flif·popg의 IAND·OR에서는 두 열이 같다(점검 s5, smoke). 이 1.46 µJ 누락은 10-19 이후의 모든 population 에너지 값에도 들어 있던 것이고(총계의 약 1 %), 판정을 바꾸지 않는다. 기준 모델 Spikformer식(전부 LIF)은 기록기 열이 없어 `total_fft_uJ`를 쓴다(LIF에서는 두 규칙이 같다). 초기 모델 측정(s5, LIF sdlin, 검증 64창): IAND 시냅스 101 µJ; ADD는 syops 규칙 415 µJ, 정수 규칙 105 µJ.
+- **BN 이득 보정(`calibrate_spk.py`):** population 4종의 모든 뉴런층(pop: 층마다 1개, popg: 그룹마다 1개)의 BN 가중치를, 같은 합치기·잔차의 참조 모델(pop_lif·popg_lif → lif, pop_flif·popg_flif → flif)의 같은 층 초기 발화율에 맞춘다(10-22 popg 규칙의 일반화; CinC fold 0 학습 창 32개, 모델 seed 0, 학습 모드 BN, 이분법 25단계). 표 48개 `calib/gains_spkMixer_<뉴런>_<합치기>_<잔차>.json`은 모델이 생성 시 읽고, 없으면 실패한다. 이유: 반복 축 4스텝에서 population(τ 4–32)은 보정 없이는 거의 침묵한다(9단계 c16; 다른 세션의 10-29 smoke에서 Spikformer식 전체 교체 population이 1 epoch 뒤 거의 모두 Normal). 보정 전 임베딩 발화 목표 0.070에 필요한 이득은 pop_lif 2.0배, MLP는 3.2–3.9배였다.
+- **그 밖의 설정은 합치기 계열과 같다:** D 384, 블록 1, mixer 2층, 패치 64·간격 32(토큰 117), 30 epoch, AdamW lr 1e-3·wd 1e-4·cosine, batch 32, CAL 가중 CE, test는 최고 검증 가중치, seed 42/7/2026, fold 0.
+
+### 단계·판정 (`summarize_spk.py`)
+- **B1 잔차 선택(LIF):** `spk_lif_{or,sdor,sdlin}_{iand,or,add}` × 3 seed = 27 run. **선택 규칙: 잔차별 9 run의 최고 검증 점수 평균이 가장 높은 것**(test 아님; 동률 1e-9 이내면 IAND). 27개가 모두 없으면 선택하지 않는다. test 기준 OR − IAND, ADD − IAND는 보고만 한다.
+- **B2:** 선택한 잔차로 나머지 5종 × {or, sdor, sdlin} × 3 seed = 45 run.
+- **C:** `spk_lif_linmx_<선택 잔차>` 3 run(③ 참조; 에너지 때문에 후보가 아님).
+- **판정(기존 규칙):** 평균 ≥ +0.5%p이고 3 seed 중 2개 이상 같은 방향이면 좋음/나쁨, 아니면 차이 없음; 빠진 run은 미완.
+  - V1 뉴런별: sdor − or, sdlin − or, sdlin − sdor.
+  - V2 모든 조건 − Spikformer식(65.60, 127.4 µJ; `results/flif-v1-rhythm-cinc` 사본): **기준 (2)** = 좋음, 또는 −0.5%p 안이면서 에너지 ≤ 0.5배.
+  - V3 linmx − sdlin, linmx − sdor (참조).
+- **예상(사전 기록):** 반복 축 4 때문에 임베딩·MLP·mixer 비용이 Neo-mixer(sd LIF 33.9 µJ)보다 크게 늘어, 초기 모델에서 이미 시냅스 101 µJ(Spikformer식 127 µJ의 0.8배)다. 따라서 기준 (2)는 에너지 경로(≤ 0.5배)로는 거의 충족될 수 없고 "Spikformer식보다 좋음"이어야 한다. population 4종은 보정에도 불구하고 반복 축 4스텝에서 학습이 어려울 수 있다(한 클래스로 붕괴하면 "이 초기화로는 학습되지 않음"으로 읽고 판정에 쓰지 않는다).
+- **한계:** 잔차는 LIF에서만 고르고 다른 뉴런에 그대로 쓴다(뉴런 × 잔차 상호작용은 보지 않음). fold 0 하나다(10-28 분석대로 ±2.2%p 흔들림). 기준 모델 Spikformer식은 뉴런이 전부 LIF라 f-LIF·population 조건에는 "같은 뉴런의 Spikformer식"이 없다.
+
+### 점검 (`check_spk.py`, `results/checks/check_spk.txt`)
+- 실행 `check_spk.py --before/--after <코드 수정 전후 기본 경로 snapshot>`(GPU 2, 16:15–16:23). **8/8 통과.**
+  - s0 기본 경로 불변: 수정 전후 snapshot 13개(Neo-mixer 4종 + myModel 4종 출력·state dict 등) 비트 동일.
+  - s1 구조: 24개(6 뉴런 × 4 합치기) 모델 모두 spikingjelly 뉴런 0개, 뉴런층 7(or)/8(sdor, linmx)/9(sdlin)개, 반복 축 4스텝·토큰 축 117스텝, 뉴런 종류가 모든 층에서 같음.
+  - s2 배치·인과: 토큰 50을 바꾸면 앞방향은 토큰 50 이후 12개, 뒷방향은 50 이하 18개만 바뀌고 다른 반복(다른 T 색인)은 바뀌지 않음.
+  - s3 합치기: s_d 발화율 0.077(F 0.043, R 0.043), sdor는 F ∨ R와 다름, sdlin 입력은 0/1, linmx 입력은 실수; 네 합치기·세 잔차에서 공유 텐서 40개 초기값 동일.
+  - s4 잔차: IAND·OR 출력 {0, 1}, ADD 출력 {0, 1, 2, 3}, 식과 값 일치.
+  - s5 에너지: 기록기 AC·MAC가 syops와 상대오차 ≤ 3e-9(IAND: AC 37.0 M, MAC 14.7 M, 101.1 µJ; ADD: syops 규칙 414.7 µJ, 정수 규칙 104.8 µJ, fc1 최대 입력 2).
+  - s6 Spikformer식과의 동일성: 토큰 텐서 비트 동일 [4, 4, 117, 64], Linear 모양 동일, spkMixer에 attention 모듈 없음.
+  - s7 보정: 표 48/48 존재, population 4종의 모든 뉴런층(pop 7–9층, popg 28–36 부분) 초기 발화율이 참조 LIF/f-LIF의 1.00배(최소 0.039/0.041).
+- 보정 표 요약(`results/checks/calib_spk_summary.txt`): 반복 축에 있는 임베딩·MLP에서 필요한 이득이 크다 — pop_lif 임베딩 2.05배, MLP 3.1–3.9배; popg는 τ 4→32 그룹에서 임베딩 1.4→9.7배, MLP 1.6→15.1배. 토큰 축의 mixer 층은 0.9–1.4배(pop), 1.1→9.1배(popg). s_d는 0.65–0.72배(pop).
+
+### smoke (1 epoch, seed 42, `results/smoke-rhythm-spk-20261029/`)
+- 10 run 모두 RESULT, SKIP 0(part a 6개는 보정 전 LIF/f-LIF, part b 4개는 보정 표를 적용한 population, GPU 4장을 다른 세션과 공유한 상태). 1 epoch이라 점수는 학습 가능 여부만 본다(모두 Normal이면 약 25).
+
+| 조건(뉴런_합치기_잔차) | test 점수 | F1 N / AF / Other | 총 µJ syops 규칙 | 총 µJ 기록기(기준) | 시냅스 µJ | 1 epoch 시간 s |
+|---|---:|---|---:|---:|---:|---:|
+| lif_sdlin_iand | 37.50 | 77.9 / 0.0 / 34.5 | 125.7 | 124.2 | 105.2 | 548 |
+| lif_or_or | 36.17 | 76.4 / 5.1 / 27.0 | 109.5 | 109.5 | 94.8 | 478 |
+| flif_sdlin_iand | 36.57 | 76.8 / 0.0 / 32.9 | 153.4 | 152.0 | 102.8 | 1420 |
+| lif_or_add | 43.15 | 76.8 / 18.7 / 34.0 | 416.1 | 110.6 | 401.4 | 473 |
+| lif_sdor_or | 39.64 | 77.3 / 11.0 / 30.6 | 115.3 | 115.3 | 98.4 | 459 |
+| lif_sdor_add | 43.87 | 77.5 / 16.4 / 37.7 | 419.3 | 115.7 | 402.5 | 452 |
+| pop_flif_sdlin_iand | 31.17 | 76.4 / 0.0 / 17.1 | 436.5 | 437.9 | 125.0 | 1565 |
+| pop_lif_sdlin_iand | 37.73 | 78.1 / 0.0 / 35.1 | 253.7 | 255.2 | 134.3 | 1657 |
+| popg_lif_sdlin_iand | 36.88 | 77.7 / 0.0 / 33.0 | 145.8 | 145.8 | 126.2 | 1878 |
+| popg_flif_sdlin_iand | 34.30 | 77.3 / 0.0 / 25.6 | 171.6 | 171.6 | 121.8 | 4273 |
+
+- 읽기: LIF·f-LIF 1 epoch 뒤 test 점수 36–44(AF F1은 0–19로 아직 거의 못 맞춤); 보정한 population 네 종은 31–38로 한 클래스로 무너지지 않았다(pop_flif 31.2는 Other F1 17로 가장 낮음; popg_flif 34.3). 에너지: LIF 모델은 IAND·OR에서 총 109–126 µJ(Spikformer식 127.4의 0.86–0.99배), ADD는 syops 규칙 416–419 µJ 대 정수 규칙 111–116 µJ; population은 뉴런 자체 비용 때문에 총 146(popg_lif)·172(popg_flif)·254(pop_lif)·436(pop_flif) µJ로 이미 Spikformer식보다 크다 → population 조건은 기준 (2)를 점수로만 넘을 수 있다. 시간: 1 epoch에 LIF 452–548 s, f-LIF 1420 s, population 1565–4273 s(popg_flif가 4273 s; 공유 상태) → 30 epoch에 LIF 약 4시간, f-LIF 약 12시간, population 13–36시간/run. B2(45 run)는 이 속도면 GPU 4장에 2개씩으로도 1주 이상이 걸리므로, B1이 끝난 뒤 다른 세션의 부하를 보고 다시 추정한다. part a의 첫 2개(lif_sdlin_iand, flif_sdlin_iand)는 energy.py의 뉴런 AC 항 수정 직전에 시작해 기록기 열만 옛 값(1.46 µJ 작음)이다.
+
+### 실행
+- 대기열 `scripts/queues/rhythm-spk-b1-20261029.txt`(27), pool `NSMT/scripts/gpu_pool2.sh … `0,1,2,3,0,1,2,3`(GPU당 2개)`. 다른 세션의 pool(450 run 묶음 + PPG, 30 프로세스)이 GPU 4장을 100 %로 쓰고 있다. LIF run은 메모리 1 GB 안팎이라 **GPU당 2개**(`0,1,2,3,0,1,2,3`)로 띄운다(공유 상태에서 run당 약 4시간이면 27 run에 약 14–20시간). B1이 끝나면 `summarize_spk.py --stage select` → B2·C 대기열(`make_queue_spk.sh b2|c <잔차>`).
+- 러너 `scripts/run_rhythm_spk.sh`, 조건 이름 `spk_<뉴런>_<합치기>_<잔차>`, 결과 `results/flif-v1-rhythm-spk-cinc/raw.txt`, 폴더 접미사 `_spk-<뉴런>-L1-a0.5-T4-cf<잔차>_<합치기>_f0`.
+
+### 실수
+- 보정을 돌리는 도중에 `spk_mixer.py`의 합치기 Linear 초기화를 바꿨다(점검 s3의 "같은 초기값" 때문). 돌고 있던 보정은 옛 코드를 import한 상태였으므로 멈추고, 영향을 받는 sdlin·linmx 표 5개를 지운 뒤 다시 시작했다(or·sdor 표 6개는 합치기 Linear가 없어 영향 없음, 보존). 멈출 때 `grep "[c]alibrate_spk.py"`가 내 셸까지 잡아 명령이 중간에 끊겼다(exit 144; 메모리 `kill-by-pid`에 추가). 끊긴 뒤 상태를 확인하고 이어서 처리했다.
+- 첫 점검 실행에서 s2–s4가 "스파이크 0"으로 실패했다. 평가 모드 BN이 초기 이동 통계로 모든 뉴런을 침묵시키는 c16 현상이었고, 점검의 준비 단계를 "BN 이동 통계를 실제 배치 통계로 설정(momentum 1)"으로 고쳤다. 모델 코드의 문제가 아니었다.
+- s5 첫 실행은 syops의 AC와 4.4% 달랐다. syops는 뉴런 입력 원소마다 AC 1개를 더 센다(`LIF_syops_counter_hook`). 기록기에 같은 규칙을 넣어 정확히 일치시켰다. 이 규칙은 기존 모든 에너지 값에 이미 들어 있던 것이다.
+- smoke 첫 2개는 energy.py의 마지막 수정(뉴런 AC) 직전에 시작해 그 run의 에너지 열만 옛 기록기 값이다(판단에 쓰지 않음).
+
+**commit:** 코드·점검 결과·보정 표·대기열·이 기록을 `exp/f-lif-pop-v3`에 commit·push한 뒤 B1을 시작한다.

@@ -569,12 +569,22 @@ class GroupNeuron(nn.Module):
             raise ValueError(f'GroupNeuron kind {kind!r}')
 
     def forward(self, x):
-        xs = torch.split(x, self.G, dim=self.axis)
+        if self.kind != 'sj' and self.axis not in (-1, x.ndim - 1):   # 2026-10-29 (spkMixer, whole-model tau groups): the spikeDE groups
+            x = x.transpose(self.axis, -1)                             # need the channel axis last (model.Embedding feeds [T, B, D, N'])
+            y = self._forward_last(x)
+            if getattr(self, '_capture', False):
+                self._charge = self._charge.transpose(self.axis, -1).contiguous()
+            return y.transpose(self.axis, -1).contiguous()
+        return self._forward_last(x)
+
+    def _forward_last(self, x):
+        axis = -1 if self.kind != 'sj' else self.axis
+        xs = torch.split(x, self.G, dim=axis)
         if getattr(self, '_capture', False):                          # MODI 2026-10-24: forward_charge through __call__
             parts = [p.forward_charge(c.contiguous()) for p, c in zip(self.parts, xs)]
-            self._charge = torch.cat([b for _, b in parts], dim=self.axis)
-            return torch.cat([a for a, _ in parts], dim=self.axis)
-        return torch.cat([p(c.contiguous()) for p, c in zip(self.parts, xs)], dim=self.axis)
+            self._charge = torch.cat([b for _, b in parts], dim=axis)
+            return torch.cat([a for a, _ in parts], dim=axis)
+        return torch.cat([p(c.contiguous()) for p, c in zip(self.parts, xs)], dim=axis)
 
     def forward_charge(self, x):
         """MODI 2026-10-23: (spikes, H - theta) of the spikeDE groups (kind 'lif' / 'flif'), concatenated like forward(); through

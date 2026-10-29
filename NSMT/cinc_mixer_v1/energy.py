@@ -163,3 +163,70 @@ class FiringRateRecorder:
             w.writeheader()
             for r in rows:
                 w.writerow(r)
+
+
+class SynOpRecorder:
+    """2026-10-29 (PROJECT_LOG, exp/f-lif-pop-v3; user decision: ADD residual counted as integer accumulates). Synaptic
+    operations of every nn.Linear / nn.BatchNorm1d per input window under two rules, from forward hooks during predict():
+      syops rule  (as syops.ops): AC x rate if the input is 0/1 (<= 2 distinct values in [0, 1]), else MAC; BN = 2 x numel.
+      integer rule: a non-negative integer-valued input to a Linear is sum(values) ACs (a value v accumulates the weight row
+                    v times, no multiplier -- SEW-ResNet-style integer spikes); a real-valued input is MAC; BN as syops.
+    Neurons are counted as syops' LIF_syops_counter_hook does (one AC per neuron input element, i.e. per neuron and step; the
+    convention of every earlier energy number here), so that for 0/1 inputs the recorder reproduces syops' AC / MAC totals
+    exactly (check s5) and the integer rule changes the Linear part only."""
+    def __init__(self, model):
+        self.lin = dict(ac=0., mac=0., ac_int=0., mac_int=0.)
+        self.bn = dict(ac=0., mac=0.)
+        self.neuron_ac = 0.
+        self.n_samples, self.handles = 0, []
+        for name, m in model.named_modules():
+            if isinstance(m, nn.Linear):
+                self.handles.append(m.register_forward_hook(self._lin_hook))
+            elif isinstance(m, nn.BatchNorm1d):
+                self.handles.append(m.register_forward_hook(self._bn_hook))
+            elif isinstance(m, (LIFNeuron, FLIFNeuron, MultiStepLIFNode, LIFNode)):
+                self.handles.append(m.register_forward_hook(self._neuron_hook))
+
+    def _neuron_hook(self, module, inp, out):
+        self.neuron_ac += inp[0].numel()
+
+    @staticmethod
+    def _binary(x):
+        return bool(x.min() >= 0 and x.max() <= 1 and torch.unique(x).numel() <= 2)
+
+    def _lin_hook(self, module, inp, out):
+        x = inp[0].detach()
+        rows, fan_in, fan_out = x.numel() / x.shape[-1], x.shape[-1], out.shape[-1]
+        cnt = x.numel() * fan_out + (rows * fan_out if module.bias is not None else 0)
+        if self._binary(x):
+            rate = float(x.sum()) / x.numel()
+            self.lin['ac'] += cnt * rate
+        else:
+            self.lin['mac'] += cnt
+        if bool(x.min() >= 0) and bool(torch.equal(x, torch.round(x))):   # integer rule
+            self.lin['ac_int'] += float(x.sum()) * fan_out + (rows * fan_out if module.bias is not None else 0)
+        else:
+            self.lin['mac_int'] += cnt
+
+    def _bn_hook(self, module, inp, out):
+        x = inp[0].detach()
+        cnt = x.numel() * (2 if module.affine else 1)
+        if self._binary(x):
+            self.bn['ac'] += cnt * float(x.sum()) / x.numel()
+        else:
+            self.bn['mac'] += cnt
+
+    def add_samples(self, n):
+        self.n_samples += int(n)
+
+    def detach(self):
+        for h in self.handles:
+            h.remove()
+        self.handles = []
+
+    def summary(self):
+        n = max(1, self.n_samples)
+        ac, mac = (self.lin['ac'] + self.bn['ac'] + self.neuron_ac) / n, (self.lin['mac'] + self.bn['mac']) / n
+        ac_i, mac_i = (self.lin['ac_int'] + self.bn['ac'] + self.neuron_ac) / n, (self.lin['mac_int'] + self.bn['mac']) / n
+        return dict(rec_AC_M=ac / 1e6, rec_MAC_M=mac / 1e6, rec_syn_uJ=(E_AC * ac + E_MAC * mac) * 1e6,
+                    int_AC_M=ac_i / 1e6, int_MAC_M=mac_i / 1e6, syn_energy_int_uJ=(E_AC * ac_i + E_MAC * mac_i) * 1e6)

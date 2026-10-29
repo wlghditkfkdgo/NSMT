@@ -82,7 +82,7 @@ def parse_arguments():
     model_arg.add_argument('--patch_size', dest='patch_size', type=int, default=16, help='patch size in data stream')
     model_arg.add_argument('--mlp_ratios', dest='mlp_ratios', type=float, default=4)
     model_arg.add_argument('--patch_stride', dest='stride', type=int, default=9)
-    model_arg.add_argument('--connect_f', dest='connect_f', nargs='?', choices=['ADD', 'AND', 'IAND'], default='IAND', help='the types of residual connection in SNN')
+    model_arg.add_argument('--connect_f', dest='connect_f', nargs='?', choices=['ADD', 'AND', 'IAND', 'OR'], default='IAND', help='the types of residual connection in SNN (OR: spkMixer, 2026-10-29)')
     model_arg.add_argument('--gating', dest='gating', default='original', help='gating type')
     model_arg.add_argument('--attn', dest='attn', nargs='?', default='MSSA', choices=['SSA'],)
     model_arg.add_argument('--keep_ratio', nargs='?', type=float, default=0.15)
@@ -124,7 +124,7 @@ def parse_arguments():
     # MODI 2026-10-21 (stage 9 cause-separation): 1-B position, 1-C hippocampus T_h with token cross-attention over neocortex tokens
     snn_arg.add_argument('--ssa_pe', type=int, choices=[0, 1], default=1, help='relative position bias in SSA / hippo_xattn (0 = none)')
     snn_arg.add_argument('--pos_emb', action='store_true', default=False, help='learned absolute position in the hippocampus / mixer embedding')
-    snn_arg.add_argument('--mixer_comb', choices=['or', 'xattn', 'xattn_ch', 'lin', 'linmem', 'linmx', 'xattnmem', 'linxor', 'linsd'], default='or',
+    snn_arg.add_argument('--mixer_comb', choices=['or', 'xattn', 'xattn_ch', 'lin', 'linmem', 'linmx', 'xattnmem', 'linxor', 'linsd', 'sdor', 'sdlin'], default='or',   # sdor / sdlin: spkMixer (2026-10-29)
                          help='MODI 2026-10-21 BiX: how the two mixer directions are combined (OR, or token-axis cross-attention q = forward, k/v = reverse)')
     snn_arg.add_argument('--attn_bn', action='store_true', default=False, help='BN in front of the SSA attention neuron (spk_ssa_abn)')
     snn_arg.add_argument('--hippo_xattn', action='store_true', default=False, help='hippocampus T_h repeats with token cross-attention (q = hippocampus, k/v = neocortex tokens)')
@@ -228,6 +228,8 @@ class Config():
             _iso += f"_smix-{args.mixer}-K{len(str(args.pop_taus).split(','))}-L{args.num_layers}-a{args.neo_alpha}"
         if getattr(args, 'model', 'myModel') == 'neoMixer':
             _iso += f"_mix-{args.mixer}" + ("-bidir" if getattr(args, 'mixer_bidir', False) else "") + f"-L{args.num_layers}-a{args.neo_alpha}"
+        if getattr(args, 'model', 'myModel') == 'spkMixer':           # 2026-10-29: Spikformer-style model, SSA -> Neo-mixer, whole-model neuron
+            _iso += f"_spk-{args.mixer}-L{args.num_layers}-a{args.neo_alpha}-T{args.hippo_T}-cf{str(args.connect_f).lower()}"
         if (getattr(args, 'neo_neuron', 'sj_lif') == 'pop_flif' or getattr(args, 'mixer', '') == 'pop_flif') and getattr(args, 'pop_taus', '4,8,16,32') != '4,8,16,32':
             _iso += "_pt" + args.pop_taus.replace(',', '-')
         # stage 9 suffixes (absent for every earlier configuration)
@@ -241,7 +243,8 @@ class Config():
             _iso += "_nope"
         if getattr(args, 'mixer_comb', 'or') != 'or':                    # MODI 2026-10-21 (BiX)
             _iso += {'xattn': '_xa', 'xattn_ch': '_xach', 'lin': '_lin', 'linmem': '_linmem', 'linmx': '_linmx',
-                     'xattnmem': '_xamem', 'linxor': '_linxor', 'linsd': '_linsd'}[args.mixer_comb]   # 10-23 / 24 / 27: membrane fusion, spike xor, spiking difference
+                     'xattnmem': '_xamem', 'linxor': '_linxor', 'linsd': '_linsd',
+                     'sdor': '_sdor', 'sdlin': '_sdlin'}[args.mixer_comb]   # 10-23 / 24 / 27: membrane fusion, spike xor, spiking difference; 10-29 spkMixer
         if getattr(args, 'attn_bn', False):
             _iso += "_abn"
         if getattr(args, 'pop_soma_init', None) is not None:

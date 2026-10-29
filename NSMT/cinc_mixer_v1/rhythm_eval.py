@@ -16,7 +16,17 @@ from spikingjelly.clock_driven import functional
 from syops import get_model_complexity_info
 from syops.ops import LIF_syops_counter_hook
 
-from energy import FiringRateRecorder
+from energy import FiringRateRecorder, SynOpRecorder
+
+
+class _Both:
+    """predict() recorder adapter: forwards add_samples to the firing-rate and the synaptic-op recorders (2026-10-29)."""
+    def __init__(self, *recs):
+        self.recs = recs
+
+    def add_samples(self, n):
+        for r in self.recs:
+            r.add_samples(n)
 from neurons import LIFNeuron, FLIFNeuron
 from rhythm_data import loader
 from utils import get_energy_consumption
@@ -83,8 +93,10 @@ def metrics(P, Y, data):
 def final_test(args, model, ds, out_dir, tag='best'):
     os.makedirs(out_dir, exist_ok=True)
     rec = FiringRateRecorder(model)
-    P, Y, units = predict(model, ds, args.device, bs=int(getattr(args, 'eval_bs', 32)), recorder=rec)
-    rec.detach()
+    syn = SynOpRecorder(model)                                               # 2026-10-29: Linear / BN ops, syops rule + integer rule (ADD)
+    P, Y, units = predict(model, ds, args.device, bs=int(getattr(args, 'eval_bs', 32)), recorder=_Both(rec, syn))
+    rec.detach(); syn.detach()
+    sy = syn.summary()
     m, c = metrics(P, Y, args.data)
     xb = ds[0][0]
     model.train_mode = 'testing'
@@ -102,9 +114,12 @@ def final_test(args, model, ds, out_dir, tag='best'):
             f.write(f'{i},' + ','.join(str(int(v)) for v in c[i]) + '\n')
     np.savez(os.path.join(out_dir, 'test_probs.npz'), P=P, Y=Y, units=units)
     keys = ['score', 'acc', 'macro_f1'] + [f'f1_{i}' for i in range(c.shape[0])] + (['af_sens', 'af_spec'] if 'af_sens' in m else []) + ['n']
-    head = ['weights'] + keys + ['total_op_M', 'AC_op_M', 'MAC_op_M', 'params_M', 'syops_firing_rate', 'syn_energy_uJ'] + en['columns']
+    sy_cols = ['rec_AC_M', 'rec_MAC_M', 'rec_syn_uJ', 'int_AC_M', 'int_MAC_M', 'syn_energy_int_uJ', 'total_fft_int_uJ']
+    sy['total_fft_int_uJ'] = float(en['values'][en['columns'].index('total_fft_uJ')]) - syn_uJ + sy['syn_energy_int_uJ']   # integer rule total
+    head = ['weights'] + keys + ['total_op_M', 'AC_op_M', 'MAC_op_M', 'params_M', 'syops_firing_rate', 'syn_energy_uJ'] + en['columns'] + sy_cols
     row = [tag] + [f'{m[k]:.6f}' if isinstance(m[k], float) else str(m[k]) for k in keys] + \
-          [f'{ops[0] / 1e6:.4f}', f'{ops[1] / 1e6:.4f}', f'{ops[2] / 1e6:.4f}', f'{params / 1e6:.6f}', f'{fr:.6f}', f'{syn_uJ:.6f}'] + en['values']
+          [f'{ops[0] / 1e6:.4f}', f'{ops[1] / 1e6:.4f}', f'{ops[2] / 1e6:.4f}', f'{params / 1e6:.6f}', f'{fr:.6f}', f'{syn_uJ:.6f}'] + en['values'] + \
+          [f'{sy[c]:.6f}' for c in sy_cols]
     with open(os.path.join(out_dir, 'final+result.csv'), 'w', newline='') as f:
         w = csv.writer(f); w.writerow(head); w.writerow(row)
     print(f'[{tag}] test ' + ' '.join(f'{k}={m[k]:.4f}' for k in keys if isinstance(m[k], float)) + f' syn_uJ={syn_uJ:.4f}')

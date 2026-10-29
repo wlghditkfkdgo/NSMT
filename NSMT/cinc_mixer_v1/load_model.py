@@ -157,6 +157,31 @@ def load_neo_mixer(args, train=True):
     return model
 
 
+def load_spk_mixer(args, train=True):
+    """2026-10-29 (PROJECT_LOG, exp/f-lif-pop-v3): Spikformer-style model with the SSA replaced by the Neo-mixer and the chosen
+    neuron in every layer (spk_mixer.SpkMixer). --hippo_T = repetition steps (0 -> 4, the Spikformer-style baseline's value)."""
+    from spk_mixer import SpkMixer
+    T_h = int(getattr(args, 'hippo_T', 0) or 0) or 4
+    model = SpkMixer(seq_len=args.seq_len, data_patch_size=args.patch_size, embed_dim=args.embed_dim, num_classes=args.num_classes,
+                     depths=args.num_layers, mlp_ratios=args.mlp_ratios, mixer=getattr(args, 'mixer', 'lif'),
+                     mixer_layers=args.time_num_layers, T_h=T_h,
+                     neo_tau=getattr(args, 'neo_tau', 2.0), neo_alpha=getattr(args, 'neo_alpha', 0.5),
+                     fde_method=getattr(args, 'fde_method', 'pred'), fde_step=getattr(args, 'fde_step', 1.0),
+                     fde_memory=getattr(args, 'fde_memory', 0),
+                     pop_taus=tuple(float(t) for t in str(getattr(args, 'pop_taus', '4,8,16,32')).split(',')),
+                     bias=args.bias, tau=args.tau, train_mode='training',
+                     in_channels=getattr(args, 'num_channels', 1), pop_soma_init=getattr(args, 'pop_soma_init', None),
+                     mixer_comb=getattr(args, 'mixer_comb', 'or'), connect_f=getattr(args, 'connect_f', 'IAND'),
+                     tau_calib=getattr(args, 'tau_calib', True))
+    if not train:
+        saved_model_path = os.path.join(args.save_result_path, "model_state", "best+model.pt")
+        model.load_state_dict(torch.load(saved_model_path, map_location='cpu'))
+        model = model.to(args.device)
+        model.train_mode = 'testing'
+        print(f"{args.model} was successfully loaded. (epoch = {args.saved_epoch[-1]:03d})")
+    return model
+
+
 def load_stream_mixer(args, train=True):
     """MODI 2026-10-21: soma-less population as K separate streams merged in the head (stream_mixer.StreamMixer)."""
     from stream_mixer import StreamMixer
@@ -177,5 +202,6 @@ LOAD_MODEL = {
     'myModel' : load_mymodel,
     'neoMixer' : load_neo_mixer,                                       # stage 7
     'streamMixer' : load_stream_mixer,                                 # MODI 2026-10-21 (popk)
+    'spkMixer' : load_spk_mixer,                                       # 2026-10-29 (exp/f-lif-pop-v3)
     # 'Spikformer' : load_spikformer, 
 }
