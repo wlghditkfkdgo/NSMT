@@ -3650,3 +3650,50 @@ n = LIF, f-LIF(α 0.5), population LIF(soma 0.5), population f-LIF(soma 1.0)이�
 **commit / tag:** 이 항목, `results/flif-v1-rhythm-shuf-cinc/`, smoke 요약 두 개(`results/smoke-rhythm-shuf-20261028/summary.md`, `results/smoke-ppg-20261028/summary.md`; seed가 하나뿐이라 모두 "미완"으로 처리된 것 — fail-closed 확인 기록)를 commit 한다. annotated tag `exp/nsmt-flif-neo-20261029-shuf`(완료된 학습 묶음)를 붙인다. 이 항목의 commit은 이 tag로 가리킨다. `exp/nsmt-flif-neo`와 이 tag만 push 한다. `results/flif-v1-ppg/raw.txt`는 진행 중이라 이번 commit에 넣지 않는다.
 
 ---
+
+## 2026-10-29 11:03 KST — 사전 고정 + 구현: 모델 전체 뉴런 교체 (Neo-mixer `--neuron_scope all`) 빠른 시험 — ETTh2 horizon 96, OR 결합, 네 뉴런 × seed 3 = 12 run; 기본 경로 비트 동일, smoke 4/4
+
+**직전 commit:** `00da151e1` (순서 섞어 재학습 결과). 구현 commit은 `397beb1fc`이고, 12 run은 이 commit에서 시작했다(10-29 11:01:21). 이 항목은 결과가 나오기 전(11:03)에 쓴다.
+
+**배경 (사용자 10-29):** 사용자가 "뉴런을 바꾸는 설정이 모델 전체를 바꾸는가, 모듈 안에서만 바꾸는가"를 물었다. 코드를 확인해 답했다. **지금까지 모든 뉴런 비교는 신피질 모듈 안의 뉴런만 바꾼 것이다.**
+- Neo-mixer는 신피질 층(CinC 양방향 4층, ETT 양방향 M = 1이면 2층)만 바뀐다. 임베딩 1층과 MLP 2층은 spikingjelly LIF(τ = 2)로 고정이다.
+- B형(`--neo_neuron`)은 신피질 임베딩과 신피질 층 3층만 바뀐다. 해마 쪽 10층(임베딩, 자기 주의 q·k·v·주의 출력·출력 투영, 신피질 키·값, MLP)은 고정이다.
+- 예외는 10-21–24의 soma 없는 population(`popg`, `popk`)뿐이다. 그때도 f-LIF 계열은 신피질 층에만 넣었다.
+
+사용자 지시: "당연히 신피질 모듈뿐만 아니라 전체 아키텍처 뉴런을 바꿔야지. 그것이 SNN의 정의니까. 실험 경과 보고(`NSMT/reports/스파이킹 신경망 기억 모델 실험 경과 보고.md`)의 실험 중 빠르게 해 볼 수 있는 것을 먼저, 10분 안에 결과가 나오게."
+
+**무엇을 먼저 하는가와 이유:**
+- 보고서의 실험 가운데 run당 시간이 가장 짧은 것은 ETT다. 기존 `flif-v1-gen-ett` ETTh2 horizon 96 run이 287–817 s였다(12–33 epoch에서 조기 종료). MIT-BIH는 430–2,111 s, CinC 30 epoch는 Neo-mixer 기준 수십 분이다.
+- 모델은 Neo-mixer OR 결합이다. 보고서 표 3에서 ETT 에너지 기준을 충족한 가장 낮은 에너지 형태다. 이 모델은 모든 뉴런이 토큰 축(T = N)을 시간으로 쓴다. 그래서 전체 교체가 곧바로 "모든 층이 같은 뉴런·같은 시간 축"이 된다.
+- B형과 Spikformer식의 전체 교체(해마 쪽 뉴런, 반복 4스텝 축)는 SSA 모듈을 바꿔야 해서 이번 빠른 시험에서 뺀다. 나중 단계로 남긴다.
+
+**코드 (`397beb1fc`; 기본값에서 기존 경로 비트 동일):**
+- `classification/neo_mixer.py`: `NeoMixer(neuron_scope='mixer'|'all')`. `'all'`이면 신피질 층과 같은 spikeDE 뉴런(`build_neo_neuron(mixer, …)`, 같은 τ·α·해법·population τ·soma 초기값)을 임베딩(layout `DN`)과 MLP fc1·fc2(layout `ND`)에도 넣는다. OR 결합의 spikeDE 뉴런 4종만 허용하고, 나머지 결합(`lin*`, `xattn*`)과 `popg`·`pop_rec` 등은 `NotImplementedError`로 거부한다.
+- `classification/load_model.py`: `neuron_scope` 전달. `classification/config.py`: `--neuron_scope {mixer, all}`, 폴더 접미사 `_nall`.
+- `forecasting/scripts/run_ett_mixer.sh`: 조건 `mixall_<lif|flif|pop_lif|pop_flif>_bidir`를 추가했다(돌고 있는 pool이 쓰지 않는 스크립트임을 확인한 뒤 수정). 나머지 인자는 기존 `mix_<n>_bidir`와 같다.
+- `forecasting/summarize_nall.py`(새): 아래 규칙.
+
+**점검:**
+- **기본 경로 비트 동일:** 수정 전과 후에 Neo-mixer 네 뉴런(기본 `neuron_scope`, ETTh2 크기 seq 96 / patch 8 / emb 64 / mlp 0.5 / M = 1, seed 0, 같은 입력)을 만들었다. 출력과 state_dict가 4/4 같았다. 돌고 있는 PPG pool의 다음 job도 이 파일을 import하므로 필수 점검이다.
+- **`all` 구성:** 네 뉴런 모두 spikingjelly LIF가 0개 남고, spikeDE 뉴런 층이 5개(임베딩 1, 순방향·역방향 신피질 각 1, fc1, fc2)다. 종류는 각각 `LIFNeuron`, `FLIFNeuron`, `PopulationFLIF`(α = 1), `PopulationFLIF`(α = 0.5)다. 출력 스파이크는 0/1이고 임베딩까지 기울기가 흐른다. `linmx` + `all`은 거부된다.
+- **초기 임베딩 발화율(무작위 입력, 참고):** LIF 0.032, f-LIF 0.034, population LIF 0.001, population f-LIF 0.003. population 계열은 첫 층이 학습 초기에 거의 침묵한다(10-21 BN 점검에서 본 현상과 같은 방향).
+- **smoke 4/4** (`results/smoke-ett-nall-20261029/raw.txt`, 1 epoch, seed 42): 네 조건 모두 시험·에너지까지 끝났다. 1 epoch 시험 MSE는 LIF 0.2937, f-LIF 0.2933, population LIF 0.3269, population f-LIF 0.3150이다.
+- 요약 스크립트는 smoke 묶음(seed 하나)에서 모두 "미완"으로 처리했다(fail-closed 확인).
+
+**실행:** `cd nsmt_flif_v1/forecasting`; seed s ∈ {42, 7, 2026}와 조건 i마다 `COND=mixall_<n>_bidir SUITE=flif-v1-ett-nall bash scripts/run_ett_mixer.sh ETTh2 96 <s> <(i + s) mod 4>`(12개 동시, GPU당 3개, PPG 8개와 함께). 설정은 기존 ETTh2와 같다: patch 8, emb 64, heads 8, mlp 0.5, M = 1, lr 0.0005, 배치 64, 100 epoch, 조기 종료 patience 10, 검증 최고 가중치로 시험, seq 96, L1 손실.
+
+**비교 대상 (새 학습 없음):** `flif-v1-gen-ett`의 같은 칸·같은 seed `mix_<n>_bidir`(신피질만 교체, commit `f0950c9a1`)와 `spk_ssa`.
+
+**판정 규칙 (사전 고정, `summarize_nall.py` docstring과 같음):** 뉴런 n마다 seed로 짝지어 R = (MSE 전체 교체 − MSE 신피질만) / MSE 신피질만. "좋아짐" = 평균 R ≤ −1 %이고 3/3 seed 음수. "나빠짐" = 평균 R ≥ +1 %이고 3/3 양수. 그 밖은 "차이 없음". 보고만: 전체 교체 − Spikformer식(R), 에너지 비(total_fft_uJ). 빠진 값이나 유한하지 않은 값은 "미완"이다.
+
+**사전 예상:**
+- LIF: 차이 없음. 구현만 spikingjelly LIF에서 spikeDE LIF로 바뀐다(τ·문턱 같음, 기울기 근사 설정 다름).
+- f-LIF: 차이 없음. 기존 ETT에서 f-LIF와 LIF가 거의 같았다(표 3, +0.25 vs +0.24 %).
+- population LIF·f-LIF: 나빠짐. 첫 층이 초기에 거의 침묵하고, smoke 1 epoch MSE도 높다(0.327 / 0.315 vs 0.294).
+- 에너지: LIF·f-LIF는 비슷하다. population은 뉴런 계산 몫이 늘어 커진다.
+
+**한계:** 한 칸(ETTh2-96), seed 3개의 탐색이다. ETT 시험 세트는 여러 번 열람했다. 비교 대상은 다른 commit과 다른 GPU 부하에서 학습됐다(기본 경로 비트 동일은 확인). 같은 GPU에 PPG가 돌고 있다. 학습률·soma 초기값은 신피질만 교체한 설정을 그대로 썼다.
+
+**다음 (결과 뒤 사용자 결정):** 다른 ETT 칸과 MIT-BIH로 넓히기; B형·Spikformer식 해마 쪽까지 전체 교체(SSA 모듈 수정); CinC.
+
+---
