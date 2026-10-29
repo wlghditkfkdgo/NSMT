@@ -38,6 +38,17 @@ case $COND in
   mixlinmx_flif)     CF="--model neoMixer --mixer flif --mixer_bidir --neo_alpha $ALPHA --mixer_comb linmx" ;;
   mixlinmx_pop_lif)  CF="--model neoMixer --mixer pop_lif --mixer_bidir --pop_soma_init 0.5 --mixer_comb linmx" ;;
   mixlinmx_pop_flif) CF="--model neoMixer --mixer pop_flif --mixer_bidir --neo_alpha $ALPHA --pop_soma_init 1.0 --mixer_comb linmx" ;;
+  mixall_lif_bidir)  CF="--model neoMixer --mixer lif --mixer_bidir --neo_alpha $ALPHA $NEOX --neuron_scope all" ;;   # MODI 2026-10-29:
+  mixall_flif_bidir) CF="--model neoMixer --mixer flif --mixer_bidir --neo_alpha $ALPHA $NEOX --neuron_scope all" ;;  # the neuron in
+  mixall_pop_lif_bidir)  CF="--model neoMixer --mixer pop_lif --mixer_bidir --pop_soma_init 0.5 $NEOX --neuron_scope all" ;;   # every layer
+  mixall_pop_flif_bidir) CF="--model neoMixer --mixer pop_flif --mixer_bidir --neo_alpha $ALPHA --pop_soma_init 1.0 $NEOX --neuron_scope all" ;;
+  mixlb_flif_bidir)  CF="--model neoMixer --mixer flif --mixer_bidir --neo_alpha $ALPHA $NEOX --neuron_scope lifbase" ;;   # control: spikeDE
+  mixlb_pop_lif_bidir)  CF="--model neoMixer --mixer pop_lif --mixer_bidir --pop_soma_init 0.5 $NEOX --neuron_scope lifbase" ;;   # LIF outside
+  mixlb_pop_flif_bidir) CF="--model neoMixer --mixer pop_flif --mixer_bidir --neo_alpha $ALPHA --pop_soma_init 1.0 $NEOX --neuron_scope lifbase" ;;
+  spkall_lif)        CF="--model myModel --hippo_ssa --hippo_T 4 --neuron_all lif" ;;
+  spkall_flif)       CF="--model myModel --hippo_ssa --hippo_T 4 --neuron_all flif --neo_alpha $ALPHA" ;;
+  spkall_pop_lif)    CF="--model myModel --hippo_ssa --hippo_T 4 --neuron_all pop_lif --pop_soma_init 0.5" ;;
+  spkall_pop_flif)   CF="--model myModel --hippo_ssa --hippo_T 4 --neuron_all pop_flif --neo_alpha $ALPHA --pop_soma_init 1.0" ;;
   mix_*)                                                              # stage 7: mix_<none|lif|flif|pop>_<fwd|bidir>[_L<blocks>]
     IFS=_ read -r _ MK MD ML <<< "$COND"; [ "$MK" = pop ] && MK=pop_flif
     CF="--model neoMixer --mixer $MK --neo_alpha $ALPHA --pop_taus ${POP_TAUS:-4,8,16,32} $NEOX"

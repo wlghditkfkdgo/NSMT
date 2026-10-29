@@ -109,6 +109,16 @@ case $BASE in
   spkneo_pop_lif)   ALPHA=0; CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode cat --neo_grad 1.0" ;;
   spkneo_pop_flif)  ALPHA=0; CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode cat --neo_grad 1.0" ;;
   spkneo_lif_nomem) ALPHA=0; CF="--model myModel --neo_neuron lif --neo_where both --hippo_T 4 --hippo_xattn --hippo_xattn_mode cat --neo_grad 1.0 --neo_memoryless" ;;
+  spkneoall_lif|spkneoall_lif_nomem)   ALPHA=0; CF="--model myModel --neo_neuron lif --neo_where both --hippo_T 4 --hippo_xattn --hippo_xattn_mode cat --neo_grad 1.0 --neuron_all lif" ;;&
+  spkneoall_flif|spkneoall_flif_nomem) ALPHA=0; CF="--model myModel --neo_neuron flif --neo_where both --neo_alpha 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode cat --neo_grad 1.0 --neuron_all flif" ;;&
+  spkneoall_pop_lif|spkneoall_pop_lif_nomem)   ALPHA=0; CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode cat --neo_grad 1.0 --neuron_all pop_lif" ;;&
+  spkneoall_pop_flif|spkneoall_pop_flif_nomem) ALPHA=0; CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode cat --neo_grad 1.0 --neuron_all pop_flif" ;;&
+  spkneoall_*_nomem) CF="$CF --neo_memoryless" ;;                  # MODI 2026-10-29: B form, every layer the spikeDE neuron (;;& falls through)
+  spkneoall_*) ;;
+  spkall_lif)       CF="--model myModel --hippo_ssa --hippo_T 4 --neuron_all lif" ;;
+  spkall_flif)      CF="--model myModel --hippo_ssa --hippo_T 4 --neuron_all flif --neo_alpha 0.5" ;;
+  spkall_pop_lif)   CF="--model myModel --hippo_ssa --hippo_T 4 --neuron_all pop_lif --pop_soma_init 0.5" ;;
+  spkall_pop_flif)  CF="--model myModel --hippo_ssa --hippo_T 4 --neuron_all pop_flif --neo_alpha 0.5 --pop_soma_init 1.0" ;;
   nsmt_lif_t4)    CF="--model myModel --neo_neuron lif --neo_where both --hippo_T 4 --hippo_xattn" ;;
   nsmt_pop_t4)    CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn" ;;
   *) echo "bad cond $COND"; exit 1 ;;

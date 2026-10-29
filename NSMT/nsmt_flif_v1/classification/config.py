@@ -136,8 +136,11 @@ def parse_arguments():
                          help='every token runs through the neocortex as its own 1-step sequence (no state crosses tokens)')
     snn_arg.add_argument('--token_shuffle', action='store_true', default=False,
                          help='MODI 2026-10-28 shuffle-retrain: random token order per sample in training, one fixed order in evaluation')
-    snn_arg.add_argument('--neuron_scope', choices=['mixer', 'all'], default='mixer',
-                         help="MODI 2026-10-29 Neo-mixer: 'all' = the mixer's neuron in every neuron layer (embedding and MLP too)")
+    snn_arg.add_argument('--neuron_scope', choices=['mixer', 'all', 'lifbase'], default='mixer',
+                         help="MODI 2026-10-29 Neo-mixer: 'all' = the mixer's neuron in every neuron layer (embedding and MLP too); "
+                              "'lifbase' = spikeDE LIF in the embedding and MLP")
+    snn_arg.add_argument('--neuron_all', choices=['sj_lif', 'lif', 'flif', 'pop_lif', 'pop_flif'], default='sj_lif',
+                         help='MODI 2026-10-29 myModel: this spikeDE neuron in every hippocampus layer too (no spikingjelly LIF left)')
     snn_arg.add_argument('--pop_soma_init', type=float, default=None, help='pop_flif soma mixing weight init (None = 1/K)')
     snn_arg.add_argument('--fold', type=int, default=0, help='CinC 2017: test fold 0..4 of the record-wise stratified 5-fold split')
     snn_arg.add_argument('--val_frac', type=float, default=0.1, help='share of the training part held out for validation')
@@ -263,7 +266,9 @@ class Config():
         if getattr(args, 'token_shuffle', False):                         # MODI 2026-10-28
             _iso += "_tshuf"
         if getattr(args, 'neuron_scope', 'mixer') != 'mixer':             # MODI 2026-10-29
-            _iso += "_nall"
+            _iso += {'all': '_nall', 'lifbase': '_nlb'}[args.neuron_scope]
+        if getattr(args, 'neuron_all', 'sj_lif') != 'sj_lif':             # MODI 2026-10-29 (myModel)
+            _iso += f"_na{args.neuron_all.replace('_', '')}"
         if getattr(args, 'pop_soma_init', None) is not None:
             _iso += f"_psi{args.pop_soma_init:g}"
         if str(getattr(args, 'data', '')).upper() in ('CINC2017', 'SHD'):

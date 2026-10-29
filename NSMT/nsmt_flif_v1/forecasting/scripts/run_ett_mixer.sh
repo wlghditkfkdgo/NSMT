@@ -8,6 +8,7 @@
 # usage: COND=<cond> run_ett_mixer.sh <DS: ETTh1|ETTh2|ETTm1|ETTm2> <PL> <seed> <gpu>
 #   COND: spk_ssa | mix_<lif|flif|pop_lif|pop_flif>_bidir (OR fusion) | mixlinmx_<lif|flif|pop_lif|pop_flif> (charge-difference fusion)
 #         | mixall_<lif|flif|pop_lif|pop_flif>_bidir (OR fusion, the same neuron in every layer; MODI 2026-10-29)
+#         | mixlb_<flif|pop_lif|pop_flif>_bidir (spikeDE LIF outside the mixer) | spkall_<n> (Spikformer-style, n everywhere)
 #   env:  SUITE EPOCHS PATIENCE (10) RES LOG PY THREADS
 set -u
 DS=${1:?}; PL=${2:?}; S=${3:?}; GPU=${4:?}
@@ -31,6 +32,13 @@ case $COND in
   mixall_flif_bidir) CF="--model neoMixer --mixer flif --mixer_bidir --neo_alpha 0.5 --neuron_scope all" ;;   # in every layer
   mixall_pop_lif_bidir)  CF="--model neoMixer --mixer pop_lif --mixer_bidir --pop_soma_init 0.5 --neuron_scope all" ;;
   mixall_pop_flif_bidir) CF="--model neoMixer --mixer pop_flif --mixer_bidir --neo_alpha 0.5 --pop_soma_init 1.0 --neuron_scope all" ;;
+  mixlb_flif_bidir)  CF="--model neoMixer --mixer flif --mixer_bidir --neo_alpha 0.5 --neuron_scope lifbase" ;;   # control: spikeDE LIF
+  mixlb_pop_lif_bidir)  CF="--model neoMixer --mixer pop_lif --mixer_bidir --pop_soma_init 0.5 --neuron_scope lifbase" ;;   # in the other layers
+  mixlb_pop_flif_bidir) CF="--model neoMixer --mixer pop_flif --mixer_bidir --neo_alpha 0.5 --pop_soma_init 1.0 --neuron_scope lifbase" ;;
+  spkall_lif)        CF="--model myModel --hippo_ssa --hippo_T 4 --neuron_all lif" ;;                       # Spikformer-style, every
+  spkall_flif)       CF="--model myModel --hippo_ssa --hippo_T 4 --neuron_all flif --neo_alpha 0.5" ;;      # layer the spikeDE neuron
+  spkall_pop_lif)    CF="--model myModel --hippo_ssa --hippo_T 4 --neuron_all pop_lif --pop_soma_init 0.5" ;;
+  spkall_pop_flif)   CF="--model myModel --hippo_ssa --hippo_T 4 --neuron_all pop_flif --neo_alpha 0.5 --pop_soma_init 1.0" ;;
   *) echo "bad cond $COND"; exit 1 ;;
 esac
 case $DS in                       # patch emb heads mlp M lr bs epochs   (run_ett.sh; keep_ratio / alpha unused: no aux decoder)

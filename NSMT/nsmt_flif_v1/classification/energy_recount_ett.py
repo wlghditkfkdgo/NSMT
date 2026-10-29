@@ -91,7 +91,7 @@ def main():
     for r in rows:
         run = r['dir']; ac_p, mac_p = head_line(run)
         rec = dict(ds=r['ds'], pl=int(r['pl']), cond=r['cond'], seed=int(r['seed']), mse_logged=r['mse'], total_fft_uJ=r['total_fft_uJ'])
-        if r['cond'] != 'spk_ssa':
+        if not (r['cond'] == 'spk_ssa' or r['cond'].startswith('spkall_')):   # MODI 2026-10-29: + Spikformer-style with spikeDE neurons
             if mac_p != 0:
                 bad.append(f'{run}: Neo-mixer head has MAC {mac_p}')
             rec.update(mse_recomputed='', rate='', binary='', head_MAC=0, head_AC_corr='', total_fft_uJ_corr=r['total_fft_uJ'])
@@ -117,7 +117,7 @@ def main():
     path = os.path.join(res, 'energy_recount.csv')
     with open(path, 'w', newline='') as f:
         w = csv.DictWriter(f, fieldnames=list(out[0])); w.writeheader(); w.writerows(out)
-    print(f'{len(out)} runs ({sum(r["cond"] == "spk_ssa" for r in out)} Spikformer-style recounted) -> {path}')
+    print(f'{len(out)} runs ({sum(r["cond"] == "spk_ssa" or r["cond"].startswith("spkall_") for r in out)} Spikformer-style recounted) -> {path}')
     if bad:
         print('FAILED CHECKS:\n  ' + '\n  '.join(bad)); sys.exit(1)
     print('all checks passed')

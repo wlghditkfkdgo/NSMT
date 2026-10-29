@@ -21,7 +21,8 @@ population: every neuron layer of the model split into tau groups 4/8/16/32 that
 by layers.tau_gain).
 
 MODI 2026-10-29: neuron_scope 'all' puts the mixer's spikeDE neuron (lif / flif / pop_lif / pop_flif, same options) in every
-neuron layer -- embedding and MLP too, all over the token axis (T = N); 'mixer' (default) keeps the spikingjelly LIF there.
+neuron layer -- embedding and MLP too, all over the token axis (T = N); 'lifbase' puts the spikeDE LIF there (control: the
+implementation change alone); 'mixer' (default) keeps the spikingjelly LIF there.
 """
 import torch
 import torch.nn as nn
@@ -68,7 +69,7 @@ class MixerStack(nn.Module):
 
 class Block(nn.Module):
     def __init__(self, dim, mixer, mixer_bidir, mixer_layers, mlp_ratio, neo_kw, T, bias=False, tau=2.0, comb='or', heads=8,
-                 all_neurons=False):
+                 other_neuron=None):
         super().__init__()
         self.mixer_kind, self.bidir, self.comb = mixer, bool(mixer_bidir), comb
         if comb not in COMBS:
@@ -115,7 +116,7 @@ class Block(nn.Module):
             with torch.no_grad():
                 self.fc1.bn.weight.copy_(group_gamma(hidden, taus)); self.fc2.bn.weight.copy_(group_gamma(dim, taus))
         else:                                                            # spikingjelly LIF over the token axis, or (MODI 2026-10-29,
-            nfn = (lambda n: build_neo_neuron(mixer, n, T, 'ND', **neo_kw)) if all_neurons else (lambda n: None)   # neuron_scope 'all') the mixer's neuron
+            nfn = (lambda n: build_neo_neuron(other_neuron, n, T, 'ND', **neo_kw)) if other_neuron else (lambda n: None)   # neuron_scope 'all' / 'lifbase')
             self.fc1 = SpikLinearLayer(dim, hidden, tau=tau, lif_bias=bias, neuron=nfn(hidden))
             self.fc2 = SpikLinearLayer(hidden, dim, tau=tau, lif_bias=bias, neuron=nfn(dim))
 
@@ -165,11 +166,12 @@ class NeoMixer(nn.Module):
             raise ValueError(f'mixer must be one of {MIXERS}')
         if mixer == 'none' and mixer_bidir:
             raise ValueError("mixer 'none' has no direction")
-        if neuron_scope not in ('mixer', 'all'):
-            raise ValueError("neuron_scope must be 'mixer' or 'all'")
-        if neuron_scope == 'all' and (mixer not in ('lif', 'flif', 'pop_lif', 'pop_flif') or mixer_comb != 'or'):
-            raise NotImplementedError("neuron_scope 'all' is defined for the spikeDE mixers with OR fusion")
+        if neuron_scope not in ('mixer', 'all', 'lifbase'):
+            raise ValueError("neuron_scope must be 'mixer', 'all' or 'lifbase'")
+        if neuron_scope != 'mixer' and (mixer not in ('lif', 'flif', 'pop_lif', 'pop_flif') or mixer_comb != 'or'):
+            raise NotImplementedError("neuron_scope 'all' / 'lifbase' is defined for the spikeDE mixers with OR fusion")
         self.neuron_scope = neuron_scope
+        other = {'all': mixer, 'lifbase': 'lif'}.get(neuron_scope)        # neuron of the embedding and MLP layers (None = spikingjelly LIF)
         self.train_mode = train_mode
         self.patch_size, self.stride = data_patch_size, data_patch_size // 2
         self.num_patches = int((seq_len - data_patch_size) / self.stride + 1) + 1
@@ -186,12 +188,12 @@ class NeoMixer(nn.Module):
         self.encoding = Embedding(num_patches=self.num_patches, patch_size=data_patch_size * self.in_channels, embed_dim=embed_dim, stride=self.stride,
                                   pe=False, bias=bias, tau=tau, pos_emb=pos_emb,   # spikingjelly LIF over the token axis; pos_emb (1-B)
                                   neuron=(GroupNeuron(embed_dim, tuple(pop_taus), 'sj', axis=2) if grouped else   # popg: [T, B, D, N'] layout
-                                          build_neo_neuron(mixer, embed_dim, self.T, 'DN', **neo_kw) if neuron_scope == 'all' else None))
+                                          build_neo_neuron(other, embed_dim, self.T, 'DN', **neo_kw) if other else None))
         if grouped:
             with torch.no_grad():
                 self.encoding.emb_bn.weight.copy_(group_gamma(embed_dim, tuple(pop_taus)))
         self.blocks = nn.ModuleList([Block(embed_dim, mixer, mixer_bidir, mixer_layers, mlp_ratios, neo_kw, self.T, bias, tau, comb=mixer_comb, heads=heads,
-                                           all_neurons=(neuron_scope == 'all'))
+                                           other_neuron=other)
                                      for _ in range(self.depths)])
         self.head = nn.Linear(embed_dim, num_classes, bias=bias)
         self.apply(self._init_weights)

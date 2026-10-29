@@ -15,7 +15,7 @@ from timm.utils import *
 
 # from encoder import Embedding, Block, TemporalBlock
 from layers import SpkEncoder, SpikLinearLayer, SpikLinearMaxLayer, MLP, SSA_rel_scl, MutualCrossAttention
-from layers import build_neo_neuron, NeoNeuron, apply_tau_calibration   # nsmt_flif_v1
+from layers import build_neo_neuron, NeoNeuron, apply_tau_calibration, swap_sj_neurons   # nsmt_flif_v1; swap: MODI 2026-10-29
 from positional import tAPE
 from token_order import TokenShuffle, permute_tokens   # MODI 2026-10-28 (shuffle-retrain)
 from utils import random_masking_3D, cyclic_shift_batch_dim1
@@ -689,6 +689,19 @@ class myModel(nn.Module):
         for blk in self.data_block:                                    # MODI 2026-10-24: alignment order of the streams
             blk.stream_rev = self.stream_rev
             blk.neo_grad = self.neo_grad                               # MODI 2026-10-26
+        # MODI 2026-10-29 (--neuron_all): the hippocampus neurons (embedding, SSA, MLP; T_h repeat steps) become the spikeDE
+        # neuron too, so no spikingjelly LIF is left (Spikformer-style; the B form with a spikeDE neocortex). Default: unchanged.
+        self.neuron_all = str(kwargs.get('neuron_all', 'sj_lif'))
+        if self.neuron_all != 'sj_lif':
+            if self.neuron_all not in ('lif', 'flif', 'pop_lif', 'pop_flif'):
+                raise ValueError('neuron_all in {sj_lif, lif, flif, pop_lif, pop_flif}')
+            if not (self.hippo_ssa or (self.hippo_xattn and self.hippo_xattn_mode == 'cat' and neo_neuron != 'sj_lif' and not self.neo_streams)):
+                raise NotImplementedError('neuron_all: Spikformer-style (hippo_ssa) or the B form with a spikeDE neocortex only')
+            nh = swap_sj_neurons(self.encoding, self.neuron_all, self.T_h, **_neo) + swap_sj_neurons(self.data_block, self.neuron_all, self.T_h, **_neo)
+            left = [n for n, m_ in self.named_modules() if isinstance(m_, MultiStepLIFNode)]
+            if left:
+                raise NotImplementedError(f'neuron_all: spikingjelly LIF left in {left}')
+            self.n_swapped = nh
         
         if ((self.train_mode != 'training') and (self.train_mode != 'pre_training')):
             for module in self.modules():

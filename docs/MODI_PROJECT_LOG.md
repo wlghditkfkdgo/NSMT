@@ -3746,3 +3746,98 @@ Spikformer식: MSE 0.2903 (0.2916 / 0.2903 / 0.2891), 에너지 13.78 µJ. 에�
 **commit / tag:** 이 항목과 `forecasting/results/flif-v1-ett-nall/{raw.txt, summary.md}`를 commit 하고 annotated tag `exp/nsmt-flif-neo-20261029-nall`(완료된 학습 묶음)을 붙인다. 이 항목의 commit은 이 tag로 가리킨다. `exp/nsmt-flif-neo`와 이 tag만 push 한다.
 
 ---
+
+## 2026-10-29 12:08 KST — 사전 고정 + 구현: 모델 전체 뉴런 교체 묶음 (사용자 "1~3 진행") — (1) 구현 몫 대조, (2) ETT 16칸·MIT-BIH로 확장, (3) Spikformer식·B형의 해마 쪽까지 교체; 450 run; 기본 경로 비트 동일, smoke 30/30
+
+**직전 commit:** `913b413d5` (빠른 시험 결과, tag `exp/nsmt-flif-neo-20261029-nall`).
+
+**사용자 지시 (10-29):** 빠른 시험 보고의 다음 후보 1–3을 모두 진행한다("1~3 진행").
+1. 구현 몫을 떼어 내는 대조.
+2. ETT 나머지 칸과 MIT-BIH로 넓히기("모든 층 f-LIF 대 모든 층 LIF"를 사전 고정 비교로).
+3. B형·Spikformer식의 해마 쪽까지 전체 교체.
+
+사용자의 원칙(10-29): "당연히 신피질 모듈뿐만 아니라 전체 아키텍처 뉴런을 바꿔야지. 그것이 SNN의 정의니까."
+
+**코드 (기본값에서 기존 경로 비트 동일):**
+- `neo_mixer.py`: `neuron_scope`에 `'lifbase'`를 더했다. 신피질 층은 `--mixer` 뉴런, 임베딩·MLP는 spikeDE LIF다(대조: 구현 교체만). `'all'`의 동작은 그대로다.
+- `layers.py`: `swap_sj_neurons(root, kind, T, …)`(새). root 아래의 spikingjelly `MultiStepLIFNode`를 모두 spikeDE 뉴런(`build_neo_neuron`, 같은 τ·α·해법·population 옵션)으로 바꾼다. 크기와 배치는 주인 모듈에서 정한다: 임베딩 `emb_lif`(embed_dim, `DN`), `SpikLinearLayer.lif`(out_dim, `ND`), `SSA_rel_scl`의 q·k·v·attn·k2·v2(dim, `ND`). 그 밖의 주인 모듈은 `NotImplementedError`다.
+- `model.py`: `--neuron_all {sj_lif, lif, flif, pop_lif, pop_flif}`(기본 sj_lif). 켜면 해마 쪽(임베딩, SSA, MLP; 시간 축 = 반복 T_h = 4)을 그 뉴런으로 바꾼다. 바꾼 뒤 spikingjelly LIF가 하나라도 남으면 오류를 낸다. Spikformer식(`hippo_ssa`)과 spikeDE 신피질을 가진 B형에서만 허용한다.
+- `config.py`: 두 옵션과 폴더 접미사 `_nlb`, `_na<뉴런>`. `load_model.py`: `neuron_all` 전달.
+- 러너에 조건을 추가했다. 지금 도는 pool은 PPG뿐이고 `run_ppg.sh`는 건드리지 않았다.
+  - `forecasting/scripts/run_ett_mixer.sh`: `mixlb_<flif|pop_lif|pop_flif>_bidir`, `spkall_<n>`.
+  - `scripts/run_mitbih2.sh`: `mixall_<n>_bidir`, `mixlb_…`, `spkall_<n>`. 기준 조건과 같은 옵션에 범위 옵션만 더했다.
+  - `scripts/run_rhythm_addneo.sh`: `spkneoall_<n>`, `spkneoall_<n>_nomem`, `spkall_<n>`. B형은 `spkneo_<n>` 옵션에 `--neuron_all <n>`을 더했다. 대조는 거기에 `--neo_memoryless`를 더했다. 조건 분기 출력은 따로 시험해 의도와 같음을 확인했다.
+- `scripts/make_queue_nall.sh`: 대기열 생성(smoke 30, quick 21, main 429). `scripts/nall_driver.sh`: quick pool(GPU당 3개) 다음 main pool(GPU당 2개).
+- `summarize_nall2.py`(새): 아래 규칙. 비교 대상이 빠지면 "미완"으로 남는 것을 확인했고, 11:20 항목의 C1 LIF(+1.73 %, 나빠짐)를 그대로 재현했다.
+
+**점검:**
+- **기본 경로 비트 동일:** 수정 전후로 같은 seed·입력에서 출력과 state_dict가 같았다. Neo-mixer 네 뉴런은 기본 범위로 4/4다. myModel은 Spikformer식, B형 LIF, B형 population f-LIF, B형 기억 없는 LIF로 4/4다(ETTh2 크기).
+- **전체 교체 구성:**
+  - Spikformer식: spikeDE 층 8개(임베딩, q, k, v, attn, 출력 투영, fc1, fc2), 모두 시간 길이 4.
+  - B형: 해마 10개(+ k2, v2) + 신피질 2개 = 12개. 해마는 길이 4, 신피질은 길이 N.
+  - 네 뉴런 × (Spikformer식, B형, B형 기억 없음) 모두 spikingjelly LIF가 0개 남았다. 모든 층이 실제로 실행되고 출력이 0/1이며 임베딩까지 기울기가 흐른다. spikingjelly 신피질 B형에 `--neuron_all`을 주면 거부된다.
+- **lifbase:** 층 구성이 [LIF, 신피질, 신피질, LIF, LIF]이다(f-LIF·population LIF·population f-LIF).
+- **초기 발화율(무작위 입력, Spikformer식 전체 교체):** LIF는 임베딩 0.083, q·k·v 약 0.06, 주의 출력 0.0이다. population f-LIF는 임베딩 0.026, q·k·v 약 0.01, 주의 출력 0.0이다. 주의 출력 뉴런의 초기 침묵은 spikingjelly Spikformer식에서도 본 현상이다(10-21 BN 점검, CinC 0.07 %).
+- **smoke:** 30/30 RESULT, SKIP 0이다(11:51:56–12:07:15, 1 epoch, seed 42; `forecasting/results/smoke-nall-ett-20261029`, `results/smoke-nall-mitbih-20261029`, `results/smoke-nall-cinc-20261029`). 1 epoch 값은 판단 근거가 아니다.
+  - **경고 하나:** CinC에서 population을 모든 층에 넣은 조건(`spkall_pop_*`, `spkneoall_pop_*`)은 1 epoch 뒤 점수가 0.250–0.273이었다. 거의 모두 Normal로 답했다(AF F1 0, Other F1 0.004–0.067). 해마 발화율(rho_hippo)은 0.006–0.018로, LIF·f-LIF 전체 교체(0.051–0.077)보다 훨씬 낮다. 신피질만 교체한 B형 smoke(10-26)는 population까지 모두 0.33–0.38이었다.
+  - 원인 후보: population 가지(τ 4–32)가 해마의 반복 4스텝 안에서 충분히 충전되지 못한다. 사전 고정대로 설정을 바꾸지 않고 위험으로 적는다. 90 epoch 뒤에도 같은 상태라면, 결과는 "기억의 효과"가 아니라 "이 초기화로는 population 전체 교체가 학습되지 않음"으로 읽는다.
+  - 에너지 재계산(`energy_recount_ett.py`를 `spkall_*`까지 넓힘)을 ETT smoke에 적용했다. 4개를 다시 셌고 점검을 모두 통과했다(다시 계산한 MSE = 기록, 스텝별 머리 입력 0/1, MAC = syops).
+
+**실행 범위 (seed 42 / 7 / 2026):**
+
+| 묶음 | 과제 | 조건 | run |
+|---|---|---|---|
+| quick | ETTh2 H96 | `mixlb_<flif, pop_lif, pop_flif>_bidir`, `spkall_<lif, flif, pop_lif, pop_flif>` | 21 |
+| main | CinC fold 0, 90 epoch | `spkneoall_<n>`, `spkneoall_<n>_nomem`, `spkall_<n>` | 36 |
+| main | MIT-BIH (30 epoch, 마지막 가중치) | `mixall_<n>_bidir`, `mixlb_<3종>`, `spkall_<n>` | 33 |
+| main | ETT 16칸(ETTh1·h2·m1·m2 × H 96·192·336·720) | `mixall_<n>_bidir`(15칸), `spkall_<n>`(15칸) | 360 |
+
+- ETTh2 H96의 `mixall`은 11:01 시험 run을 그대로 쓴다. 같은 칸의 `spkall`은 quick에 있다.
+- 비교 대상(새 학습 없음): `flif-v1-gen-ett`·`flif-v1-gen-mitbih`의 `mix_<n>_bidir`·`spk_ssa`, `flif-v1-rhythm-addneo90-cinc`의 `spkneo_<n>`·`spkneo_lif_nomem`, `flif-v1-rhythm-budget-cinc`의 `spk_ssa`(90 epoch).
+- 하이퍼파라미터는 각 기준 묶음과 같다. population soma 초기값도 같다(LIF 0.5, f-LIF 1.0). 해마 쪽 f-LIF의 α도 0.5다.
+- 순서: quick(GPU당 3개) → main(GPU당 2개; B형 CinC 12개 → MIT-BIH → CinC 대조·Spikformer식 → ETT H96 → 192 → 336 → 720). PPG pool과 GPU를 함께 쓴다.
+- 예상 GPU 시간(기존 run 시간 기준): ETT 약 115–120, CinC 약 60, MIT-BIH 약 13 GPU시간이다. 벽시계로 약 2일(PPG와 공유)이다. quick은 약 30분이다.
+
+**판정 규칙 (사전 고정, `summarize_nall2.py` docstring과 같음; 일반화 묶음의 규칙을 그대로 씀):**
+- **ETT** (시험 MSE): seed별 r = 100 (A − B) / B.
+  - 칸 판정: 평균 r ≤ −1 %이고 2/3 seed 이상 r < 0이면 "좋음", 거울이면 "나쁨".
+  - 전체: R = 16칸 평균 r의 평균. R ≤ −1 %이고 seed 쌍의 2/3 이상(32/48; 15칸이면 30/45)에서 r < 0이면 "좋음", 거울이면 "나쁨".
+  - 기준 (2) = "좋음", 또는 R ≤ +1 %이면서 에너지 ≤ 0.5배.
+  - Spikformer식 계열 에너지는 머리 에너지를 바로잡은 값(`energy_recount_ett.py`를 `spkall_*`까지 넓혀 적용)을 쓴다.
+- **ETTh2 H96 quick 칸:** 11:03 규칙. 평균 r ≤ −1 %이고 3/3 seed이면 "좋음", 거울이면 "나쁨".
+- **MIT-BIH**(시험 macro-F1)·**CinC**(시험 점수): 평균 A − B ≥ +0.5 %p이고 2/3 seed 이상이면 "좋음", 거울이면 "나쁨". 기준 (2) = "좋음", 또는 평균 ≥ −0.5 %p이면서 에너지 ≤ 0.5배.
+- **비교:**
+  - **W1** 모든 층 − 신피질만(`mixall_n` − `mix_n_bidir`).
+  - **W2** Neo-mixer − Spikformer식, 둘 다 모든 층·같은 뉴런(`mixall_n` − `spkall_n`, 기준 (2)). 새 원칙에서 공정한 짝이다.
+  - **W3**(보고) `spkall_n` − `spk_ssa`.
+  - **W4** 분수 차수: `mixall_flif` − `mixall_lif`, `spkall_flif` − `spkall_lif`. ETT는 11:20에 결과를 보고 고른 칸(ETTh2 H96)을 뺀 15칸으로 판정한다.
+  - **W5**(보고, 기준 (2)) `mixall_n` − `spk_ssa`.
+  - **C1** 구현 몫: `mixlb_n` − `mix_n_bidir`. LIF는 `mixall_lif` − `mix_lif_bidir`.
+  - **C2** 신피질 밖 뉴런 종류 몫: `mixall_n` − `mixlb_n`.
+  - **Q3** ETTh2 H96 `spkall_n` − `spk_ssa`.
+  - **CinC D1w (주):** `spkneoall_n` − `spkneoall_n_nomem`. 모든 층이 n일 때 T = N 신피질이 기억 없는 신피질보다 나은가.
+  - **D2w** `spkneoall_n` − `spkall_n`.
+  - **D3w**(보고) `spkneoall_n` − `spkneo_n`, `spkall_n` − `spk_ssa`, `spkneoall_n_nomem` − `spkneo_lif_nomem`.
+- 빠진 값이나 유한하지 않은 값은 "미완"이다.
+
+**사전 예상:**
+- C1 (ETTh2·MIT-BIH): 세 뉴런 모두 "나쁨" 또는 "차이 없음"이다. 크기는 LIF의 +1.7 %와 비슷하다.
+- C2: f-LIF "좋음"이다(11:20 보고만 값 −1.26 %). population LIF "나쁨", population f-LIF "차이 없음".
+- W1 ETT: LIF "차이 없음"(R +0.5 ~ +1.5 %, 16칸에서는 구현 몫이 1 % 문턱 근처), f-LIF "차이 없음", population 둘 "나쁨". MIT-BIH: 넷 모두 "차이 없음".
+- W2 ETT: 넷 모두 "차이 없음"이다. LIF·f-LIF는 에너지 ≤ 0.5배라 기준 (2)를 충족한다. MIT-BIH: "나쁨"(11토큰이라 Neo-mixer가 불리, 일반화 묶음 G5와 같은 방향).
+- W3: LIF "나쁨"(구현 몫). f-LIF·population은 LIF와 비슷하다. 해마는 4스텝뿐이라 분수 차수 기억이 작용할 길이가 짧다.
+- W4: Neo-mixer "차이 없음"(R −0.3 ~ −1 %), Spikformer식 "차이 없음".
+- D1w (CinC): LIF·f-LIF "나쁨"(신피질만 교체한 B형에서 −0.54 ~ −1.79였음), population "차이 없음".
+- D2w: "차이 없음".
+
+**한계:**
+- CinC fold 하나, seed 3개의 탐색이다. ETT 시험 세트는 여러 번 열었다.
+- 비교 대상 run은 다른 commit과 다른 GPU 부하에서 학습됐다(기본 경로 비트 동일은 확인).
+- 학습률·soma 초기값·BN 이득을 새 구성에 맞춰 다시 조정하지 않았다. population 첫 층의 초기 침묵 같은 초기화 문제가 결과에 섞일 수 있다.
+- MIT-BIH·CinC의 Spikformer식 머리 에너지는 ETT처럼 바로잡지 않은 기존 방식 그대로다.
+- **진행 중인 PPG-DaLiA(42 run)는 신피질만 교체한 설계다(P4 Neo-mixer, P5 B형).** 사용자의 새 원칙과 다르다. 이번 묶음에서는 그대로 두고 따로 보고한다.
+- 막전위 차이(`linmx`)·차이 검출 뉴런(`linxor`) 결합의 전체 교체는 아직 구현하지 않았다(OR 결합만).
+
+**commit:** 이 항목, 코드, 러너, 대기열 생성기, 드라이버, 요약 스크립트, smoke 결과를 commit·push 한 뒤 `tmux flif_nall`에서 `bash nsmt_flif_v1/classification/scripts/nall_driver.sh`를 시작한다.
+
+---
