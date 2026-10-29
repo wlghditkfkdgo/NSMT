@@ -7,17 +7,18 @@ spkneoall_<n> = B form, n in every layer; *_nomem = the memoryless-neocortex con
 
 Rules = the generalization batch (summarize_gen.py), paired by seed (42, 7, 2026); missing / non-finite -> incomplete:
   ETT (test MSE, best-validation weights): r = 100 (A - B) / B per seed; cell better = mean r <= -1 % and r < 0 in >= 2/3 seeds;
-      overall R = mean of the cell means; better = R <= -1 % and r < 0 in >= 2/3 of the seed pairs (32 / 48 for 16 cells,
-      30 / 45 for 15), worse = mirror; criterion (2) = better, or R <= +1 % with energy <= 0.5x (mean over cells of cell-mean
+      overall R = mean of the cell means; better = R <= -1 % and r < 0 in >= 2/3 of the seed pairs (8 / 12 for the 4 cells,
+      6 / 9 for 3), worse = mirror; criterion (2) = better, or R <= +1 % with energy <= 0.5x (mean over cells of cell-mean
       total_fft_uJ ratios; Spikformer-style energies from energy_recount.csv when --energy_fix).
       Quick cell ETTh2 H96 (C1, C2, Q3): better = mean r <= -1 % and r < 0 in 3/3 seeds, worse = mirror (11:03 rule).
   MIT-BIH (test macro-F1, last-epoch weights) and CinC fold 0 (test score, best-validation weights, 90 epochs): better = mean
       A - B >= +0.5 %p and A > B in >= 2 of 3 seeds, worse = mirror; criterion (2) = better, or mean >= -0.5 %p with energy <= 0.5x.
 Comparisons: W1 mixall_n - mix_n_bidir (whole vs neocortex-only), W2 mixall_n - spkall_n (both whole; criterion 2),
-W3 spkall_n - spk_ssa (report), W4 mixall_flif - mixall_lif and spkall_flif - spkall_lif (ETT: confirmatory on the 15 cells without
+W3 spkall_n - spk_ssa (report), W4 mixall_flif - mixall_lif and spkall_flif - spkall_lif (ETT: confirmatory on the 3 cells without
 ETTh2 H96), W5 mixall_n - spk_ssa (report; criterion 2), C1 mixlb_n - mix_n_bidir (implementation; LIF: mixall_lif - mix_lif_bidir),
 C2 mixall_n - mixlb_n (neuron type outside the mixer); CinC: D1w spkneoall_n - spkneoall_n_nomem (main), D2w spkneoall_n - spkall_n,
 D3w (report) spkneoall_n - spkneo_n, spkall_n - spk_ssa, spkneoall_n_nomem - spkneo_lif_nomem.
+ETT cells (correction 2026-10-29 13:3x, user decision 12 of 10-14): ETTh2 and ETTm2 x H96 and H720 only (4 cells), not 16.
 usage: python summarize_nall2.py [--energy_fix]   ->  results/flif-v1-nall-summary.md
 """
 import argparse
@@ -34,10 +35,10 @@ FC = os.path.join(HERE, '..', 'forecasting')
 SEEDS = (42, 7, 2026)
 NS = ('lif', 'flif', 'pop_lif', 'pop_flif')
 NL = {'lif': 'LIF', 'flif': 'f-LIF', 'pop_lif': 'pop LIF', 'pop_flif': 'pop f-LIF'}
-DSS = ('ETTh1', 'ETTh2', 'ETTm1', 'ETTm2')
-PLS = (96, 192, 336, 720)
+DSS = ('ETTh2', 'ETTm2')                                       # user decision 12 (10-14): ETTh2 + ETTm2, H96 / H720
+PLS = (96, 720)
 CELLS = [(d, p) for d in DSS for p in PLS]
-CELLS15 = [c for c in CELLS if c != ('ETTh2', 96)]
+CELLS15 = [c for c in CELLS if c != ('ETTh2', 96)]              # W4 confirmatory cells (3; name kept)
 
 
 def fin(x):
@@ -95,12 +96,12 @@ def ett(energy_fix):
     L = ['## ETT forecasting (test MSE; r = 100 (A − B) / B, %)' + (' — Spikformer-style energy recounted' if energy_fix else ''), '',
          '| question | A | B | cells b / . / w | R | pairs A < B | verdict | energy A/B | criterion (2) |', '|---|---|---|---|---|---|---|---|---|']
     for q, x, y, crit in W:
-        cells = CELLS15 if q.startswith('W4') else CELLS
+        cells = CELLS15 if q.startswith('W4') else CELLS          # W4: the 3 cells without ETTh2 H96
         o = cmp(x, y, cells)
         if o is None:
-            L.append(f'| {q}{" (15 cells)" if q.startswith("W4") else ""} | {x} | {y} | | | | incomplete | | |'); continue
+            L.append(f'| {q}{" (3 cells)" if q.startswith("W4") else ""} | {x} | {y} | | | | incomplete | | |'); continue
         c2 = ('met' if o['v'] == 'better' or (o['R'] <= 1 and o['er'] <= 0.5) else 'not met') if crit else ''
-        L.append(f"| {q}{' (15 cells)' if q.startswith('W4') else ''} | {x} | {y} | {o['cells']} | {o['R']:+.2f} | {o['lo']}/{o['n']} | {o['v']} | {o['er']:.2f} | {c2} |")
+        L.append(f"| {q}{' (3 cells)' if q.startswith('W4') else ''} | {x} | {y} | {o['cells']} | {o['R']:+.2f} | {o['lo']}/{o['n']} | {o['v']} | {o['er']:.2f} | {c2} |")
     L += ['', '### ETTh2 H96 (quick cell; better / worse need 3/3 seeds)', '',
           '| question | A | B | r per seed | R | verdict | energy A/B |', '|---|---|---|---|---|---|---|']
     for q, x, y, _ in C + [(f'Q3 Spikformer-style every layer vs spikingjelly, {NL[n]}', f'spkall_{n}', 'spk_ssa', False) for n in NS]:

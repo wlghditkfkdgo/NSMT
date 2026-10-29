@@ -3,7 +3,8 @@
 #   smoke: every new condition once, 1 epoch, seed 42 (ETT ETTh2 H96, MIT-BIH, CinC fold 0)
 #   quick: ETTh2 H96 -- control mixlb_<flif|pop_lif|pop_flif>_bidir and Spikformer-style spkall_<n>, seeds 42 / 7 / 2026 (21 runs)
 #   main : CinC fold 0, 90 epochs -- B form spkneoall_<n> and its memoryless control spkneoall_<n>_nomem, Spikformer-style spkall_<n>;
-#          MIT-BIH -- mixall_<n>_bidir, mixlb_<...>, spkall_<n>; ETT 16 cells -- mixall_<n>_bidir (ETTh2 H96 done in flif-v1-ett-nall)
+#          MIT-BIH -- mixall_<n>_bidir, mixlb_<...>, spkall_<n>; ETT ETTh2 / ETTm2 x H96 / H720 (corrected 10-29: user decision 12 of
+#          10-14; first written with 16 cells) -- mixall_<n>_bidir (ETTh2 H96 done in flif-v1-ett-nall)
 #          and spkall_<n> (ETTh2 H96 in quick); seeds 42 / 7 / 2026; long CinC runs first, ETT H96 cells before longer horizons
 # Pools (from NSMT/): scripts/nall_driver.sh
 set -u
@@ -29,7 +30,7 @@ for n in pop_flif pop_lif flif lif; do for s in $SEEDS; do
 for c in $MITC; do for s in $SEEDS; do echo "COND=$c SUITE=flif-v1-mitbih-nall bash $MIT $s"; done; done >> $Q
 for n in pop_flif pop_lif flif lif; do for c in spkneoall_${n}_nomem spkall_$n; do for s in $SEEDS; do
   echo "COND=$c DATA=CINC2017 SUITE=flif-v1-rhythm-nall-cinc LR=0.001 EPOCHS=90 bash $CIN $s"; done; done; done >> $Q
-for pl in 96 192 336 720; do for ds in ETTm1 ETTm2 ETTh1 ETTh2; do
+for pl in 96 720; do for ds in ETTm2 ETTh2; do                     # user decision 12 (10-14): ETTh2 + ETTm2, H96 / H720
   for n in pop_flif pop_lif flif lif; do
     for c in mixall_${n}_bidir spkall_$n; do
       [ "$ds$pl" = ETTh296 ] && continue                       # done: mixall in the 11:01 quick test, spkall in the quick queue
