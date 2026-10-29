@@ -3841,3 +3841,48 @@ Spikformer식: MSE 0.2903 (0.2916 / 0.2903 / 0.2891), 에너지 13.78 µJ. 에�
 **commit:** 이 항목, 코드, 러너, 대기열 생성기, 드라이버, 요약 스크립트, smoke 결과를 commit·push 한 뒤 `tmux flif_nall`에서 `bash nsmt_flif_v1/classification/scripts/nall_driver.sh`를 시작한다.
 
 ---
+
+## 2026-10-29 12:33 KST — 모델 전체 뉴런 교체 묶음 중간 결과 1/4: ETTh2 H96 빠른 묶음 (21/21 run) — **구현 교체(spikingjelly LIF → spikeDE LIF)만으로 Neo-mixer MSE가 1.0–2.3 % 나빠진다(4개 중 3개 "나쁨"). 그 위에 신피질 밖 층을 f-LIF·population f-LIF로 바꾸면 1.9 %·1.0 % 좋아진다("좋음", 3/3). population LIF는 2.9 % 나빠진다. Spikformer식 모든 층 교체는 LIF 차이 없음, f-LIF 나쁨(+1.29 %), population LIF 좋음(−1.40 %, 에너지 3배)**
+
+**직전 commit:** `1aeffcc9a` (이 묶음의 사전 고정, 12:08).
+
+**실행:** `nall_driver.sh`의 quick pool(GPU당 3개, PPG와 함께)에서 21 run이 12:08:39–12:30:13에 돌았다. 21/21 RESULT, SKIP 0, sha `1aeffcc9a`다. run 시간은 230–941 s, 조기 종료는 11–21 epoch다. 이어서 main pool(429 run)이 12:30:13에 시작했다.
+- 에너지: `python energy_recount_ett.py --suite flif-v1-ett-nall`로 33개 중 Spikformer식 12개를 다시 셌다. 점검을 모두 통과했다(다시 계산한 MSE = 기록, 머리 입력 0/1, MAC = syops). 결과는 `forecasting/results/flif-v1-ett-nall/energy_recount.csv`다.
+- 요약: `python summarize_nall2.py --energy_fix` → `results/flif-v1-nall-summary-energyfix.md`(바로잡지 않은 에너지판은 `results/flif-v1-nall-summary.md`). ETT 16칸·MIT-BIH·CinC 비교는 아직 "미완"이다.
+
+**결과** (시험 MSE; seed별 r = 100 (A − B) / B, %; 이 칸의 사전 고정 규칙은 평균 ≤ −1 %이고 3/3이면 "좋음", 거울이면 "나쁨"):
+
+| 비교 | A | B | r (seed 42 / 7 / 2026) | 평균 | 판정 | 에너지 A/B |
+|---|---|---|---|---|---|---|
+| C1 구현 몫, LIF | `mixall_lif` | `mix_lif` | +2.41 / +0.64 / +2.13 | +1.73 | 나쁨 | 1.01 |
+| C1 구현 몫, f-LIF | `mixlb_flif` | `mix_flif` | +3.24 / +2.58 / +0.54 | +2.12 | 나쁨 | 1.01 |
+| C1 구현 몫, population LIF | `mixlb_pop_lif` | `mix_pop_lif` | −0.60 / +1.26 / +2.47 | +1.04 | 차이 없음 | 1.00 |
+| C1 구현 몫, population f-LIF | `mixlb_pop_flif` | `mix_pop_flif` | +1.59 / +2.17 / +3.15 | +2.30 | 나쁨 | 1.00 |
+| C2 신피질 밖 뉴런 종류, f-LIF | `mixall_flif` | `mixlb_flif` | −1.75 / −1.87 / −2.10 | −1.91 | **좋음** | 1.21 |
+| C2 신피질 밖 뉴런 종류, population LIF | `mixall_pop_lif` | `mixlb_pop_lif` | +4.74 / +2.12 / +1.80 | +2.89 | 나쁨 | 1.54 |
+| C2 신피질 밖 뉴런 종류, population f-LIF | `mixall_pop_flif` | `mixlb_pop_flif` | −1.15 / −0.06 / −1.81 | −1.01 | **좋음** (문턱 근처) | 1.85 |
+| Q3 Spikformer식 모든 층, LIF | `spkall_lif` | `spk_ssa` | −1.16 / +1.91 / +1.08 | +0.61 | 차이 없음 | 1.01 |
+| Q3 Spikformer식 모든 층, f-LIF | `spkall_flif` | `spk_ssa` | +0.28 / +1.66 / +1.91 | +1.29 | 나쁨 | 1.02 |
+| Q3 Spikformer식 모든 층, population LIF | `spkall_pop_lif` | `spk_ssa` | −2.42 / −1.24 / −0.56 | −1.40 | **좋음** | 3.05 |
+| Q3 Spikformer식 모든 층, population f-LIF | `spkall_pop_flif` | `spk_ssa` | −1.10 / −0.10 / −0.13 | −0.44 | 차이 없음 | 4.73 |
+
+(`mix*`는 모두 `_bidir`이다. 에너지는 Spikformer식 머리를 다시 센 값(total_fft_uJ)이다. ETTh2 H96 평균 에너지(µJ): Neo-mixer 신피질만 LIF 1.62 / f-LIF 1.95 / population LIF 2.93 / population f-LIF 5.19, lifbase 1.96 / 2.94 / 5.20, 모든 층 1.64 / 2.36 / 4.53 / 9.60; Spikformer식 9.30, 모든 층 9.37 / 9.51 / 28.34 / 43.96.)
+
+**보고만 (이 칸의 W2, 판정은 16칸에서):** Neo-mixer 모든 층 − Spikformer식 모든 층(같은 뉴런)은 LIF +1.46 %, f-LIF −0.51 %(+0.59 / −0.80 / −1.31), population LIF +6.48 %, population f-LIF +2.02 %다. 에너지는 LIF 0.18배, f-LIF 0.25배, population LIF 0.16배, population f-LIF 0.22배다.
+
+**사전 예상과 비교:**
+- C1 "나쁨 또는 차이 없음, 크기 +1.7 % 근처": 맞았다. 셋은 "나쁨", population LIF는 "차이 없음"이고, 크기는 +1.04 ~ +2.30 %다.
+- C2 f-LIF "좋음": 맞았다. population LIF "나쁨": 맞았다. population f-LIF "차이 없음": **틀렸다.** −1.01 %, 3/3으로 문턱을 겨우 넘어 "좋음"이다.
+- W3(Q3) LIF "나쁨(구현 몫)": **틀렸다.** Spikformer식에서는 +0.61 %로 차이 없음이다. f-LIF는 "LIF와 비슷"을 예상했는데 +1.29 %로 "나쁨"이다. population LIF는 −1.40 %로 "좋음"이라 예상과 반대다.
+
+**읽는 법 (탐색, 한 칸, seed 3):**
+- 11:20 결과에서 "모든 층 교체가 신피질만 바꾼 것보다 나쁘다"로 보였던 것은 두 몫의 합이다. 하나는 구현 교체 몫(+1.0 ~ +2.3 %)이고, 다른 하나는 뉴런 종류 몫이다. 뉴런 종류 몫은 f-LIF −1.9 %, population f-LIF −1.0 %, population LIF +2.9 %다. 대략 더하면 11:20의 차이(f-LIF +0.17, population f-LIF +1.27, population LIF +3.94 %)가 나온다.
+- **구현을 같게(모두 spikeDE) 놓고 보면, 신피질 밖까지 f-LIF로 바꾸는 것은 이 칸에서 이득이다.** population f-LIF도 이득이다. population LIF는 손해다.
+- spikingjelly LIF와 spikeDE LIF의 차이는 발화 뒤 막전위 처리(0으로 되돌림 vs θ/τ만큼 빼기)와 기울기 근사 함수다. Neo-mixer에서는 이 차이만으로 1–2 %가 움직인다. 같은 교체가 Spikformer식에서는 +0.61 %로 차이가 없었다. 무엇이 원인인지는 이 묶음으로 가를 수 없다.
+- Spikformer식은 population LIF를 모든 층에 넣으면 MSE가 낮아지지만(−1.40 %), 에너지가 3배다. 이 칸에서 Neo-mixer 모든 층 f-LIF는 Spikformer식 모든 층 f-LIF와 MSE가 비슷하고(−0.51 %) 에너지는 0.25배다(보고만).
+
+**한계:** ETTh2 H96 한 칸, seed 3개의 탐색이다. 비교 대상 run(`mix_*`, `spk_ssa`)은 다른 commit(`f0950c9a1`)과 다른 GPU 부하에서 학습됐다(기본 경로 비트 동일은 확인). ETT 시험 세트는 여러 번 열었다. 대략 더하는 분해는 근사다.
+
+**진행:** main pool이 12:30:13에 시작했다(CinC B형 모든 층 12개부터). 중간 결과 2(MIT-BIH), 3(CinC), 4(ETT 16칸)는 끝나는 대로 기록한다. PPG-DaLiA pool은 그대로 돌고 있다.
+
+---
