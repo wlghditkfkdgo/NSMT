@@ -8,10 +8,13 @@ and output ends for the NSMT forecasting ones (nsmt_flif_v1/forecasting/ours.py)
     body         neoMixer: embedding + blocks over the token axis (T = N); token spikes h [N, B*C, 1, D]
                  myModel + hippo_ssa (Spikformer-style): each patch repeated T_h times, SSA blocks; spikes [T_h, B*C, N, D],
                  averaged over T_h (the classification readout also averages over T_h)
+                 myModel + hippo_xattn (dual path, MODI 2026-10-29): the same hippocampus with the T = N neocortex output as
+                 keys / values ('replace' = [NSMT hippocampus T=4], 'cat' = B form), averaged over T_h like 'ssa'
     head         Linear(N * D -> H) on the flattened per-token spikes (the NSMT forecasting head); output [B, H, C] after
                  undoing the window normalisation.
 
 The inner classification head is replaced by nn.Identity (unused, no parameters). Loss / metrics are in train_forecast.py.
+The dual-path auxiliary decoder (weak_decoder) is never called here (plain forecasting loss), so it gets no gradient.
 """
 import torch
 import torch.nn as nn
@@ -30,8 +33,10 @@ class Forecaster(nn.Module):
             self.kind = 'mixer'
         elif isinstance(inner, myModel) and inner.hippo_ssa:
             self.kind = 'ssa'
+        elif isinstance(inner, myModel) and inner.hippo_xattn and not (inner.no_neo or inner.hippo_only):
+            self.kind = 'dual'                                             # MODI 2026-10-29
         else:
-            raise NotImplementedError('Forecaster wraps neoMixer or myModel --hippo_ssa only')
+            raise NotImplementedError('Forecaster wraps neoMixer, myModel --hippo_ssa or myModel --hippo_xattn only')
         self.inner = inner
         self.inner.head = nn.Identity()
         self.num_patches, self.pred_len = inner.num_patches, int(pred_len)
@@ -49,17 +54,22 @@ class Forecaster(nn.Module):
     def train_mode(self, v):
         self.inner.train_mode = v
 
+    def step_features(self, z):
+        """'ssa' / 'dual': z [B', 1, L] -> per-step hippocampus spikes [T_h, B', N, D] (the head input before the T_h mean)."""
+        m = self.inner
+        patched, neo_in = m._tokens_mc(z)                                  # [T_h, B', N, P], [N, B', 1, P]
+        xh = m.encoding(patched)
+        x_neo = m.neo_forward(neo_in, z.clone().detach())[1] if self.kind == 'dual' else None   # [N, B', 1, D]
+        for blk in m.data_block:
+            xh = blk(xh, x_neo, self_kv=m.hippo_only)
+        return xh
+
     def features(self, z):
         """z [B', 1, L] -> per-token spikes [B', N, D]."""
         if self.kind == 'mixer':
             h = self.inner.forward_parts(z)[4]                              # [N, B', 1, D]
             return h[:, :, 0].transpose(0, 1)
-        m = self.inner
-        patched, _ = m._tokens_mc(z)                                       # [T_h, B', N, P]
-        xh = m.encoding(patched)
-        for blk in m.data_block:
-            xh = blk(xh, None, self_kv=m.hippo_only)
-        return xh.mean(0)                                                  # [B', N, D]
+        return self.step_features(z).mean(0)                               # [B', N, D]
 
     def forward(self, x):
         B, L, C = x.shape

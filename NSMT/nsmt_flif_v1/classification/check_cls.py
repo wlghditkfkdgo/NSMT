@@ -1898,6 +1898,14 @@ GEN_CONDS = {'spk_ssa': dict(model='myModel', hippo_ssa=True, hippo_T=4),
              'mixlinmx_pop_lif': dict(model='neoMixer', mixer='pop_lif', mixer_bidir=True, pop_soma_init=0.5, mixer_comb='linmx'),
              'mixlinmx_pop_flif': dict(model='neoMixer', mixer='pop_flif', mixer_bidir=True, pop_soma_init=1.0, mixer_comb='linmx')}
 
+_DUAL = dict(model='myModel', hippo_T=4, hippo_xattn=True, neo_where='both', neo_grad=1.0)        # MODI 2026-10-29 (run_ett_dual.sh)
+DUAL_CONDS = {}
+for _pre, _mode in (('spkneo', 'cat'), ('nsmt4', 'replace')):
+    DUAL_CONDS.update({f'{_pre}_lif': dict(_DUAL, hippo_xattn_mode=_mode, neo_neuron='lif'),
+                       f'{_pre}_flif': dict(_DUAL, hippo_xattn_mode=_mode, neo_neuron='flif'),
+                       f'{_pre}_pop_lif': dict(_DUAL, hippo_xattn_mode=_mode, neo_neuron='pop_lif', pop_soma_init=0.5),
+                       f'{_pre}_pop_flif': dict(_DUAL, hippo_xattn_mode=_mode, neo_neuron='pop_flif', pop_soma_init=1.0),
+                       f'{_pre}_lif_nomem': dict(_DUAL, hippo_xattn_mode=_mode, neo_neuron='lif', neo_memoryless=True)})
 
 def _ett(ds='ETTh2', pl=96, bs=32):
     sys.path.append(os.path.join(HERE, '..', 'forecasting'))
@@ -1913,7 +1921,7 @@ def _gen_model(cond, pl=96, seed=0):
     from load_model import LOAD_MODEL
     from forecast_wrap import Forecaster
     set_random_seed(seed)
-    a = NS(**dict(ETT_GEN, **GEN_CONDS[cond]))
+    a = NS(**dict(ETT_GEN, **{**GEN_CONDS, **DUAL_CONDS}[cond]))
     return Forecaster(LOAD_MODEL[a.model](a, True), a.embed_dim, pl, bias=False).cuda()
 
 
@@ -2249,12 +2257,63 @@ def c49():
     rows.append(f'GRU causal and long reach {g_causal}')
     report('c49', ok, '; '.join(rows))
 
+@check('c50')
+def c50():
+    """(MODI 2026-10-29) dual-path forecasters (forecast_wrap kind 'dual'; B form spkneo_* = keys / values [own; neocortex],
+    [NSMT hippocampus T=4] nsmt4_* = keys / values replaced by the neocortex) for the 10 conditions of run_ett_dual.sh (ETTh2
+    hyperparameters, BN statistics fixed on a real test batch): output [B, H, 7], no parameter under inner.head, mode / neo_grad as
+    intended; the body equals myModel's own testing-mode forward averaged over T_h (bitwise); the per-step head input
+    (step_features) is exactly 0/1 and its T_h mean is features(); the recorder sees T_h = 4 and the neocortex T = 24 (memoryless:
+    1 step); the forecast loss reaches the neocortex and the hippocampus, the unused aux decoder gets no gradient; changing
+    neocortex input token j changes the neocortex output only at j (memoryless) or at j and later tokens only (with memory)."""
+    from spikingjelly.clock_driven import functional
+    from energy import FiringRateRecorder
+    d = _ett('ETTh2', 96)
+    x = next(iter(d['test'][1]))[0].float().cuda()
+    z = ((x - x.mean(1, keepdim=True)) / torch.sqrt(torch.var(x - x.mean(1, keepdim=True), dim=1, keepdim=True, unbiased=False) + 1e-5))
+    z = z.permute(0, 2, 1).reshape(-1, 1, 96)
+    rows, ok = [], True
+    for cond, kw in DUAL_CONDS.items():
+        m = _gen_model(cond); _bn_freeze_eval(m, x); m.train_mode = 'testing'
+        inn = m.inner; nomem = bool(kw.get('neo_memoryless', False))
+        rec = FiringRateRecorder(m)
+        with torch.no_grad():
+            y = m(x); functional.reset_net(m)
+        rec.add_samples(x.shape[0]); Ts = sorted({int(r['T']) for r in rec.layers()}); rec.detach()
+        with torch.no_grad():
+            st = m.step_features(z); functional.reset_net(m)
+            f = m.features(z); functional.reset_net(m)
+            ref = inn(z)[1].mean(0); functional.reset_net(m)
+        no_head = not any(n.startswith('inner.head') for n, _ in m.named_parameters())
+        binary = bool(((st == 0) | (st == 1)).all())
+        m.zero_grad(set_to_none=True)
+        m(x).pow(2).mean().backward(); functional.reset_net(m)
+        gnorm = lambda pre: sum(float(p.grad.abs().sum()) for n, p in m.named_parameters() if n.startswith(pre) and p.grad is not None)
+        g_neo, g_hip = gnorm('inner.encoding_neo') + gnorm('inner.time_block'), gnorm('inner.encoding.')
+        dec_none = all(p.grad is None for n, p in m.named_parameters() if n.startswith('inner.weak_decoder'))
+        with torch.no_grad():
+            _, neo_in = inn._tokens_mc(z)
+            o0 = inn.neo_forward(neo_in, z)[1]; functional.reset_net(m)
+            n2 = neo_in.clone(); n2[10] = n2[10] + 3.0
+            o1 = inn.neo_forward(n2, z)[1]; functional.reset_net(m)
+        ch = [(o0[t] != o1[t]).any().item() for t in range(o0.shape[0])]
+        local = ch[10] and not any(ch[:10]) and (not any(ch[11:]) if nomem else any(ch[11:]))
+        good = (m.kind == 'dual' and tuple(y.shape) == (x.shape[0], 96, 7) and no_head and torch.equal(f, ref) and binary
+                and torch.equal(st.mean(0), f) and inn.hippo_xattn_mode == kw['hippo_xattn_mode'] and inn.neo_grad == 1.0
+                and 4 in Ts and ((1 in Ts) if nomem else (24 in Ts)) and g_neo > 0 and g_hip > 0 and dec_none and local
+                and float(f.mean()) > 0.01)
+        ok &= good
+        rows.append(f"{cond}: mode {inn.hippo_xattn_mode}, body == own forward {torch.equal(f, ref)}, step 0/1 {binary}, "
+                    f"rate {float(f.mean()):.3f}, recorder T {Ts}, grad neo {g_neo:.2e} hippo {g_hip:.2e}, aux dec no grad {dec_none}, "
+                    f"neocortex change at token 10 -> tokens {[t for t, c in enumerate(ch) if c][:4]}{'...' if sum(ch) > 4 else ''}")
+    report('c50', ok, '; '.join(rows))
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', default=os.path.join(HERE, 'results', 'checks', 'check_cls.txt'))
     ap.add_argument('--only', nargs='*', default=None)
     a = ap.parse_args()
-    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30, c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44, c45, c46, c47, c48, c49):
+    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30, c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44, c45, c46, c47, c48, c49, c50):
         if a.only and fn.__name__ not in a.only:
             continue
         fn()

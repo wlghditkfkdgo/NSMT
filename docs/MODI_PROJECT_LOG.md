@@ -4100,3 +4100,98 @@ Spikformer식은 92.22 %, 9.55 µJ다.
 **commit:** 이 항목, `results/flif-v1-mitbih-nall/{raw.txt, pool_runs.txt}`, 다시 만든 `results/flif-v1-nall-summary[-energyfix].md`를 commit 하고 `exp/nsmt-flif-neo`만 push 한다.
 
 ---
+
+## 2026-10-29 20:34 KST — 사전 고정 + 구현: 두 경로 묶음 — [NSMT 해마만 T=4]를 다시 비교에 넣음(B형과 나란히, CinC·MIT-BIH·ETT 4칸, B형 설정, 165 run); 기존 경로 비트 동일, 점검 c46·c50 통과, smoke 25/25
+
+**직전 commit:** `651077a19` (모든 층 교체 묶음 중간 결과 2/3, MIT-BIH).
+
+**경위 (사용자 10-29):**
+- 사용자가 "[NSMT 해마만 T=4] 모델에 대한 실험은 언제부터 소멸된 거야?"라고 물었다. 기록을 확인해 답했다.
+  - 이 모델(`nsmt_lif_t4`, `nsmt_pop_t4`; 해마는 각 패치를 4번 반복하고, 주의의 키·값을 T = N 신피질 토큰으로 **바꿔 넣음**)은 10-21에 설계해 10-22–23에 돌렸다.
+  - 10-23–25에는 다른 세션(nsmt-4f)이 스트림 변형을 돌렸고, 마지막 학습은 10-25 11:53에 끝났다.
+  - 10-26에 제가 B형(Spikformer식 + 신피질 **덧붙임**)을 제안해 승인받은 뒤로, 이 모델은 결정 없이 빠졌다. 그만 돌린다는 결정을 묻지도 기록하지도 않은 것은 제 잘못이다.
+- 사용자 지시: "이 모델을 다시 비교에 넣자."
+- 질문 두 개에 대한 사용자 답:
+  - 과제는 **CinC + MIT-BIH + ETT 4칸**이다.
+  - 설정은 **B형과 같게**(보조 손실 없음, 신피질 과제 기울기 100 %)이고, CinC는 90 epoch이다.
+- 뉴런 규칙(사용자 10-29 17:1x): 두 경로 모델은 신피질 뉴런만 바꾼다. 그래서 두 모델 모두 `--neo_neuron`만 바꾸고 해마는 spikingjelly LIF로 둔다.
+
+**질문:** 키·값을 신피질로 바꿔 넣는 형태가, 덧붙이는 형태(B형)나 Spikformer식과 같은 조건에서 비교했을 때 어떤가? 바꿔 넣은 형태에서 T = N 신피질의 기억이 기억 없는 신피질보다 나은가? B형의 결과(CinC)가 MIT-BIH·ETT에서도 같은가?
+
+**조건 (seed 42 / 7 / 2026):**
+
+| 이름 | 구성 | CinC (fold 0, 90 epoch) | MIT-BIH (30 epoch, 마지막 가중치) | ETT 4칸 (조기 종료) |
+|---|---|---|---|---|
+| `nsmt4_<n>` | [NSMT 해마만 T=4]: 키·값 = 신피질 토큰(`--hippo_xattn`, mode replace), `--neo_grad 1.0`, 보조 손실 0 | 새로 12 | 새로 12 | 새로 48 |
+| `nsmt4_lif_nomem` | 위 모델 + 기억 없는 LIF 신피질(`--neo_memoryless`) | 새로 3 | 새로 3 | 새로 12 |
+| `spkneo_<n>` | B형: 키·값 = [자기 토큰; 신피질 토큰](mode cat), 같은 설정 | 기존 `flif-v1-rhythm-addneo90-cinc` | 새로 12 | 새로 48 |
+| `spkneo_lif_nomem` | B형 + 기억 없는 LIF 신피질 | 기존 | 새로 3 | 새로 12 |
+| `spk_ssa` | Spikformer식(기준선) | 기존 `flif-v1-rhythm-budget-cinc` @90 | 기존 `flif-v1-gen-mitbih` | 기존 `flif-v1-gen-ett` |
+| `mixall_<n>_bidir` | Neo-mixer 모든 층(보고만) | – | 기존 `flif-v1-mitbih-nall` | `flif-v1-ett-nall`(오늘 밤 끝남) |
+
+- n은 LIF, f-LIF(α 0.5), population LIF(soma 0.5), population f-LIF(soma 1.0)이다.
+- 새 run은 CinC 15, MIT-BIH 30, ETT 120으로 모두 **165**개다.
+- ETT는 사용자 결정 12의 4칸(ETTh2·ETTm2 × H96·H720)만 쓴다. ETT 하이퍼파라미터·조기 종료·L1 손실은 일반화 묶음과 같다.
+
+**코드 (`nsmt_flif_v1/`; 기존 경로 비트 동일):**
+- `classification/forecast_wrap.py`: `Forecaster` kind `'dual'`(myModel + `--hippo_xattn`, 신피질 있음)을 추가했다.
+  - 몸통은 `step_features()`(해마 [T_h, B', N, D], 신피질 출력을 키·값으로 넣음) → T_h 평균이다. `'ssa'`도 같은 함수를 쓴다(신피질 없음).
+  - 보조 디코더는 부르지 않는다.
+- `classification/energy_recount_ett.py`: 평균한 head를 스파이크 덧셈으로 다시 세는 대상을 `spkneo_*`·`nsmt4_*`까지 넓혔다(`recount()`). 단계별 head 입력은 `step_features`에서 읽는다.
+- `classification/scripts/run_rhythm_addneo.sh`: `nsmt4_*` 5조건을 추가했다. 돌고 있지 않음을 확인한 뒤 수정했다.
+- `classification/scripts/run_mitbih3.sh`(새, `run_mitbih2.sh` 복사): `spkneo_*`·`nsmt4_*` 10조건, 보조 손실 가중치 `AUX` 0(다른 조건은 0.1 그대로), RESULT에 `aux=`를 적는다.
+- `forecasting/scripts/run_ett_dual.sh`(새, `run_ett_mixer.sh` 복사; 원본은 돌고 있는 pool이 쓰므로 그대로 둠): 두 경로 10조건.
+- `classification/check_cls.py`: c50(아래)과 `DUAL_CONDS`를 추가했다.
+- `classification/summarize_dual.py`(새): 아래 규칙.
+- `classification/scripts/make_queue_dual.sh`, `classification/scripts/dual_driver.sh`(새): 모든 층 교체 pool의 "ALL DONE"을 기다렸다가 8칸(GPU당 2개)으로 시작한다.
+
+**점검:**
+- **기존 경로 비트 동일 (`forecast_wrap.py`):** 수정 전에 `flif-v1-gen-ett` ETTh2 H96 seed 42의 네 모델(`spk_ssa`, `mix_lif_bidir`, `mix_pop_flif_bidir`, `mixlinmx_lif`; 실제 가중치)을 GPU에서 두 번 돌려 같은 값이 나옴을 확인했다. 수정 뒤 다시 돌린 결과, 다음 네 가지가 모두 비트 단위로 같았다(4/4). 돌고 있는 ETT pool의 다음 job이 이 파일을 불러 쓰므로 필수 점검이다.
+  - 평가 모드 출력과 학습 모드 출력
+  - 초기 가중치(state_dict)
+  - 모든 파라미터의 기울기
+- **에너지 재계산:** 수정한 `energy_recount_ett.py`를 `flif-v1-ett-nall`에서 다시 돌렸다. Spikformer식 12개의 재계산 MSE·발화율·바로잡은 에너지가 기존 `energy_recount.csv`와 모두 같다(차이 0). 점검도 모두 통과했다. 파일은 원래대로 되돌렸다.
+- **c46 재통과:** 기존 9종의 예측 몸통이 각 모델의 자기 forward와 비트 단위로 같다.
+- **c50 (새, 통과):** 두 경로 10종(ETTh2 크기, 실제 시험 배치로 BN 고정)에 대해 아래를 모두 확인했다.
+  - 출력은 [B, 96, 7]이고, mode와 `neo_grad`는 의도한 값이다.
+  - 몸통이 myModel 자기 forward의 T_h 평균과 비트 단위로 같다.
+  - 단계별 head 입력이 정확히 0/1이고, 그 평균이 `features()`다.
+  - 에너지 기록기가 해마 T_h 4와 신피질 T 24를 본다(기억 없는 대조는 1스텝).
+  - 예측 손실의 기울기가 신피질과 해마에 닿고, 쓰지 않는 보조 디코더에는 기울기가 없다.
+  - 신피질 입력 토큰 10을 바꾸면, 기억 있는 신피질은 출력이 토큰 10 이후에서만 바뀌고, 기억 없는 신피질은 토큰 10에서만 바뀐다.
+- **실행 스크립트:** `run_rhythm_addneo.sh`의 조건 해석을 직접 실행해 확인했다. 새 5조건은 ALPHA 0과 의도한 인자로 해석되고, 기존 조건(`spkneo_*`, `nsmt_lif_t4`, `spk_ssa`, `spkneoall_*_nomem`)의 인자는 그대로다.
+- **요약 스크립트:** 새 run이 없는 상태에서 돌리면 새 비교는 모두 "미완"으로 나온다. CinC의 B형 비교는 10-28의 D1·D2 값을 그대로 재현한다(LIF +0.60 %p 좋음, 기억 없는 대조 대비 −0.54 %p 나쁨 등).
+- **smoke:** 25/25(20:13–20:31, 1 epoch, seed 42; `results/smoke-dual-{cinc,mitbih}-20261029/raw.txt`, `forecasting/results/smoke-dual-ett-20261029/raw.txt`). 모든 조건이 학습·시험·에너지까지 끝났다.
+  - `logargs.txt` 확인: 두 경로 run 모두 `neo_grad` 1.0, mode(`replace` / `cat`)·`neo_neuron`·`pop_soma_init`·`neo_memoryless`가 의도한 값이다.
+  - CinC·MIT-BIH는 보조 손실 `alpha` 0.0이다.
+  - ETT 기록에는 `alpha` 0.1(설정 기본값)이 남는다. 하지만 `train_forecast.py`와 모델 어디에서도 이 값을 쓰지 않는다(L1 손실만 씀; `spk_ssa` ETT 기준 run도 같음).
+  - ETT smoke 10개에 `energy_recount_ett.py`를 돌렸다. 10개 모두 재계산 MSE가 기록과 같고, head 입력이 0/1이며, head MAC이 syops 값과 같다.
+  - 1 epoch 시간(초): CinC LIF 449, f-LIF 521, population LIF 610, population f-LIF 881, 기억 없는 대조 81. MIT-BIH 49–111, ETT 50–137이다.
+
+**판정 규칙 (사전 고정, `summarize_dual.py` docstring과 같음):** 일반화 묶음과 같다. seed로 짝짓고, 빠지거나 중복되거나 유한하지 않은 값은 "미완"이다.
+- CinC·MIT-BIH: 평균 A − B ≥ +0.5 %p이고 seed 3개 중 2개 이상이면 "좋음", 거울이면 "나쁨"이다. 기준 (2)는 "좋음", 또는 평균 ≥ −0.5 %p이면서 에너지 ≤ 0.5배다.
+- ETT: seed별 r = 100 (A − B) / B이다. 칸은 평균 ≤ −1 %이고 2/3 seed면 "좋음"이다. 전체 R(4칸 평균) ≤ −1 %이고 12쌍 중 8쌍 이상이면 "좋음", 거울이면 "나쁨"이다. 기준 (2)는 "좋음", 또는 R ≤ +1 %이면서 에너지 ≤ 0.5배이고, 평균한 head는 다시 센 에너지로 본다.
+
+**비교:**
+- **R1 (주) 바꿔 넣기 − 덧붙이기:** `nsmt4_<n>` − `spkneo_<n>`(네 뉴런). 보고만으로 기억 없는 대조끼리도 비교한다.
+- **R2 Spikformer식과 (기준 (2)):** `nsmt4_<n>` − `spk_ssa`, `spkneo_<n>` − `spk_ssa`. CinC의 B형은 10-28 D1과 같다.
+- **R3 T = N 기억:** `nsmt4_lif` − `nsmt4_lif_nomem`, `spkneo_lif` − `spkneo_lif_nomem`(같은 뉴런, 주 판정). CinC의 B형은 10-28 D2와 같다. 보고만: 다른 뉴런 − 기억 없는 LIF.
+- **R4 (보고) 뉴런:** 각 모델 안에서 f-LIF·population LIF·population f-LIF − LIF.
+- **R5 (보고, MIT-BIH·ETT):** 두 모델 − Neo-mixer 모든 층(같은 뉴런).
+- **R6 (보고, CinC):** `nsmt4` @90 새 설정 − 예전 `nsmt_*_t4` @30(보조 손실 0.1, 기울기 0.5). 설정과 학습 예산이 함께 다르다.
+
+**사전 예상:**
+- R1: LIF는 차이 없음, 나머지 세 뉴런은 "나쁨"이다. 10-27 30 epoch 비교(보고만, 설정 다름)에서 덧붙이기 − 바꿔 넣기가 LIF −0.08, f-LIF +2.51, population LIF +3.57, population f-LIF +6.06이었다. MIT-BIH는 11토큰이라 자기 주의를 잃는 바꿔 넣기가 넷 모두 나쁠 것으로 본다. ETT는 차이 없음 또는 나쁨이다.
+- R2: `nsmt4`는 CinC·MIT-BIH에서 "나쁨"(예전 LIF −2.18 @30), ETT에서 차이 없음이다. 에너지가 Spikformer식과 비슷하거나 커서 기준 (2)는 미충족이다. B형은 MIT-BIH·ETT에서 차이 없음, 기준 (2) 미충족(에너지 1배 이상)이다.
+- R3: 둘 다 차이 없음 또는 나쁨이다(B형 CinC D2 −0.54 %p, 나쁨).
+- R4: f-LIF ≤ LIF이다.
+
+**실행:** NSMT/에서 tmux `flif_dual`로 `bash nsmt_flif_v1/classification/scripts/dual_driver.sh`를 띄운다. 모든 층 교체 pool이 끝나면(10-30 새벽 1시 무렵 어림) 드라이버가 `bash scripts/gpu_pool2.sh nsmt_flif_v1/classification/scripts/queues/dual-20261029.txt 0,1,2,3,0,1,2,3`을 시작한다. 순서는 CinC 15 → MIT-BIH 30 → ETT H96 → H720이다. 대기열 줄은 smoke 명령에서 `SUITE`·`EPOCHS`와 seed만 다르다. 예상 시간은 GPU 공유 상태에 따라 크게 달라진다. 지금 부하에서 B형 90 epoch run 시간의 약 2배로 어림하면 CinC 약 80, MIT-BIH 약 20, ETT 약 60 GPU시간이다. 8칸 기준으로 시작 뒤 약 20시간, 즉 10-30 밤–10-31 새벽이다.
+
+**한계:** CinC fold 하나, seed 3개다. 학습률·soma 초기값을 다시 고르지 않았다. ETT 시험 세트는 여러 번 열었다. CinC의 B형 run은 다른 날·다른 GPU 부하에서 학습됐다. 예전 [NSMT 해마만 T=4] run과는 설정과 학습 예산이 함께 다르다. MIT-BIH·CinC 해마 head는 바로잡지 않은 에너지 계산이다(10-28 확인: 무시할 만함).
+
+**commit:** 이 항목, 위 코드·스크립트, c46·c50 결과, smoke 결과를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 드라이버를 시작한다.
+
+**정정 (18:58 항목):** "남은 본 묶음은 ETT 36 run이고, 18:56부터 돌고 있다"는 틀렸다. pool 기록에서 첫 ETT run은 18:23:25에 시작했다(MIT-BIH 마지막 run과 겹쳐 돌았다).
+
+---
