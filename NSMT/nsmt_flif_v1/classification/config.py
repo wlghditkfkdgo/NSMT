@@ -136,6 +136,8 @@ def parse_arguments():
                          help='every token runs through the neocortex as its own 1-step sequence (no state crosses tokens)')
     snn_arg.add_argument('--token_shuffle', action='store_true', default=False,
                          help='MODI 2026-10-28 shuffle-retrain: random token order per sample in training, one fixed order in evaluation')
+    snn_arg.add_argument('--neuron_scope', choices=['mixer', 'all'], default='mixer',
+                         help="MODI 2026-10-29 Neo-mixer: 'all' = the mixer's neuron in every neuron layer (embedding and MLP too)")
     snn_arg.add_argument('--pop_soma_init', type=float, default=None, help='pop_flif soma mixing weight init (None = 1/K)')
     snn_arg.add_argument('--fold', type=int, default=0, help='CinC 2017: test fold 0..4 of the record-wise stratified 5-fold split')
     snn_arg.add_argument('--val_frac', type=float, default=0.1, help='share of the training part held out for validation')
@@ -260,6 +262,8 @@ class Config():
             _iso += "_nomem"
         if getattr(args, 'token_shuffle', False):                         # MODI 2026-10-28
             _iso += "_tshuf"
+        if getattr(args, 'neuron_scope', 'mixer') != 'mixer':             # MODI 2026-10-29
+            _iso += "_nall"
         if getattr(args, 'pop_soma_init', None) is not None:
             _iso += f"_psi{args.pop_soma_init:g}"
         if str(getattr(args, 'data', '')).upper() in ('CINC2017', 'SHD'):

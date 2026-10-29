@@ -7,6 +7,7 @@
 # the same for every condition. Plain L1 loss (no model here has the auxiliary decoder).
 # usage: COND=<cond> run_ett_mixer.sh <DS: ETTh1|ETTh2|ETTm1|ETTm2> <PL> <seed> <gpu>
 #   COND: spk_ssa | mix_<lif|flif|pop_lif|pop_flif>_bidir (OR fusion) | mixlinmx_<lif|flif|pop_lif|pop_flif> (charge-difference fusion)
+#         | mixall_<lif|flif|pop_lif|pop_flif>_bidir (OR fusion, the same neuron in every layer; MODI 2026-10-29)
 #   env:  SUITE EPOCHS PATIENCE (10) RES LOG PY THREADS
 set -u
 DS=${1:?}; PL=${2:?}; S=${3:?}; GPU=${4:?}
@@ -26,6 +27,10 @@ case $COND in
   mixlinmx_flif)     CF="--model neoMixer --mixer flif --mixer_bidir --neo_alpha 0.5 --mixer_comb linmx" ;;
   mixlinmx_pop_lif)  CF="--model neoMixer --mixer pop_lif --mixer_bidir --pop_soma_init 0.5 --mixer_comb linmx" ;;
   mixlinmx_pop_flif) CF="--model neoMixer --mixer pop_flif --mixer_bidir --neo_alpha 0.5 --pop_soma_init 1.0 --mixer_comb linmx" ;;
+  mixall_lif_bidir)  CF="--model neoMixer --mixer lif --mixer_bidir --neuron_scope all" ;;          # MODI 2026-10-29: the mixer's neuron
+  mixall_flif_bidir) CF="--model neoMixer --mixer flif --mixer_bidir --neo_alpha 0.5 --neuron_scope all" ;;   # in every layer
+  mixall_pop_lif_bidir)  CF="--model neoMixer --mixer pop_lif --mixer_bidir --pop_soma_init 0.5 --neuron_scope all" ;;
+  mixall_pop_flif_bidir) CF="--model neoMixer --mixer pop_flif --mixer_bidir --neo_alpha 0.5 --pop_soma_init 1.0 --neuron_scope all" ;;
   *) echo "bad cond $COND"; exit 1 ;;
 esac
 case $DS in                       # patch emb heads mlp M lr bs epochs   (run_ett.sh; keep_ratio / alpha unused: no aux decoder)

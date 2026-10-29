@@ -19,6 +19,9 @@ token-axis cross-attention (bix.TokenXAttn, q = forward stream, k/v = reverse st
 alpha 1), 'pop_rec' (population f-LIF with a gated recurrent soma current) and 'popg_lif' / 'popg_flif' (soma-less
 population: every neuron layer of the model split into tau groups 4/8/16/32 that fire themselves; BN weights calibrated
 by layers.tau_gain).
+
+MODI 2026-10-29: neuron_scope 'all' puts the mixer's spikeDE neuron (lif / flif / pop_lif / pop_flif, same options) in every
+neuron layer -- embedding and MLP too, all over the token axis (T = N); 'mixer' (default) keeps the spikingjelly LIF there.
 """
 import torch
 import torch.nn as nn
@@ -64,7 +67,8 @@ class MixerStack(nn.Module):
 
 
 class Block(nn.Module):
-    def __init__(self, dim, mixer, mixer_bidir, mixer_layers, mlp_ratio, neo_kw, T, bias=False, tau=2.0, comb='or', heads=8):
+    def __init__(self, dim, mixer, mixer_bidir, mixer_layers, mlp_ratio, neo_kw, T, bias=False, tau=2.0, comb='or', heads=8,
+                 all_neurons=False):
         super().__init__()
         self.mixer_kind, self.bidir, self.comb = mixer, bool(mixer_bidir), comb
         if comb not in COMBS:
@@ -110,9 +114,10 @@ class Block(nn.Module):
             self.fc2 = SpikLinearLayer(hidden, dim, tau=tau, lif_bias=bias, neuron=GroupNeuron(dim, taus, 'sj', axis=-1))
             with torch.no_grad():
                 self.fc1.bn.weight.copy_(group_gamma(hidden, taus)); self.fc2.bn.weight.copy_(group_gamma(dim, taus))
-        else:
-            self.fc1 = SpikLinearLayer(dim, hidden, tau=tau, lif_bias=bias)       # spikingjelly LIF over the token axis
-            self.fc2 = SpikLinearLayer(hidden, dim, tau=tau, lif_bias=bias)
+        else:                                                            # spikingjelly LIF over the token axis, or (MODI 2026-10-29,
+            nfn = (lambda n: build_neo_neuron(mixer, n, T, 'ND', **neo_kw)) if all_neurons else (lambda n: None)   # neuron_scope 'all') the mixer's neuron
+            self.fc1 = SpikLinearLayer(dim, hidden, tau=tau, lif_bias=bias, neuron=nfn(hidden))
+            self.fc2 = SpikLinearLayer(hidden, dim, tau=tau, lif_bias=bias, neuron=nfn(dim))
 
     def mix(self, x):
         if self.mixer_kind == 'none':
@@ -154,12 +159,17 @@ class NeoMixer(nn.Module):
                  mixer='pop_flif', mixer_bidir=True, mixer_layers=2, neo_tau=2.0, neo_alpha=0.5, fde_method='pred',
                  fde_step=1.0, fde_memory=0, pop_taus=(4., 8., 16., 32.), bias=False, tau=2.0, train_mode='training',
                  in_channels=1, pop_soma_init=None, pos_emb=False, mixer_comb='or', heads=8, tau_calib=True, token_shuffle=False,
-                 shuffle_seed=0, **kwargs):
+                 shuffle_seed=0, neuron_scope='mixer', **kwargs):
         super().__init__()
         if mixer not in MIXERS:
             raise ValueError(f'mixer must be one of {MIXERS}')
         if mixer == 'none' and mixer_bidir:
             raise ValueError("mixer 'none' has no direction")
+        if neuron_scope not in ('mixer', 'all'):
+            raise ValueError("neuron_scope must be 'mixer' or 'all'")
+        if neuron_scope == 'all' and (mixer not in ('lif', 'flif', 'pop_lif', 'pop_flif') or mixer_comb != 'or'):
+            raise NotImplementedError("neuron_scope 'all' is defined for the spikeDE mixers with OR fusion")
+        self.neuron_scope = neuron_scope
         self.train_mode = train_mode
         self.patch_size, self.stride = data_patch_size, data_patch_size // 2
         self.num_patches = int((seq_len - data_patch_size) / self.stride + 1) + 1
@@ -175,11 +185,13 @@ class NeoMixer(nn.Module):
         grouped = mixer.startswith('popg_')
         self.encoding = Embedding(num_patches=self.num_patches, patch_size=data_patch_size * self.in_channels, embed_dim=embed_dim, stride=self.stride,
                                   pe=False, bias=bias, tau=tau, pos_emb=pos_emb,   # spikingjelly LIF over the token axis; pos_emb (1-B)
-                                  neuron=(GroupNeuron(embed_dim, tuple(pop_taus), 'sj', axis=2) if grouped else None))   # popg: [T, B, D, N'] layout
+                                  neuron=(GroupNeuron(embed_dim, tuple(pop_taus), 'sj', axis=2) if grouped else   # popg: [T, B, D, N'] layout
+                                          build_neo_neuron(mixer, embed_dim, self.T, 'DN', **neo_kw) if neuron_scope == 'all' else None))
         if grouped:
             with torch.no_grad():
                 self.encoding.emb_bn.weight.copy_(group_gamma(embed_dim, tuple(pop_taus)))
-        self.blocks = nn.ModuleList([Block(embed_dim, mixer, mixer_bidir, mixer_layers, mlp_ratios, neo_kw, self.T, bias, tau, comb=mixer_comb, heads=heads)
+        self.blocks = nn.ModuleList([Block(embed_dim, mixer, mixer_bidir, mixer_layers, mlp_ratios, neo_kw, self.T, bias, tau, comb=mixer_comb, heads=heads,
+                                           all_neurons=(neuron_scope == 'all'))
                                      for _ in range(self.depths)])
         self.head = nn.Linear(embed_dim, num_classes, bias=bias)
         self.apply(self._init_weights)

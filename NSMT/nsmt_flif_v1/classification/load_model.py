@@ -150,6 +150,7 @@ def load_neo_mixer(args, train=True):
                      bias=args.bias, tau=args.tau, train_mode='training',
                      in_channels=getattr(args, 'num_channels', 1), pop_soma_init=getattr(args, 'pop_soma_init', None),   # stage 9
                      pos_emb=getattr(args, 'pos_emb', False),                                                          # MODI 2026-10-21
+                     neuron_scope=getattr(args, 'neuron_scope', 'mixer'),                                              # MODI 2026-10-29
                      mixer_comb=getattr(args, 'mixer_comb', 'or'), heads=args.num_heads, tau_calib=getattr(args, 'tau_calib', True),
                      token_shuffle=getattr(args, 'token_shuffle', False), shuffle_seed=int(getattr(args, 'seed', 0)))   # MODI 2026-10-28
     if not train:
