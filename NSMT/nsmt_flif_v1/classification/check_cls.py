@@ -1906,6 +1906,7 @@ for _pre, _mode in (('spkneo', 'cat'), ('nsmt4', 'replace')):
                        f'{_pre}_pop_lif': dict(_DUAL, hippo_xattn_mode=_mode, neo_neuron='pop_lif', pop_soma_init=0.5),
                        f'{_pre}_pop_flif': dict(_DUAL, hippo_xattn_mode=_mode, neo_neuron='pop_flif', pop_soma_init=1.0),
                        f'{_pre}_lif_nomem': dict(_DUAL, hippo_xattn_mode=_mode, neo_neuron='lif', neo_memoryless=True)})
+QUERY_CONDS = {f'nsmt4q_{k[len("nsmt4_"):]}': dict(v, hippo_xattn_mode='query') for k, v in DUAL_CONDS.items() if k.startswith('nsmt4_')}   # MODI 2026-10-30
 
 def _ett(ds='ETTh2', pl=96, bs=32):
     sys.path.append(os.path.join(HERE, '..', 'forecasting'))
@@ -1921,7 +1922,7 @@ def _gen_model(cond, pl=96, seed=0):
     from load_model import LOAD_MODEL
     from forecast_wrap import Forecaster
     set_random_seed(seed)
-    a = NS(**dict(ETT_GEN, **{**GEN_CONDS, **DUAL_CONDS}[cond]))
+    a = NS(**dict(ETT_GEN, **{**GEN_CONDS, **DUAL_CONDS, **QUERY_CONDS}[cond]))
     return Forecaster(LOAD_MODEL[a.model](a, True), a.embed_dim, pl, bias=False).cuda()
 
 
@@ -2266,6 +2267,12 @@ def c50():
     (step_features) is exactly 0/1 and its T_h mean is features(); the recorder sees T_h = 4 and the neocortex T = 24 (memoryless:
     1 step); the forecast loss reaches the neocortex and the hippocampus, the unused aux decoder gets no gradient; changing
     neocortex input token j changes the neocortex output only at j (memoryless) or at j and later tokens only (with memory)."""
+    ok, rows = _dual_battery(DUAL_CONDS)
+    report('c50', ok, '; '.join(rows))
+
+
+def _dual_battery(conds):
+    """the c50 checks for each dual-path forecaster in conds (MODI 2026-10-30: shared with c51)."""
     from spikingjelly.clock_driven import functional
     from energy import FiringRateRecorder
     d = _ett('ETTh2', 96)
@@ -2273,7 +2280,7 @@ def c50():
     z = ((x - x.mean(1, keepdim=True)) / torch.sqrt(torch.var(x - x.mean(1, keepdim=True), dim=1, keepdim=True, unbiased=False) + 1e-5))
     z = z.permute(0, 2, 1).reshape(-1, 1, 96)
     rows, ok = [], True
-    for cond, kw in DUAL_CONDS.items():
+    for cond, kw in conds.items():
         m = _gen_model(cond); _bn_freeze_eval(m, x); m.train_mode = 'testing'
         inn = m.inner; nomem = bool(kw.get('neo_memoryless', False))
         rec = FiringRateRecorder(m)
@@ -2306,14 +2313,79 @@ def c50():
         rows.append(f"{cond}: mode {inn.hippo_xattn_mode}, body == own forward {torch.equal(f, ref)}, step 0/1 {binary}, "
                     f"rate {float(f.mean()):.3f}, recorder T {Ts}, grad neo {g_neo:.2e} hippo {g_hip:.2e}, aux dec no grad {dec_none}, "
                     f"neocortex change at token 10 -> tokens {[t for t, c in enumerate(ch) if c][:4]}{'...' if sum(ch) > 4 else ''}")
-    report('c50', ok, '; '.join(rows))
+    return ok, rows
+
+
+@check('c51')
+def c51():
+    """(MODI 2026-10-30) Neocortex as the attention query (hippo_xattn_mode 'query', nsmt4q_*): (a) the c50 checks for the 5
+    query forecasters (ETTh2 size); (b) CinC size (117 tokens, D 384, a fresh model built from the nsmt4_lif CinC config with mode
+    'query'), forward hooks: the q_linear input is the neocortex output laid out [T_h, B, N, D] (= x_neo.transpose(0, 2) repeated
+    over T_h), the k_linear / v_linear inputs are the hippocampus tokens, no k2 / v2 parameters, the same parameter names / shapes
+    as the replace model, folder suffix _xaquery; (c) 'query' with popk streams and q_from_kv with kv_cat are refused."""
+    import glob as _glob
+    from spikingjelly.clock_driven import functional
+    from load_model import LOAD_MODEL
+    from layers import SSA_rel_scl
+    ok, rows = _dual_battery(QUERY_CONDS)
+    run = [r for r in sorted(_glob.glob(os.path.join(HERE, 'log', 'flif-v1-rhythm-dual-cinc', '**', '*+nsmt4_lif+lr0.001+seed42+*', 'seed42_*_f0'), recursive=True))
+           if os.path.exists(os.path.join(r, 'model_state', 'config.pt'))]
+    cfg = torch.load(os.path.join(run[0], 'model_state', 'config.pt'), map_location='cpu')
+    a = NS(**dict(cfg, hippo_xattn_mode='query', device='cuda'))
+    torch.manual_seed(0); mq = LOAD_MODEL[a.model](a, True).cuda().eval(); mq.train_mode = 'testing'
+    torch.manual_seed(0); mr = LOAD_MODEL[a.model](NS(**dict(cfg, device='cuda')), True)
+    same_params = [(n, tuple(p.shape)) for n, p in mq.named_parameters()] == [(n, tuple(p.shape)) for n, p in mr.named_parameters()]
+    cap = {}
+    ssa = mq.data_block[0].ssa
+    ssa.q_linear.register_forward_hook(lambda mod, i, o: cap.__setitem__('q', i[0].detach()))
+    ssa.k_linear.register_forward_hook(lambda mod, i, o: cap.__setitem__('k', i[0].detach()))
+    ssa.v_linear.register_forward_hook(lambda mod, i, o: cap.__setitem__('v', i[0].detach()))
+    orig = ssa.forward
+    def hook(x, mask=None, kv=None):
+        cap['x'], cap['kv'] = x.detach(), kv.detach()
+        return orig(x, mask=mask, kv=kv)
+    ssa.forward = hook
+    xin = torch.randn(2, 1, 3750, generator=torch.Generator().manual_seed(3)).cuda()
+    with torch.no_grad():
+        functional.reset_net(mq)
+        _, neo_in = mq._tokens_mc(xin); x_neo = mq.neo_forward(neo_in, xin.clone())[1]; functional.reset_net(mq)
+        mq(xin); functional.reset_net(mq)
+    exp_kv = x_neo.transpose(0, 2).expand(cap['kv'].shape[0], -1, -1, -1)
+    wiring = (torch.equal(cap['kv'], exp_kv) and torch.equal(cap['q'], cap['kv'].flatten(0, 1))
+              and torch.equal(cap['k'], cap['x'].flatten(0, 1)) and torch.equal(cap['v'], cap['x'].flatten(0, 1)))
+    no_k2 = not any('k2_' in n or 'v2_' in n for n, _ in mq.named_parameters())
+    refused = []
+    try:
+        SSA_rel_scl(dim=8, seq_len=4, num_heads=2, kv_cat=True, q_from_kv=True); refused.append(False)
+    except ValueError:
+        refused.append(True)
+    try:
+        LOAD_MODEL[a.model](NS(**dict(cfg, hippo_xattn_mode='query', neo_neuron='popk_lif', device='cuda')), True); refused.append(False)
+    except (ValueError, NotImplementedError, KeyError):
+        refused.append(True)
+    import tempfile
+    import config as _cfg
+    tmp = tempfile.mkdtemp(dir=os.environ.get('CHECK_TMP')); names, argv0 = {}, sys.argv
+    try:
+        for mode in ('replace', 'cat', 'query'):
+            sys.argv = ['train_rhythm.py', '--log_dir', tmp, '--seed', '42', '-s', '--data', 'CINC2017', '--patch_size', '64', '--model', 'myModel',
+                        '--neo_neuron', 'lif', '--neo_where', 'both', '--hippo_T', '4', '--hippo_xattn', '--neo_grad', '1.0', '--hippo_xattn_mode', mode]
+            a_ = _cfg.Config(); a_.set_args(_cfg.parse_arguments()); names[mode] = os.path.basename(a_.save_result_path)
+    finally:
+        sys.argv = argv0
+    sfx = '_xaquery' in names['query'] and '_xaquery' not in names['replace'] + names['cat'] and names['query'] == names['replace'].replace('_ng1', '_xaquery_ng1')
+    ok &= same_params and wiring and no_k2 and all(refused) and sfx
+    rows.append(f'CinC size: x_neo {tuple(x_neo.shape)} -> q input {tuple(cap["q"].shape)}, q from neocortex / k, v from hippocampus {wiring}, '
+                f'same parameters as replace {same_params}, no k2/v2 {no_k2}, refused (kv_cat+query, popk+query) {refused}, '
+                f'folder {names["query"]} (suffix ok {sfx})')
+    report('c51', ok, '; '.join(rows))
 
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', default=os.path.join(HERE, 'results', 'checks', 'check_cls.txt'))
     ap.add_argument('--only', nargs='*', default=None)
     a = ap.parse_args()
-    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30, c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44, c45, c46, c47, c48, c49, c50):
+    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30, c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44, c45, c46, c47, c48, c49, c50, c51):
         if a.only and fn.__name__ not in a.only:
             continue
         fn()

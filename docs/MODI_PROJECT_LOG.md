@@ -4351,3 +4351,116 @@ CinC macro-F1은 Spikformer식 60.26에 대해 B형 LIF 60.90, [NSMT T=4] LIF 55
 **commit / tag:** 이 항목, 세 suite의 `raw.txt`·`pool_runs.txt`, `forecasting/results/flif-v1-ett-dual/{energy_recount.csv, rerun_nsmt4_flif_ETTh2_96_2026.txt}`, `results/flif-v1-dual-summary[-energyfix].md`, `classification/energy_recount_ett.py`(`--missing_only`)를 commit 한다. annotated tag `exp/nsmt-flif-neo-20261030-dual`(완료된 학습 묶음)을 붙이고, `exp/nsmt-flif-neo`와 이 tag만 push 한다.
 
 ---
+
+## 2026-10-30 20:02 KST — 사전 고정 + 구현: (1) Neocortex를 attention **query**로 쓰는 dual-path 세 번째 형태(CinC 15 + ETTh2 30 run), (2) ETT-first 튜닝 1단계 **learning rate**(17 설정 × lr 4값, 새 run 306) — 기존 경로 비트 동일 11/11, 점검 c46·c50·c51 통과, smoke 14/14
+
+**직전 commit:** `3be4e8b77` (dual-path 묶음 결과, tag `exp/nsmt-flif-neo-20261030-dual`).
+
+**사용자 결정 (10-30, 계획 승인):**
+1. "query를 Neocortex로 바꿔 보는 실험 진행 → CinC와 ETT 일부 데이터셋에서 빠르게 검증."
+2. 튜닝은 "ETT에서 먼저 확인하고 긍정적인 결과가 보이면 CinC까지 확장"한다. 순서는 learning rate → Neo-mixer 방향당 layer 수 → spikeDE reset 방식 → f-LIF α이다. learning rate는 "지금 비교는 불공정함. 같은 세팅에서 learning rate가 달라졌을 때의 결과값 변화를 병기"한다.
+- 질문 답: ETT 빠른 검증 범위는 **ETTh2 × H96·H720**, learning rate 범위는 **비교 모델 전부 × neuron 4종**이다.
+- 이 항목은 1단계 query와 튜닝의 첫 단계(learning rate)를 고정한다. layer 수·reset·α는 앞 단계 결과로 값을 고른 뒤 각각 따로 사전 고정한다.
+
+### (1) Neocortex를 query로 (`nsmt4q_<n>`)
+**구조:**
+- query = T = N Neocortex 출력이다. [N, B, 1, D]를 transpose해 Hippocampus 4 step에 복사하는데, 지금의 kv와 같은 배치다.
+- key·value = Hippocampus 자기 token이다.
+- softmax가 없으므로 출력ᵢ = q_i^Neo·(K_Hipᵀ V_Hip) + Σⱼ b(i−j) v_j^Hip이다. 바꿔 넣기([NSMT 해마만 T=4])가 잃던 Hippocampus value와 위치별 섞기가 남고, Neocortex 상태가 "무엇을 읽을지"를 정한다.
+- 설정은 dual-path 묶음과 같다. 보조 손실 0, `--neo_grad 1.0`, Neocortex neuron만 교체.
+- 조건은 neuron 4종(LIF, f-LIF α 0.5, population LIF soma 0.5, population f-LIF soma 1.0)과 `nsmt4q_lif_nomem`(memoryless control)이다.
+
+**코드 (기본값에서 기존 경로 비트 동일):**
+- `classification/layers.py` `SSA_rel_scl(q_from_kv=False)`: 켜면 q는 kv에서, k·v는 자기 token에서 계산한다. 새 parameter는 없다. `kv_cat`과 함께 쓰면 거부한다.
+- `classification/model.py`: `Block(xattn_mode='query')` → `q_from_kv`. `myModel`의 `hippo_xattn_mode`는 {replace, cat, query}이고, query는 `hippo_xattn`이 필요하며 stream과 함께 쓸 수 없다.
+- `classification/config.py`: choices에 query를 추가했다. 폴더 접미사는 기존 규칙대로 `_xaquery`가 붙는다.
+- `forecast_wrap.py`는 바꾸지 않았다(kind `'dual'`이 그대로 받음).
+- `energy_recount_ett.recount()`와 `summarize_dual.recounted()`에 `nsmt4q_`를 추가했다.
+- `scripts/run_rhythm_addneo.sh`와 `forecasting/scripts/run_ett_dual.sh`에 `nsmt4q_*` 5조건을 넣었다(실행 중인 프로세스가 없음을 확인).
+- `summarize_query.py`(새, `summarize_dual.py`의 함수 재사용).
+- `scripts/make_queue_query.sh`(새).
+
+**판정 (사전 고정, `summarize_query.py` docstring):**
+- CinC fold 0, 90 epoch: ≥ +0.5 %p이고 2/3 seed면 "좋음", 거울이면 "나쁨". 기준 (2)는 "좋음", 또는 ≥ −0.5 %p이면서 energy ≤ 0.5배.
+- ETT ETTh2 2칸: seed별 r, R = 2칸 평균. R ≤ −1 %이고 seed 쌍 6개 중 4개 이상이면 "좋음". energy는 T_h 평균 head를 다시 센 값이다.
+- 비교:
+  - Q1(주) query − 바꿔 넣기(`nsmt4_<n>`)
+  - Q2 query − B형(`spkneo_<n>`)
+  - Q3 query − Spikformer식(기준 (2))
+  - Q4 T = N memory: `nsmt4q_lif` − `nsmt4q_lif_nomem`(주), 다른 neuron − memoryless(보고)
+  - Q5(보고) neuron 간 비교
+  - 비교 상대 run은 dual-path 묶음(CinC @90, ETT의 ETTh2 두 칸)과 `flif-v1-rhythm-budget-cinc`·`flif-v1-gen-ett`의 Spikformer식이다.
+
+**사전 예상:**
+- Q1은 CinC에서 "좋음"(Hippocampus value가 남으므로; 바꿔 넣기의 손해 2–5점 중 상당 부분 회복), ETT는 차이 없음.
+- Q2는 CinC에서 차이 없음 또는 나쁨(B형은 Hippocampus의 q·k·v를 모두 가짐), ETT는 차이 없음.
+- Q3는 CinC 차이 없음 또는 나쁨, ETT 차이 없음. energy가 Spikformer식 이상이라 기준 (2)는 미충족.
+- Q4는 CinC에서 "좋음"(바꿔 넣기 때처럼 Neocortex가 필수 경로), ETT는 차이 없음.
+
+### (2) 튜닝 1단계: learning rate (ETTh2 H96·H720)
+**목적:** 모든 비교가 데이터셋마다 하나의 lr(ETTh2 5e-4)로만 이루어졌다. 모델마다 맞는 lr이 다르면 비교가 불공정하다. 같은 설정에서 lr만 바꾼 결과를 모두 나란히 적는다.
+
+**설정:**
+- 17개 = Spikformer식, Neo-mixer 모든 layer(`mixall_<n>_bidir`), B형(`spkneo_<n>`), [NSMT 해마만 T=4](`nsmt4_<n>`), query(`nsmt4q_<n>`) × neuron 4종(Spikformer식은 1개).
+- lr ∈ {2.5e-4, 5e-4(기본), 1e-3, 2e-3}이고, 나머지는 기존 ETT 설정과 같다(layer 수 기본, reset spikede, α 0.5).
+- 5e-4는 기존 run을 다시 쓴다. query는 위 (1)의 ETT run이다.
+- 새 run은 3 × 17 × 2칸 × seed 3 = **306**개, suite `flif-v1-ett-tune`이다.
+
+**코드:**
+- `forecasting/scripts/run_ett_tune.sh`(새, `run_ett_dual.sh` 복사): 17 설정과 env `LR`·`LAYERS`(`--time_layers`)·`RESET`·`ALPHA`를 받는다.
+  - 값을 주지 않으면 데이터셋 기본값이다. 범위는 ETTh2·ETTm2만 받는다.
+  - 설정마다 tag = `${COND}_lr<LR>_L<LAYERS>_r<RESET>_a<ALPHA>`(α는 f-LIF 계열만, 나머지는 `-`)로 run 폴더와 RESULT를 나눈다.
+  - RESULT에는 `tag=`·`lr=`·`layers=`·`reset=`·`alpha=`를 적는다.
+  - `RESET`이 spikede가 아니면 `--neo_reset`을 붙이는데, 이 인자는 reset 단계에서 구현한다.
+- `classification/summarize_tune.py --stage lr`(새):
+  - 표: 설정 × lr에 validation L1과 test MSE(칸별, seed 평균)를 모두 적는다.
+  - 선택: 모델마다 validation L1의 "칸별 기본값 대비 비율" 평균이 가장 낮은 lr을 고른다. 모든 값에 3 seed × 2칸이 있어야 하고, 없으면 미완이다.
+  - 판정 1: 고른 lr − 기본 lr(test, 2칸 규칙).
+  - 판정 2: 각 설정 − Spikformer식(기준 (2)), R1(바꿔 넣기 − 덧붙이기), Q1, Q2를 **기본 lr끼리**와 **각자 고른 lr끼리** 적고, 판정이 바뀌면 표시한다.
+  - 결과는 `forecasting/results/flif-v1-ett-tune/selected_lr[_energyfix].json`이다.
+  - 빈 suite에서 돌렸을 때 기본 lr 열이 기존 ETTh2 값(예: Spikformer식 0.2903 / 0.4223, B형 LIF 0.2903 / 0.4167)을 그대로 재현하고, 나머지는 미완임을 확인했다.
+- `energy_recount_ett.py`: tuning suite처럼 한 조건이 여러 설정을 가지면 `tag`를 행 구분에 쓴다(`--missing_only` 포함).
+- `scripts/make_queue_tune.sh smoke|lr`(새).
+
+**"긍정" 규칙 (CinC 확장 조건, 사전 고정):** 아래 중 하나면 이 단계를 CinC로 넓힌다. 그때는 긍정인 설정만 기본 lr 대 고른 lr로 돌린다(fold 0, 90 epoch, seed 3, 선택은 validation). 비용은 그때 사전 고정한다.
+- 어느 설정이든 판정 1이 "좋음"이다.
+- 판정 2가 하나라도 바뀐다.
+
+**사전 예상:**
+- 5e-4는 논문 설정이라 Spikformer식에는 거의 최적일 것이다.
+- spikeDE neuron을 쓰는 모델(Neo-mixer 모든 layer, Neocortex) 일부는 다른 lr을 고를 것이다.
+- ETT 효과가 작아(지금까지 ±2 % 안) 판정 1 "좋음"은 17개 중 0–2개일 것이다.
+- 판정 2는 대부분 그대로일 것이다. 긍정 여부는 불확실하다.
+
+### 점검
+- **기존 경로 비트 동일:** 수정 전에 실제 checkpoint 11개로 저장했다. ETT forecaster 8개(Spikformer식, Neo-mixer 4종, B형 2종, [NSMT T=4])와 CinC 분류 모델 3개(Spikformer식, B형, [NSMT T=4])다. 저장 전에 GPU에서 두 번 돌려 같은 값이 나옴을 확인했다. 수정 뒤 다시 돌린 결과, 다음이 모두 비트 단위로 같았다(11/11).
+  - 평가 출력, 학습 모드 출력
+  - 모든 parameter 기울기
+  - seed 고정 초기값
+- **c46·c50 재통과.** c50은 검사 묶음을 함수(`_dual_battery`)로 떼어 냈는데, 출력 값이 이전과 같다.
+- **c51 (새, 통과):**
+  - query 형태 5종이 c50 검사를 모두 통과한다. 출력 모양, 몸통 == 자기 forward, head 입력 0/1, 기록기 T_h 4·Neocortex T 24(memoryless 1), 기울기가 Neocortex·Hippocampus 양쪽에 닿음, 보조 decoder 기울기 없음, memoryless token 국소성.
+  - CinC 크기(117 token, D 384)에서 hook으로 확인했다. q_linear 입력 == Neocortex 출력을 transpose해 4 step에 복사한 것이고, k_linear·v_linear 입력 == Hippocampus token이다.
+  - parameter 이름·모양은 바꿔 넣기 모델과 같고, k2·v2는 없다.
+  - kv_cat + query와 stream + query는 거부된다. 폴더는 `…_xaT4_xaquery_ng1_f0`이다.
+- **실행 스크립트 조건 해석:** 새 5조건은 ALPHA 0과 의도한 인자로 해석되고, 기존 조건의 인자는 그대로다.
+- **smoke:** 14/14(19:39–19:59, 1 epoch, seed 42; `classification/results/smoke-query-cinc-20261030/raw.txt`, `forecasting/results/smoke-{query,tune}-ett-20261030/raw.txt`). 모두 학습·시험·energy까지 끝났다.
+  - `logargs.txt` 확인: CinC query 5개는 `alpha=0.0`, `hippo_xattn_mode=query`, `neo_grad=1.0`, neuron·soma 값이 의도대로이고, memoryless만 `neo_memoryless=True`다. ETT query 5개도 mode·neo_grad가 같다(ETT의 `alpha` 0.1은 쓰이지 않는 기본값).
+  - 튜닝 smoke 4개는 lr 0.001(Spikformer식)·0.002(B형 f-LIF, H720)·기본(query population LIF)·0.00025(Neo-mixer 모든 layer population f-LIF)가 의도대로 들어갔고, tag가 붙었다.
+  - **튜닝 스크립트의 기본값 재현:** 기본값으로 돌린 `nsmt4q_pop_lif` ETTh2 H96 seed 42의 1 epoch test MSE(0.286513)가 `run_ett_dual.sh` smoke와 같다.
+  - ETT smoke 두 묶음에 `energy_recount_ett.py`를 돌려 점검을 모두 통과했다(tuning suite는 `tag` 열 포함).
+  - 1 epoch 시간(초): CinC query LIF 499, f-LIF 952, population LIF 947, population f-LIF 841, memoryless 86. ETT 54–223.
+
+### 실행
+- NSMT/에서 tmux `flif_qtune`으로 `bash nsmt_flif_v1/classification/scripts/query_tune_driver.sh`를 띄운다.
+  - pool A(GPU 0–3, 4칸): CinC query 15 run.
+  - pool B(4칸): ETT query 30 run → learning rate 306 run.
+  - 다른 대화의 작업과 GPU를 나눠 쓴다.
+- 대기열 줄은 smoke 명령에서 `SUITE`·`EPOCHS`·seed·`LR`만 다르다.
+- 끝나는 시각은 어림하지 않는다(10-29에 두 번 틀림). run 수와 smoke의 1 epoch 시간만 적는다.
+
+**한계:** CinC fold 하나, seed 3이다. ETT 빠른 검증은 ETTh2 두 칸뿐이다. ETT test set은 여러 번 열었다(그래서 선택은 validation만 쓴다). learning rate 단계는 다른 설정(layer 수·reset·α)을 기본값으로 둔 채 고르므로, 서로의 영향은 다음 단계에서 앞 단계 선택값 위에서만 본다.
+
+**commit:** 이 항목과 위 코드·스크립트·점검 결과·smoke 결과를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 드라이버를 시작한다.
+
+---

@@ -42,7 +42,7 @@ UNIT = {'': 1., 'K': 1e3, 'M': 1e6, 'G': 1e9}
 
 def recount(cond):
     """conditions whose forecast head reads the T_h-averaged hippocampus spikes (Spikformer-style and dual-path forecasters)."""
-    return cond == 'spk_ssa' or cond.startswith(('spkall_', 'spkneo_', 'nsmt4_'))
+    return cond == 'spk_ssa' or cond.startswith(('spkall_', 'spkneo_', 'nsmt4_', 'nsmt4q_'))   # MODI 2026-10-30: + nsmt4q_
 
 
 def head_line(run):
@@ -96,12 +96,14 @@ def main():
     out, bad = [], []
     if a.missing_only:                                                 # MODI 2026-10-30: e.g. one rerun after the full recount
         out = list(csv.DictReader(open(os.path.join(res, 'energy_recount.csv'))))
-        have = {(o['ds'], int(o['pl']), o['cond'], int(o['seed'])) for o in out}
-        rows = [r for r in rows if (r['ds'], int(r['pl']), r['cond'], int(r['seed'])) not in have]
+        have = {(o['ds'], int(o['pl']), o['cond'], o.get('tag', ''), int(o['seed'])) for o in out}
+        rows = [r for r in rows if (r['ds'], int(r['pl']), r['cond'], r.get('tag', ''), int(r['seed'])) not in have]
         print(f'{len(out)} rows kept, {len(rows)} to process')
     for r in rows:
         run = r['dir']; ac_p, mac_p = head_line(run)
         rec = dict(ds=r['ds'], pl=int(r['pl']), cond=r['cond'], seed=int(r['seed']), mse_logged=r['mse'], total_fft_uJ=r['total_fft_uJ'])
+        if 'tag' in r:                                                 # MODI 2026-10-30: tuning suite (one cond, several settings)
+            rec = dict(ds=rec.pop('ds'), pl=rec.pop('pl'), cond=rec.pop('cond'), tag=r['tag'], **rec)
         if not recount(r['cond']):                                     # MODI 2026-10-29: + spkall_*, dual-path spkneo_* / nsmt4_*
             if mac_p != 0:
                 bad.append(f'{run}: Neo-mixer head has MAC {mac_p}')

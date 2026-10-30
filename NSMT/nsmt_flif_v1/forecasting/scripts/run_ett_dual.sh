@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # run_ett_dual.sh (MODI 2026-10-29, dual-path batch): copy of run_ett_mixer.sh with only the dual-path conditions -- B form
-#   spkneo_<lif|flif|pop_lif|pop_flif> (+ spkneo_lif_nomem) and [NSMT hippocampus T=4] nsmt4_<...> (+ nsmt4_lif_nomem), the same
+#   spkneo_<lif|flif|pop_lif|pop_flif> (+ spkneo_lif_nomem) and [NSMT hippocampus T=4] nsmt4_<...> (+ nsmt4_lif_nomem), MODI 2026-10-30 + nsmt4q_<...> (neocortex query), the same
 #   flags as classification/scripts/run_rhythm_addneo.sh (forecast_wrap.Forecaster kind 'dual'); everything else unchanged.
 # MODI 2026-10-27 (generalization batch): one ETT forecasting run of a CinC model of nsmt_flif_v1/classification
 # (Spikformer-style SSA or the Neo-mixer), trained by classification/train_forecast.py (classification/forecast_wrap.py:
@@ -32,6 +32,11 @@ case $COND in                     # MODI 2026-10-29: dual-path models, B-form se
   nsmt4_pop_lif)     CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --neo_grad 1.0" ;;
   nsmt4_pop_flif)    CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --neo_grad 1.0" ;;
   nsmt4_lif_nomem)   CF="--model myModel --neo_neuron lif --neo_where both --hippo_T 4 --hippo_xattn --neo_grad 1.0 --neo_memoryless" ;;
+  nsmt4q_lif)        CF="--model myModel --neo_neuron lif --neo_where both --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0" ;;   # MODI 2026-10-30
+  nsmt4q_flif)       CF="--model myModel --neo_neuron flif --neo_where both --neo_alpha 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0" ;;
+  nsmt4q_pop_lif)    CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0" ;;
+  nsmt4q_pop_flif)   CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0" ;;
+  nsmt4q_lif_nomem)  CF="--model myModel --neo_neuron lif --neo_where both --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_memoryless" ;;
   *) echo "bad cond $COND"; exit 1 ;;
 esac
 case $DS in                       # patch emb heads mlp M lr bs epochs   (run_ett.sh; keep_ratio / alpha unused: no aux decoder)

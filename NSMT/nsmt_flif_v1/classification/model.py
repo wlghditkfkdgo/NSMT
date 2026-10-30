@@ -247,7 +247,8 @@ class Block(nn.Module):
         if self.use_ssa or self.use_xattn:
             self.ssa = SSA_rel_scl(dim=dim, seq_len=seq_len, num_heads=num_heads, pe=bool(ssa_pe), lif_bias=lif_bias, tau=tau, drop=attn_drop,
                                    attn_bn=bool(attn_bn),              # MODI 2026-10-21: BN before the attention neuron (spk_ssa_abn)
-                                   kv_cat=(self.use_xattn and xattn_mode == 'cat'))   # MODI 2026-10-26 (B): own + neocortex keys / values
+                                   kv_cat=(self.use_xattn and xattn_mode == 'cat'),   # MODI 2026-10-26 (B): own + neocortex keys / values
+                                   q_from_kv=(self.use_xattn and xattn_mode == 'query'))   # MODI 2026-10-30: queries from the neocortex
         else:
             self.mca = MutualCrossAttention(dim=dim, out_seq=False, lif_bias=lif_bias, num_heads=num_heads, tau=tau, drop=drop)
         mlp_hidden_dim = int(dim * mlp_ratios)
@@ -518,8 +519,8 @@ class myModel(nn.Module):
         self.hippo_xattn_mode = str(kwargs.get('hippo_xattn_mode', 'replace'))
         self.neo_grad = float(kwargs.get('neo_grad', 0.5))
         self.neo_memoryless = bool(kwargs.get('neo_memoryless', False))
-        if self.hippo_xattn_mode not in ('replace', 'cat') or (self.hippo_xattn_mode == 'cat' and not self.hippo_xattn):
-            raise ValueError("hippo_xattn_mode in {replace, cat}; cat needs hippo_xattn")
+        if self.hippo_xattn_mode not in ('replace', 'cat', 'query') or (self.hippo_xattn_mode in ('cat', 'query') and not self.hippo_xattn):
+            raise ValueError("hippo_xattn_mode in {replace, cat, query}; cat / query need hippo_xattn")   # MODI 2026-10-30: + query
         if not 0. <= self.neo_grad <= 1.:
             raise ValueError('neo_grad must be in [0, 1]')
 
@@ -557,9 +558,9 @@ class myModel(nn.Module):
             raise ValueError('popk neocortex streams need hippo_xattn, neo_where both and hippo_T = number of streams')
         if self.neo_bidir and (self.no_neo or self.hippo_only):
             raise ValueError('neo_bidir needs the neocortex path')
-        if (self.hippo_xattn_mode == 'cat' and self.neo_streams) or (self.neo_memoryless and (self.neo_bidir or self.neo_streams or self.no_neo
+        if (self.hippo_xattn_mode in ('cat', 'query') and self.neo_streams) or (self.neo_memoryless and (self.neo_bidir or self.neo_streams or self.no_neo
                                                                                              or self.hippo_only or self.hippo_ssa)):
-            raise ValueError('hippo_xattn_mode cat: not with popk streams; neo_memoryless: unidirectional single-stream neocortex only')
+            raise ValueError('hippo_xattn_mode cat / query: not with popk streams; neo_memoryless: unidirectional single-stream neocortex only')
         if neo_neuron != 'sj_lif' and (self.no_neo or self.hippo_only):
             raise ValueError('no_neo / hippo_only have no neocortex path; do not combine them with --neo_neuron')
         if self.no_neo and self.hippo_only:

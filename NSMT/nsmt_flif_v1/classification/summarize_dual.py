@@ -47,7 +47,7 @@ def fin(x):
 
 
 def recounted(cond):                                    # = energy_recount_ett.recount (T_h-averaged forecast heads)
-    return cond == 'spk_ssa' or cond.startswith(('spkall_', 'spkneo_', 'nsmt4_'))
+    return cond == 'spk_ssa' or cond.startswith(('spkall_', 'spkneo_', 'nsmt4_', 'nsmt4q_'))   # MODI 2026-10-30: + nsmt4q_
 
 
 def questions(task):

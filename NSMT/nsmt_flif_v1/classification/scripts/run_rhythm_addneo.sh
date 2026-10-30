@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Stage 9 (MODI_PROJECT_LOG 2026-10-19): one run on CinC 2017 or SHD with the protocols adopted in stage 8.
+# MODI 2026-10-30: + nsmt4q_<...> (+ nsmt4q_lif_nomem) = the same model with the neocortex as the attention QUERY and the hippocampus
+# keys / values (--hippo_xattn_mode query), B-form settings.
 # MODI 2026-10-29: + nsmt4_{lif,flif,pop_lif,pop_flif} and nsmt4_lif_nomem = [NSMT hippocampus T=4] (keys / values replaced by
 # the T = N neocortex tokens, --hippo_xattn mode replace) with the B-form settings (aux loss off, --neo_grad 1.0).
 # run_rhythm_addneo.sh (MODI 2026-10-26, B): copy of run_rhythm6.sh + spkneo_{lif,flif,pop_lif,pop_flif} (Spikformer-style
@@ -128,6 +130,11 @@ case $BASE in
   nsmt4_pop_lif)   ALPHA=0; CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --neo_grad 1.0" ;;   # T=4] (replace)
   nsmt4_pop_flif)  ALPHA=0; CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --neo_grad 1.0" ;;   # with the
   nsmt4_lif_nomem) ALPHA=0; CF="--model myModel --neo_neuron lif --neo_where both --hippo_T 4 --hippo_xattn --neo_grad 1.0 --neo_memoryless" ;;   # B-form settings
+  nsmt4q_lif)       ALPHA=0; CF="--model myModel --neo_neuron lif --neo_where both --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0" ;;   # MODI 2026-10-30:
+  nsmt4q_flif)      ALPHA=0; CF="--model myModel --neo_neuron flif --neo_where both --neo_alpha 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0" ;;   # neocortex
+  nsmt4q_pop_lif)   ALPHA=0; CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0" ;;   # as the
+  nsmt4q_pop_flif)  ALPHA=0; CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0" ;;   # query
+  nsmt4q_lif_nomem) ALPHA=0; CF="--model myModel --neo_neuron lif --neo_where both --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_memoryless" ;;
   *) echo "bad cond $COND"; exit 1 ;;
 esac
 case $DATA in
