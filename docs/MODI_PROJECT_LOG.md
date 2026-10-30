@@ -4271,3 +4271,83 @@ Spikformer식은 92.22 %, 9.55 µJ다.
 **commit / tag:** 이 항목, `forecasting/results/flif-v1-ett-nall/{raw.txt, energy_recount.csv, pool_runs.txt}`, `results/flif-v1-nall-summary[-energyfix].md`, `results/flif-v1-rhythm-nall-cinc/raw.txt`(10-29 17:15에 멈춘 B형 8개의 SKIP 기록), `results/flif-v1-ppg/{raw.txt, pool_runs.txt}`를 commit 한다. annotated tag `exp/nsmt-flif-neo-20261030-nall2`(모든 층 교체 묶음 완료)를 붙이고, `exp/nsmt-flif-neo`와 이 tag만 push 한다. 이 항목의 commit은 이 tag로 가리킨다.
 
 ---
+
+## 2026-10-30 19:31 KST — dual-path 묶음 결과 (165 run): [NSMT 해마만 T=4] vs B형 — **CinC에서 key·value 바꿔 넣기는 덧붙이기보다 neuron 4종 모두 나쁨(−1.87 ~ −4.65 %p); MIT-BIH는 population 둘만 나쁨, ETT는 차이 없음. [NSMT T=4] 안에서는 T = N memory가 memoryless control보다 CinC +3.85 %p 좋음(B형은 −0.54 나쁨). B형은 세 과제 모두 Spikformer식과 대등하지만 energy 1.24–1.71배**
+
+**직전 commit:** `6b90bd1b1` (모든 층 교체 묶음 결과 3/3, tag `exp/nsmt-flif-neo-20261030-nall2`). 사전 고정은 10-29 20:34 항목(`26555ae5b`)이다.
+
+**기록이 늦었다 (제 잘못):** pool은 10-30 11:11:36에 끝났는데 이 항목은 19:31에 쓴다(약 8시간). 위 항목과 같은 원인으로, 감시 작업이 세션과 함께 멈췄다.
+
+### 실행
+- `dual_driver.sh`가 모든 층 교체 pool의 "ALL DONE"(10-29 23:21:07)을 보고 23:21:30에 본 pool(8칸)을 시작했다. 165 job이 10-30 11:11:36에 끝났다.
+- CinC 15/15, MIT-BIH 30/30, ETT 119/120 RESULT이고, 모두 sha `26555ae5b`다.
+- run 시간: CinC 1,368–18,609 s(memoryless 약 0.4 h, LIF 2.2–2.9 h, f-LIF·population 4.7–5.2 h), MIT-BIH 393–1,329 s, ETT 201–4,455 s.
+- **ETT 실패 1개와 재실행:** `nsmt4_flif` ETTh2 H96 seed 2026이다.
+  - 학습·시험은 끝났다(stdout 마지막: `[best] test mse=0.283919 … done in 464s`).
+  - 그런데 프로세스 종료 순간 `corrupted size vs. prev_size while consolidating`(glibc heap 오류, rc 134)으로 죽어 runner가 SKIP을 썼다.
+  - 10-30 15:09–15:17에 같은 명령으로 다시 돌렸다(`log/dual-rerun-nsmt4_flif-ETTh2-96-2026.log`, `forecasting/results/flif-v1-ett-dual/rerun_nsmt4_flif_ETTh2_96_2026.txt`).
+  - 재실행의 test MSE 0.283919, validation 경로(최고 0.31225 @ epoch 2, epoch 12에서 조기 종료)는 원래 run과 같다.
+  - 재실행이 원래 run과 같은 이름의 stdout을 덮어써서, 원래 오류 메시지는 이 기록과 위 인용으로만 남는다.
+  - `raw.txt`에는 SKIP 1줄과 RESULT 1줄이 함께 있다. 요약은 RESULT만 읽는다.
+- **energy:** `energy_recount_ett.py --suite flif-v1-ett-dual`(119 run)을 돌린 뒤, 재실행 1개는 새 옵션 `--missing_only`(이미 있는 행은 두고 빠진 RESULT만 계산)로 더했다. 120 run 모두 점검을 통과했다(재계산 MSE = 기록, head 입력 0/1, head MAC = syops).
+- **요약:** `summarize_dual.py [--energy_fix]` → `results/flif-v1-dual-summary[-energyfix].md`. pool 기록은 세 suite 폴더의 `pool_runs.txt`(같은 파일)다. pool 기록의 rc는 `gpu_pool2.sh` 결함으로 항상 0이다(위 항목).
+
+### 결과 (A − B, seed 42 / 7 / 2026; CinC·MIT-BIH는 %p, ETT는 R %; ✓ 좋음, ✗ 나쁨)
+
+**평균값 (괄호: Spikformer식 대비):**
+
+| 모델 | CinC score (Spikformer식 @90 64.89) | MIT-BIH macro-F1 (92.22) | ETT 4칸 MSE (0.3234) |
+|---|---|---|---|
+| B형 LIF / f-LIF / pop LIF / pop f-LIF | 65.49 / 64.25 / 65.38 / 65.28 | 91.98 / 91.95 / 92.20 / 92.06 | 0.3226 / 0.3221 / 0.3231 / 0.3229 |
+| B형 memoryless LIF | 66.04 | 92.15 | 0.3229 |
+| [NSMT T=4] LIF / f-LIF / pop LIF / pop f-LIF | 62.97 / 60.26 / 63.51 / 60.63 | 91.97 / 91.57 / 91.56 / 91.47 | 0.3229 / 0.3223 / 0.3194 / 0.3220 |
+| [NSMT T=4] memoryless LIF | 59.12 | 92.04 | 0.3214 |
+
+**사전 고정 비교:**
+
+| 비교 | CinC | MIT-BIH | ETT 4칸 |
+|---|---|---|---|
+| **R1 바꿔 넣기 − 덧붙이기**, LIF | −2.52 ✗ (−3.12 / −2.39 / −2.07) | −0.00 | −0.00 |
+| R1, f-LIF | −3.99 ✗ | −0.39 | +0.15 |
+| R1, population LIF | −1.87 ✗ | −0.64 ✗ | −0.99 (9/12) |
+| R1, population f-LIF | −4.65 ✗ | −0.58 ✗ | −0.17 |
+| R1 (보고) memoryless끼리 | −6.92 ✗ | −0.12 | −0.52 |
+| **R2 [NSMT T=4] − Spikformer식** (LIF / f-LIF / pop LIF / pop f-LIF) | −1.93 / −4.64 / −1.39 / −4.26, 넷 다 ✗ | −0.25 / −0.66 ✗ / −0.66 ✗ / −0.75 ✗ | −0.09 / −0.23 / **−1.06 ✓** / −0.34 |
+| R2 [NSMT T=4] energy / 기준 (2) | 1.10–1.28배, 미충족 | 1.01–1.15배, 미충족 | 1.08–1.48배; pop LIF는 "좋음"이라 충족 |
+| **R2 B형 − Spikformer식** | +0.60 ✓ / −0.64 / +0.48 / +0.39 (10-28 D1과 같음) | −0.25 / −0.27 / −0.02 / −0.16, 넷 다 차이 없음 | −0.08 / −0.37 / −0.06 / −0.18, 넷 다 차이 없음 |
+| R2 B형 energy / 기준 (2) | 1.31–1.50배; LIF만 "좋음"이라 충족 | 1.28–1.41배, 미충족 | 1.30–1.71배, 미충족 |
+| **R3 T = N memory − memoryless, [NSMT T=4] LIF** | **+3.85 ✓** (+3.99 / +3.29 / +4.28) | −0.07 | +0.56 |
+| R3, B형 LIF | −0.54 ✗ (10-28 D2와 같음) | −0.18 | +0.04 |
+| R3 (보고) 다른 neuron − memoryless LIF | [NSMT T=4] +1.14 / +4.39 / +1.51 모두 ✓; B형 −1.79 / −0.66 / −0.75 모두 ✗ | 차이 없음 | 차이 없음 |
+| R4 (보고) f-LIF − LIF | B형 −1.24 ✗, [NSMT T=4] −2.71 ✗ | −0.02, −0.41 | −0.28, −0.13 |
+| R5 (보고) − Neo-mixer 모든 layer | – | B형 넷 다 ✓(+0.83 ~ +3.37), [NSMT T=4] LIF·pop 둘 ✓ | B형 pop LIF ✓, [NSMT T=4] LIF·pop LIF ✓ |
+| R6 (보고) [NSMT T=4] 새 설정 @90 − 예전 @30 | LIF −0.45, pop f-LIF +1.97 ✓ | – | – |
+
+CinC macro-F1은 Spikformer식 60.26에 대해 B형 LIF 60.90, [NSMT T=4] LIF 55.24다. [NSMT T=4] 쪽은 score보다 macro-F1에서 차이가 더 크다.
+
+**사전 예상과 비교 (10-29 20:34):**
+- R1: "LIF 차이 없음, 나머지 나쁨"은 CinC LIF에서 **틀렸다**(LIF도 −2.52 나쁨). "MIT-BIH 넷 다 나쁨"은 **틀렸다**(population 둘만 나쁨). "ETT 차이 없음 또는 나쁨"은 맞았다(차이 없음).
+- R2: [NSMT T=4] "CinC·MIT-BIH 나쁨"은 CinC 맞음, MIT-BIH는 LIF만 차이 없음. "ETT 차이 없음"은 population LIF에서 **틀렸다**(좋음). B형 "MIT-BIH·ETT 차이 없음, 기준 (2) 미충족"은 맞았다.
+- R3: "둘 다 차이 없음 또는 나쁨"은 [NSMT T=4] CinC에서 **틀렸다**(+3.85 좋음).
+- R4: "f-LIF ≤ LIF"는 맞았다.
+
+### 읽는 법 (탐색, seed 3, CinC fold 0)
+- **덧붙이기가 바꿔 넣기보다 같거나 낫다.** 손해는 token이 많을수록 크다. CinC(117 token) −1.9 ~ −4.7, MIT-BIH(11 token) 0 ~ −0.6, ETT(24 token) 차이 없음이다. 가설: Hippocampus token끼리 비교하는 길을 잃는 것이 긴 sequence에서 크게 작용한다(검증 안 함).
+- **T = N memory는 key·value를 Neocortex에 맡길 때만 CinC에서 쓸모가 있다.** [NSMT T=4]에서는 neuron 4종 모두 memory가 있는 쪽이 높고, B형에서는 모두 낮다.
+  - memory가 있으면 Neocortex 발화율이 [NSMT T=4] 0.030 → 0.038, B형 0.026 → 0.036으로 비슷하게 늘지만 결과 방향은 반대다. 그래서 발화량만으로는 설명되지 않는다.
+  - memory가 도움 된 모델 자체가 B형·Spikformer식보다 낮으므로, 장기 기억이 성능의 원인이라는 근거는 아니다. 10-29 순서 섞기 결과(CinC는 token 순서에 보상하지 않음)와 함께 보면, memory가 나르는 것이 "순서"보다 "여러 token의 요약"일 가능성이 있다(시험 안 함).
+- **B형은 세 과제 모두 Spikformer식과 대등하지만 energy가 1.24–1.71배다.** CinC LIF의 "좋음"(+0.60)은 90 epoch Spikformer식과 비교했을 때이고, 30 epoch Spikformer식(65.60)과 비교하면 −0.11로 차이가 없다.
+- **f-LIF는 CinC에서 두 모델 모두 LIF보다 나쁘고, 나머지는 차이 없다.**
+
+**한계:**
+- CinC fold 하나, seed 3이다.
+- CinC B형 run은 10-27 학습분이다(다른 날, 다른 부하).
+- learning rate·layer 수·α를 바꾸지 않았다(10-30 사용자 결정으로 튜닝 예정).
+- ETT test set은 여러 번 열었다.
+- MIT-BIH·CinC의 Hippocampus head energy는 기존 방식이다(무시할 만함, 10-28 확인).
+
+**다음 (사용자 10-30 결정, 계획 승인됨):** (1) Neocortex를 attention query로 쓰는 세 번째 형태(CinC + ETTh2 H96·H720), (2) ETTh2 두 칸에서 learning rate → Neo-mixer 방향당 layer 수 → spikeDE reset 방식 → f-LIF α 순서로 튜닝하고, 긍정이면 CinC로 확장한다.
+
+**commit / tag:** 이 항목, 세 suite의 `raw.txt`·`pool_runs.txt`, `forecasting/results/flif-v1-ett-dual/{energy_recount.csv, rerun_nsmt4_flif_ETTh2_96_2026.txt}`, `results/flif-v1-dual-summary[-energyfix].md`, `classification/energy_recount_ett.py`(`--missing_only`)를 commit 한다. annotated tag `exp/nsmt-flif-neo-20261030-dual`(완료된 학습 묶음)을 붙이고, `exp/nsmt-flif-neo`와 이 tag만 push 한다.
+
+---

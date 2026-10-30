@@ -15,6 +15,7 @@ MAC_head = N*D*H*C matches the syops per-layer line, and every Neo-mixer head li
 MODI 2026-10-29: the dual-path forecasters (B form spkneo_*, [NSMT hippocampus T=4] nsmt4_*) have the same averaged head and are
 recounted the same way (per-step head input from Forecaster.step_features, which also runs the neocortex).
 usage: python energy_recount_ett.py --suite flif-v1-gen-ett   ->  forecasting/results/<suite>/energy_recount.csv
+       --missing_only: keep the rows already in energy_recount.csv and process only RESULT rows that are not there (e.g. a rerun)
 """
 import argparse
 import csv
@@ -88,10 +89,16 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--suite', default='flif-v1-gen-ett')
     ap.add_argument('--device', default='cuda')
+    ap.add_argument('--missing_only', action='store_true')
     a = ap.parse_args()
     res = os.path.join(HERE, '..', 'forecasting', 'results', a.suite)
     rows = parse(os.path.join(res, 'raw.txt'))
     out, bad = [], []
+    if a.missing_only:                                                 # MODI 2026-10-30: e.g. one rerun after the full recount
+        out = list(csv.DictReader(open(os.path.join(res, 'energy_recount.csv'))))
+        have = {(o['ds'], int(o['pl']), o['cond'], int(o['seed'])) for o in out}
+        rows = [r for r in rows if (r['ds'], int(r['pl']), r['cond'], int(r['seed'])) not in have]
+        print(f'{len(out)} rows kept, {len(rows)} to process')
     for r in rows:
         run = r['dir']; ac_p, mac_p = head_line(run)
         rec = dict(ds=r['ds'], pl=int(r['pl']), cond=r['cond'], seed=int(r['seed']), mse_logged=r['mse'], total_fft_uJ=r['total_fft_uJ'])
