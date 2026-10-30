@@ -4464,3 +4464,46 @@ CinC macro-F1은 Spikformer식 60.26에 대해 B형 LIF 60.90, [NSMT T=4] LIF 55
 **commit:** 이 항목과 위 코드·스크립트·점검 결과·smoke 결과를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 드라이버를 시작한다.
 
 ---
+
+## 2026-10-30 21:26 KST — query 묶음 중간 결과: ETT ETTh2 H96·H720 30/30 run — **ETT에서는 query 형태가 바꿔 넣기([NSMT 해마만 T=4])와 neuron 4종 모두 차이 없음(Q1 −0.83 ~ +0.45 %). T = N memory도 차이 없음(Q4 +0.63 %). 문턱 근처 "좋음" 두 개: B형 대비 population LIF −1.13 %, Spikformer식 대비 population f-LIF −1.26 %(energy 1.43배, "좋음"이라 기준 (2) 충족)**. 주 질문인 CinC는 진행 중
+
+**직전 commit:** `899651dc0` (query 묶음·learning rate 단계 사전 고정, 20:02).
+
+**실행:**
+- pool B(4칸)에서 ETT 30 run(`nsmt4q_<lif|flif|pop_lif|pop_flif>`, `nsmt4q_lif_nomem` × ETTh2 H96·H720 × seed 42 / 7 / 2026)이 20:02:58–21:17:03에 돌았다.
+- 30/30 RESULT, SKIP 0, sha `899651dc0`, run 시간 159–874 s다. pool 기록은 `forecasting/results/flif-v1-ett-query/pool_runs.txt`다(rc는 `gpu_pool2.sh` 결함으로 항상 0).
+- energy: `energy_recount_ett.py --suite flif-v1-ett-query`로 30개 모두 다시 셌고, 점검을 모두 통과했다.
+- 요약: `summarize_query.py [--energy_fix]` → `results/flif-v1-query-summary[-energyfix].md`. CinC 칸은 아직 "미완"이다.
+- 이어서 같은 pool이 21:17부터 learning rate 단계(306 run)를 돌린다. CinC query 15 run은 pool A에서 20:02부터 돌고 있다.
+
+**결과** (ETTh2 2칸; test MSE; seed별 r = 100 (A − B) / B; R = 2칸 평균; "좋음"은 R ≤ −1 %이고 seed 쌍 4/6 이상; energy는 T_h 평균 head를 다시 센 값):
+
+| 비교 | LIF | f-LIF | population LIF | population f-LIF |
+|---|---|---|---|---|
+| **Q1 query − 바꿔 넣기 (주)** | −0.13 (4/6), 차이 없음 | +0.33 (2/6), 차이 없음 | +0.45 (1/6), 차이 없음 | −0.83 (4/6), 차이 없음 |
+| Q2 query − B형(덧붙이기) | +0.53, 차이 없음 | +0.98, 차이 없음 | **−1.13 (4/6), 좋음** | −0.79, 차이 없음 |
+| Q3 query − Spikformer식 | −0.17, 차이 없음 | −0.22, 차이 없음 | −0.89, 차이 없음 | **−1.26 (4/6), 좋음** |
+| Q3 energy / 기준 (2) | 1.08배, 미충족 | 1.11배, 미충족 | 1.20배, 미충족 | 1.43배, **충족**("좋음"이라) |
+| Q5 (보고) − query LIF | – | −0.05, 차이 없음 | −0.71, 차이 없음 | −1.08 (5/6), 좋음 |
+
+- Q4 T = N memory − memoryless(LIF): +0.63 %(3/6), 차이 없음. 보고만으로, 다른 neuron − memoryless는 −0.47 ~ +0.58 %로 모두 차이 없음이다.
+- Q1 보고만: memoryless끼리는 +0.13 %, 차이 없음이다.
+- 칸별 평균 test MSE(H96 / H720): query LIF 0.2925 / 0.4177, f-LIF 0.2930 / 0.4165, population LIF 0.2912 / 0.4135, population f-LIF 0.2890 / 0.4135, memoryless LIF 0.2901 / 0.4160. Spikformer식은 0.2903 / 0.4223이다.
+- energy는 바꿔 넣기와 거의 같고(1.01배), B형의 0.83–0.87배다.
+
+**사전 예상과 비교 (20:02):**
+- Q1 "ETT 차이 없음": 맞았다.
+- Q2 "ETT 차이 없음": population LIF에서 **틀렸다**(좋음, 문턱 근처).
+- Q3 "ETT 차이 없음, 기준 (2) 미충족": population f-LIF에서 **틀렸다**(좋음 → 충족).
+- Q4 "ETT 차이 없음": 맞았다.
+
+**읽는 법 (탐색, ETTh2 두 칸, seed 3):**
+- ETT에서는 query 형태가 key·value 바꿔 넣기와 구별되지 않는다. 10-30 dual-path 결과에서 ETT는 바꿔 넣기와 덧붙이기도 구별하지 못했다(R1 차이 없음). ETT(24 token)는 attention 배치의 차이를 드러내지 못하는 과제로 보인다.
+- "좋음" 두 개는 seed 쌍 4/6을 겨우 넘은 문턱 근처 값이고, population 계열에서만 나왔다.
+- 이 실험의 주 질문은 CinC다. 바꿔 넣기가 CinC에서 B형보다 2–5점 졌으므로, query 형태가 그 손해를 되찾는지는 CinC 결과로만 판단한다.
+
+**한계:** ETTh2 두 칸, seed 3이다. 비교 상대 run(바꿔 넣기·B형·Spikformer식)은 다른 날·다른 GPU 부하에서 학습됐다. ETT test set은 여러 번 열었다.
+
+**commit:** 이 항목, `forecasting/results/flif-v1-ett-query/{raw.txt, energy_recount.csv, pool_runs.txt}`, `results/flif-v1-query-summary[-energyfix].md`(CinC 미완)를 commit 하고 `exp/nsmt-flif-neo`만 push 한다. tag는 CinC까지 끝난 뒤 붙인다.
+
+---
