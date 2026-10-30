@@ -4507,3 +4507,91 @@ CinC macro-F1은 Spikformer식 60.26에 대해 B형 LIF 60.90, [NSMT T=4] LIF 55
 **commit:** 이 항목, `forecasting/results/flif-v1-ett-query/{raw.txt, energy_recount.csv, pool_runs.txt}`, `results/flif-v1-query-summary[-energyfix].md`(CinC 미완)를 commit 하고 `exp/nsmt-flif-neo`만 push 한다. tag는 CinC까지 끝난 뒤 붙인다.
 
 ---
+
+## 2026-10-31 07:55 KST — 튜닝 1단계 결과: learning rate (ETTh2 H96·H720, 17 설정 × lr 4값, 새 run 306) — **17개 중 15개가 validation으로 기본 lr 5e-4를 골랐다. Neo-mixer 모든 layer f-LIF만 2.5e-4, population LIF만 2e-3을 골랐는데, 둘 다 기본 lr과 test 차이 없음(−0.28 %, +0.11 %). 각자 고른 lr로 비교해도 판정이 바뀐 비교는 0개 → "긍정" 아님, CinC로 넓히지 않음**
+
+**직전 commit:** `dcfdc4811` (query 묶음 ETT 중간 결과).
+
+**실행:**
+- query 묶음 ETT에 이어 pool B(4칸)에서 306 run이 10-30 21:17–10-31 07:48:57에 돌았다. 306/306 RESULT, SKIP 0, run 시간 134–2,482 s다.
+- sha: `899651dc0` 7개, `dcfdc4811` 299개. 두 commit 사이에는 기록·결과 파일만 바뀌었다.
+- pool 기록은 `forecasting/results/flif-v1-ett-tune/pool_runs_lr.txt`다. CinC query pool은 따로 진행 중이다(15개 중 8개 끝).
+
+**요약 스크립트 결함과 수정 (제 실수):**
+- 처음 `summarize_tune.py --stage lr`을 돌리자 모든 선택이 "미완"으로 나왔다.
+- 원인: RESULT를 읽는 `parse()`가 `layers=1`을 실수 1.0으로 바꾸는데, 스크립트는 기본값과 **문자열**로 비교했다(`'1.0' != '1'`). 그래서 새 run을 전부 버렸다. 사전 고정 때 빈 suite로만 시험해서 이 경로를 확인하지 못했다.
+- 숫자로 비교하도록 고쳤다(`same()`). 선택·판정 규칙은 바꾸지 않았다.
+- 이어서 다음 단계가 앞 단계의 모델별 선택값 위에서 돌도록 일반화했다(`base_settings`, `STAGE_CONDS`). 일반화 뒤 lr 단계 출력(`results/flif-v1-tune-lr-summary.md`, `selected_lr.json`)이 바이트 단위로 같음을 `cmp`로 확인했다.
+
+**결과 1: lr 값별 test MSE** (ETTh2 H96·H720 칸 평균의 평균, seed 3; **굵게** = validation으로 고른 값; 칸별 값과 validation L1은 `results/flif-v1-tune-lr-summary.md`):
+
+| 설정 | 2.5e-4 | 5e-4 (기본) | 1e-3 | 2e-3 |
+|---|---:|---:|---:|---:|
+| Spikformer식 | 0.3518 | **0.3563** | 0.3532 | 0.3587 |
+| Neo-mixer 모든 layer LIF | 0.3610 | **0.3628** | 0.3632 | 0.3619 |
+| Neo-mixer 모든 layer f-LIF | **0.3569** | 0.3582 | 0.3584 | 0.3587 |
+| Neo-mixer 모든 layer population LIF | 0.3675 | 0.3695 | 0.3666 | **0.3699** |
+| Neo-mixer 모든 layer population f-LIF | 0.3615 | **0.3594** | 0.3637 | 0.3641 |
+| B형 LIF / f-LIF | 0.3586 / 0.3536 | **0.3535 / 0.3521** | 0.3529 / 0.3544 | 0.3569 / 0.3547 |
+| B형 population LIF / population f-LIF | 0.3526 / 0.3529 | **0.3567 / 0.3545** | 0.3556 / 0.3527 | 0.3549 / 0.3567 |
+| [NSMT T=4] LIF / f-LIF | 0.3546 / 0.3545 | **0.3560 / 0.3539** | 0.3552 / 0.3547 | 0.3595 / 0.3538 |
+| [NSMT T=4] population LIF / population f-LIF | 0.3511 / 0.3527 | **0.3506 / 0.3542** | 0.3543 / 0.3539 | 0.3573 / 0.3616 |
+| query LIF / f-LIF | 0.3522 / 0.3528 | **0.3551 / 0.3548** | 0.3543 / 0.3551 | 0.3583 / 0.3609 |
+| query population LIF / population f-LIF | 0.3521 / 0.3499 | **0.3523 / 0.3512** | 0.3552 / 0.3525 | 0.3604 / 0.3548 |
+
+- **validation 차이는 아주 작다.** 고른 값의 validation L1 비율이 기본 lr 대비 0.9917–1.0000이고, lr 4값 사이 차이가 모델마다 1.2 % 이하다(가장 큰 것은 Neo-mixer population LIF 0.9917–1.0039).
+- **test MSE의 lr별 차이도 작다.** 한 설정 안에서 최대 2–3 % 정도다. 2.5e-4에서 test MSE가 기본보다 조금 낮은 설정이 여럿이지만(예: Spikformer식 0.3518 대 0.3563), validation은 그 값을 고르지 않았다. 사전 고정대로 선택에는 validation만 쓴다.
+
+**결과 2: 판정** (2칸 규칙: R ≤ −1 %이고 seed 쌍 4/6 이상이면 "좋음")
+- **판정 1 (고른 lr − 기본 lr):** Neo-mixer 모든 layer f-LIF(2.5e-4) R −0.28 %(3/6), population LIF(2e-3) R +0.11 %(4/6)로 둘 다 차이 없음이다. 나머지 15개는 기본 lr을 골랐다.
+- **판정 2 (기본 lr끼리 대 각자 고른 lr끼리):** 28개 비교 중 판정이 바뀐 것은 0개다.
+  - 고른 lr이 기본과 다른 두 설정의 Spikformer식 대비 R은 f-LIF +0.55 → +0.27 %, population LIF +3.89 → +3.98 %다. 판정은 각각 차이 없음, 나쁨으로 그대로다.
+- 2칸 기준의 기존 판정(참고, 기본 lr):
+  - Spikformer식 대비: B형 f-LIF −1.17 %(좋음), [NSMT T=4] population LIF −1.33 %(좋음), query population f-LIF −1.26 %(좋음). Neo-mixer 모든 layer LIF +1.85 %, population LIF +3.89 %는 나쁨이다.
+  - R1(바꿔 넣기 − 덧붙이기) population LIF −1.58 %(좋음)이고, 나머지는 차이 없음이다.
+- **"긍정" 규칙(사전 고정): 아니다.** 판정 1 "좋음"도, 판정 2 변화도 없다. 따라서 learning rate 단계는 CinC로 넓히지 않는다.
+- **energy:** 위 판정 2의 기준 (2) 값은 아직 바로잡지 않은 energy로 계산했다. `energy_recount_ett.py --suite flif-v1-ett-tune`(234개)이 진행 중이다. 긍정 여부는 energy와 무관하다. 고른 lr이 기본과 다른 두 설정은 test 판정이 "차이 없음"과 "나쁨"이라, 기준 (2)가 바뀌려면 energy 비가 0.5배를 넘나들어야 하는데 두 lr에서 energy 비가 같다(0.12, 0.22). 재계산이 끝나면 `results/flif-v1-tune-lr-summary-energyfix.md`를 덧붙인다.
+
+**사전 예상과 비교 (10-30 20:02):** "5e-4는 Spikformer식에 거의 최적": 맞았다. "spikeDE neuron을 쓰는 일부는 다른 lr을 고름": Neo-mixer 두 개만 맞았다(dual-path Neocortex는 모두 기본). "판정 1 좋음 0–2개, 판정 2 대부분 그대로": 맞았다(0개, 0개).
+
+**읽는 법 (탐색, ETTh2 두 칸, seed 3):**
+- 지금까지의 ETT 비교는 lr 선택 때문에 불공정하지 않았다. 모델마다 validation으로 고른 lr을 써도 결론이 같다.
+- lr에 따른 test 변화(최대 2–3 %)는 모델 간 차이(대부분 ±1–2 %)와 비슷한 크기다. 그래서 seed 3개로 "어느 lr이 더 좋다"를 말할 수는 없다.
+- CinC의 lr은 이 결과로 판단하지 않는다(규칙상 넓히지 않음). CinC 비교의 lr 공정성은 별도 질문으로 남는다.
+
+**commit / tag:** 이 항목, `forecasting/results/flif-v1-ett-tune/{raw.txt, pool_runs_lr.txt, selected_lr.json}`, `results/flif-v1-tune-lr-summary.md`, 고친 `summarize_tune.py`를 commit 한다. annotated tag `exp/nsmt-flif-neo-20261031-lr`(learning rate 단계 완료)를 붙이고, `exp/nsmt-flif-neo`와 이 tag만 push 한다.
+
+---
+
+## 2026-10-31 07:55 KST — 사전 고정: 튜닝 2단계 Neo-mixer 방향당 layer 수 (ETTh2 H96·H720, Neo-mixer 모든 layer 4종 × layer {2, 3, 4}, 새 run 72) — 각자 1단계에서 고른 lr 위에서; smoke 1/1
+
+**직전 commit:** 위 항목(learning rate 결과, tag `exp/nsmt-flif-neo-20261031-lr`).
+
+**설정:**
+- `mixall_<lif|flif|pop_lif|pop_flif>_bidir`(neuron이 모든 layer에 있는 Neo-mixer)의 방향당 Neocortex layer 수(`--time_layers`)를 {1(ETTh2 기본), 2, 3, 4}로 바꾼다.
+- lr은 1단계 선택값이다(`selected_lr.json`): LIF 5e-4, f-LIF 2.5e-4, population LIF 2e-3, population f-LIF 5e-4. 나머지는 기본(reset spikede, α 0.5)이다.
+- layer 1은 기존 run을 다시 쓴다(LIF·population f-LIF는 10-29 `flif-v1-ett-nall`, f-LIF·population LIF는 1단계의 해당 lr run).
+- 새 run은 4 × 3 × 2칸 × seed 3 = **72**개, suite `flif-v1-ett-tune`이다.
+- 다른 모델(Spikformer식, dual-path)의 layer 수는 바꾸지 않는다. 사용자가 고른 항목이 Neo-mixer뿐이다.
+
+**코드:**
+- `summarize_tune.py --stage layers`: 표는 Neo-mixer 4종 × layer 값(validation L1·test MSE)이다. 선택·판정 1·판정 2 규칙은 1단계와 같다. 판정 2는 각 Neo-mixer − Spikformer식(기준 (2))과 W4(모든 layer f-LIF − 모든 layer LIF)다.
+- `scripts/make_queue_tune.sh smoke_layers|layers`: `selected_lr.json`에서 lr을 읽는다.
+- 빈 단계로 돌렸을 때 layer 1 열이 각자의 lr run으로 채워짐을 확인했다(f-LIF 0.2931 / 0.4206, population LIF 0.3049 / 0.4348).
+
+**"긍정" 규칙:** 1단계와 같다. 어느 설정이든 고른 layer 수가 기본보다 test에서 "좋음"이거나, 판정 2가 하나라도 바뀌면 CinC로 넓힌다. 그때는 긍정인 설정만, 기본 대 고른 layer 수로, fold 0, 90 epoch, seed 3이며, 사전 고정 기록을 따로 쓴다.
+
+**사전 예상:**
+- ETTm2 기본이 2층이므로 ETTh2에서도 2층을 고르는 설정이 있을 것이다.
+- Neo-mixer는 attention 없이 T = N neuron으로만 token을 섞으므로, 깊이가 늘면 먼 token 정보 전달이 나아질 수 있다. 다만 ETT 24 token에서는 효과가 작아 판정 1 "좋음"은 0–1개일 것이다.
+- Spikformer식 대비 판정(LIF·population LIF 나쁨)이 바뀔 가능성은 낮다.
+
+**smoke:** 1/1(07:52:49–07:54:57, `LR=0.0005 LAYERS=4 COND=mixall_pop_flif_bidir`, ETTh2 H96, 1 epoch, seed 42; `forecasting/results/smoke-tune-ett-20261031/raw.txt`). `logargs.txt`는 `time_num_layers=4`, `lr=0.0005`, `neuron_scope=all`이고, parameter 수가 같은 설정 1층 run(0.161984 M)에서 0.188864 M로 늘었다(방향마다 3층 추가와 맞음). tag `mixall_pop_flif_bidir_lr0.0005_L4_rspikede_a0.5`, RESULT `layers=4`다.
+
+**실행:** NSMT/에서 tmux `flif_layers`로 `bash scripts/gpu_pool2.sh nsmt_flif_v1/classification/scripts/queues/tune-layers-20261031.txt 0,1,2,3`(4칸)을 돌린다. CinC query pool(4칸)과 함께 돈다. 끝나는 시각은 어림하지 않는다.
+
+**한계:** ETTh2 두 칸, seed 3이다. layer 수는 1단계에서 고른 lr 위에서만 고른다(lr과 layer 수를 함께 찾지 않음). ETT test set은 여러 번 열었다.
+
+**commit:** 이 항목과 `make_queue_tune.sh`, smoke 결과를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 pool을 시작한다.
+
+---

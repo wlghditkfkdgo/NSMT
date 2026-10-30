@@ -8,6 +8,8 @@ flif-v1-ett-nall, flif-v1-ett-dual, flif-v1-ett-query); the other settings from 
 alpha).
 
 Stage lr: lr in {0.00025, 0.0005, 0.001, 0.002} for all 17 settings; every value is reported side by side (validation L1 and test MSE).
+Stage layers (MODI 2026-10-31): --time_layers in {1, 2, 3, 4} (Neo-mixer layers per direction) for the 4 Neo-mixer settings only, each
+at its stage-lr selection (selected_lr.json); comparisons: each Neo-mixer setting - spk_ssa (at its own base) and W4 f-LIF - LIF.
 Selection (validation only): per setting, the value with the lowest mean over the 2 cells of (cell-mean validation L1 at the value /
 cell-mean validation L1 at the default); every value needs 3 seeds x 2 cells, else the selection is incomplete.
 Verdict 1: selected - default on the test MSE (2 cells: r = 100 (A - B) / B per seed, R = mean of the cell means; better = R <= -1 %
@@ -37,7 +39,11 @@ CELLS = [('ETTh2', 96), ('ETTh2', 720)]
 NS = ('lif', 'flif', 'pop_lif', 'pop_flif')
 CONDS = ['spk_ssa'] + [f'mixall_{n}_bidir' for n in NS] + [f'{p}_{n}' for p in ('spkneo', 'nsmt4', 'nsmt4q') for n in NS]
 DEFAULT = {'lr': 0.0005, 'layers': 1, 'reset': 'spikede', 'alpha': 0.5}
-STAGES = {'lr': [0.00025, 0.0005, 0.001, 0.002]}
+STAGES = {'lr': [0.00025, 0.0005, 0.001, 0.002], 'layers': [1, 2, 3, 4]}
+# MODI 2026-10-31: each stage runs on the earlier stages' per-setting selections (selected_<stage>.json) and varies only its own
+# settings; the other settings stay at their base (selected) values and enter the comparisons at that base.
+PREV = {'lr': [], 'layers': ['lr']}
+STAGE_CONDS = {'lr': CONDS, 'layers': [f'mixall_{n}_bidir' for n in NS]}
 OLD = {'flif-v1-gen-ett': lambda c: c == 'spk_ssa', 'flif-v1-ett-nall': lambda c: c.startswith('mixall_'),
        'flif-v1-ett-dual': lambda c: c.startswith(('spkneo_', 'nsmt4_')) and not c.endswith('_nomem'),
        'flif-v1-ett-query': lambda c: c.startswith('nsmt4q_') and not c.endswith('_nomem')}
@@ -47,12 +53,38 @@ def fin(x):
     return isinstance(x, float) and math.isfinite(x)
 
 
+def same(k, x, ref=None):
+    """RESULT value x equals ref (default: the DEFAULT of knob k); parse() turns numbers into floats; alpha '-' = not an f-LIF
+    setting. MODI 2026-10-31 fix: the first version compared strings ('1.0' != '1') and dropped every tuning run."""
+    ref = DEFAULT[k] if ref is None else ref
+    if k == 'alpha' and x == '-':
+        return True
+    try:
+        return float(x) == float(ref)
+    except (TypeError, ValueError):
+        return str(x) == str(ref)
+
+
 def recounted(cond):                                    # = energy_recount_ett.recount
     return cond == 'spk_ssa' or cond.startswith(('spkall_', 'spkneo_', 'nsmt4_', 'nsmt4q_'))
 
 
+def base_settings(stage):
+    """per setting: DEFAULT with the earlier stages' selected values (selected_<stage>.json; selection is validation-only)."""
+    base = {c: dict(DEFAULT) for c in CONDS}
+    for p_ in PREV[stage]:
+        sel = json.load(open(os.path.join(FC, 'results', 'flif-v1-ett-tune', f'selected_{p_}.json')))['selected']
+        for c in CONDS:
+            if sel.get(c) is None:
+                raise RuntimeError(f'stage {p_}: no selection for {c}')
+            base[c][p_] = sel[c]
+    return base
+
+
 def load(stage, energy_fix):
-    """rows keyed (cond, value, ds, pl, seed); default-setting runs of the old suites get the default value of the stage."""
+    """rows keyed (cond, value, ds, pl, seed). A run enters at value v of the stage knob when every other knob equals the setting's
+    base (DEFAULT + earlier selections); the old suites' runs have the DEFAULT settings."""
+    base = base_settings(stage)
     out = {}
     def add(r, v, suite):
         if (r['ds'], int(r['pl'])) not in CELLS:
@@ -65,14 +97,13 @@ def load(stage, energy_fix):
     for suite, keep in OLD.items():
         fx = fixed(suite)
         for r in parse(os.path.join(FC, 'results', suite, 'raw.txt')):
-            if keep(r['cond']):
+            if keep(r['cond']) and all(same(k, DEFAULT[k], base[r['cond']][k]) for k in DEFAULT if k != stage):
                 if energy_fix and recounted(r['cond']):
                     r['total_fft_uJ'] = fx.get((r['ds'], int(r['pl']), r['cond'], '', int(r['seed'])), float('nan'))
                 add(r, DEFAULT[stage], suite)
     fx = fixed('flif-v1-ett-tune')
     for r in parse(os.path.join(FC, 'results', 'flif-v1-ett-tune', 'raw.txt')):
-        others = all(str(r.get(k)) == str(DEFAULT[k]) or (k == 'alpha' and r.get(k) == '-') for k in DEFAULT if k != stage)
-        if r['cond'] in CONDS and others:
+        if r['cond'] in CONDS and all(same(k, r.get(k), base[r['cond']][k]) for k in DEFAULT if k != stage):
             if energy_fix and recounted(r['cond']):
                 r['total_fft_uJ'] = fx.get((r['ds'], int(r['pl']), r['cond'], r.get('tag', ''), int(r['seed'])), float('nan'))
             v = r[stage] if stage == 'reset' else float(r[stage])
@@ -118,14 +149,14 @@ def main():
     for key, name in (('val_loss_best', 'validation L1'), ('mse', 'test MSE')):
         L += [f'## {name}: H96 / H720 cell means over seeds', '', '| setting | ' + ' | '.join(f'{v}{"*" if v == dflt else ""}' for v in vals) + ' |',
               '|---|' + '---|' * len(vals)]
-        for c in CONDS:
+        for c in STAGE_CONDS[st]:
             cells = [cellmean(get, c, v, key) for v in vals]
             L.append(f'| {c} | ' + ' | '.join('incomplete' if m is None else f'{m[0]:.4f} / {m[1]:.4f}' for m in cells) + ' |')
         L.append('')
     sel, L1 = {}, ['## Selection (validation) and verdict 1 (selected − default, test MSE)', '',
                    '| setting | relative validation per value | selected | R selected − default | pairs | verdict 1 | energy sel/default |',
                    '|---|---|---|---|---|---|---|']
-    for c in CONDS:
+    for c in STAGE_CONDS[st]:
         base = cellmean(get, c, dflt, 'val_loss_best'); rel = {}
         for v in vals:
             m = cellmean(get, c, v, 'val_loss_best')
@@ -136,10 +167,15 @@ def main():
         o = compare(get, c, s_, c, dflt) if s_ != dflt else None
         L1.append(f"| {c} | {' / '.join(f'{v}: {rel[v]:.4f}' for v in vals)} | {s_} | "
                   + (f"{o['R']:+.2f} | {o['lo']}/{o['n']} | {o['v']} | {o['er']:.2f} |" if o else '(default) | | default selected | |'))
-    Q = [(f'{c} vs spk_ssa', c, 'spk_ssa', True) for c in CONDS[1:]]
-    Q += [(f'R1 replace vs append, {n}', f'nsmt4_{n}', f'spkneo_{n}', False) for n in NS]
-    Q += [(f'Q1 query vs replace, {n}', f'nsmt4q_{n}', f'nsmt4_{n}', False) for n in NS]
-    Q += [(f'Q2 query vs append, {n}', f'nsmt4q_{n}', f'spkneo_{n}', False) for n in NS]
+    varied = set(STAGE_CONDS[st])
+    sel.update({c: dflt for c in CONDS if c not in varied})          # settings this stage does not vary stay at the default value
+    Q = [(f'{c} vs spk_ssa', c, 'spk_ssa', True) for c in STAGE_CONDS[st] if c != 'spk_ssa']
+    if st == 'lr':
+        Q += [(f'R1 replace vs append, {n}', f'nsmt4_{n}', f'spkneo_{n}', False) for n in NS]
+        Q += [(f'Q1 query vs replace, {n}', f'nsmt4q_{n}', f'nsmt4_{n}', False) for n in NS]
+        Q += [(f'Q2 query vs append, {n}', f'nsmt4q_{n}', f'spkneo_{n}', False) for n in NS]
+    else:                                                            # Neo-mixer stages: + fractional order inside the Neo-mixer
+        Q += [('W4 f-LIF vs LIF, Neo-mixer every layer', 'mixall_flif_bidir', 'mixall_lif_bidir', False)]
     L2 = ['', '## Verdict 2: the comparisons at the defaults and at each setting\'s selected value', '',
           '| comparison | R / verdict at defaults | criterion (2) | R / verdict at selected values | criterion (2) | changed |', '|---|---|---|---|---|---|']
     positive, changed_any = False, False
@@ -151,7 +187,7 @@ def main():
         changed_any |= ch == '**yes**'
         L2.append(f'| {q} | {fmt(o0)[0]} | {fmt(o0)[1]} | {fmt(o1)[0]} | {fmt(o1)[1]} | {ch} |')
     better_any = any('| better |' in l for l in L1)
-    complete = all(v is not None for v in sel.values())
+    complete = all(sel.get(c) is not None for c in STAGE_CONDS[st])
     positive = complete and (better_any or changed_any)
     L += L1 + L2 + ['', f'**Positive (CinC extension rule):** {"incomplete" if not complete else positive} '
                     f'(any verdict 1 better: {better_any}; any verdict 2 changed: {changed_any})']
