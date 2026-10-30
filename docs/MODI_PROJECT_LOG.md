@@ -4595,3 +4595,19 @@ CinC macro-F1은 Spikformer식 60.26에 대해 B형 LIF 60.90, [NSMT T=4] LIF 55
 **commit:** 이 항목과 `make_queue_tune.sh`, smoke 결과를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 pool을 시작한다.
 
 ---
+
+## 2026-10-31 08:00 KST — 보충: 튜닝 1단계(learning rate) 판정 2의 energy를 바로잡은 값으로 다시 계산 — **고른 lr·판정·"긍정 아님"은 그대로. Neo-mixer 모든 layer population f-LIF의 Spikformer식 대비 energy가 0.46 → 0.97배가 되어 기준 (2)가 "충족" → "미충족"(기본 lr·고른 lr 모두 같아 '판정 변화'는 아님)**
+
+**직전 commit:** `847c2f6f2` (learning rate 결과와 layer 수 단계 사전 고정, tag `exp/nsmt-flif-neo-20261031-lr`).
+
+- `energy_recount_ett.py --suite flif-v1-ett-tune`이 07:59에 끝났다. 306 run 중 T_h 평균 head를 쓰는 234개를 다시 셌고, 점검을 모두 통과했다(재계산 MSE = 기록, head 입력 0/1, head MAC = syops). 결과는 `forecasting/results/flif-v1-ett-tune/energy_recount.csv`이며 tag 열을 포함한다.
+- `summarize_tune.py --stage lr --energy_fix` → `results/flif-v1-tune-lr-summary-energyfix.md`, `selected_lr_energyfix.json`. 선택은 validation만 쓰므로 `selected_lr.json`과 같다(확인).
+- **기준 (2) (Spikformer식 대비, 바로잡은 energy, 기본 lr = 고른 lr에서 같음):**
+  - 충족: Neo-mixer 모든 layer f-LIF(R +0.55 %, 0.25배), B형 f-LIF("좋음", 1.33배), [NSMT T=4] population LIF("좋음", 1.19배), query population f-LIF("좋음", 1.43배).
+  - 나머지는 미충족이다. Neo-mixer 모든 layer는 LIF 0.18배(나쁨), population LIF 0.46배(나쁨), population f-LIF 0.97배다. dual-path 세 형태는 1.07–1.64배다.
+  - 앞 항목의 바로잡지 않은 값 가운데 Neo-mixer 모든 layer population f-LIF "충족"(0.46배)은 Spikformer식 head를 과다하게 센 결과였다. 이 보충의 값으로 대신한다.
+- 판정 1, 판정 2의 판정 변화(0개), "긍정 아님"은 바뀌지 않는다.
+
+**commit:** 이 항목, `energy_recount.csv`, energyfix 요약·선택 파일을 commit 하고 `exp/nsmt-flif-neo`만 push 한다.
+
+---
