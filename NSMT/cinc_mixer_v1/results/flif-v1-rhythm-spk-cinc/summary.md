@@ -9,9 +9,9 @@ CinC fold 0, test score (mean F1 of N / AF / Other, %), best-validation weights,
 | LIF | 61.78 ± 0.74 (3) | 63.47 ± 1.13 (3) | 66.96 ± 0.95 (3) | — |
 | f-LIF | — | — | — | — |
 | population LIF (soma) | — | — | — | — |
-| population f-LIF (soma) | — | — | — | — |
-| popg LIF (tau groups, no soma) | — | — | — | — |
-| popg f-LIF (tau groups, no soma) | — | — | — | — |
+| population f-LIF (soma) | 62.18 (1) | 61.90 (1) | — | — |
+| popg LIF (tau groups, no soma) | 63.57 ± 1.12 (3) | 64.36 ± 0.69 (3) | 63.84 ± 0.76 (2) | — |
+| popg f-LIF (tau groups, no soma) | 60.01 ± 0.44 (3) | 60.81 ± 0.79 (3) | 60.75 ± 1.33 (2) | — |
 
 ## Energy (total µJ, FFT neuron model; criterion rule / syops rule)
 
@@ -20,9 +20,9 @@ CinC fold 0, test score (mean F1 of N / AF / Other, %), best-validation weights,
 | LIF | 110.5 / 110.5 | 115.9 / 115.9 | 129.8 / 129.8 | — |
 | f-LIF | — | — | — | — |
 | population LIF (soma) | — | — | — | — |
-| population f-LIF (soma) | — | — | — | — |
-| popg LIF (tau groups, no soma) | — | — | — | — |
-| popg f-LIF (tau groups, no soma) | — | — | — | — |
+| population f-LIF (soma) | 331.7 / 330.5 | 377.7 / 376.4 | — | — |
+| popg LIF (tau groups, no soma) | 115.8 / 115.8 | 122.7 / 122.7 | 136.8 / 136.8 | — |
+| popg f-LIF (tau groups, no soma) | 132.4 / 132.4 | 143.3 / 143.3 | 160.6 / 160.6 | — |
 
 ## V1 fusion effect per neuron (same residual)
 
@@ -40,10 +40,10 @@ CinC fold 0, test score (mean F1 of N / AF / Other, %), best-validation weights,
 | V1a population f-LIF (soma): s_d by OR | spk_pop_flif_sdor_or − spk_pop_flif_or_or | incomplete | | incomplete |
 | V1b population f-LIF (soma): s_d by learned fusion | spk_pop_flif_sdlin_or − spk_pop_flif_or_or | incomplete | | incomplete |
 | V1c population f-LIF (soma): learned vs OR form | spk_pop_flif_sdlin_or − spk_pop_flif_sdor_or | incomplete | | incomplete |
-| V1a popg LIF (tau groups, no soma): s_d by OR | spk_popg_lif_sdor_or − spk_popg_lif_or_or | incomplete | | incomplete |
+| V1a popg LIF (tau groups, no soma): s_d by OR | spk_popg_lif_sdor_or − spk_popg_lif_or_or | +0.79 | +2.14, -0.40, +0.63 | better |
 | V1b popg LIF (tau groups, no soma): s_d by learned fusion | spk_popg_lif_sdlin_or − spk_popg_lif_or_or | incomplete | | incomplete |
 | V1c popg LIF (tau groups, no soma): learned vs OR form | spk_popg_lif_sdlin_or − spk_popg_lif_sdor_or | incomplete | | incomplete |
-| V1a popg f-LIF (tau groups, no soma): s_d by OR | spk_popg_flif_sdor_or − spk_popg_flif_or_or | incomplete | | incomplete |
+| V1a popg f-LIF (tau groups, no soma): s_d by OR | spk_popg_flif_sdor_or − spk_popg_flif_or_or | +0.80 | +0.24, +0.37, +1.79 | better |
 | V1b popg f-LIF (tau groups, no soma): s_d by learned fusion | spk_popg_flif_sdlin_or − spk_popg_flif_or_or | incomplete | | incomplete |
 | V1c popg f-LIF (tau groups, no soma): learned vs OR form | spk_popg_flif_sdlin_or − spk_popg_flif_sdor_or | incomplete | | incomplete |
 
@@ -54,6 +54,14 @@ CinC fold 0, test score (mean F1 of N / AF / Other, %), best-validation weights,
 | spk_lif_or_or | -3.81 | -5.16, -1.92, -4.36 | worse | 0.87x | not met |
 | spk_lif_sdor_or | -2.13 | -5.38, -0.13, -0.87 | worse | 0.91x | not met |
 | spk_lif_sdlin_or | +1.37 | -1.40, +2.43, +3.06 | better | 1.02x | met |
+| spk_pop_flif_or_or | incomplete | | incomplete | | incomplete |
+| spk_pop_flif_sdor_or | incomplete | | incomplete | | incomplete |
+| spk_popg_lif_or_or | -2.03 | -5.23, -0.40, -0.47 | worse | 0.91x | not met |
+| spk_popg_lif_sdor_or | -1.24 | -3.09, -0.80, +0.16 | worse | 0.96x | not met |
+| spk_popg_lif_sdlin_or | incomplete | | incomplete | | incomplete |
+| spk_popg_flif_or_or | -5.59 | -7.73, -3.82, -5.23 | worse | 1.04x | not met |
+| spk_popg_flif_sdor_or | -4.79 | -7.49, -3.45, -3.43 | worse | 1.12x | not met |
+| spk_popg_flif_sdlin_or | incomplete | | incomplete | | incomplete |
 
 ## V3 reference (3): LIF linmx (real-valued fusion input)
 
@@ -104,5 +112,23 @@ CinC fold 0, test score (mean F1 of N / AF / Other, %), best-validation weights,
 | spk_lif_sdor_or | 7 | 71.08 | 64.29 | 60.61 | 60.84 | 48.96 | 49.57 | 115.7 | 115.7 | 18 | 6481 |
 | spk_lif_sdor_or | 42 | 69.62 | 61.88 | 58.01 | 54.42 | 49.23 | 46.40 | 116.3 | 116.3 | 28 | 6947 |
 | spk_lif_sdor_or | 2026 | 70.15 | 64.25 | 60.69 | 56.49 | 54.16 | 50.00 | 115.8 | 115.8 | 23 | 4478 |
+| spk_pop_flif_or_or | 42 | 64.19 | 62.18 | 61.15 | 57.24 | 49.32 | 58.06 | 330.5 | 331.7 | 27 | 11916 |
+| spk_pop_flif_sdor_or | 42 | 65.37 | 61.90 | 57.96 | 56.54 | 49.83 | 46.15 | 376.4 | 377.7 | 28 | 9523 |
+| spk_popg_flif_or_or | 7 | 66.31 | 60.59 | 58.23 | 54.43 | 47.28 | 51.13 | 131.6 | 131.6 | 23 | 33567 |
+| spk_popg_flif_or_or | 42 | 64.70 | 59.53 | 55.81 | 50.88 | 46.96 | 44.64 | 133.0 | 133.0 | 21 | 29297 |
+| spk_popg_flif_or_or | 2026 | 63.91 | 59.89 | 58.36 | 53.68 | 45.51 | 53.75 | 132.4 | 132.4 | 19 | 31671 |
+| spk_popg_flif_sdlin_or | 7 | 63.34 | 62.08 | 58.56 | 59.29 | 47.09 | 48.00 | 160.0 | 160.0 | 27 | 40425 |
+| spk_popg_flif_sdlin_or | 42 | 62.03 | 59.42 | 56.98 | 52.23 | 46.56 | 49.66 | 161.2 | 161.2 | 23 | 38742 |
+| spk_popg_flif_sdor_or | 7 | 65.34 | 60.96 | 57.68 | 57.95 | 46.88 | 47.83 | 142.5 | 142.5 | 23 | 35109 |
+| spk_popg_flif_sdor_or | 42 | 62.96 | 59.77 | 56.91 | 53.00 | 47.54 | 48.33 | 143.6 | 143.6 | 19 | 32606 |
+| spk_popg_flif_sdor_or | 2026 | 64.53 | 61.69 | 57.47 | 53.12 | 51.84 | 44.83 | 143.8 | 143.8 | 27 | 32562 |
+| spk_popg_lif_or_or | 7 | 72.66 | 64.02 | 60.03 | 61.54 | 50.28 | 48.06 | 115.7 | 115.7 | 23 | 10758 |
+| spk_popg_lif_or_or | 42 | 66.52 | 62.03 | 58.09 | 58.09 | 49.23 | 46.28 | 115.9 | 115.9 | 22 | 11982 |
+| spk_popg_lif_or_or | 2026 | 66.95 | 64.65 | 60.99 | 62.32 | 50.88 | 50.00 | 115.8 | 115.8 | 26 | 7152 |
+| spk_popg_lif_sdlin_or | 7 | 66.20 | 64.60 | 60.45 | 64.86 | 48.69 | 48.00 | 136.7 | 136.7 | 24 | 10954 |
+| spk_popg_lif_sdlin_or | 42 | 66.17 | 63.08 | 59.73 | 60.07 | 49.30 | 49.66 | 136.9 | 136.9 | 18 | 13204 |
+| spk_popg_lif_sdor_or | 7 | 68.28 | 63.62 | 61.13 | 60.87 | 49.18 | 53.66 | 122.3 | 122.3 | 25 | 11035 |
+| spk_popg_lif_sdor_or | 42 | 67.64 | 64.17 | 58.68 | 62.55 | 49.88 | 42.20 | 122.6 | 122.6 | 20 | 11607 |
+| spk_popg_lif_sdor_or | 2026 | 67.51 | 65.28 | 61.66 | 65.45 | 49.76 | 50.79 | 123.4 | 123.4 | 29 | 10015 |
 
-RESULT lines: 27; SKIP lines: 0.
+RESULT lines: 45; SKIP lines: 0.

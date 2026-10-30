@@ -8930,3 +8930,51 @@ LIF에서 z 구간별 항목 비율은 13.9 / 44.1 / 26.3 / 11.0 / 4.7%다. 발�
 - 가장 큰 위험은 mixer 기울기가 5배 주는 것이다. 이를 덜려면 선택 신호의 초기 발화율을 높이는 보정이 필요할 수 있다. 그것은 설계 변경이라 사전등록에서 정한다.
 
 **commit:** `mux_probe.py`, `results/mux-probe-20261029/`, 이 기록을 `exp/f-lif-pop-v3`에 commit·push한다(태그 없음).
+
+## 2026-10-30 14:50 KST — 중간 집계(학습 없음, 사후 대조 포함): SpkMixer 재실험 B2 18/45 완료 시점 — 완료된 popg LIF·popg f-LIF 4조건은 모두 Spikformer식보다 "나쁨"(−1.24 ~ −5.59%p, 기준 (2) 미충족); s_d를 OR로 더하면(sdor) 두 popg에서도 +0.79 / +0.80%p "좋음"; popg f-LIF는 popg LIF보다 약 3.6%p 낮음(3/3 seed, 사후); LIF sdlin(OR 잔차)의 Spikformer식 대비 +1.37%p는 AF F1 +3.85에서 오고 Noisy F1은 −4.90, 4클래스 macro-F1은 −0.20
+
+**직전 commit:** `93e262ab6`(MUX 사후 분석). 사용자 요청(10-30): 지금까지의 결과를 표로 정리하고 세팅을 설명한 뒤 분석. 학습·평가 없음, 기록된 RESULT 줄만 다시 집계했다.
+
+**상태(14:44 KST):** B2·C pool(10-29 23:07 시작, 48 run, GPU 4장 × 2, `gpu_pool2.sh cinc_mixer_v1/scripts/queues/rhythm-spk-b2c-or-20261029.txt 0,1,2,3,0,1,2,3`).
+- RESULT 18(B2), SKIP 0. 학습 중 8: popg_lif sdlin seed 2026, popg_flif sdlin seed 2026, pop_flif 6개. 대기 22: pop_flif 1, pop_lif 9, flif 9, C(linmx) 3.
+- run 시간(30 epoch, GPU 공유): LIF 1.0–2.4 h, popg_lif 2.0–3.7 h, popg_flif 8.1–11.2 h, pop_flif 2.6–3.3 h. flif·pop_lif는 아직 잰 값이 없다.
+
+**사전등록 판정(중간, `summarize_spk.py --stage verdicts --cf or` → `results/flif-v1-rhythm-spk-cinc/summary.md`, 빠진 run이 있는 조건은 미완):**
+
+| 뉴런 | or | sdor | sdlin | 에너지 µJ(기준 규칙) or / sdor / sdlin |
+|---|---:|---:|---:|---|
+| LIF(B1) | 61.78 ± 0.74 (3) | 63.47 ± 1.13 (3) | 66.96 ± 0.95 (3) | 110.5 / 115.9 / 129.8 |
+| f-LIF | 대기 | 대기 | 대기 | — |
+| population LIF(soma) | 대기 | 대기 | 대기 | — |
+| population f-LIF(soma) | 62.18 (1) | 61.90 (1) | 학습 중 | 331.7 / 377.7 / — |
+| popg LIF(τ 그룹, soma 없음) | 63.57 ± 1.12 (3) | 64.36 ± 0.69 (3) | 63.84 ± 0.76 (2) | 115.8 / 122.7 / 136.8 |
+| popg f-LIF(τ 그룹, soma 없음) | 60.01 ± 0.44 (3) | 60.81 ± 0.79 (3) | 60.75 ± 1.33 (2) | 132.4 / 143.3 / 160.6 |
+
+Spikformer식 기준 65.60 ± 1.21, 127.4 µJ.
+
+| 조건 − Spikformer식 | 평균 %p | seed 42 / 7 / 2026 | 판정 | 에너지 배율 | 기준 (2) |
+|---|---:|---|---|---:|---|
+| popg_lif or | −2.03 | −5.23, −0.40, −0.47 | 나쁨 | 0.91 | 미충족 |
+| popg_lif sdor | −1.24 | −3.09, −0.80, +0.16 | 나쁨 | 0.96 | 미충족 |
+| popg_flif or | −5.59 | −7.73, −3.82, −5.23 | 나쁨 | 1.04 | 미충족 |
+| popg_flif sdor | −4.79 | −7.49, −3.45, −3.43 | 나쁨 | 1.12 | 미충족 |
+
+- V1a(sdor − or): popg LIF +0.79(+2.14, −0.40, +0.63) 좋음, popg f-LIF +0.80(+0.24, +0.37, +1.79) 좋음. LIF(B1)는 +1.69 좋음.
+- sdlin이 들어간 대조는 popg 두 종 모두 seed 2026이 학습 중이라 미완. seed 2개 중간값: popg LIF sdlin − or +0.82, sdlin − sdor −0.05; popg f-LIF +0.69, +0.39.
+
+**사후 대조(사전등록 아님, `interim_spk.py` → `results/flif-v1-rhythm-spk-cinc/interim_20261030-1450.txt`, 같은 seed끼리 짝지음):**
+- 뉴런 − LIF(같은 합치기, OR 잔차): popg LIF or +1.78(−0.06, +1.52, +3.89), sdor +0.89(+2.29, −0.67, +1.03), sdlin −2.51(seed 2개: −2.77, −2.24). popg f-LIF or −1.78, sdor −2.67(3/3 음), sdlin −5.60(seed 2개). population f-LIF는 seed 42에서 or +0.08, sdor +0.02.
+- popg f-LIF − popg LIF: or −3.56(−2.50, −3.42, −4.76), sdor −3.55(−4.40, −2.66, −3.60), sdlin −3.09(seed 2개). τ 그룹·soma 없는 population에서 f-LIF가 일관되게 낮다.
+- 클래스별 F1 평균(N / AF / Other / Noisy, macro-F1): Spikformer식 82.31 / 59.78 / 54.70 / 50.97, 61.94. LIF sdlin_or 82.80 / 63.64 / 54.45 / 46.08, 61.74. LIF sdlin_or − Spikformer식: N +0.49, **AF +3.85**(+0.04, +4.45, +7.07), Other −0.25, **Noisy −4.90**(−3.31, −8.42, −2.97), macro-F1 −0.20(−1.87, −0.28, +1.56). CinC 점수는 N·AF·Other F1의 평균이라 Noisy가 빠진다.
+- LIF 9조건 모두 Noisy F1(38.0–50.3)이 Spikformer식(50.97)보다 낮다. popg LIF는 AF F1이 LIF보다 높고(or 60.65 vs 54.14, sdor 62.96 vs 57.25) Other가 낮다.
+
+**읽기(판정 아님):**
+- s_d(두 방향 막전위 차이를 스파이크로 바꾼 신호)를 더하면 점수가 오른다는 결과가 LIF 세 잔차 모두(or < sdor < sdlin)와 popg 두 종(sdor − or)에서 같은 방향이다. 지금까지 이 계열에서 가장 일관된 결과다.
+- 학습하는 합치기(sdlin)의 큰 이득(LIF +5.18)은 popg에서는 아직 보이지 않는다(seed 2개 중간값 +0.7–0.8, sdor와 차이 없음).
+- 기준 (2)를 넘은 것은 여전히 LIF sdlin_or 하나다. 그 이득은 AF 한 클래스에서 오고, 점수에 들어가지 않는 Noisy를 잃는다. 4클래스 macro-F1로 보면 Spikformer식과 같은 수준이다. 이 클래스 모양(AF에서 얻고 Noisy·Other에서 잃음)은 옛 Neo-mixer 계열과 같다(10-28 22:04 항목 (6)-(iii)).
+- 에너지: OR 잔차·LIF·popg LIF는 Spikformer식의 0.87–1.07배라 에너지 절반 경로는 없다. population f-LIF는 뉴런 자체 비용으로 2.6–3.0배다.
+- 잔차 선택: B1 검증 평균 차이(OR 69.90, IAND 69.21)는 seed 표준편차(0.4–2.1) 안이고, test에서는 IAND가 평균 1.0%p 높았다. B2는 사전등록대로 OR로 진행 중이다.
+
+**한계:** fold 0 하나(10-28 분석의 흔들림 ±2.2%p), seed 3개, B2는 18/45 중간 집계, 사후 대조는 판정 규칙을 빌려 쓴 서술일 뿐 사전등록 판정이 아니다. 검증 점수는 최고 epoch를 고른 값이라 test보다 4–6%p 높다.
+
+**commit:** `interim_spk.py`, `interim_20261030-1450.txt`, 다시 만든 `summary.md`(B1 + B2 중간), 이 시점의 `raw.txt`(RESULT 45줄), 이 기록을 `exp/f-lif-pop-v3`에 commit·push한다. pool은 그대로 돈다.
