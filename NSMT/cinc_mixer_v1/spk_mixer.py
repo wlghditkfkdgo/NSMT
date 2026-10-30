@@ -15,6 +15,9 @@ token-axis Neo-mixer, and the chosen neuron class in EVERY neuron layer (user, 1
                   sdor   : F v R v s_d,   s_d = neuron_d(BN_d(|H_f - H_r|))                       (user's intent, OR form)
                   sdlin  : neuron(BN(W [F v R; s_d])),  W: 2D -> D, 0/1 input (AC)                (user's intent, learned form)
                   linmx  : neuron(BN(W [H_f - th; H_r - th; |H_f - H_r|])), W: 3D -> D, real input  (reference (3), MAC)
+                  muxor  : s_d ? (F v R) : (F ^ R)  = majority(F, R, s_d)       (10-30 MUX (i); same modules as sdor)
+                  muxlin : s_d ? L : (F ^ R),  L = the sdlin output               (10-30 MUX (ii); same modules as sdlin)
+                           training arithmetic s * a + (1 - s) * min(F, R), a = max(F, R) or L (min / max split ties 0.5)
                 x = connect(x, m.permute(2, 1, 0, 3))    IAND x (1 - m) | OR max(x, m) | ADD x + m   (same for the MLP)
                 x = connect(x, fc2(fc1(x)))              SpikLinearLayer x 2, neuron over the repetition axis
     head        Linear(D -> classes) on the token mean, averaged over T_h (myModel._testing)
@@ -39,7 +42,7 @@ from neo_mixer import MixerStack
 __all__ = ['SpkMixer', 'apply_gain_table', 'COMBS', 'CONNECTS', 'NEURONS']
 
 NEURONS = ('lif', 'flif', 'pop_lif', 'pop_flif', 'popg_lif', 'popg_flif')
-COMBS = ('or', 'sdor', 'sdlin', 'linmx')
+COMBS = ('or', 'sdor', 'sdlin', 'linmx', 'muxor', 'muxlin')                 # muxor / muxlin: 10-30 fusion MUX
 CONNECTS = ('IAND', 'OR', 'ADD')
 CALIBRATED = ('pop_lif', 'pop_flif', 'popg_lif', 'popg_flif')
 
@@ -89,15 +92,15 @@ class SpkBlock(nn.Module):
         fn = lambda: make_neuron(dim, N, 'ND')                            # mixer / fusion neurons: token axis, N steps
         self.mixer = MixerStack(dim, mixer_layers, fn, bias)
         self.mixer_rev = MixerStack(dim, mixer_layers, fn, bias)
-        if comb in ('sdor', 'sdlin'):
+        if comb in ('sdor', 'sdlin', 'muxor', 'muxlin'):
             self.sd_bn = nn.BatchNorm1d(dim)
             self.sd_neuron = make_neuron(dim, N, 'ND')
-        if comb in ('sdlin', 'linmx'):
+        if comb in ('sdlin', 'linmx', 'muxlin'):
             # built and initialised inside a forked RNG (continuing the current state, restored afterwards) and skipped by the
             # global init: at the same seed every other weight (embedding, mixer, MLP, head) is identical across the four
             # fusions and the three residuals (check s3), so the fusion comparisons are paired on the same initial model
             with torch.random.fork_rng(devices=[]):
-                self.fuse = FuseLinear((2 if comb == 'sdlin' else 3) * dim, dim, make_neuron(dim, N, 'ND'), bias)
+                self.fuse = FuseLinear((3 if comb == 'linmx' else 2) * dim, dim, make_neuron(dim, N, 'ND'), bias)
                 trunc_normal_(self.fuse.linear.weight, std=.02)
                 if self.fuse.linear.bias is not None:
                     nn.init.constant_(self.fuse.linear.bias, 0)
@@ -131,7 +134,13 @@ class SpkBlock(nn.Module):
                 N, B, K, D = d.shape
                 sd = self.sd_neuron(self.sd_bn(d.reshape(-1, D)).reshape(N, B, K, D).contiguous())
                 fr = torch.maximum(f, r)
-                m = torch.maximum(fr, sd) if self.comb == 'sdor' else self.fuse(torch.cat([fr, sd], dim=-1))
+                if self.comb == 'sdor':
+                    m = torch.maximum(fr, sd)
+                elif self.comb == 'sdlin':
+                    m = self.fuse(torch.cat([fr, sd], dim=-1))
+                else:                                                         # muxor / muxlin (10-30): s_d ? a : F ^ R
+                    a = fr if self.comb == 'muxor' else self.fuse(torch.cat([fr, sd], dim=-1))
+                    m = sd * a + (1. - sd) * torch.minimum(f, r)
         return m.permute(2, 1, 0, 3).contiguous()                           # [T_h, B, N, D]
 
     def forward(self, x, mix_fn=None):

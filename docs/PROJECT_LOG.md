@@ -8978,3 +8978,85 @@ Spikformer식 기준 65.60 ± 1.21, 127.4 µJ.
 **한계:** fold 0 하나(10-28 분석의 흔들림 ±2.2%p), seed 3개, B2는 18/45 중간 집계, 사후 대조는 판정 규칙을 빌려 쓴 서술일 뿐 사전등록 판정이 아니다. 검증 점수는 최고 epoch를 고른 값이라 test보다 4–6%p 높다.
 
 **commit:** `interim_spk.py`, `interim_20261030-1450.txt`, 다시 만든 `summary.md`(B1 + B2 중간), 이 시점의 `raw.txt`(RESULT 45줄), 이 기록을 `exp/f-lif-pop-v3`에 commit·push한다. pool은 그대로 돈다.
+
+## 2026-10-30 19:08 KST — 사전등록 + 구현: MUX를 mixer 양방향 합치기에만 적용(SpkMixer, LIF, OR 잔차, CinC fold 0, 6 run) — (i) `muxor` m = s_d ? (F ∨ R) : (F ∧ R) = F, R, s_d 세 비트의 다수결, (ii) `muxlin` m = s_d ? L : (F ∧ R); 같은 seed에서 초기 모델이 sdor·sdlin과 비트 단위로 같아 B1 run이 짝지은 대조; 점검 5/5, smoke 2/2
+
+**직전 commit:** `10f19434a`(중간 집계). **계획 승인:** 사용자(10-30).
+
+**사용자 지시(10-30, 원문):** "1. MUX를 실험해보자. (i) 과 (ii)를 실험해보는데 MUX를 우선 mixer의 양방향 정보 '합치기'에만 적용해줘. 그리고 나서 결과를 살펴보고, 'residual connection'에 적용하면서 초기 발화율을 보정할지 결정하자. 2. 1번에 대해서 코드 수정 계획, 즉 정확히 어떻게 구현할 것인지 나에게 자세하게 설명 먼저 해놓고 내가 승인하면 실험 시작."
+- (i)·(ii)는 10-29 23:17 항목(MUX 사후 분석)의 후보다. 그때는 잔차 MUX(out = s_d ? 데이터 : x)였고, (i)은 데이터 F ∨ R, (ii)는 데이터 sdlin 출력 L이었다.
+- 합치기 안에는 임베딩 x가 없으므로 s_d = 0인 자리의 출력을 정해야 했다. 질문의 선택지는 넷이었다: 합의 F ∧ R(권장), 0(끔), 방향 선택 s ? F : R, (ii)만 F ∨ R. **사용자 결정: 합의 F ∧ R.**
+- 용어: F, R = 앞방향·뒷방향 mixer 마지막 층의 스파이크. s_d = |H_f − H_r|를 BN과 LIF에 통과시킨 스파이크(두 방향 막전위가 크게 어긋날 때 1). L = sdlin의 학습되는 합치기 출력 neuron(BN(W[F ∨ R; s_d])).
+
+### 정의 (`spk_mixer.py`)
+
+| 이름 | hard forward | 학습할 때의 산술 | 같은 구조의 기존 대조 |
+|---|---|---|---|
+| (i) `muxor` | m = s_d ? (F ∨ R) : (F ∧ R) | s·max(F, R) + (1 − s)·min(F, R) | `sdor`: m = F ∨ R ∨ s_d |
+| (ii) `muxlin` | m = s_d ? L : (F ∧ R) | s·L + (1 − s)·min(F, R) | `sdlin`: m = L |
+
+- (i)은 F, R, s_d 세 비트의 다수결(둘 이상이 1이면 1)과 같다(점검 m1에서 비트 단위로 확인). sdor는 같은 세 비트의 OR이다. 두 조건은 입력이 같고 게이트만 다르다.
+- 잔차는 mixer 뒤, MLP 뒤 모두 OR 잔차 max(x, m)이다(B1 선택).
+- (i)은 sdor와, (ii)는 sdlin과 모듈 구성이 같다. 같은 seed에서 state_dict 전체가 비트 단위로 같다(점검 m2, seed 0/42/7/2026). 그래서 B1의 `spk_lif_sdor_or`, `spk_lif_sdlin_or`가 같은 초기 모델에서 출발한 짝 대조다.
+
+**네 항목 명세(10-29 사용자 요구)**
+
+| 연산 | hard forward | 학습 산술 | 기울기 | detach |
+|---|---|---|---|---|
+| (i) MUX | s_d ? F∨R : F∧R | s·max + (1 − s)·min | ∂m/∂s = max − min = F ⊕ R. ∂m/∂F: s = 1이면 max의 몫(F > R이면 1), s = 0이면 min의 몫(F < R이면 1), F = R이면 0.5 | 없음 |
+| (ii) MUX | s_d ? L : F∧R | s·L + (1 − s)·min | ∂m/∂s = L − min(F, R)에 L을 거치는 몫이 더해짐. ∂m/∂L = s. ∂m/∂F는 min을 거쳐 (1 − s)의 몫, L의 입력을 거쳐 s의 몫 | 없음 |
+| 스파이크 F, R, s_d, L | 문턱을 넘으면 1 | neuron 안의 계단 함수 | arctan surrogate, scale 5(기존 그대로) | 리셋 항만 detach(기존 그대로) |
+
+- AND의 산술은 곱 F·R이 아니라 min(F, R)이다. 곱이면 F = R = 0인 대부분의 원소에서 F, R로 가는 기울기가 0이 된다. min은 OR의 max와 짝이고 동점에서 0.5씩 나눈다(torch 1.12, 점검 m3에서 확인).
+- 입력이 모두 0과 1이므로 학습 산술의 값도 정확히 0과 1이다.
+
+### 코드 변경
+- `spk_mixer.py`: `COMBS`에 `muxor`, `muxlin` 추가. s_d 모듈은 sdor·sdlin·muxor·muxlin에서, 합치기 Linear는 sdlin·linmx·muxlin에서 만든다. `mix()`에 두 분기를 더했고 sdor·sdlin 경로의 연산은 그대로다.
+- `config.py`: `--mixer_comb` 선택지와 폴더 접미사(`_muxor`, `_muxlin`) 추가.
+- 새 러너 `scripts/run_rhythm_spk_mux.sh`: `run_rhythm_spk.sh`의 복사본에서 합치기 검사에 `muxor|muxlin`만 더했다. `run_rhythm_spk.sh`는 B2·C pool이 실행 중이라 건드리지 않았다.
+- `scripts/make_queue_spk.sh`: 단계 `muxsmoke`(2), `mux`(6) 추가.
+- 새 파일: `snapshot_spk.py`(10-29 scratchpad의 snapshot을 저장소로 옮기고 spkMixer 32개를 더함), `check_mux.py`, `summarize_mux.py`, `mux_fuse_probe.py`.
+- 대기 중인 B2·C run은 시작할 때 수정된 `spk_mixer.py`·`config.py`를 import한다. 기존 경로가 비트 단위로 같다는 것을 m0으로 확인했다. 수정 뒤 처음 시작한 B2 run(19:00:10, `spk_pop_lif_sdor_or` seed 2026)은 정상적으로 학습을 시작했다. 이 run과 이후 B2 run의 RESULT `sha`는 그 시점의 HEAD를 적는다.
+
+### 점검 (`check_mux.py --before/--after`, `results/checks/check_mux.txt`, GPU 3) — **5/5 통과**
+- 수정 전 snapshot을 두 번 떠서 45개가 비트 단위로 같음을 먼저 확인했다(GPU 결정성).
+- m0 기존 경로 불변: snapshot 45개(NeoMixer 6 × {or, linsd}, Spikformer식, spkMixer 6 neuron × {or, sdor, sdlin, linmx} × OR 잔차 24개, LIF × 4 합치기 × {IAND, ADD} 8개)가 수정 전후 비트 단위로 같다. 대기 중인 B2·C 조건이 모두 들어 있다.
+- m1 식(LIF, 실제 CinC 학습 창 8개, 초기 모델): muxor의 m = where(s_d, F ∨ R, F ∧ R) = 다수결, muxlin의 m = where(s_d, L, F ∧ R), 합치기 Linear 입력 = [F ∨ R; s_d], 값은 0과 1뿐, sdor·sdlin의 m과 다름. 초기 발화율: F 4.26 %, R 4.34 %, F ∧ R 0.44 %, s_d 7.71 %, muxor m 3.77 %, L 4.82 %, P(L | s_d) 12.99 %, muxlin m 1.42 %.
+- m2 같은 초기 모델: seed 0/42/7/2026에서 muxor = sdor(64 텐서), muxlin = sdlin(72 텐서), 비트 단위.
+- m3 기울기: 8가지 (F, R, s) 조합의 autograd 값이 위 표와 같다. 모델 안(학습 모드)에서 s_d로 가는 기울기 = w·(a − min(F, R)) (+ muxlin은 L 입력을 거친 몫), L로 가는 기울기 = w·s_d. F로 기울기가 닿는 원소 비율: muxor 0.962, sdor 0.917, or 0.961. muxlin에서 L에 닿는 원소 0.077(= s_d 발화율).
+- m4 구조·에너지: neuron 층 muxor 8, muxlin 9, 모두 LIFNeuron, spikingjelly 0; 반복 축 T 4, 토큰 축 117; 기록기 AC·MAC = syops(상대오차 ≤ 3e-9), 초기 모델 검증 64창 시냅스 muxor 90.9 µJ, muxlin 102.5 µJ.
+
+### smoke (1 epoch, seed 42, `results/smoke-rhythm-spk-mux-20261030/`)
+- 2 run 모두 RESULT, SKIP 0(GPU 3·2, B2·C pool과 함께). 1 epoch이라 점수는 학습 가능 여부만 본다(모두 Normal이면 약 25).
+
+| 조건 | test 점수 | F1 N / AF / Other | 총 µJ(기준 규칙) | 시냅스 µJ | 시간 s |
+|---|---:|---|---:|---:|---:|
+| spk_lif_muxor_or | 44.27 | 77.7 / 19.1 / 36.0 | 109.6 | 92.8 | 445 |
+| spk_lif_muxlin_or | 38.18 | 77.3 / 10.8 / 26.4 | 128.4 | 109.4 | 631 |
+
+- 읽기: 둘 다 한 클래스로 무너지지 않았다. 10-29 smoke의 1 epoch 값(lif_sdor_or 39.64, lif_or_or 36.17)과 같은 범위다. 에너지는 muxor가 sdor smoke(115.3 µJ)보다 조금 낮고, muxlin은 합치기 Linear 때문에 sdlin 계열(124–130 µJ)과 비슷하다.
+- `summarize_mux.py --suite smoke-rhythm-spk-mux-20261030`으로 요약 스크립트를 시험했다(seed 1개라 판정은 모두 미완으로 나온다).
+
+### 실행
+- 대기열 `cinc_mixer_v1/scripts/queues/rhythm-spk-mux-20261030.txt`(6; `make_queue_spk.sh mux`; queues/는 gitignore), 명령(NSMT/에서) `nohup bash scripts/gpu_pool2.sh cinc_mixer_v1/scripts/queues/rhythm-spk-mux-20261030.txt 0,1,2,3 > cinc_mixer_v1/results/flif-v1-rhythm-spk-mux-cinc/pool_log.txt 2>&1 &`.
+- 조건 `spk_lif_{muxor,muxlin}_or` × seed 42/7/2026, 30 epoch, 학습 인자는 B1과 같다(D 384, 블록 1, mixer 2층, 패치 64·간격 32, AdamW lr 1e-3·wd 1e-4·cosine, batch 32, CAL 가중 CE, test는 최고 검증 가중치). suite `flif-v1-rhythm-spk-mux-cinc`.
+- GPU 4장에 1개씩. B2·C pool(GPU당 2개)과 함께 돈다. 예상: B1의 LIF run 시간(1.0–2.4 h)으로 두 번에 나눠 약 5–6시간.
+
+### 판정 (`summarize_mux.py`, 기존 규칙: 평균 ≥ +0.5%p이고 seed 3개 중 2개 이상 같은 방향이면 좋음/나쁨, 아니면 차이 없음; test 점수)
+- **X1 (i) 주 비교:** muxor − sdor(같은 세 비트의 다수결 vs OR).
+- **X2 (ii) 주 비교:** muxlin − sdlin(학습 합치기 바깥의 MUX).
+- X3 보조: muxor − or(B1 스파이크 OR 합치기), muxlin − muxor.
+- X4: 두 조건 각각 Spikformer식(65.60, 127.4 µJ)과 비교, 기준 (2).
+- 보고만: 클래스별 F1, macro-F1, 에너지.
+- 에너지 규칙: 기준 에너지는 기록기 총계 `total_fft_int_uJ`. 합치기 안의 원소 단위 게이트(max, min, MUX)는 지금 OR 합치기의 max처럼 0으로 센다. 원소마다 AC 1개로 센 상한은 창당 0.32 µJ(4 × 117 × 384 원소 × 2연산 × 0.9 pJ)로 기준 모델의 0.3 % 미만이다.
+
+### 학습 후 측정 (`mux_fuse_probe.py`, 학습 없음, 검증 분할만)
+- 새 checkpoint 6개와 B1의 sdor·sdlin OR 잔차 checkpoint 6개: F, R, F ∧ R, F ⊕ R, s_d, m의 발화율, P(s_d | F ⊕ R), L의 발화율과 P(L | s_d), OR 잔차가 더하는 비율, F·L로 가는 기울기 무게, s_d가 학습되는 비율(게이트 기울기 ≠ 0 이면서 surrogate가 최댓값의 10 % 이상), 채널별·반복별 s_d. 재현 확인(저장된 최고 검증 점수와 1e-6) 실패 시 멈춘다. B1 sdor·sdlin seed 42로 미리 시험: 재현 차이 0, 수치가 10-29 측정과 같다.
+- 목적: 다음 결정(잔차 MUX와 초기 발화율 보정)의 근거.
+
+### 미리 적는 예상과 위험
+- (i)은 s_d만 켜진 자리(F, R 모두 0)를 내보내지 않는다. B1 모델로 근사한 m 발화율은 3–6 %로, 학습된 sdor(17 %)·or(16 %)보다 낮다. OR 잔차는 더하기만 하므로 mixer가 임베딩에 더하는 정보가 줄어든다. sdor가 or보다 좋았던 이유가 "s_d 스파이크를 직접 더한 것"이라면 (i)은 sdor보다 나쁠 수 있다.
+- (ii)의 합치기 Linear W는 s_d = 1인 자리(약 8–10 %)에서만 기울기를 받는다(sdlin은 모든 자리). 초기 m 발화율도 1.4 %로 매우 낮다. 잔차 MUX 분석의 "기울기 약 5배 감소"와 같은 종류의 위험이다.
+- fold 0 하나, seed 3개다. 10-28 분석의 흔들림 ±2.2%p 안의 차이는 확증이 아니다.
+
+**commit:** 코드·점검 결과·smoke 결과·이 기록을 `exp/f-lif-pop-v3`에 commit·push한 뒤 본 실행을 시작한다.

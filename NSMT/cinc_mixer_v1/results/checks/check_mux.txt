@@ -1,0 +1,6 @@
+PASS m0: 45 / 45 snapshots, differing: []
+PASS m1: muxor: formula ok (m == majority True; values [0.0, 1.0]; F 0.0426 R 0.0434 F^R 0.0044 s_d 0.0771 m 0.0377; differs from sdor m: True) | muxlin: formula ok (fuse input == [F v R; s_d] True, L rate 0.0482, P(L | s_d) 0.1299; values [0.0, 1.0]; F 0.0426 R 0.0434 F^R 0.0044 s_d 0.0771 m 0.0142; differs from sdlin m: True)
+PASS m2: seed 0 muxor == sdor: True (64 tensors) | seed 0 muxlin == sdlin: True (72 tensors) | seed 42 muxor == sdor: True (64 tensors) | seed 42 muxlin == sdlin: True (72 tensors) | seed 7 muxor == sdor: True (64 tensors) | seed 7 muxlin == sdlin: True (72 tensors) | seed 2026 muxor == sdor: True (64 tensors) | seed 2026 muxlin == sdlin: True (72 tensors)
+PASS m3: truth table ok | muxor: grad s_d == w (a - min) True; F reach mux 0.9617 / sdor 0.9172 / or 0.9609 | muxlin: grad s_d == w (a - min) True, grad L == w s_d True (L reached on 0.0772); F reach mux 0.9617 / sdor 0.9172 / or 0.9609
+PASS m4: muxor: layers 8, kinds ['LIFNeuron'], sj 0, T {'rep': {4}, 'tok': {117}}; recorder AC 27.460 M / syops 27.460 M (rel 5.7e-10), MAC 14.383 / 14.383 (rel 0.0e+00); syn uJ 90.876; ok | muxlin: layers 9, kinds ['LIFNeuron'], sj 0, T {'rep': {4}, 'tok': {117}}; recorder AC 38.524 M / syops 38.524 M (rel 2.6e-09), MAC 14.743 / 14.743 (rel 0.0e+00); syn uJ 102.488; ok
+5/5 passed
