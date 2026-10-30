@@ -4195,3 +4195,79 @@ Spikformer식은 92.22 %, 9.55 µJ다.
 **정정 (18:58 항목):** "남은 본 묶음은 ETT 36 run이고, 18:56부터 돌고 있다"는 틀렸다. pool 기록에서 첫 ETT run은 18:23:25에 시작했다(MIT-BIH 마지막 run과 겹쳐 돌았다).
 
 ---
+
+## 2026-10-30 19:30 KST — 모델 전체 뉴런 교체 묶음 결과 3/3 (마지막): ETT 3칸 36 run (+ ETTh2 H96 기존 칸) — **Neo-mixer 모든 layer는 Neocortex만 바꾼 것과 네 neuron 모두 차이 없음. Spikformer식 대비 LIF(+1.02 %)·population LIF(+1.95 %)는 나쁨, f-LIF(+0.44 %, energy 0.29배)는 energy 기준 (2) 충족, population f-LIF(+0.40 %, 1.17배)는 미충족. 모든 layer f-LIF − LIF는 −0.34 %로 차이 없음(3칸)**; PPG-DaLiA 마무리 5 run 기록(보류 유지)
+
+**직전 commit:** `26555ae5b` (dual-path 묶음 사전 고정, 10-29 20:34).
+
+**기록이 늦었다 (제 잘못):**
+- 이 묶음은 10-29 23:21:07에 끝났는데 이 항목은 10-30 19:30에 쓴다. 약 20시간이 늦었다.
+- 지난 세션이 끝나면서 완료 감시(background watcher)가 멈췄고, 다음 세션에서 상태를 확인하기 전까지 끝난 줄 몰랐다.
+- 앞으로는 세션이 바뀌면 pool 기록부터 직접 확인한다.
+- 끝나는 시점 어림도 틀렸다. 10-29 20:43에는 "10-30 오전–낮"이라고 했지만 실제로는 23:21에 끝났다.
+
+### 실행
+- ETT 36 run(`mixall_<lif|flif|pop_lif|pop_flif>_bidir` × ETTm2 H96·H720, ETTh2 H720 × seed 42 / 7 / 2026)이 10-29 18:23:25–23:21:07에 본 pool(8칸)에서 돌았다.
+- 36/36 RESULT, `flif-v1-ett-nall/raw.txt`에 SKIP 0이다. ETTh2 H96 칸은 10-29 11:01 빠른 시험 run을 쓴다.
+- run 시간은 298–15,620 s다. 다른 대화의 CinC 8개, PPG 5개와 GPU를 같이 썼다.
+- sha: `91160fe42` 8개, `651077a19` 2개, `26555ae5b` 26개.
+  - 이 사이에 바뀐 학습 경로 코드는 `forecast_wrap.py`(kind `'dual'` 추가)뿐이다. Neo-mixer·Spikformer식 forecaster의 출력·기울기·초기값이 비트 단위로 같음을 확인했다(10-29 20:34 항목).
+- **pool 기록 결함 발견:** `scripts/gpu_pool2.sh`의 `echo "[pool gpu$g $(date +%H:%M:%S)] DONE(rc=$?)"`에서 `$(date)`가 `$?`보다 먼저 실행돼 rc가 **항상 0**으로 찍힌다.
+  - 10-29 17:07의 일부러 멈춘 PPG run(rc 143)도 `DONE(rc=0)`으로 남았다.
+  - 따라서 실패 여부는 결과 파일의 `SKIP` 줄로만 판단한다(지금까지의 판단도 그렇게 했다).
+  - 다른 대화의 pool이 이 스크립트를 쓰고 있어 고치지 않았다.
+- **energy:** `energy_recount_ett.py --suite flif-v1-ett-nall`(69 run, Spikformer식 head 12개 다시 셈, 점검 모두 통과).
+- **요약:** `summarize_nall2.py [--energy_fix]` → `results/flif-v1-nall-summary[-energyfix].md`.
+- pool 기록은 `forecasting/results/flif-v1-ett-nall/pool_runs.txt`(본 pool 전체, 멈춘 CinC 8개와 MIT-BIH 포함)다.
+
+### 결과 (ETT 4칸 = ETTh2·ETTm2 × H96·H720; test MSE; seed별 r = 100 (A − B) / B; R = 4칸 평균; energy는 Spikformer식 head를 다시 센 값)
+
+| 비교 | 칸 좋음 / 없음 / 나쁨 | R | A < B 쌍 | 판정 | energy A/B | 기준 (2) |
+|---|---|---:|---:|---|---:|---|
+| W1 모든 layer − Neocortex만, LIF | 0 / 2 / 2 | +0.80 | 4/12 | 차이 없음 | 1.01 | |
+| W1 모든 layer − Neocortex만, f-LIF | 0 / 4 / 0 | +0.17 | 3/12 | 차이 없음 | 1.18 | |
+| W1 모든 layer − Neocortex만, population LIF | 0 / 2 / 2 | +1.48 | 5/12 | 차이 없음 | 1.43 | |
+| W1 모든 layer − Neocortex만, population f-LIF | 0 / 3 / 1 | +0.44 | 6/12 | 차이 없음 | 1.68 | |
+| W4 모든 layer f-LIF − 모든 layer LIF (3칸, ETTh2 H96 제외) | 1 / 2 / 0 | −0.34 | 5/9 | 차이 없음 | 1.42 | |
+| **W5** 모든 layer LIF − Spikformer식 | 0 / 2 / 2 | +1.02 | 3/12 | **나쁨** | 0.21 | 미충족 |
+| **W5** 모든 layer f-LIF − Spikformer식 | 0 / 4 / 0 | +0.44 | 3/12 | 차이 없음 | 0.29 | **충족** |
+| **W5** 모든 layer population LIF − Spikformer식 | 0 / 2 / 2 | +1.95 | 2/12 | **나쁨** | 0.55 | 미충족 |
+| **W5** 모든 layer population f-LIF − Spikformer식 | 0 / 3 / 1 | +0.40 | 6/12 | 차이 없음 | 1.17 | 미충족 |
+
+4칸 평균 test MSE는 Spikformer식 0.3234이고, Neo-mixer 모든 layer는 LIF 0.3267, f-LIF 0.3247, population LIF 0.3301, population f-LIF 0.3247이다(Neocortex만은 0.3237 / 0.3240 / 0.3247 / 0.3230).
+
+**사전 예상과 비교 (12:08):**
+- W1 ETT "LIF 차이 없음, f-LIF 차이 없음, population 둘 나쁨": LIF·f-LIF는 맞았다. population 둘은 **틀렸다**. population LIF는 R +1.48 %지만 Neocortex만보다 높은 쌍이 7/12로 8/12에 못 미쳐 "차이 없음"이다.
+- W4 "Neo-mixer 차이 없음(R −0.3 ~ −1 %)": 맞았다(−0.34 %).
+- W2(Spikformer식 모든 layer와 비교)는 10-29 17:14 사용자 결정으로 빠졌다. W5를 기준선 비교로 쓴다.
+
+### 묶음 종합 (탐색, seed 3; 세 과제)
+
+| 비교 | ETTh2 H96 빠른 칸 (MSE) | MIT-BIH (macro-F1) | ETT 4칸 (MSE) |
+|---|---|---|---|
+| 모든 layer − Neocortex만 | LIF +1.73 % 나쁨(구현 몫), f-LIF·population은 C2 참고 | LIF −0.44, f-LIF −0.01 차이 없음; population LIF −2.44, population f-LIF −1.49 나쁨 | 넷 다 차이 없음 |
+| 구현 교체 몫 (spikingjelly → spikeDE LIF, C1) | +1.04 ~ +2.30 % (3/4 나쁨) | −0.44 ~ −0.74 %p (2/4 나쁨) | (재지 않음) |
+| Neocortex 밖 neuron 종류 몫 (C2) | f-LIF −1.91 % 좋음, population LIF +2.89 % 나쁨, population f-LIF −1.01 % 좋음 | f-LIF +0.73 좋음, population LIF −1.99, population f-LIF −0.95 나쁨 | (재지 않음) |
+| 모든 layer − Spikformer식 (W5) | (보고만) | 넷 다 나쁨(−1.10 ~ −3.39) | LIF·population LIF 나쁨, f-LIF 충족(0.29배) |
+
+- **이득이 없다.** Hippocampus 없는 Neo-mixer에서 neuron을 모든 layer에 넣어도 Neocortex만 바꾼 것보다 좋아진 경우는 없다. population을 모든 layer에 넣으면 MIT-BIH에서 분명히 나빠진다.
+- **두 몫이 서로 상쇄된다.** spikeDE LIF 구현으로 바꾸는 것 자체가 손해이고, Neocortex 밖까지 f-LIF로 바꾸면 그만큼 되찾는다. 그래서 모든 layer f-LIF ≈ Neocortex만 f-LIF이다.
+- **energy 기준 (2)는 ETT에서만 남는다.** 모든 layer f-LIF(R +0.44 %, 0.29배)가 충족한다. Neocortex만 바꾼 OR LIF(+0.22 %, 0.20배)가 더 싸고 비슷하다.
+- **한계:** seed 3이고, 비교 대상(Neocortex만, Spikformer식)은 다른 날·다른 commit에서 학습됐다. learning rate·layer 수를 바꾸지 않았다(10-30 사용자 결정으로 튜닝 예정). CinC 부분은 10-29 사용자 결정으로 빠졌다.
+
+### PPG-DaLiA 마무리 (보류 유지, 판정 없음)
+- 10-29 17:07 보류 때 남겨 둔 5 run이 21:28–23:19에 끝났다. `ppg_spkneo_flif` × 3과 `ppg_mix_flif` seed 7·2026이다(run 시간 41,017–55,179 s).
+- 모두 합쳐 RESULT 18, 일부러 멈춘 SKIP 3이다. pool 기록은 `classification/results/flif-v1-ppg/pool_runs.txt`, 보류한 대기열은 `scripts/queues/ppg-20261028-held-20261029.txt`(로컬)다.
+- 끝난 조건(seed 3개 평균; test MSE / 심박 오차 bpm / energy µJ):
+
+| 조건 | MSE | bpm | µJ |
+|---|---:|---:|---:|
+| B형 population LIF / population f-LIF / f-LIF | 0.1185 / 0.1164 / 0.1202 | 12.90 / 13.11 / 13.34 | 5,707 / 5,783 / 5,575 |
+| Neo-mixer population LIF / population f-LIF / f-LIF | 0.1310 / 0.1401 / 0.1226 | 13.51 / 13.82 / 13.31 | 1,119 / 1,180 / 1,109 |
+
+- 주 비교(V1: B형 − memoryless control)와 attention 기준(P0–P3), GRU를 돌리지 않아 판정은 없다.
+- 10-29 17:1x 정정에 따르면 B형(신피질만 교체)은 지금 설계가 맞고, Neo-mixer는 모든 layer로 다시 돌려야 한다.
+
+**commit / tag:** 이 항목, `forecasting/results/flif-v1-ett-nall/{raw.txt, energy_recount.csv, pool_runs.txt}`, `results/flif-v1-nall-summary[-energyfix].md`, `results/flif-v1-rhythm-nall-cinc/raw.txt`(10-29 17:15에 멈춘 B형 8개의 SKIP 기록), `results/flif-v1-ppg/{raw.txt, pool_runs.txt}`를 commit 한다. annotated tag `exp/nsmt-flif-neo-20261030-nall2`(모든 층 교체 묶음 완료)를 붙이고, `exp/nsmt-flif-neo`와 이 tag만 push 한다. 이 항목의 commit은 이 tag로 가리킨다.
+
+---
