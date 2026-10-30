@@ -4611,3 +4611,51 @@ CinC macro-F1은 Spikformer식 60.26에 대해 B형 LIF 60.90, [NSMT T=4] LIF 55
 **commit:** 이 항목, `energy_recount.csv`, energyfix 요약·선택 파일을 commit 하고 `exp/nsmt-flif-neo`만 push 한다.
 
 ---
+
+## 2026-10-31 08:10 KST — 구현·점검 (학습 없음): 튜닝 3단계 spikeDE neuron reset 방식(`--neo_reset spikede|subtract|zero`) — 기존 경로 비트 동일 11/11, 점검 c46·c50·c51·c52 통과, smoke 3/3; 사전 고정은 layer 수 단계 결과(선택값) 뒤에 따로 쓴다. 구현 중 30초 동안 새 run이 죽을 수 있는 결함을 만들었다가 고쳤다(그 사이 시작한 run 없음)
+
+**직전 commit:** `2afc97854` (learning rate 단계 energy 보충).
+
+**왜:** 사용자 10-30 결정의 세 번째 튜닝 항목이다("spikeDE neuron의 reset 방식 중 적합한 것을 선택"). 10-29 결과에서 spikingjelly → spikeDE LIF 구현 교체만으로 0.4–2.3 % 손해가 났고, 차이 후보 중 하나가 reset이다. spikingjelly는 발화 뒤 막전위를 0으로 되돌리고, spikeDE는 F에 −θ·s/τ를 넣는다. Euler h = 1, τ = 2이면 문턱의 절반만 뺀다.
+
+**정의 (발화한 step에서 막전위를 얼마나 떨어뜨리는가로 통일):**
+- `spikede`(기본, 지금과 같음): F_t = drift_t − θ·s_t/τ.
+- `subtract`: 갱신 뒤 막전위에서 정확히 θ를 뺀다. v_{t+1} = v_pre − θ·s_t.
+- `zero`: 갱신 뒤 막전위를 정확히 0으로 만든다. v_{t+1} = v_pre·(1 − s_t). spikingjelly hard reset과 같고, 발화 판정은 spike를 detach해 기울기를 끊는다(detach_reset).
+- 공통: 발화 판정은 세 방식 모두 spikeDE의 look-ahead H(v + drift − θ)다.
+- f-LIF(pred)는 v_{t+1} = Σ_j b_{t−j} F_j이므로, 떨어뜨린 양을 b_0로 나눠 저장된 F_t에서도 빼서 이후 step의 이력 합이 맞게 한다.
+- population(soma 있음)은 가지가 reset하지 않고 soma가 원래 θ를 빼므로, `subtract`는 기본과 같은 모델이다. `zero`만 soma를 0으로 되돌린다.
+- gl 해법과 Selective 계열은 기본값 외를 거부한다.
+
+**코드 (기본값에서 기존 경로 비트 동일):**
+- `classification/neurons.py`(v3 사본; 머리말에 변경 사실을 적음):
+  - `LIFNeuron(reset=…)`, `reset_gain()`(Euler h, pred b_0), `_apply_reset()`(forward 루프에서 integrate 뒤 호출, 'spikede'면 아무것도 안 함).
+  - `rhs`: 'spikede'가 아니면 reset 항을 넣지 않는다.
+  - `Soma(reset='subtract'|'zero')`, `PopulationFLIF`가 soma에 전달한다.
+- `classification/layers.py` `build_neo_neuron(reset=)`, `neo_mixer.py` `NeoMixer(neo_reset=)`, `model.py`(Neocortex neuron), `load_model.py`, `config.py` `--neo_reset`(폴더 접미사 `_rst<mode>`).
+- `forecasting/scripts/run_ett_tune.sh`는 `RESET`이 spikede가 아니면 `--neo_reset`을 붙인다(10-30에 미리 넣어 둠).
+- `classification/summarize_tune.py --stage reset`(16 설정, population은 spikede/zero만; 방식별 전체 평균 validation을 보고), `scripts/make_queue_tune.sh smoke_reset|reset`(앞 두 단계의 선택값을 읽음, 144 run).
+- 일반화 뒤에도 lr 단계 출력이 바이트 단위로 같다(`cmp`).
+
+**사고 (제 실수):**
+- 처음에는 neuron에 문자열 속성 `self.reset`을 붙였다. 그런데 spikingjelly `functional.reset_net`은 모든 모듈의 `m.reset()`을 호출하므로, spikeDE neuron이 있는 모델은 `reset_net`에서 `TypeError: 'str' object is not callable`로 죽는다.
+- 비트 동일 점검이 첫 실행에서 이 오류를 냈다. 08:02:36 수정 후 08:03:07에 속성 이름을 `reset_mode`로 바꿔 고쳤다.
+- 그 31초 동안 두 pool(layer 수 단계, CinC query)에서 시작한 run은 없었다. 직전 시작은 07:55:37·07:42:17이고, 다음 시작은 고친 뒤다. 두 suite에 새 SKIP도 없다. 영향받은 run은 없다.
+- 교훈: 돌고 있는 pool이 불러 쓰는 모듈을 고칠 때는 모듈 속성 이름이 프레임워크 규약(spikingjelly의 `reset`, `step_mode` 등)과 겹치지 않는지 먼저 본다.
+
+**점검:**
+- **기존 경로 비트 동일:** 10-30에 저장한 실제 checkpoint 11개(ETT forecaster 8개, CinC 분류 모델 3개)로 다시 확인했다. 평가 출력, 학습 모드 출력, 기울기, 초기값이 11/11 같다.
+- **c52 (새, 통과):**
+  - (a) LIF(Euler)와 f-LIF(pred, α 0.5)를 직접 쓴 기준 루프와 비교했다. 세 방식 모두 spike가 같고 막전위 차이가 0이며, `zero`는 모든 spike 뒤 막전위가 정확히 0이다.
+  - (b) α = 1 f-LIF == LIF가 세 방식 모두에서 성립한다.
+  - (c) population soma는 `zero`가 spike 뒤 정확히 0이고, `subtract`는 기본과 비트 동일하다.
+  - (d) Neo-mixer 모든 layer(f-LIF 5개, population f-LIF 5개 neuron)와 dual-path Neocortex(B형·바꿔 넣기·query) 모두에서 옵션이 모든 spikeDE neuron(과 soma)에 들어가고 출력이 유한하다.
+  - Selective·gl은 거부되고, 폴더 접미사는 `_rstzero`다.
+- **c46·c50·c51 재통과.**
+- **smoke:** 3/3(08:06:55–08:09:39, ETTh2 H96, 1 epoch, seed 42, `forecasting/results/smoke-tune-ett-20261031/raw.txt`): `RESET=zero mixall_lif_bidir`, `RESET=subtract nsmt4q_flif`, `RESET=zero spkneo_pop_flif`. `logargs.txt`에 `neo_reset`이 의도대로 들어갔고, 폴더 접미사 `_rstzero`·`_rstsubtract`, RESULT `reset=` 값이 맞다.
+
+**다음:** layer 수 단계(72 run)가 끝나면 선택값을 기록한다. 그 위에서 reset 단계(144 run)를 사전 고정한다. 규칙은 1·2단계와 같은 선택·판정·"긍정" 규칙이고, 방식별 전체 평균 validation을 함께 본다.
+
+**commit:** 이 항목과 위 코드, `results/checks/check_cls_c46_c52_20261031.txt`, smoke 결과를 commit 하고 `exp/nsmt-flif-neo`만 push 한다.
+
+---

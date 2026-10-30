@@ -10,6 +10,9 @@ alpha).
 Stage lr: lr in {0.00025, 0.0005, 0.001, 0.002} for all 17 settings; every value is reported side by side (validation L1 and test MSE).
 Stage layers (MODI 2026-10-31): --time_layers in {1, 2, 3, 4} (Neo-mixer layers per direction) for the 4 Neo-mixer settings only, each
 at its stage-lr selection (selected_lr.json); comparisons: each Neo-mixer setting - spk_ssa (at its own base) and W4 f-LIF - LIF.
+Stage reset (MODI 2026-10-31): --neo_reset in {spikede (default), subtract, zero} for the 16 settings with spikeDE neurons (population:
+spikede vs zero only, see stage_values), each at its lr / layers selections; comparisons as stage lr + W4; the overall mean relative
+validation per mode is reported (one mode for every spikeDE neuron).
 Selection (validation only): per setting, the value with the lowest mean over the 2 cells of (cell-mean validation L1 at the value /
 cell-mean validation L1 at the default); every value needs 3 seeds x 2 cells, else the selection is incomplete.
 Verdict 1: selected - default on the test MSE (2 cells: r = 100 (A - B) / B per seed, R = mean of the cell means; better = R <= -1 %
@@ -39,11 +42,19 @@ CELLS = [('ETTh2', 96), ('ETTh2', 720)]
 NS = ('lif', 'flif', 'pop_lif', 'pop_flif')
 CONDS = ['spk_ssa'] + [f'mixall_{n}_bidir' for n in NS] + [f'{p}_{n}' for p in ('spkneo', 'nsmt4', 'nsmt4q') for n in NS]
 DEFAULT = {'lr': 0.0005, 'layers': 1, 'reset': 'spikede', 'alpha': 0.5}
-STAGES = {'lr': [0.00025, 0.0005, 0.001, 0.002], 'layers': [1, 2, 3, 4]}
+STAGES = {'lr': [0.00025, 0.0005, 0.001, 0.002], 'layers': [1, 2, 3, 4], 'reset': ['spikede', 'subtract', 'zero']}
 # MODI 2026-10-31: each stage runs on the earlier stages' per-setting selections (selected_<stage>.json) and varies only its own
 # settings; the other settings stay at their base (selected) values and enter the comparisons at that base.
-PREV = {'lr': [], 'layers': ['lr']}
-STAGE_CONDS = {'lr': CONDS, 'layers': [f'mixall_{n}_bidir' for n in NS]}
+PREV = {'lr': [], 'layers': ['lr'], 'reset': ['lr', 'layers']}
+STAGE_CONDS = {'lr': CONDS, 'layers': [f'mixall_{n}_bidir' for n in NS], 'reset': [c for c in CONDS if c != 'spk_ssa']}
+
+
+def stage_values(stage, cond):
+    """values of the stage knob for one setting. Stage reset (MODI 2026-10-31): a population neuron does not reset its members and
+    its soma already subtracts theta, so 'subtract' is the default model there -> only spikede (default) vs zero."""
+    if stage == 'reset' and 'pop_' in cond:
+        return ['spikede', 'zero']
+    return STAGES[stage]
 OLD = {'flif-v1-gen-ett': lambda c: c == 'spk_ssa', 'flif-v1-ett-nall': lambda c: c.startswith('mixall_'),
        'flif-v1-ett-dual': lambda c: c.startswith(('spkneo_', 'nsmt4_')) and not c.endswith('_nomem'),
        'flif-v1-ett-query': lambda c: c.startswith('nsmt4q_') and not c.endswith('_nomem')}
@@ -150,31 +161,36 @@ def main():
         L += [f'## {name}: H96 / H720 cell means over seeds', '', '| setting | ' + ' | '.join(f'{v}{"*" if v == dflt else ""}' for v in vals) + ' |',
               '|---|' + '---|' * len(vals)]
         for c in STAGE_CONDS[st]:
-            cells = [cellmean(get, c, v, key) for v in vals]
-            L.append(f'| {c} | ' + ' | '.join('incomplete' if m is None else f'{m[0]:.4f} / {m[1]:.4f}' for m in cells) + ' |')
+            cells = [cellmean(get, c, v, key) if v in stage_values(st, c) else 'n/a' for v in vals]
+            L.append(f'| {c} | ' + ' | '.join(m if m == 'n/a' else 'incomplete' if m is None else f'{m[0]:.4f} / {m[1]:.4f}' for m in cells) + ' |')
         L.append('')
-    sel, L1 = {}, ['## Selection (validation) and verdict 1 (selected − default, test MSE)', '',
+    sel, relv, L1 = {}, {}, ['## Selection (validation) and verdict 1 (selected − default, test MSE)', '',
                    '| setting | relative validation per value | selected | R selected − default | pairs | verdict 1 | energy sel/default |',
                    '|---|---|---|---|---|---|---|']
     for c in STAGE_CONDS[st]:
         base = cellmean(get, c, dflt, 'val_loss_best'); rel = {}
-        for v in vals:
+        for v in stage_values(st, c):
             m = cellmean(get, c, v, 'val_loss_best')
             rel[v] = None if (m is None or base is None) else float(np.mean([x / b for x, b in zip(m, base)]))
+        relv[c] = rel
         if any(x is None for x in rel.values()):
             sel[c] = None; L1.append(f'| {c} | incomplete | incomplete | | | | |'); continue
-        s_ = min(vals, key=lambda v: rel[v]); sel[c] = s_
+        s_ = min(stage_values(st, c), key=lambda v: rel[v]); sel[c] = s_
         o = compare(get, c, s_, c, dflt) if s_ != dflt else None
-        L1.append(f"| {c} | {' / '.join(f'{v}: {rel[v]:.4f}' for v in vals)} | {s_} | "
+        L1.append(f"| {c} | {' / '.join(f'{v}: {rel[v]:.4f}' for v in stage_values(st, c))} | {s_} | "
                   + (f"{o['R']:+.2f} | {o['lo']}/{o['n']} | {o['v']} | {o['er']:.2f} |" if o else '(default) | | default selected | |'))
     varied = set(STAGE_CONDS[st])
     sel.update({c: dflt for c in CONDS if c not in varied})          # settings this stage does not vary stay at the default value
+    if st == 'reset':                                                # one mode for every spikeDE neuron (report, not a verdict)
+        for grp, cs in (('LIF / f-LIF settings', [c for c in STAGE_CONDS[st] if 'pop_' not in c]), ('population settings', [c for c in STAGE_CONDS[st] if 'pop_' in c])):
+            per = {v: [relv[c][v] for c in cs if relv.get(c) and relv[c].get(v) is not None] for v in stage_values(st, cs[0])}
+            L1.append(f"| (report) overall, {grp} | " + ' / '.join(f'{v}: {np.mean(x):.4f} (n={len(x)})' if x else f'{v}: incomplete' for v, x in per.items()) + ' | | | | | |')
     Q = [(f'{c} vs spk_ssa', c, 'spk_ssa', True) for c in STAGE_CONDS[st] if c != 'spk_ssa']
-    if st == 'lr':
+    if st in ('lr', 'reset'):
         Q += [(f'R1 replace vs append, {n}', f'nsmt4_{n}', f'spkneo_{n}', False) for n in NS]
         Q += [(f'Q1 query vs replace, {n}', f'nsmt4q_{n}', f'nsmt4_{n}', False) for n in NS]
         Q += [(f'Q2 query vs append, {n}', f'nsmt4q_{n}', f'spkneo_{n}', False) for n in NS]
-    else:                                                            # Neo-mixer stages: + fractional order inside the Neo-mixer
+    if st != 'lr':                                                   # + fractional order inside the Neo-mixer
         Q += [('W4 f-LIF vs LIF, Neo-mixer every layer', 'mixall_flif_bidir', 'mixall_lif_bidir', False)]
     L2 = ['', '## Verdict 2: the comparisons at the defaults and at each setting\'s selected value', '',
           '| comparison | R / verdict at defaults | criterion (2) | R / verdict at selected values | criterion (2) | changed |', '|---|---|---|---|---|---|']

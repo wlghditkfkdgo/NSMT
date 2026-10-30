@@ -19,6 +19,7 @@ def _neo_kwargs(args):
                 pop_taus=tuple(float(t) for t in str(getattr(args, 'pop_taus', '4,8,16,32')).split(',')),
                 tau_calib=getattr(args, 'tau_calib', True),                                         # MODI 2026-10-23 (popk streams)
                 neuron_all=getattr(args, 'neuron_all', 'sj_lif'),                                   # MODI 2026-10-29
+                neo_reset=getattr(args, 'neo_reset', 'spikede'),                                   # MODI 2026-10-31
                 stream_rev=getattr(args, 'stream_rev', False), neo_stream_fuse=getattr(args, 'neo_stream_fuse', 'none'),   # MODI 2026-10-24
                 hippo_xattn_mode=getattr(args, 'hippo_xattn_mode', 'replace'), neo_grad=float(getattr(args, 'neo_grad', 0.5)),   # MODI 2026-10-26
                 neo_memoryless=getattr(args, 'neo_memoryless', False),
@@ -152,6 +153,7 @@ def load_neo_mixer(args, train=True):
                      in_channels=getattr(args, 'num_channels', 1), pop_soma_init=getattr(args, 'pop_soma_init', None),   # stage 9
                      pos_emb=getattr(args, 'pos_emb', False),                                                          # MODI 2026-10-21
                      neuron_scope=getattr(args, 'neuron_scope', 'mixer'),                                              # MODI 2026-10-29
+                     neo_reset=getattr(args, 'neo_reset', 'spikede'),                                                  # MODI 2026-10-31
                      mixer_comb=getattr(args, 'mixer_comb', 'or'), heads=args.num_heads, tau_calib=getattr(args, 'tau_calib', True),
                      token_shuffle=getattr(args, 'token_shuffle', False), shuffle_seed=int(getattr(args, 'seed', 0)))   # MODI 2026-10-28
     if not train:

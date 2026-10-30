@@ -546,10 +546,10 @@ def spikes_and_charge(n, x):
 
 
 def build_neo_neuron(kind, size, T, layout, tau=2., alpha=.5, method='pred', step=1., memory=0, pop_taus=(4., 8., 16., 32.),
-                     pop_soma_init=None):
+                     pop_soma_init=None, reset='spikede'):
     """'lif' / 'flif': neurons.py classes wrapped in NeoNeuron; `T` = spiking steps (sizes the kernel table).
     'sj_lif' is handled by the callers (they keep their own spikingjelly LIF, constructed exactly as in nsmt_base)."""
-    common = dict(tau=tau, threshold=1., surrogate_scale=5., step=step, max_length=int(T))
+    common = dict(tau=tau, threshold=1., surrogate_scale=5., step=step, max_length=int(T), reset=reset)   # reset: MODI 2026-10-31
     if kind == 'lif':
         n = LIFNeuron(size, **common)
     elif kind == 'flif':

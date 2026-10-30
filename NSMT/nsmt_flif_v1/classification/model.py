@@ -576,7 +576,8 @@ class myModel(nn.Module):
         self.neo_neuron, self.neo_where = neo_neuron, neo_where
         _neo = dict(tau=self.neo_tau, alpha=float(kwargs.get('neo_alpha', 0.5)), method=str(kwargs.get('fde_method', 'pred')),
                     step=float(kwargs.get('fde_step', 1.0)), memory=int(kwargs.get('fde_memory', 0)),
-                    pop_taus=tuple(kwargs.get('pop_taus', (4., 8., 16., 32.))), pop_soma_init=kwargs.get('pop_soma_init', None))
+                    pop_taus=tuple(kwargs.get('pop_taus', (4., 8., 16., 32.))), pop_soma_init=kwargs.get('pop_soma_init', None),
+                    reset=str(kwargs.get('neo_reset', 'spikede')))                       # MODI 2026-10-31
         emb_neuron = (build_neo_neuron(neo_neuron, embed_dim, self.T, 'DN', **_neo)
                       if (neo_neuron != 'sj_lif' and neo_where == 'both' and not self.neo_streams) else None)
         mlp_fn = ((lambda: build_neo_neuron(neo_neuron, embed_dim, self.T, 'ND', **_neo))

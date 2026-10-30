@@ -160,7 +160,7 @@ class NeoMixer(nn.Module):
                  mixer='pop_flif', mixer_bidir=True, mixer_layers=2, neo_tau=2.0, neo_alpha=0.5, fde_method='pred',
                  fde_step=1.0, fde_memory=0, pop_taus=(4., 8., 16., 32.), bias=False, tau=2.0, train_mode='training',
                  in_channels=1, pop_soma_init=None, pos_emb=False, mixer_comb='or', heads=8, tau_calib=True, token_shuffle=False,
-                 shuffle_seed=0, neuron_scope='mixer', **kwargs):
+                 shuffle_seed=0, neuron_scope='mixer', neo_reset='spikede', **kwargs):
         super().__init__()
         if mixer not in MIXERS:
             raise ValueError(f'mixer must be one of {MIXERS}')
@@ -181,7 +181,7 @@ class NeoMixer(nn.Module):
         self.mixer_kind, self.mixer_bidir, self.mixer_layers, self.depths = mixer, bool(mixer_bidir), int(mixer_layers), int(depths)
         self.no_neo = self.hippo_only = False                              # for the shared evaluators
         neo_kw = dict(tau=neo_tau, alpha=neo_alpha, method=fde_method, step=fde_step, memory=fde_memory, pop_taus=tuple(pop_taus),
-                      pop_soma_init=pop_soma_init)
+                      pop_soma_init=pop_soma_init, reset=neo_reset)              # reset: MODI 2026-10-31
         self.in_channels = int(in_channels or 1)                           # stage 9: a token = P steps x C channels
         self.mixer_comb = mixer_comb
         grouped = mixer.startswith('popg_')

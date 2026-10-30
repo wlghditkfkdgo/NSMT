@@ -1,7 +1,8 @@
 # nsmt_flif_v1 copy of NSMT/f_lif_pop_v3/forecasting/neurons.py (repo commit cd9b4cfec, 2026-10-14).
 # The ONLY change: the line `from layers import arctan_spike, Soma` is replaced by inline copies of
 # ArcTanSpike/arctan_spike (v3 layers.py:51-76) and Soma (v3 layers.py:347-376), because this folder
-# has its own layers.py (the NSMT one). Everything else is byte-identical to the v3 file.
+# has its own layers.py (the NSMT one). Everything else is byte-identical to the v3 file, except (MODI 2026-10-31) the `reset`
+# option of LIFNeuron / FLIFNeuron / PopulationFLIF / Soma (default 'spikede' = unchanged; see LIFNeuron._apply_reset).
 """Neuron family: LIF -> f-LIF -> population / selective / selective population f-LIF.
 
 Reference implementation: PhysAGI/spikeDE, commit fcd743befe504b1a471fa81887e6af7d6789da2e
@@ -96,11 +97,14 @@ class Soma(nn.Module):
     I_n. Reading u(n) instead would leave the last patch unable to reach the last spike
     (gate G15) and delay every selection by one step.
     """
-    def __init__(self, embed_dim, num_population=4, tau_s=2., threshold=1., surrogate_scale=5.):
+    def __init__(self, embed_dim, num_population=4, tau_s=2., threshold=1., surrogate_scale=5., reset='subtract'):
         super().__init__()
 
         if tau_s <= 1. or threshold <= 0.:
             raise ValueError('Require tau_s > 1 and threshold > 0')
+        if reset not in ('subtract', 'zero'):                         # MODI 2026-10-31: 'zero' = hard reset of the soma
+            raise ValueError("Soma reset must be 'subtract' or 'zero'")
+        self.reset_mode = reset   # not 'reset': spikingjelly reset_net calls m.reset()
         self.weight = nn.Parameter(torch.full((embed_dim, num_population), 1. / num_population))
         self.tau_s = float(tau_s)
         self.threshold = float(threshold)
@@ -111,6 +115,8 @@ class Soma(nn.Module):
         charge = v + (a - v) / self.tau_s
         s = arctan_spike(charge - self.threshold, self.surrogate_scale)
 
+        if self.reset_mode == 'zero':                                     # MODI 2026-10-31
+            return charge * (1. - s.detach()), s, a
         return charge - self.threshold * s.detach(), s, a            # detach_reset
 
 # ---- end of inlined helpers ---------------------------------------------------------------
@@ -211,8 +217,16 @@ class LIFNeuron(nn.Module):
         diagnostics that read neuron.b).
     """
     def __init__(self, size, tau=2., threshold=1., surrogate_scale=5., step=1., max_length=64,
-                 dtype=torch.float32):
+                 dtype=torch.float32, reset='spikede'):
         super().__init__()
+
+        # MODI 2026-10-31: reset = how far a spike lowers the membrane at its step: 'spikede' (default, spikeDE: -theta*s/tau
+        # inside F), 'subtract' (exactly theta), 'zero' (to exactly 0, the spikingjelly hard reset); see _apply_reset
+        if reset not in ('spikede', 'subtract', 'zero'):
+            raise ValueError("reset must be 'spikede', 'subtract' or 'zero'")
+        if reset != 'spikede' and type(self).__name__.startswith('Selective'):
+            raise NotImplementedError('reset options are defined for the LIF / f-LIF / population classes')
+        self.reset_mode = reset   # not 'reset': spikingjelly reset_net calls m.reset()
 
         tau = torch.as_tensor(tau, dtype=torch.float64).reshape(-1)
         if tau.numel() < 1 or not bool((tau > 0.).all()):
@@ -256,8 +270,26 @@ class LIFNeuron(nn.Module):
             return drift, None
         look = u + 1. * drift                                        # v + dt * drift, dt = 1 (spikeDE)
         s = arctan_spike(look - self.threshold, self.surrogate_scale)
+        if self.reset_mode != 'spikede':                                  # MODI 2026-10-31: reset applied after the update
+            return drift, s
 
         return drift - (s.detach() * self.threshold) / self.tau, s
+
+    def reset_gain(self):
+        """Coefficient of F_t in v_{t+1} (Euler: h)."""
+        return self.step
+
+    def _apply_reset(self, nxt, s, history):
+        """MODI 2026-10-31: 'subtract' / 'zero' lower the updated membrane of the spiking members by theta / by all of it
+        (spike detached, as detach_reset). The stored increment F_t (f-LIF pred history) is corrected by the same amount over
+        its coefficient, so v_{t+1} = sum_j b_{t-j} F_j still holds for every later step."""
+        if self.reset_mode == 'spikede' or s is None:
+            return nxt
+        sd = s.detach()
+        delta = sd * (self.threshold if self.reset_mode == 'subtract' else nxt)
+        if history['F']:
+            history['F'][-1] = history['F'][-1] - delta / self.reset_gain()
+        return nxt - delta
 
     # ---- integrator --------------------------------------------------------------------------
     @staticmethod
@@ -339,6 +371,7 @@ class LIFNeuron(nn.Module):
         for t in range(T):
             F, s = self.rhs(u, x[t])
             nxt, coeff, stats = self.integrate(t, u, F, x[t], history, oracle_p)
+            nxt = self._apply_reset(nxt, s, history)                 # MODI 2026-10-31 (no-op for 'spikede')
             out, soma, drive = self.emit(nxt, s, soma)
             spikes.append(out)
             if analog:
@@ -391,9 +424,15 @@ class FLIFNeuron(LIFNeuron):
         self.memory = None if memory is None else int(memory)
         dtype = self.tau.dtype
         self.register_buffer('b', pred_coefficients(alpha, self.max_length, self.step, dtype))
+        if method == 'gl' and self.reset_mode != 'spikede':
+            raise NotImplementedError("reset options are defined for method 'pred'")
         if method == 'gl':
             self.register_buffer('c', gl_coefficients(alpha, self.max_length, dtype))
             self.h_alpha = self.step ** self.alpha
+
+    def reset_gain(self):
+        """Coefficient of F_t in v_{t+1} (pred: b_0)."""
+        return self.b[0].item()
 
     def window_start(self, t):
         """spikeDE get_memory_bounds: the first history index that still enters at step t."""
@@ -461,7 +500,8 @@ class PopulationFLIF(FLIFNeuron):
         self.soma_mode = soma
         self.members_fire = soma == 'none'
         if soma == 'lif':
-            self.soma = Soma(size, self.num_members, tau_s, self.threshold, self.surrogate_scale)
+            self.soma = Soma(size, self.num_members, tau_s, self.threshold, self.surrogate_scale,
+                             reset='zero' if self.reset_mode == 'zero' else 'subtract')   # MODI 2026-10-31: the soma keeps subtract unless 'zero'
 
     def _check_members(self):
         pass                                                         # K >= 1

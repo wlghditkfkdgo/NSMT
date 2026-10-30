@@ -2380,12 +2380,112 @@ def c51():
                 f'folder {names["query"]} (suffix ok {sfx})')
     report('c51', ok, '; '.join(rows))
 
+@check('c52')
+def c52():
+    """(MODI 2026-10-31) spikeDE neuron reset option (neurons.py reset = spikede | subtract | zero; config --neo_reset):
+    (a) LIF (Euler) and f-LIF (pred, alpha 0.5) against a hand-written reference loop -- spikes from the same look-ahead
+    H(v + (I - v)/tau - theta); spikede: F = drift - theta s / tau; subtract: v_{t+1} = v_pre - theta s; zero: v_{t+1} = v_pre (1 - s),
+    with the f-LIF history v_{t+1} = sum_j b_{t-j} F_j kept consistent (the stored F_t corrected by the drop / b_0): spikes equal,
+    states equal (|diff| <= 1e-5), the state after every spike is exactly 0 for 'zero'; (b) alpha = 1 f-LIF == LIF for each mode
+    (spikes equal, states <= 1e-5); (c) population soma: 'zero' leaves exactly 0 after every soma spike, 'subtract'/'spikede' unchanged
+    (bitwise equal to the default); (d) the option reaches every spikeDE neuron of a Neo-mixer every-layer model and of the dual-path
+    Neocortex (B form, replace, query), outputs finite, folder suffix _rstzero; Selective / gl refuse a non-default reset."""
+    from neurons import LIFNeuron, FLIFNeuron, PopulationFLIF, pred_coefficients
+    from neurons import NEURONS as _NEU
+    torch.manual_seed(0)
+    T, B, D, tau, th = 40, 3, 16, 2., 1.
+    x = 1.6 * torch.rand(T, B, D)
+    def ref(alpha, mode):
+        b = pred_coefficients(alpha, T, 1., torch.float32) if alpha < 1 else torch.ones(T)
+        v = torch.zeros(B, D); Fs, S, V = [], [], []
+        for t in range(T):
+            drift = (x[t] - v) / tau
+            s_ = ((v + drift - th) >= 0).float()                         # arctan_spike forward = Heaviside(x >= 0)
+            F = drift - (s_ * th / tau if mode == 'spikede' else 0.)
+            Fs.append(F)
+            vp = sum(b[t - j] * Fs[j] for j in range(t + 1)) if alpha < 1 else v + F
+            drop = s_ * th if mode == 'subtract' else s_ * vp if mode == 'zero' else 0.
+            if mode != 'spikede':
+                Fs[-1] = Fs[-1] - drop / (b[0] if alpha < 1 else 1.)
+            v = vp - drop; S.append(s_); V.append(v)
+        return torch.stack(S), torch.stack(V)
+    rows, ok = [], True
+    for mode in ('spikede', 'subtract', 'zero'):
+        for name, mk, alpha in (('LIF', lambda: LIFNeuron(D, tau=tau, reset=mode, max_length=T), 1.),
+                                ('f-LIF', lambda: FLIFNeuron(D, alpha=.5, tau=tau, reset=mode, max_length=T), .5)):
+            n = mk()
+            with torch.no_grad():
+                out, aux = n(x, return_aux=True)
+            sp, st = out.reshape(T, B, D), aux['state'].reshape(T, B, D)
+            rs, rv = ref(alpha, mode)
+            good = torch.equal(sp, rs) and float((st - rv).abs().max()) <= 1e-5
+            if mode == 'zero':
+                good &= bool((st[sp == 1] == 0).all())
+            ok &= good
+            rows.append(f'{name} {mode}: spikes == ref {torch.equal(sp, rs)}, max |state - ref| {float((st - rv).abs().max()):.1e}, rate {float(sp.mean()):.3f}')
+        with torch.no_grad():
+            a = LIFNeuron(D, tau=tau, reset=mode, max_length=T)(x, return_aux=True)
+            f = FLIFNeuron(D, alpha=1., tau=tau, reset=mode, max_length=T)(x, return_aux=True)
+        neutral = torch.equal(a[0], f[0]) and float((a[1]['state'] - f[1]['state']).abs().max()) <= 1e-5
+        ok &= neutral; rows.append(f'alpha 1 f-LIF == LIF ({mode}) {neutral}')
+    torch.manual_seed(1)
+    outs = {}
+    for mode in ('spikede', 'subtract', 'zero'):
+        torch.manual_seed(1); p_ = PopulationFLIF(D, tau=(4., 8., 16., 32.), alpha=.5, tau_s=2., reset=mode, max_length=T)
+        with torch.no_grad():
+            o, aux = p_(x, return_aux=True)
+        outs[mode] = (o, aux['voltage'])
+    soma_zero = bool((outs['zero'][1][outs['zero'][0] == 1] == 0).all())
+    soma_same = torch.equal(outs['subtract'][0], outs['spikede'][0]) and torch.equal(outs['subtract'][1], outs['spikede'][1])
+    ok &= soma_zero and soma_same
+    rows.append(f'population soma: zero -> 0 after spikes {soma_zero}, subtract == default {soma_same}')
+    # (d) model level
+    from layers import NeoNeuron
+    seen = {}
+    for cond, kw in [('mixall_flif', dict(model='neoMixer', mixer='flif', mixer_bidir=True, neuron_scope='all')),
+                     ('mixall_pop_flif', dict(model='neoMixer', mixer='pop_flif', mixer_bidir=True, neuron_scope='all', pop_soma_init=1.0)),
+                     ('spkneo_lif', dict(DUAL_CONDS['spkneo_lif'])), ('nsmt4_flif', dict(DUAL_CONDS['nsmt4_flif'])), ('nsmt4q_pop_lif', dict(QUERY_CONDS['nsmt4q_pop_lif']))]:
+        from config import set_random_seed
+        from load_model import LOAD_MODEL
+        from forecast_wrap import Forecaster
+        set_random_seed(0)
+        a_ = NS(**dict(ETT_GEN, **kw, neo_reset='zero'))
+        m = Forecaster(LOAD_MODEL[a_.model](a_, True), a_.embed_dim, 96, bias=False).cuda().eval(); m.train_mode = 'testing'
+        mods = [mm.neuron if hasattr(mm, 'neuron') else mm for mm in m.modules() if isinstance(mm, NeoNeuron)]
+        modes = sorted({getattr(mm, 'reset_mode', '?') for mm in mods})
+        somas = sorted({mm.soma.reset_mode for mm in mods if getattr(mm, 'has_soma', False)})
+        with torch.no_grad():
+            from spikingjelly.clock_driven import functional
+            functional.reset_net(m); y = m(torch.randn(4, 96, 7).cuda()); functional.reset_net(m)
+        good = modes == ['zero'] and len(mods) > 0 and bool(torch.isfinite(y).all()) and (somas in ([], ['zero']))
+        ok &= good; seen[cond] = (len(mods), modes, somas)
+    refused = []
+    for mk in (lambda: _NEU['sel_flif'](D, reset='zero'), lambda: FLIFNeuron(D, method='gl', reset='zero')):
+        try:
+            mk(); refused.append(False)
+        except (NotImplementedError, ValueError, TypeError):
+            refused.append(True)
+    import tempfile
+    import config as _cfg
+    tmp = tempfile.mkdtemp(dir=os.environ.get('CHECK_TMP')); argv0 = sys.argv
+    try:
+        sys.argv = ['train_rhythm.py', '--log_dir', tmp, '--seed', '42', '-s', '--data', 'CINC2017', '--patch_size', '64', '--model', 'neoMixer',
+                    '--mixer', 'flif', '--mixer_bidir', '--neuron_scope', 'all', '--neo_reset', 'zero']
+        a2 = _cfg.Config(); a2.set_args(_cfg.parse_arguments()); fold = os.path.basename(a2.save_result_path)
+    finally:
+        sys.argv = argv0
+    sfx = '_rstzero' in fold
+    ok &= all(refused) and sfx
+    rows.append('model level (neurons, reset modes, soma modes): ' + ', '.join(f'{c} {v}' for c, v in seen.items())
+                + f'; refused (selective, gl) {refused}; folder {fold} (suffix ok {sfx})')
+    report('c52', ok, '; '.join(rows))
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', default=os.path.join(HERE, 'results', 'checks', 'check_cls.txt'))
     ap.add_argument('--only', nargs='*', default=None)
     a = ap.parse_args()
-    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30, c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44, c45, c46, c47, c48, c49, c50, c51):
+    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30, c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44, c45, c46, c47, c48, c49, c50, c51, c52):
         if a.only and fn.__name__ not in a.only:
             continue
         fn()

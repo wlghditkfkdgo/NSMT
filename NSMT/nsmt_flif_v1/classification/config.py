@@ -142,6 +142,8 @@ def parse_arguments():
     snn_arg.add_argument('--neuron_all', choices=['sj_lif', 'lif', 'flif', 'pop_lif', 'pop_flif'], default='sj_lif',
                          help='MODI 2026-10-29 myModel: this spikeDE neuron in every hippocampus layer too (no spikingjelly LIF left)')
     snn_arg.add_argument('--pop_soma_init', type=float, default=None, help='pop_flif soma mixing weight init (None = 1/K)')
+    snn_arg.add_argument('--neo_reset', choices=['spikede', 'subtract', 'zero'], default='spikede',
+                         help="spikeDE neurons: spike reset at its step -- spikede (-theta*s/tau, default), subtract (theta), zero (MODI 2026-10-31)")
     snn_arg.add_argument('--fold', type=int, default=0, help='CinC 2017: test fold 0..4 of the record-wise stratified 5-fold split')
     snn_arg.add_argument('--val_frac', type=float, default=0.1, help='share of the training part held out for validation')
     snn_arg.add_argument('--win_s', type=float, default=30.0, help='CinC 2017 window length (s)')
@@ -271,6 +273,8 @@ class Config():
             _iso += f"_na{args.neuron_all.replace('_', '')}"
         if getattr(args, 'pop_soma_init', None) is not None:
             _iso += f"_psi{args.pop_soma_init:g}"
+        if getattr(args, 'neo_reset', 'spikede') != 'spikede':             # MODI 2026-10-31
+            _iso += f"_rst{args.neo_reset}"
         if str(getattr(args, 'data', '')).upper() in ('CINC2017', 'SHD'):
             _iso += f"_f{args.fold}" + ("_ce" if getattr(args, 'loss_kind', 'cal') == 'ce' and str(args.data).upper() == 'CINC2017' else '')
             if getattr(args, 'crop_tokens', 0):
