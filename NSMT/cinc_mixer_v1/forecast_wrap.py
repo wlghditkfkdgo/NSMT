@@ -15,6 +15,10 @@ and output ends for the NSMT forecasting ones (nsmt_flif_v1/forecasting/ours.py)
 
 The inner classification head is replaced by nn.Identity (unused, no parameters). Loss / metrics are in train_forecast.py.
 The dual-path auxiliary decoder (weak_decoder) is never called here (plain forecasting loss), so it gets no gradient.
+
+2026-10-31 (exp/f-lif-pop-v3, copied from exp/nsmt-flif-neo dcfdc4811, see ETT_PROVENANCE.md): + kind 'spkmix' for
+spk_mixer.SpkMixer -- the block output h [T_h, B', N, D] of SpkMixer.forward_parts (0/1 under the IAND / OR residuals) is
+step_features, averaged over T_h like 'ssa' before the head. The 'mixer' / 'ssa' / 'dual' paths are unchanged.
 """
 import torch
 import torch.nn as nn
@@ -22,6 +26,7 @@ from timm.models.layers import trunc_normal_
 
 from neo_mixer import NeoMixer
 from model import myModel
+from spk_mixer import SpkMixer
 
 __all__ = ['Forecaster']
 
@@ -35,8 +40,10 @@ class Forecaster(nn.Module):
             self.kind = 'ssa'
         elif isinstance(inner, myModel) and inner.hippo_xattn and not (inner.no_neo or inner.hippo_only):
             self.kind = 'dual'                                             # MODI 2026-10-29
+        elif isinstance(inner, SpkMixer):
+            self.kind = 'spkmix'                                           # 2026-10-31 (exp/f-lif-pop-v3)
         else:
-            raise NotImplementedError('Forecaster wraps neoMixer, myModel --hippo_ssa or myModel --hippo_xattn only')
+            raise NotImplementedError('Forecaster wraps neoMixer, myModel --hippo_ssa, myModel --hippo_xattn or spkMixer only')
         self.inner = inner
         self.inner.head = nn.Identity()
         self.num_patches, self.pred_len = inner.num_patches, int(pred_len)
@@ -55,7 +62,10 @@ class Forecaster(nn.Module):
         self.inner.train_mode = v
 
     def step_features(self, z):
-        """'ssa' / 'dual': z [B', 1, L] -> per-step hippocampus spikes [T_h, B', N, D] (the head input before the T_h mean)."""
+        """'ssa' / 'dual': z [B', 1, L] -> per-step hippocampus spikes [T_h, B', N, D] (the head input before the T_h mean).
+        'spkmix': the SpkMixer block output [T_h, B', N, D]."""
+        if self.kind == 'spkmix':                                          # 2026-10-31 (exp/f-lif-pop-v3)
+            return self.inner.forward_parts(z)[4]
         m = self.inner
         patched, neo_in = m._tokens_mc(z)                                  # [T_h, B', N, P], [N, B', 1, P]
         xh = m.encoding(patched)

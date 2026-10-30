@@ -9128,3 +9128,64 @@ run별: muxor 66.08 / 64.93 / 64.61, muxlin 69.50 / 67.51 / 68.55 (seed 42 / 7 /
 - 첫 반복의 s_d가 다른 반복의 절반이라는 점은 잔차 MUX에서 첫 반복이 거의 임베딩만 통과한다는 뜻이다. 보정을 한다면 이 반복 축 차이가 대상이다.
 
 **commit·태그:** 결과(`summary.md`, `raw.txt`, pool 기록), 학습 후 측정 결과, 이 기록을 `exp/f-lif-pop-v3`에 commit·push하고 annotated tag `exp/f-lif-pop-v3-mux-fuse-20261031`을 붙인다(태그된 commit이 이 기록의 commit이다). B2·C pool은 계속 돈다(31/48).
+
+## 2026-10-31 02:05 KST — 사전등록 + 구현: muxlin의 ETT 검증(SpkMixer, LIF, OR 잔차; ETTh2 + ETTm2 × H96 / H720 × seed 3; muxlin·sdlin 24 run, Spikformer식 기준값은 다른 세션의 12 run 재사용) — 다른 세션의 ETT 예측 코드를 출처와 함께 복사, 이 브랜치 코드가 기준값을 비트 단위로 재현(초기값·출력·기울기 동일, 재현 run MSE 0.291610 = 기준값, 보정 에너지 9.350117 = 기준값); 점검 5/5, smoke 4/4
+
+**직전 commit:** `4bf94d487`(MUX 합치기 결과, 태그 `exp/f-lif-pop-v3-mux-fuse-20261031`). 그 뒤 `c3f76d071`(복사본 그대로, 아래). **계획 승인:** 사용자(10-31).
+
+**사용자 지시(10-31, 원문):** "1. (ii)를 fold 1-4 를 하면서 동시에 하이퍼파라미터 튜닝을 해보는 것은 어때? - learning rate 튜닝 - neo-mixer에서 양 방향 각각의 레이어 개수 튜닝 - residual connection IAND vs ADD 비교 등등 2. 잔차 MUX와 보정은 우선 보류 하자. 3. 현재 가장 논문을 쓸 수 있을 정도로의 수치를 보여주는 것은 MUXlin 인거지? - 그렇다면 task를 더 확장해서 ETT 일부에서도 검증해보자. - 1번 이전에 3번을 수행하고 ETT 예측에서 성능이 떨어진다면 1번 또한 보류하는 것으로 하자."
+- 3번의 물음에 대한 답(계획에 기록): 이 브랜치의 CinC 실험 중 Spikformer식을 seed 셋 모두, 네 클래스 모두에서 넘은 조건은 muxlin뿐이다(+2.92%p, 에너지 1.02배). 에너지는 같은 수준이므로 주장은 "같은 에너지에서 더 정확"이고, fold 0 하나뿐이다.
+- 질문 답(사용자 결정 10-31): (1) 다른 세션 코드는 **복사 + 출처 기록**(이 브랜치 규칙, 8150행). (2) Spikformer식 ETT 기준값은 다른 세션의 기존 12 run을 **재사용**. (3) 보류 기준은 E1(muxlin vs Spikformer식)이 **'나쁨'일 때만 보류**, '좋음'이면 1번 계획을 세워 승인을 받고, '차이 없음'이면 보고 후 결정. (4) **sdlin도 대조로 포함**.
+- ETT 범위: 사용자 결정 12(10-14, MODI_PROJECT_LOG 109행)와 10-29 정정(3890–3908행)대로 ETTh2 + ETTm2 × H96 / H720, 4칸만.
+
+### 절차 (다른 세션 ETT 절차 그대로, MODI_PROJECT_LOG 2806–2831)
+- 조건: `spkmx_lif_muxlin_or`(`--model spkMixer --mixer lif --mixer_comb muxlin --connect_f OR --hippo_T 4`), `spkmx_lif_sdlin_or`(같고 `--mixer_comb sdlin`). × 4칸 × seed 42/7/2026 = 24 run. 잔차는 CinC B1에서 고른 OR.
+- 예측기(`forecast_wrap.Forecaster`): 창마다 채널별 평균·표준편차로 정규화, 7채널을 따로 [B·7, 1, 96](가중치 공유), 패치 8·간격 4 → token 24, 몸통 출력 [4, B', 24, D]를 반복 4개 평균, Linear(24·D → H)(bias 없음), 정규화 되돌림. Spikformer식도 같은 방식.
+- 데이터별 값(논문 표 13): ETTh2 D 64, MLP 비율 0.5, 방향별 mixer 1층, lr 5e-4, batch 64, 최대 100 epoch; ETTm2 D 64, MLP 1, mixer 2층, lr 5e-4, batch 64, 최대 50 epoch. 공통: 입력 96, `--features M`, L1 손실, AdamW wd 0.06, ReduceLROnPlateau(검증 L1, patience 2, 0.1배), 검증 L1 조기 종료 patience 10, test는 최고 검증 가중치, 지표는 정규화된 값의 MSE·MAE.
+- CinC의 muxlin(D 384, mixer 2층)과 크기가 다르다. ETT의 다른 모든 비교와 같은 표 13 값을 쓰기 위해서다.
+
+### 코드
+- **복사(`c3f76d071`, 수정 없음):** 다른 세션 `exp/nsmt-flif-neo` commit `dcfdc4811`에서 `git show`로 꺼냄. `forecast_wrap.py`, `train_forecast.py`, `energy_recount_ett.py`(classification/), `data_provider/*.py` 8개(forecasting/). blob 11개가 원본과 같다. 출처 표는 `NSMT/cinc_mixer_v1/ETT_PROVENANCE.md`. 다른 세션 파일은 건드리지 않았다.
+- **수정(다음 commit):** `forecast_wrap.py`에 SpkMixer kind `'spkmix'`(특징 = `forward_parts(z)[4]` [T_h, B', N, D]의 반복 평균, `step_features` = 반복별 값; 기존 세 경로 그대로). `energy_recount_ett.py`에 조건 접두사 `spkmx_`, kind `'spkmix'`, 결과 경로 `--res_root`(기본 이 폴더의 results).
+- **새 파일:** `scripts/run_ett_spk.sh`(다른 세션 `run_ett_mixer.sh` 바탕, 같은 학습 줄과 데이터별 값, ETTh2·ETTm2만), `make_queue_spk.sh` 단계 `ettsmoke`·`ettrepro`·`ett`, `check_ett_mux.py`, `ett_t1_snapshot.py`, `summarize_ett_mux.py`(판정식은 다른 세션 `summarize_gen.py` 151–169행을 출처와 함께 옮김).
+- 기존 CinC 코드(`spk_mixer.py`, `config.py`, `model.py`, CinC 러너)는 수정하지 않았다.
+
+### 기준값 재사용
+- 다른 세션 `nsmt_flif_v1/forecasting/results/flif-v1-gen-ett/raw.txt`·`energy_recount.csv`(commit `259286b6f`, run은 commit `f0950c9a1`)의 `spk_ssa` 4칸 × 3 seed 12행을 그대로 `results/flif-v1-ett-spkmux/baseline_spk_ssa_raw.txt`·`baseline_spk_ssa_energy.csv`에 사본으로 두었다. 원본 SHA256은 사본 머리글과 `baseline_spk_ssa_energy.source.txt`에 있다.
+- 기준값 평균: MSE 0.2903 / 0.4223 / 0.1775 / 0.4034(ETTh2 H96, H720, ETTm2 H96, H720), 보정 에너지 4칸 평균 10.46 µJ.
+
+### 점검 (`check_ett_mux.py`, `results/checks/check_ett_mux.txt`) — **5/5 통과**
+- t0 복사: 수정하지 않은 복사본 9개가 원본 blob과 같다; SpkMixer 추가가 있다.
+- t1 기준 모델 동일성: 기준값을 만든 commit `f0950c9a1`의 코드(`git archive`로 scratchpad에 꺼냄, `python -B`로 읽기만)와 이 브랜치 코드로 Spikformer식 예측기(ETTh2 H96 seed 42)를 각각 만들었다. 초기 state_dict 45개, 시험 배치, 평가 출력, 학습 출력, L1 기울기 23개(21개 0 아님), 창 수(8449 / 2785 / 2785)가 모두 비트 단위로 같다.
+- t2 SpkMixer 예측기(muxlin, sdlin): 출력 [64, 96, 7]; 채널 하나의 입력을 바꾸면 그 채널 출력만 바뀜; 입력 + 5 → 출력 + 5; 반복별 특징이 0과 1이고 평균이 head 입력과 같음; muxlin m = where(s_d, L, F ∧ R); mixer·s_d·합치기 neuron T 24, 임베딩·MLP T 4. 초기 모델 발화율: s_d 7.44 %, F 4.49 %, muxlin m 1.23 %, sdlin m 4.78 %.
+- t3 에너지 재계산(smoke 4 run): smoke 4 run 모두 `energy_recount_ett.py` 검사 통과(재계산 MSE = 기록 MSE, 반복별 head 입력 0/1, head 곱셈 수 = syops). 보정 에너지 ETTh2 H96 muxlin 9.10 / sdlin 9.15 µJ, ETTm2 H720 14.39 / 14.40 µJ. 보정식(total − head_MAC·4.6e-6 + head_AC·0.9e-6)을 점검에서 다시 계산해 일치. 재현 run(Spikformer식)의 재계산 행도 기준값 행과 모든 열이 같다.
+- t4 재현: 이 브랜치 코드로 Spikformer식 ETTh2 H96 seed 42를 다시 학습했다(suite `check-ett-spkssa-20261031`, 168 s). test MSE 0.291610, MAE 0.336512, 최고 epoch 3 / 14 epoch, 보정 에너지 9.350117 µJ로 기준값 행과 모든 열이 같다.
+
+### smoke (1 epoch, seed 42, `results/smoke-ett-spkmux-20261031/`)
+- 4 run 모두 RESULT, SKIP 0(GPU 4장, B2·C pool과 다른 세션 학습과 함께). 1 epoch이라 점수는 학습 가능 여부만 본다(기준값은 완전 학습 값이라 비교하지 않는다).
+
+| 조건 | 칸 | test MSE | MAE | 보정 에너지 µJ | 시간 s | 최대 메모리 GB |
+|---|---|---:|---:|---:|---:|---:|
+| muxlin | ETTh2 H96 | 0.2912 | 0.3365 | 9.10 | 90 | 0.44 |
+| sdlin | ETTh2 H96 | 0.2925 | 0.3373 | 9.15 | 103 | 0.40 |
+| muxlin | ETTm2 H720 | 0.4085 | 0.4003 | 14.39 | 414 | 0.56 |
+| sdlin | ETTm2 H720 | 0.4101 | 0.4017 | 14.40 | 432 | 0.52 |
+
+- 시간: ETTm2 H720은 epoch당 약 200 s, ETTh2 H96은 약 30 s(평가 포함). 다른 세션 ETT run은 조기 종료로 11–24 epoch에서 멈췄으므로 run당 수 분에서 1시간 남짓으로 본다(측정 후 기록).
+
+### 실행
+- 대기열 `cinc_mixer_v1/scripts/queues/ett-spkmux-20261031.txt`(24; ETTm2 H720부터), 명령(NSMT/에서) `nohup bash scripts/gpu_pool2.sh cinc_mixer_v1/scripts/queues/ett-spkmux-20261031.txt 0,1,2,3 > cinc_mixer_v1/results/flif-v1-ett-spkmux/pool_log.txt 2>&1 &`. 끝나면 `energy_recount_ett.py --suite flif-v1-ett-spkmux`, `summarize_ett_mux.py`.
+
+### 판정 (사전 고정; 다른 세션 ETT 규칙, MODI_PROJECT_LOG 3906)
+- seed별 r = 100·(MSE_A − MSE_B)/MSE_B(같은 seed끼리). 칸 평균 r ≤ −1 %이고 3 seed 중 2개 이상 음수면 그 칸 '좋음'(반대 '나쁨').
+- R = 4칸의 칸 평균 r의 평균. R ≤ −1 %이고 12쌍 중 8쌍 이상 음수면 '좋음', R ≥ +1 %이고 8쌍 이상 양수면 '나쁨', 나머지 '차이 없음'.
+- 기준 (2) = '좋음', 또는 R ≤ +1 %이면서 보정 에너지 배율 ≤ 0.5.
+- **E1 muxlin vs Spikformer식(보류 결정):** '나쁨'이면 fold 1–4와 튜닝 보류; '좋음'이면 그 계획을 세워 승인을 받음; '차이 없음'이면 보고 후 사용자 결정.
+- E2 muxlin vs sdlin(ETT에서 MUX의 효과). E3 sdlin vs Spikformer식(참조).
+- 보고만: MAE 기준 R, 칸별 판정, 보정 에너지 배율, epoch 수.
+
+### 한계
+- seed 3개, ETT 4칸뿐이다. ETT 판정은 CinC와 기준이 다르다(MSE 상대 차이 ±1 %).
+- ETT의 SpkMixer는 표 13 크기(D 64, mixer 1–2층)라 CinC의 muxlin(D 384, mixer 2층)과 다르다.
+
+**commit:** 수정·새 파일·점검·smoke·기준값 사본·이 기록을 `exp/f-lif-pop-v3`에 commit·push한 뒤 본 실행을 시작한다.

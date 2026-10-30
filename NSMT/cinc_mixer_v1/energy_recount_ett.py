@@ -16,6 +16,10 @@ MODI 2026-10-29: the dual-path forecasters (B form spkneo_*, [NSMT hippocampus T
 recounted the same way (per-step head input from Forecaster.step_features, which also runs the neocortex).
 usage: python energy_recount_ett.py --suite flif-v1-gen-ett   ->  forecasting/results/<suite>/energy_recount.csv
        --missing_only: keep the rows already in energy_recount.csv and process only RESULT rows that are not there (e.g. a rerun)
+
+2026-10-31 (exp/f-lif-pop-v3, copied from exp/nsmt-flif-neo dcfdc4811, see ETT_PROVENANCE.md): + the SpkMixer forecasters
+(conditions spkmx_*, Forecaster kind 'spkmix'): their head also reads the T_h-averaged block output and is recounted the same way;
+results live in <this folder>/results/<suite> (--res_root; the source tree's forecasting/results does not exist here).
 """
 import argparse
 import csv
@@ -42,7 +46,8 @@ UNIT = {'': 1., 'K': 1e3, 'M': 1e6, 'G': 1e9}
 
 def recount(cond):
     """conditions whose forecast head reads the T_h-averaged hippocampus spikes (Spikformer-style and dual-path forecasters)."""
-    return cond == 'spk_ssa' or cond.startswith(('spkall_', 'spkneo_', 'nsmt4_', 'nsmt4q_'))   # MODI 2026-10-30: + nsmt4q_
+    return cond == 'spk_ssa' or cond.startswith(('spkall_', 'spkneo_', 'nsmt4_', 'nsmt4q_',   # MODI 2026-10-30: + nsmt4q_
+                                                 'spkmx_'))                                   # 2026-10-31: + SpkMixer
 
 
 def head_line(run):
@@ -63,8 +68,8 @@ def measure(run, device):
     model = Forecaster(LOAD_MODEL[args.model](args, True), args.embed_dim, args.pred_len, bias=args.bias)
     model.load_state_dict(torch.load(os.path.join(run, 'model_state', 'checkpoint.pth'), map_location='cpu'))
     model = model.to(device).eval(); model.train_mode = 'testing'
-    if model.kind not in ('ssa', 'dual') or model.head.bias is not None:
-        raise RuntimeError(f'{run}: expected a bias-free Spikformer-style or dual-path forecaster')
+    if model.kind not in ('ssa', 'dual', 'spkmix') or model.head.bias is not None:                # 2026-10-31: + 'spkmix'
+        raise RuntimeError(f'{run}: expected a bias-free Spikformer-style, dual-path or SpkMixer forecaster')
     _, dl = data_provider(data_args(args, args), 'test')
     m = model.inner
     se = 0.; cnt = 0; spikes = 0.; n_el = 0; binary = True; T_h = None; C = None
@@ -90,8 +95,9 @@ def main():
     ap.add_argument('--suite', default='flif-v1-gen-ett')
     ap.add_argument('--device', default='cuda')
     ap.add_argument('--missing_only', action='store_true')
+    ap.add_argument('--res_root', default=os.path.join(HERE, 'results'))   # 2026-10-31: this branch keeps results in cinc_mixer_v1/results
     a = ap.parse_args()
-    res = os.path.join(HERE, '..', 'forecasting', 'results', a.suite)
+    res = os.path.join(a.res_root, a.suite)
     rows = parse(os.path.join(res, 'raw.txt'))
     out, bad = [], []
     if a.missing_only:                                                 # MODI 2026-10-30: e.g. one rerun after the full recount
