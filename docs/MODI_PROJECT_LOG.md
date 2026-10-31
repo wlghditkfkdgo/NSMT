@@ -4721,3 +4721,71 @@ query energy는 143.5–180.1 µJ다. Spikformer식 @90 대비 1.13–1.38배, B
 **commit / tag:** 이 항목, CinC `raw.txt`·`pool_runs.txt`, 갱신한 `results/flif-v1-query-summary[-energyfix].md`를 commit 한다. annotated tag `exp/nsmt-flif-neo-20261031-query`(query 묶음 완료)를 붙이고, `exp/nsmt-flif-neo`와 이 tag만 push 한다.
 
 ---
+
+## 2026-10-31 10:03 KST — 튜닝 2단계 결과: Neo-mixer 방향당 layer 수 (ETTh2 H96·H720, 4종 × layer {1, 2, 3, 4}, 새 run 72) — **네 neuron 모두 validation으로 기본 1층을 골랐다(층을 늘린 validation 차이 0.09–0.44 %). 판정 변화 0개 → "긍정" 아님, CinC로 넓히지 않음.** 보고만: 고른 lr 위에서 Neo-mixer 모든 layer f-LIF − LIF −1.54 %(좋음, 5/6)
+
+**직전 commit:** `8f3531ba7` (query 묶음 결과, tag `exp/nsmt-flif-neo-20261031-query`). 사전 고정은 10-31 08:0x 항목(`847c2f6f2`)이다.
+
+**실행:**
+- 72 run이 07:55:37–10:01에 돌았다. 처음에는 pool 하나(4칸)였고, CinC query가 끝난 09:22부터 같은 대기열에 두 번째 pool(4칸)을 붙였다. pool은 대기열에서 작업을 꺼낼 때 잠금을 걸어 두 pool이 같은 줄을 꺼내지 않는다.
+- 72/72 RESULT, SKIP 0, run 시간 213–1,338 s다.
+- pool 기록은 `forecasting/results/flif-v1-ett-tune/pool_runs_layers.txt`(두 pool 기록을 이어 붙임)다.
+- energy: `energy_recount_ett.py --suite flif-v1-ett-tune --missing_only`로 Neo-mixer run의 행을 더했다. Neo-mixer head는 0/1을 받으므로 다시 세지 않고 기록값을 쓴다. 점검을 통과했다.
+- 요약: `summarize_tune.py --stage layers [--energy_fix]` → `results/flif-v1-tune-layers-summary[-energyfix].md`, `selected_layers.json`.
+
+**결과** (test MSE, H96 / H720 칸 평균; lr은 1단계 선택값: LIF·population f-LIF 5e-4, f-LIF 2.5e-4, population LIF 2e-3; **굵게** = 고른 값):
+
+| Neo-mixer 모든 layer | 1층 (기본) | 2층 | 3층 | 4층 | validation 비율 (2 / 3 / 4층, 1층 = 1) |
+|---|---|---|---|---|---|
+| LIF | **0.2963 / 0.4293** | 0.3000 / 0.4273 | 0.2967 / 0.4260 | 0.2971 / 0.4265 | 1.0016 / 1.0026 / 1.0010 |
+| f-LIF | **0.2931 / 0.4206** | 0.2943 / 0.4200 | 0.2921 / 0.4218 | 0.2896 / 0.4191 | 1.0021 / 1.0020 / 1.0036 |
+| population LIF | **0.3049 / 0.4348** | 0.3048 / 0.4349 | 0.3042 / 0.4367 | 0.3048 / 0.4403 | 1.0036 / 1.0017 / 1.0044 |
+| population f-LIF | **0.2949 / 0.4239** | 0.2950 / 0.4229 | 0.2972 / 0.4267 | 0.3019 / 0.4305 | 1.0009 / 1.0022 / 1.0039 |
+
+- **판정 1:** 네 설정 모두 기본(1층)을 골랐다.
+- **판정 2 (변화 0개):**
+  - Spikformer식 대비: LIF +1.85 %(나쁨, 0.18배), f-LIF +0.27 %(차이 없음, 0.25배, 기준 (2) 충족), population LIF +3.98 %(나쁨, 0.46배), population f-LIF +0.97 %(차이 없음, 0.97배, 미충족).
+  - W4 모든 layer f-LIF − LIF: −1.54 %(seed 쌍 5/6, 좋음, energy 1.42배).
+- **"긍정": 아니다.** CinC로 넓히지 않는다.
+- **보고만 (test를 본 뒤의 관찰, 선택에는 쓰지 않음):** f-LIF는 4층에서 test가 가장 낮다(0.2896 / 0.4191). 그러나 validation은 1층이 가장 낮았다.
+- **W4 "좋음"의 출처:** W4는 2칸·고른 lr 기준이다. f-LIF가 2.5e-4를 고른 효과가 포함돼 있다. 10-30 4칸·기본 lr 기준 W4(3칸)는 −0.34 %로 차이 없음이었다.
+
+**사전 예상과 비교:** "ETTh2에서도 2층을 고르는 설정이 있음": **틀렸다**(모두 1층). "판정 1 좋음 0–1개, Spikformer식 대비 판정 변화 가능성 낮음": 맞았다.
+
+**읽는 법 (탐색):** ETTh2(24 token)에서는 Neo-mixer를 깊게 해도 validation이 나아지지 않는다. Spikformer식과의 차이(LIF·population LIF 나쁨)는 층 수 때문이 아니다.
+
+**commit / tag:** 이 항목, `forecasting/results/flif-v1-ett-tune/{raw.txt, energy_recount.csv, pool_runs_layers.txt, selected_layers[_energyfix].json}`, `results/flif-v1-tune-layers-summary[-energyfix].md`를 commit 한다. annotated tag `exp/nsmt-flif-neo-20261031-layers`를 붙이고, `exp/nsmt-flif-neo`와 이 tag만 push 한다.
+
+---
+
+## 2026-10-31 10:04 KST — 사전 고정: 튜닝 3단계 spikeDE neuron reset 방식 (ETTh2 H96·H720, spikeDE neuron을 쓰는 16 설정, 새 run 144) — 1·2단계 선택값 위에서; 구현·점검·smoke는 08:1x 항목(`40776c7fe`)
+
+**직전 commit:** 위 항목(layer 수 결과, tag `exp/nsmt-flif-neo-20261031-layers`).
+
+**설정:**
+- spikeDE neuron을 쓰는 16 설정이다. Neo-mixer 모든 layer 4종, B형 4종, [NSMT 해마만 T=4] 4종, query 4종(dual-path는 Neocortex neuron).
+- 방식은 `--neo_reset` ∈ {spikede(기본), subtract, zero}다.
+  - population은 soma가 원래 θ를 빼므로 `subtract`가 기본과 같은 모델이다. 그래서 spikede와 zero만 비교한다.
+- base는 1단계 lr 선택(Neo-mixer f-LIF 2.5e-4, population LIF 2e-3, 나머지 5e-4)과 2단계 layer 선택(모두 1층), α 0.5다.
+- 기본(spikede)은 기존 run을 다시 쓴다.
+- 새 run은 (LIF·f-LIF 8 설정 × 2 + population 8 설정 × 1) × 2칸 × seed 3 = **144**개, 대기열 `scripts/queues/tune-reset-20261031.txt`(`make_queue_tune.sh reset`)다.
+
+**판정 (사전 고정, `summarize_tune.py --stage reset` docstring):**
+- 선택: 모델마다 validation L1의 칸별 기본 대비 비율 평균이 가장 낮은 방식이다.
+- 판정 1: 고른 방식 − 기본(test, 2칸 규칙: R ≤ −1 %이고 seed 쌍 4/6).
+- 판정 2: 각 설정 − Spikformer식(기준 (2), energy는 다시 센 값), R1 바꿔 넣기 − 덧붙이기, Q1 query − 바꿔 넣기, Q2 query − 덧붙이기, W4 Neo-mixer f-LIF − LIF를 기본끼리와 각자 고른 방식끼리 적는다.
+- "긍정" 규칙(CinC 확장 조건)은 1·2단계와 같다.
+- 보고: 모든 spikeDE neuron에 하나의 방식을 쓰는 것이 목적이므로, 방식별 전체 평균 validation 비율(LIF·f-LIF 설정 묶음, population 설정 묶음)을 함께 적는다.
+
+**사전 예상:**
+- Neo-mixer 모든 layer LIF·f-LIF는 `zero`를 고를 것이다. 10-29 구현 몫(spikingjelly hard reset → spikeDE θ/τ)이 +1.0 ~ +2.3 %였다. 그 경우 Neo-mixer LIF의 Spikformer식 대비 "나쁨"(+1.85 %)이 차이 없음으로 바뀔 수 있어 "긍정"일 가능성이 있다.
+- dual-path Neocortex는 방식 차이가 작아 대부분 기본을 고를 것이다.
+- population soma `zero`는 차이 없음일 것이다.
+
+**실행:** NSMT/에서 tmux 두 개(`flif_reset`, `flif_reset2`)로 같은 대기열에 `bash scripts/gpu_pool2.sh nsmt_flif_v1/classification/scripts/queues/tune-reset-20261031.txt 0,1,2,3`을 각각 띄운다(합 8칸). 다른 대화의 작업과 GPU를 나눠 쓴다. 끝나는 시각은 어림하지 않는다.
+
+**한계:** ETTh2 두 칸, seed 3이다. 방식은 앞 단계 선택값 위에서만 고른다. ETT test set은 여러 번 열었다.
+
+**commit:** 위 항목과 함께 commit 하고 push 한 뒤 pool을 시작한다.
+
+---
