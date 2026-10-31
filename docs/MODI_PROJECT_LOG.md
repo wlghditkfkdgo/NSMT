@@ -4659,3 +4659,65 @@ CinC macro-F1은 Spikformer식 60.26에 대해 B형 LIF 60.90, [NSMT T=4] LIF 55
 **commit:** 이 항목과 위 코드, `results/checks/check_cls_c46_c52_20261031.txt`, smoke 결과를 commit 하고 `exp/nsmt-flif-neo`만 push 한다.
 
 ---
+
+## 2026-10-31 09:24 KST — query 묶음 결과 (CinC 15 + ETT 30 run): Neocortex를 attention **query**로 — **CinC에서 key·value 바꿔 넣기보다 neuron 4종 모두 좋음(+2.33 ~ +5.84 %p, 3/3 seed). B형(덧붙이기)보다 f-LIF·population LIF·population f-LIF가 좋음(+1.00 ~ +1.23 %p), LIF는 차이 없음. Spikformer식 대비 population LIF +1.71 %p, population f-LIF +1.57 %p 좋음(3/3, energy 1.21·1.38배). population LIF 66.60 %는 이 작업의 CinC fold 0 최고 점수. 다만 T = N memory 효과(LIF memory − memoryless)는 +0.36 %p로 차이 없음. ETT는 모든 주 비교 차이 없음**
+
+**직전 commit:** `40776c7fe` (reset 방식 구현·점검). 사전 고정은 10-30 20:02 항목(`899651dc0`)이고, ETT 부분은 10-30 21:26 중간 항목(`dcfdc4811`)에 있다.
+
+**실행:**
+- CinC 15 run(`nsmt4q_<lif|flif|pop_lif|pop_flif>`, `nsmt4q_lif_nomem` × fold 0 × seed 42 / 7 / 2026, 90 epoch)이 pool A(4칸)에서 10-30 20:02:58–10-31 09:21:45에 돌았다.
+- 15/15 RESULT, SKIP 0이다. run 시간은 1,180–32,374 s(memoryless 약 0.3 h, LIF 1.2 h, f-LIF 2.4 h, population 2.9–9.0 h)다. 다른 대화의 CinC 약 10개와 GPU를 같이 썼다.
+- sha: `899651dc0` 4개, `dcfdc4811` 8개, `40776c7fe` 3개(memoryless, reset 옵션 commit 뒤 시작). 그 사이 바뀐 학습 코드는 reset 옵션뿐이고, 기본값에서 비트 동일함을 실제 checkpoint 11개로 확인했다(10-31 08:1x 항목). 31초 결함 구간에 시작한 run은 없다.
+- 결과: `classification/results/flif-v1-rhythm-query-cinc/{raw.txt, pool_runs.txt}`.
+- 요약: `summarize_query.py [--energy_fix]` → `results/flif-v1-query-summary[-energyfix].md`. ETT 부분은 21:26 항목과 같다.
+
+### 결과 (A − B, seed 42 / 7 / 2026; CinC는 %p, ETT는 R %; ✓ 좋음, ✗ 나쁨)
+
+**CinC 평균** (fold 0, 90 epoch, test; 괄호는 macro-F1 = 네 부류 F1 평균):
+
+| 모델 | LIF | f-LIF | population LIF | population f-LIF | memoryless LIF |
+|---|---|---|---|---|---|
+| **query** (Neocortex q, Hippocampus k·v) | 65.30 (60.22) | 65.25 (60.30) | **66.60 (61.52)** | 66.47 (61.05) | 64.94 (60.43) |
+| 바꿔 넣기 [NSMT 해마만 T=4] | 62.97 (55.24) | 60.26 (54.99) | 63.51 (55.71) | 60.63 (55.44) | 59.12 (51.58) |
+| 덧붙이기 B형 | 65.49 (60.90) | 64.25 (59.42) | 65.38 (60.23) | 65.28 (60.47) | 66.04 (61.48) |
+| Spikformer식 | 90 epoch 64.89 (60.26), 30 epoch 65.60 (61.94) | | | | |
+
+query energy는 143.5–180.1 µJ다. Spikformer식 @90 대비 1.13–1.38배, B형 대비 0.86–0.91배, 바꿔 넣기 대비 1.02–1.07배다.
+
+**사전 고정 비교:**
+
+| 비교 | CinC | ETT ETTh2 2칸 |
+|---|---|---|
+| **Q1 query − 바꿔 넣기 (주)** | LIF +2.33 ✓(+2.70 / +1.82 / +2.48), f-LIF +4.99 ✓, population LIF +3.10 ✓, population f-LIF +5.84 ✓ — 넷 다 3/3 | 넷 다 차이 없음(−0.83 ~ +0.45) |
+| Q1 (보고) memoryless끼리 | +5.82 ✓ | +0.13 |
+| **Q2 query − B형** | LIF −0.19, f-LIF **+1.00 ✓**, population LIF **+1.23 ✓**, population f-LIF **+1.19 ✓** (각 2/3 seed) | population LIF −1.13 ✓, 나머지 차이 없음 |
+| **Q3 query − Spikformer식** | LIF +0.41, f-LIF +0.35, population LIF **+1.71 ✓**(+0.22 / +1.53 / +3.38), population f-LIF **+1.57 ✓**(+1.25 / +1.27 / +2.20) | population f-LIF −1.26 ✓, 나머지 차이 없음 |
+| Q3 energy / 기준 (2) | 1.13 / 1.15 / 1.21 / 1.38배; population 둘만 "좋음"이라 충족 | 1.08–1.43배; population f-LIF만 충족 |
+| **Q4 T = N memory − memoryless (LIF, 주)** | +0.36 (+1.22 / −0.46 / +0.32), 차이 없음 | +0.63, 차이 없음 |
+| Q4 (보고) 다른 neuron − memoryless LIF | f-LIF +0.31; population LIF +1.66 ✓, population f-LIF +1.53 ✓ | 모두 차이 없음 |
+| Q5 (보고) − query LIF | f-LIF −0.05; population LIF +1.30 ✓, population f-LIF +1.17 ✓ | population f-LIF −1.08 ✓, 나머지 차이 없음 |
+
+**사전 예상과 비교 (10-30 20:02):**
+- Q1 "CinC 좋음": 맞았다(넷 다, 예상보다 크게).
+- Q2 "CinC 차이 없음 또는 나쁨": **틀렸다**(세 neuron에서 B형보다 좋음).
+- Q3 "CinC 차이 없음 또는 나쁨, 기준 (2) 미충족": population 둘에서 **틀렸다**(좋음 → 충족).
+- Q4 "CinC 좋음(바꿔 넣기처럼 Neocortex가 필수 경로)": **틀렸다**(LIF 차이 없음).
+- ETT 예상은 Q1·Q4 맞음, Q2·Q3는 population 하나씩 틀림(21:26 항목).
+
+### 읽는 법 (탐색, CinC fold 0, seed 3)
+- **key·value를 Hippocampus에 남기고 Neocortex가 query만 맡으면, 바꿔 넣기의 손해가 사라지고 그 이상이 된다.** 10-30 결과의 가설("바꿔 넣기의 손해는 Hippocampus token 내용을 잃어서")과 맞는다. query 형태는 B형의 Hippocampus 자기 q 대신 Neocortex 상태로 "무엇을 읽을지"를 정한다. 그런데 B형보다 같거나 좋고, energy는 B형의 0.86–0.91배다.
+- **population neuron에서 가장 좋다.** query 안에서 population LIF·f-LIF는 LIF보다 +1.30·+1.17 %p 높다(3/3). 바꿔 넣기·B형에서는 population의 이점이 없거나 작았다. f-LIF는 LIF와 같다(−0.05). 분수 차수의 이득은 여기서도 보이지 않는다.
+- **memory 자체의 몫은 아직 가르지 못했다.** LIF의 memory − memoryless는 +0.36 %p로 차이 없다. population − memoryless LIF(+1.66 / +1.53)에는 neuron 종류 차이(τ 4·8·16·32 가지)와 memory가 섞여 있다. population memoryless control이 없어서 둘을 나눌 수 없다.
+- **Spikformer식보다 좋다는 판정은 baseline 선택에 민감하다.** 사전 고정 baseline은 90 epoch Spikformer식(64.89)이다. 30 epoch Spikformer식(65.60, 그 모델의 더 나은 학습 예산)과 비교하면 population LIF는 +1.00 %p, population f-LIF +0.87 %p다(보고만; seed 짝 판정은 하지 않음). macro-F1은 61.52 / 61.05로 30 epoch Spikformer식 61.94보다 낮다.
+- **ETT에서는 형태 차이가 드러나지 않는다.** dual-path 묶음과 같다.
+
+**한계:** CinC fold 하나, seed 3이다(test 기록 구성만으로 ±2 %p 안팎 흔들림). Q2·Q3의 "좋음"은 2/3–3/3 seed다. B형·바꿔 넣기·Spikformer식 run은 다른 날·다른 GPU 부하에서 학습됐다. population memoryless control이 없다. energy는 연산 수 기반 추정이다.
+
+**다음 후보 (사용자 결정 필요):**
+1. query 형태 population의 CinC fold 1–4 확인. 보고서가 말한 "fold 하나는 ±2 %p" 문제를 피하는 방법이다.
+2. population memoryless control(`nsmt4q_pop_lif_nomem`, `nsmt4q_pop_flif_nomem`)로 memory 몫 가르기.
+3. 진행 중인 튜닝(layer 수 → reset → α)의 dual-path 단계에 query 형태가 이미 들어 있다.
+
+**commit / tag:** 이 항목, CinC `raw.txt`·`pool_runs.txt`, 갱신한 `results/flif-v1-query-summary[-energyfix].md`를 commit 한다. annotated tag `exp/nsmt-flif-neo-20261031-query`(query 묶음 완료)를 붙이고, `exp/nsmt-flif-neo`와 이 tag만 push 한다.
+
+---
