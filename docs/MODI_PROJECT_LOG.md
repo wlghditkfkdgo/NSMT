@@ -4878,3 +4878,108 @@ query energy는 143.5–180.1 µJ다. Spikformer식 @90 대비 1.13–1.38배, B
 **commit:** 위 항목과 함께 commit·push 한 뒤 시작한다.
 
 ---
+
+## 2026-10-31 20:22 KST — 튜닝 4단계 결과: f-LIF α (ETTh2 H96·H720, 8 설정 × α {0.3, 0.5, 0.7, 0.9}, 새 run 144) — **8개 중 5개가 기본(0.5)이 아닌 α를 골랐지만(validation 차이 ≤ 0.62 %), 고른 α − 기본은 모두 test 차이 없음. 판정 2 변화 4개(모두 문턱 근처) → 규칙상 "긍정". 고른 α에서도 f-LIF − LIF는 대부분 차이 없음 — 분수 차수의 이득은 α를 골라도 보이지 않음**
+
+**직전 commit:** `ff2a4d5a5` (reset 결과·α 사전 고정, tag `exp/nsmt-flif-neo-20261031-reset`).
+
+**기록이 늦었다:** α pool은 13:39에 끝났는데 이 항목은 2026-10-31 20:22 KST에 쓴다. 결과 알림이 사용자 질문(CinC 확장 범위)의 응답과 함께 20:15에 도착해 약 6.5시간 늦었다.
+
+**실행:**
+- 144 run이 두 pool(합 8칸)에서 11:50:53–13:39에 돌았다. 144/144 RESULT, SKIP 0, run 시간 230–609 s다.
+- pool 기록은 `forecasting/results/flif-v1-ett-tune/pool_runs_alpha.txt`다.
+- energy: `--missing_only`로 다시 셌다. 누적 450개를 다시 셌고, 점검을 모두 통과했다.
+- 요약: `summarize_tune.py --stage alpha [--energy_fix]` → `results/flif-v1-tune-alpha-summary[-energyfix].md`, `selected_alpha[_energyfix].json`.
+
+**결과 1: 선택과 판정 1** (validation L1의 α 0.5 대비 비율; 굵게 = 고른 값):
+
+| 설정 (base reset) | α 0.3 | α 0.5 | α 0.7 | α 0.9 | 고른 α | 판정 1 (고른 − 0.5, test) |
+|---|---:|---:|---:|---:|---|---|
+| Neo-mixer 모든 layer f-LIF (zero, lr 2.5e-4) | 1.0009 | 1.0000 | 1.0003 | **0.9989** | 0.9 | +0.25 %, 차이 없음 |
+| Neo-mixer 모든 layer population f-LIF (zero) | **0.9987** | 1.0000 | 1.0025 | 1.0062 | 0.3 | −0.39 %, 차이 없음 |
+| B형 f-LIF (subtract) | 1.0013 | 1.0000 | **0.9999** | 1.0017 | 0.7 | +0.67 %, 차이 없음 |
+| B형 population f-LIF (spikede) | 1.0022 | **1.0000** | 1.0013 | 1.0008 | 0.5 | (기본) |
+| [NSMT T=4] f-LIF (zero) | 1.0003 | 1.0000 | **0.9992** | 1.0006 | 0.7 | +0.84 %, 차이 없음 |
+| [NSMT T=4] population f-LIF (spikede) | 1.0010 | **1.0000** | 1.0002 | 1.0003 | 0.5 | (기본) |
+| query f-LIF (zero) | 1.0002 | **1.0000** | 1.0011 | 1.0004 | 0.5 | (기본) |
+| query population f-LIF (zero) | **0.9986** | 1.0000 | 1.0014 | 1.0018 | 0.3 | −0.24 %, 차이 없음 |
+
+**결과 2: 판정 2** (바로잡은 energy; 기본 α끼리 → 각자 고른 α끼리):
+
+| 비교 | 기본 α | 고른 α |
+|---|---|---|
+| Neo-mixer 모든 layer population f-LIF − Spikformer식 | +1.02 %(1/6) 나쁨, 0.97배 | +0.62 % 차이 없음, 0.96배(기준 (2) 미충족 그대로) |
+| [NSMT T=4] f-LIF − Spikformer식 | −1.49 %(5/6) 좋음, 1.10배 | −0.68 % 차이 없음 |
+| query population f-LIF − Spikformer식 | −0.87 % 차이 없음 | −1.11 %(6/6) 좋음, 1.42배(기준 (2) 충족) |
+| [NSMT T=4] f-LIF − [NSMT T=4] LIF | −1.36 %(5/6) 좋음 | −0.55 % 차이 없음 |
+
+나머지 12개 비교는 그대로다.
+
+**f-LIF − 같은 구조의 LIF (각자 선택값, 2칸; 계획의 핵심 질문):**
+- Neo-mixer 모든 layer: −0.03 %(차이 없음).
+- B형: +0.65 %(차이 없음).
+- [NSMT T=4]: −0.55 %(차이 없음; 기본 α에서는 −1.36 % 좋음이었다).
+- query: −0.28 %(차이 없음).
+- population f-LIF − population LIF: Neo-mixer −3.22 %(좋음; population LIF 자체가 크게 나쁨), B형 −0.60 %, [NSMT T=4] +1.02 %(나쁨), query −0.80 %(차이 없음).
+
+**"긍정":** 규칙상 그렇다(판정 2 변화). 다만 판정 1 "좋음"은 없고, 바뀐 판정은 모두 R가 문턱(±1 %)을 오가는 정도다. CinC 확장 여부는 사용자에게 묻는다(제 권고: 확장하지 않음).
+
+**사전 예상과 비교 (11:51):** "0.7–0.9를 고르는 설정이 있을 것": 맞았다(0.7 둘, 0.9 하나). 다만 0.3을 고른 설정도 둘 있다. "판정 1 좋음 0–1개, f-LIF − LIF 대부분 차이 없음": 맞았다.
+
+**읽는 법 (탐색):**
+- α를 validation으로 골라도 ETT test는 거의 움직이지 않는다(±0.9 % 안).
+- 분수 차수가 같은 구조의 LIF보다 낫다는 근거는 이번에도 없다. 보고서의 "f-LIF는 ablation으로" 권고가 유지된다.
+
+**튜닝 4단계 종합 (ETT ETTh2 두 칸):**
+
+| 단계 | 바꾼 것 | 결과 | 긍정 |
+|---|---|---|---|
+| 1. learning rate | 17 설정 × 4값 | 15개 기본 선택; 판정 변화 0 | 아님 |
+| 2. Neo-mixer 방향당 layer 수 | 4 설정 × 4값 | 모두 1층(기본) | 아님 |
+| 3. spikeDE reset | 16 설정 × 2–3값 | Neo-mixer LIF zero로 −2.10 %(좋음), Spikformer식 대비 나쁨 → 차이 없음 | **그렇다** → CinC 최소 확장(사용자 결정) |
+| 4. f-LIF α | 8 설정 × 4값 | 5개가 다른 α를 골랐지만 test 차이 없음 | 규칙상 그렇다(문턱 근처 변화만) |
+
+**commit / tag:** 이 항목, α 결과 파일, 요약을 commit 한다. annotated tag `exp/nsmt-flif-neo-20261031-alpha`(튜닝 4단계 완료)를 붙이고 push 한다.
+
+---
+
+## 2026-10-31 20:22 KST — 사전 고정: CinC 후속 묶음 (사용자 결정 10-31) — (A) query 형태 population의 CinC fold 1–4 (24 run), (B) population memoryless control (6 run), (C) Neo-mixer 모든 layer LIF의 reset 기본 대 zero (6 run); smoke 5/5
+
+**직전 commit:** 위 항목(α 결과, tag `exp/nsmt-flif-neo-20261031-alpha`).
+
+**사용자 결정 (10-31, 질문 두 개):**
+1. reset 단계 "긍정"의 CinC 확장은 **최소안**이다. 규칙에서 "좋음"이 나온 설정, 즉 Neo-mixer 모든 layer LIF만 기본 대 zero로 돌린다.
+2. query 형태 추가 확인은 **population memoryless control**과 **CinC fold 1–4** 둘 다다.
+
+**조건 (CinC, 90 epoch, lr 1e-3, seed 42 / 7 / 2026):**
+- (A) `nsmt4q_pop_lif`, `nsmt4q_pop_flif` × fold 1–4 = **24 run**, suite `flif-v1-rhythm-query-cv-cinc`. fold 0은 10-30 query 묶음 run이다.
+- (B) `nsmt4q_pop_lif_nomem`, `nsmt4q_pop_flif_nomem` × fold 0 = **6 run**. population neuron이 token마다 막전위를 처음부터 시작하고, parameter 수는 같다.
+- (C) `mixall_lif_bidir`(Neo-mixer, LIF 모든 layer, reset 기본), `mixall_lif_bidir_rzero`(`--neo_reset zero`) × fold 0 = **6 run**. CinC에서 처음 돌리는 설정이다. 나머지 설정은 CinC Neo-mixer 기본(방향당 2층)이다. ETT 튜닝의 lr·layer 선택은 ETT 값이라 쓰지 않는다.
+- (B)(C) suite는 `flif-v1-rhythm-followup-cinc`다. 합계 **36 run**이다.
+
+**코드:**
+- `scripts/run_rhythm_addneo.sh`에 위 네 조건을 추가했다(실행 중이 아님을 확인, 조건 해석 직접 확인).
+- `summarize_followup.py`(새), `scripts/make_queue_followup.sh`(새).
+- 빈 묶음으로 돌렸을 때 Spikformer식 30 epoch 5-fold 평균 65.74(10-25 보고와 같음)와 query fold 0 값(66.60 / 66.47)이 재현된다.
+
+**판정 (사전 고정, `summarize_followup.py` docstring):**
+- **A (주):** query population − Spikformer식 30 epoch. Spikformer식은 fold 0에서 30 epoch(65.60)가 90 epoch(64.89)보다 나은 학습 예산이고, fold 1–4는 30 epoch run만 있다(10-25 `flif-v1-rhythm-folds-cinc`).
+  - 5 fold × 3 seed = 15쌍을 합쳐, 평균 ≥ +0.5 %p이고 15쌍 중 10쌍 이상이면 "좋음", 거울이면 "나쁨"이다.
+  - 95 % t 구간(자유도 14)과 fold별 판정(평균 ≥ +0.5 %p, 2/3 seed)을 함께 적는다. 10-25 fold 확인과 같은 형식이다.
+- **B (주):** query population n − 그 memoryless control(fold 0). 보고만으로 memoryless population − memoryless LIF(neuron 종류 몫)를 적는다.
+- **C (주):** zero − 기본 reset(fold 0). 보고만으로 각각 − Spikformer식 @90·@30, − Neocortex만 바꾼 Neo-mixer LIF @90을 적는다.
+
+**사전 예상:**
+- A: fold 0의 +1.0 %p(@30 대비)보다 작아져 15쌍 평균 0 ~ +1 %p, "차이 없음" 또는 문턱 근처. fold마다 ±2 %p 흔들리기 때문이다.
+- B: population의 이점 일부가 memory 몫이면 "좋음". LIF에서 memory 몫이 없었으므로(+0.36) "차이 없음"일 가능성도 크다.
+- C: ETT처럼 zero가 좋음(+0.5 %p 이상). 다만 Neo-mixer 모든 layer는 CinC에서 Spikformer식보다 나쁠 것이다(Neocortex만 바꾼 LIF @90이 −2.52 %p).
+
+**smoke:** 5/5(20:17:58–20:21, 1 epoch, seed 42, `results/smoke-followup-cinc-20261031/raw.txt`): `nsmt4q_pop_lif_nomem`·`nsmt4q_pop_flif_nomem`(`neo_memoryless=True`, mode query, alpha 0.0), `mixall_lif_bidir`(`neuron_scope=all`, reset spikede), `mixall_lif_bidir_rzero`(`neo_reset=zero`), `nsmt4q_pop_lif` fold 1(`fold=1`). 모두 학습·시험·energy까지 끝났다.
+
+**실행:** NSMT/에서 같은 대기열에 pool 두 개(tmux `flif_fu`, `flif_fu2`, 합 8칸; 짧은 B·C 먼저, 이어서 A)를 띄운다. population run은 하나에 3–9시간이다. 끝나는 시각은 어림하지 않는다.
+
+**한계:** CinC test 기록은 fold마다 다르다(5-fold 평균이 이 문제를 줄인다). Spikformer식 fold 1–4는 다른 날(10-25)·다른 commit에서 학습됐다. α 단계의 CinC 확장은 이 묶음에 넣지 않았다(사용자 결정 대기).
+
+**commit:** 위 항목과 함께 commit·push 한 뒤 시작한다.
+
+---

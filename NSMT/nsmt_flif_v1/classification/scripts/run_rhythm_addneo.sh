@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Stage 9 (MODI_PROJECT_LOG 2026-10-19): one run on CinC 2017 or SHD with the protocols adopted in stage 8.
+# MODI 2026-10-31: + nsmt4q_pop_{lif,flif}_nomem (population memoryless controls) and mixall_lif_bidir[_rzero] (Neo-mixer, LIF in
+# every layer, spikeDE reset default / zero) for the CinC follow-up of the query batch and tuning stage 3.
 # MODI 2026-10-30: + nsmt4q_<...> (+ nsmt4q_lif_nomem) = the same model with the neocortex as the attention QUERY and the hippocampus
 # keys / values (--hippo_xattn_mode query), B-form settings.
 # MODI 2026-10-29: + nsmt4_{lif,flif,pop_lif,pop_flif} and nsmt4_lif_nomem = [NSMT hippocampus T=4] (keys / values replaced by
@@ -135,6 +137,10 @@ case $BASE in
   nsmt4q_pop_lif)   ALPHA=0; CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0" ;;   # as the
   nsmt4q_pop_flif)  ALPHA=0; CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0" ;;   # query
   nsmt4q_lif_nomem) ALPHA=0; CF="--model myModel --neo_neuron lif --neo_where both --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_memoryless" ;;
+  nsmt4q_pop_lif_nomem)  ALPHA=0; CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_memoryless" ;;   # MODI 2026-10-31
+  nsmt4q_pop_flif_nomem) ALPHA=0; CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_memoryless" ;;
+  mixall_lif_bidir)        CF="--model neoMixer --mixer lif --mixer_bidir --neuron_scope all" ;;                       # MODI 2026-10-31: Neo-mixer,
+  mixall_lif_bidir_rzero)  CF="--model neoMixer --mixer lif --mixer_bidir --neuron_scope all --neo_reset zero" ;;      # LIF in every layer
   *) echo "bad cond $COND"; exit 1 ;;
 esac
 case $DATA in
