@@ -13,6 +13,9 @@ at its stage-lr selection (selected_lr.json); comparisons: each Neo-mixer settin
 Stage reset (MODI 2026-10-31): --neo_reset in {spikede (default), subtract, zero} for the 16 settings with spikeDE neurons (population:
 spikede vs zero only, see stage_values), each at its lr / layers selections; comparisons as stage lr + W4; the overall mean relative
 validation per mode is reported (one mode for every spikeDE neuron).
+Stage alpha (MODI 2026-10-31): --neo_alpha in {0.3, 0.5 (default), 0.7, 0.9} for the 8 f-LIF / population f-LIF settings, each at its
+lr / layers / reset selections; comparisons: each - spk_ssa (criterion 2) and each - the matching LIF / population LIF setting (at its
+own selections), i.e. whether a fractional order beats the integer order once alpha is chosen on validation.
 Selection (validation only): per setting, the value with the lowest mean over the 2 cells of (cell-mean validation L1 at the value /
 cell-mean validation L1 at the default); every value needs 3 seeds x 2 cells, else the selection is incomplete.
 Verdict 1: selected - default on the test MSE (2 cells: r = 100 (A - B) / B per seed, R = mean of the cell means; better = R <= -1 %
@@ -42,11 +45,12 @@ CELLS = [('ETTh2', 96), ('ETTh2', 720)]
 NS = ('lif', 'flif', 'pop_lif', 'pop_flif')
 CONDS = ['spk_ssa'] + [f'mixall_{n}_bidir' for n in NS] + [f'{p}_{n}' for p in ('spkneo', 'nsmt4', 'nsmt4q') for n in NS]
 DEFAULT = {'lr': 0.0005, 'layers': 1, 'reset': 'spikede', 'alpha': 0.5}
-STAGES = {'lr': [0.00025, 0.0005, 0.001, 0.002], 'layers': [1, 2, 3, 4], 'reset': ['spikede', 'subtract', 'zero']}
+STAGES = {'lr': [0.00025, 0.0005, 0.001, 0.002], 'layers': [1, 2, 3, 4], 'reset': ['spikede', 'subtract', 'zero'], 'alpha': [0.3, 0.5, 0.7, 0.9]}
 # MODI 2026-10-31: each stage runs on the earlier stages' per-setting selections (selected_<stage>.json) and varies only its own
 # settings; the other settings stay at their base (selected) values and enter the comparisons at that base.
-PREV = {'lr': [], 'layers': ['lr'], 'reset': ['lr', 'layers']}
-STAGE_CONDS = {'lr': CONDS, 'layers': [f'mixall_{n}_bidir' for n in NS], 'reset': [c for c in CONDS if c != 'spk_ssa']}
+PREV = {'lr': [], 'layers': ['lr'], 'reset': ['lr', 'layers'], 'alpha': ['lr', 'layers', 'reset']}
+STAGE_CONDS = {'lr': CONDS, 'layers': [f'mixall_{n}_bidir' for n in NS], 'reset': [c for c in CONDS if c != 'spk_ssa'],
+               'alpha': [c for c in CONDS if 'flif' in c]}
 
 
 def stage_values(stage, cond):
@@ -117,7 +121,7 @@ def load(stage, energy_fix):
         if r['cond'] in CONDS and all(same(k, r.get(k), base[r['cond']][k]) for k in DEFAULT if k != stage):
             if energy_fix and recounted(r['cond']):
                 r['total_fft_uJ'] = fx.get((r['ds'], int(r['pl']), r['cond'], r.get('tag', ''), int(r['seed'])), float('nan'))
-            v = r[stage] if stage == 'reset' else float(r[stage])
+            v = r[stage] if stage == 'reset' else DEFAULT['alpha'] if (stage == 'alpha' and r[stage] == '-') else float(r[stage])
             add(r, v, 'flif-v1-ett-tune')
     return lambda c, v, d, p, s: out[(c, v, d, p, s)][0] if len(out.get((c, v, d, p, s), [])) == 1 else None
 
@@ -190,8 +194,10 @@ def main():
         Q += [(f'R1 replace vs append, {n}', f'nsmt4_{n}', f'spkneo_{n}', False) for n in NS]
         Q += [(f'Q1 query vs replace, {n}', f'nsmt4q_{n}', f'nsmt4_{n}', False) for n in NS]
         Q += [(f'Q2 query vs append, {n}', f'nsmt4q_{n}', f'spkneo_{n}', False) for n in NS]
-    if st != 'lr':                                                   # + fractional order inside the Neo-mixer
+    if st in ('layers', 'reset'):                                    # + fractional order inside the Neo-mixer
         Q += [('W4 f-LIF vs LIF, Neo-mixer every layer', 'mixall_flif_bidir', 'mixall_lif_bidir', False)]
+    if st == 'alpha':                                                # MODI 2026-10-31: f-LIF at its alpha vs the matching LIF setting
+        Q += [(f'{f} vs {f.replace("flif", "lif")}', f, f.replace('flif', 'lif'), False) for f in STAGE_CONDS[st]]
     L2 = ['', '## Verdict 2: the comparisons at the defaults and at each setting\'s selected value', '',
           '| comparison | R / verdict at defaults | criterion (2) | R / verdict at selected values | criterion (2) | changed |', '|---|---|---|---|---|---|']
     positive, changed_any = False, False
