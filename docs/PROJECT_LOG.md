@@ -9357,3 +9357,56 @@ run별 macro-F1(seed 42 / 7 / 2026): muxlin 92.12 / 92.02 / 91.56, sdlin 92.07 /
 - 한계: seed 3개, MIT-BIH는 검증 분할 없이 마지막 epoch를 test에서 잰다(기존 절차).
 
 **commit·태그:** `raw.txt`, `summary.md`, `pool_log.txt`, 이 기록을 commit·push하고 annotated tag `exp/f-lif-pop-v3-mitbih-mux-20261101`. ETT 튜닝 S1(144 run)은 계속 돈다.
+
+## 2026-11-01 18:48 KST — 사전등록 + 구현: MIT-BIH 튜닝(검증 분할로 선택 → 학습 파일 전체 재학습, Spikformer식도 튜닝, ETT와 같은 순서)과 CinC muxlin 튜닝 — MIT-BIH S1 36 run을 지금 시작하고, CinC S1 27 run은 재현 점검 c4 통과 뒤에 시작; 점검 5/6(c4 대기), smoke 4/4
+
+**직전 commit:** `51d0bb097`(MIT-BIH 확장 결과, 태그 `exp/f-lif-pop-v3-mitbih-mux-20261101`). **계획 승인:** 사용자(11-01).
+
+**사용자 지시(11-01, 원문):** "1. 검증으로 고르자. 2. 그리고 학습 파일 전체를 재학습하고 3. 기준 모델도 함께 튜닝을 하자. 4. 그리고 ETT 단계와 같은 순서로 튜닝을 진행하자. --- - CinC의 muxlin도 튜닝을 진행하자. --- 위 항목들을 plan 계획서에 적어줘."
+- 직전 질문 "MIT-BIH도 튜닝해야 하는 거 아닐까?"에 대한 내 답(튜닝이 맞지만 지금 MIT-BIH 절차에는 검증 분할이 없어 test로 고르게 됨; 학습 파일의 1/5을 검증으로 떼어 고르고, 고른 값으로 원래 절차를 다시 돌리는 방식 권장)을 사용자가 받아들였다.
+- 원칙(ETT 결정과 같음): sdlin도 함께 튜닝, Spikformer식은 학습률만, 선택은 검증만. CinC fold 1–4는 이 계획 밖(튜닝 결과를 보고 따로 정함). 잔차 MUX·초기 발화율 보정은 계속 보류.
+- ETT 튜닝(16:56 사전등록)은 변경 없이 진행 중이다(S1 144 run 중 60개 남짓 완료).
+
+### MIT-BIH 튜닝 (suite `flif-v1-mitbih-spkmux-tune`)
+- **검증 분할:** 이 폴더 `dataloader.create_loader`의 기존 기능(학습 파일 76,612창을 StratifiedKFold 5분할, shuffle, random_state 42). fold 0 = 검증 15,323창, 나머지 61,289창으로 학습. 튜닝 run도 마지막에 test를 재지만 그 값은 판정에 쓰지 않는다.
+- **선택 점수:** 마지막 epoch의 검증 macro-F1(원래 절차가 마지막 epoch 가중치를 쓰므로). seed 평균이 가장 높은 값, 동률(1e-9)이면 기본값, run이 빠지면 선택하지 않음.
+- **단계(굵게 = 기본값):** S1 학습률 {0.0025, 0.005, **0.01**, 0.02} × {muxlin, sdlin, Spikformer식} × 3 seed = 36 run(기본값도 검증 분할로 새로 돌림); S2 방향별 mixer 층 {1, **2**, 3} × {muxlin, sdlin}(고른 학습률) = 12; S3 잔차 {**OR**, IAND, ADD}(고른 학습률·층) = 12.
+- **최종 재학습:** 세 조건을 각자 고른 설정으로 원래 절차(학습 파일 전체, 30 epoch, 마지막 epoch test macro-F1) × 3 seed. 고른 설정이 기본값이면 11-01 run(muxlin·sdlin)과 재사용 기준값(Spikformer식)을 쓴다.
+- **최종 판정(MIT-BIH 규칙):** 같은 seed끼리 macro-F1 차이, 평균 ≥ +0.5%p이고 2/3 seed면 좋음(반대 나쁨); 기준 (2) = 좋음 또는 −0.5%p 안이면서 에너지 ≤ 0.5배. **TM1 muxlin(튜닝) vs Spikformer식(튜닝)**, TM2 muxlin vs sdlin(둘 다 튜닝), TM3 sdlin(튜닝) vs Spikformer식(튜닝), TM4 muxlin(튜닝) vs muxlin(기본값).
+- ADD의 에너지는 `energy_recount_mitbih.py`의 정수 규칙(아래).
+
+### CinC 튜닝 (suite `flif-v1-rhythm-spk-tune-cinc`)
+- CinC fold 0, 기존 검증 분할(683 기록)의 **최고 검증 점수**로 선택, test는 최고 검증 가중치(기존 절차).
+- **단계:** S1 학습률 {2.5e-4, 5e-4, **1e-3**, 2e-3} × {muxlin, sdlin, Spikformer식} × 3 seed = 27 새 run; S2 방향별 mixer 층 {1, **2**, 3}; S3 잔차 {**OR**, IAND, ADD}.
+- **기본값 run 재사용:** muxlin = 10-31 MUX run, sdlin = B1 run(IAND·ADD 포함, 고른 학습률·층이 기본값이면 S3에 그대로), Spikformer식 = 다른 세션 3 run(commit `9094bfaf9`, 사본 `results/flif-v1-rhythm-cinc`).
+- **최종 판정(CinC 규칙):** TC1 muxlin(튜닝) vs Spikformer식(튜닝)(기준 (2)), TC2 muxlin vs sdlin(둘 다 튜닝), TC3 sdlin vs Spikformer식(튜닝), TC4 muxlin(튜닝) vs muxlin(기본값). 단계 안의 run이 모두 test까지 재므로 재학습은 없다. 에너지는 `total_fft_int_uJ`(정수 규칙, CinC 평가 코드에 이미 있음).
+
+### 코드
+- `train.py`(MIT-BIH 진입점): `--val_fold k`를 train.py 안에서 먼저 떼어 냄(공유 `config.py`는 그대로). k가 있으면 `create_loader(..., train_val_ratio=[4, 1], n_folds=5, fold_id=k)`, 마지막 epoch 검증 지표를 `log/val_last.csv`에 저장. 없으면 원래 줄 그대로.
+- `scripts/run_mitbih_spk.sh`: `LR`(기본 0.01), `MLAYERS`(방향별 mixer 층, 기본 2; 블록 수 `LAYERS=1`과 이름이 겹치지 않게 함), `VAL_FOLD`; 태그 `<cond>_lr<LR>_L<MLAYERS>[_v<k>]`; RESULT에 `tag= lr= layers= val_fold= val_f1_last= val_acc_last= n_val=`.
+- `scripts/run_rhythm_spk_mux.sh`(CinC): 조건 `spk_ssa`, `MLAYERS`(기본 2), 태그 `<cond>_lr<LR>_L<MLAYERS>`, RESULT에 `tag= layers=`.
+- 새 파일: `energy_recount_mitbih.py`(저장된 마지막 epoch 모델로 test를 다시 돌려 `SynOpRecorder`로 시냅스 에너지를 두 규칙으로 잼; ADD 보정 = 기록 total − 기록 시냅스 + 정수 규칙 시냅스; 0/1 run은 기록값, 기록기 = syops 검사), `summarize_mitbih_tune.py`, `summarize_cinc_tune.py`, `check_tune2.py`, `cinc_c3_snapshot.py`, `make_queue_spk.sh` 단계 `t2smoke`·`crepro`·`mtune_lr|layers|res`·`mfinal`·`ctune_lr|layers|res`.
+- 11-01 MIT-BIH 6 run에도 `energy_recount_mitbih.py`를 돌려 검사가 통과했다(macro-F1 재현, 기록기 시냅스 = syops 시냅스 상대 3e-4 안).
+
+### 점검 (`check_tune2.py`, `results/checks/check_tune2.txt`) — **c0, c1, c2, c3, c5 통과; c4는 CinC 재현 run(18:42 시작) 뒤**
+- c0 기본 경로 불변: 고친 train.py 모듈로 만든 MIT-BIH Spikformer식 모델·출력·기울기가 수정 전 snapshot과 비트 단위로 같다. MIT-BIH ADD smoke와 11-01 run의 학습 인자 차이는 connect_f·epoch·경로뿐, CinC 1층 smoke와 10-31 run의 차이는 time_num_layers·epoch·날짜·경로뿐.
+- c1 검증 분할: 학습 61,289 / 검증 15,323(겹침 없음, 두 번 같음), 클래스 비율 파일 82.77 / 2.54 / 6.61 / 0.73 / 7.34 % vs 검증 82.77 / 2.54 / 6.61 / 0.74 / 7.34 %.
+- c2 인자 전달: MIT-BIH 검증 smoke lr 0.005·층 3·val_fold 0·n_val 15,323, RESULT val_f1_last = val_last.csv(0.5909); CinC smoke spk_ssa lr 5e-4·층 2, muxlin lr 1e-3·층 1.
+- c3 CinC Spikformer식 동일성: 기준 commit `9094bfaf9`의 코드(`git archive`, 데이터 폴더는 같은 캐시를 가리키는 scratchpad 링크, `python -B`)와 이 브랜치 코드의 초기 state_dict 45개, 검증 16창, 평가·학습 출력, CAL 가중 CE 기울기 23개, 데이터 정보가 비트 단위로 같다. 첫 시도는 점검 스크립트의 자식 프로세스가 부모의 `MKL_THREADING_LAYER`를 물려받아 시작하지 못했다(점검 도구 문제; 보조 스크립트를 부를 때 그 변수를 빼도록 고침, 출력은 scratchpad 로그에 남김).
+- c5 MIT-BIH ADD 에너지(smoke): ADD run 시냅스 syops 규칙 37.25 µJ → 정수 규칙 8.00 µJ, 총 39.04 → 9.79 µJ(손 계산과 같음). 0/1 run은 기록값 그대로(10.61 µJ).
+- c4 CinC 재현: 이 브랜치에서 Spikformer식 seed 42(학습률 1e-3)를 다시 학습 중. 기준값 test 67.2548, 최고 검증 71.1220과 0.2%p 안이어야 CinC 튜닝을 시작한다.
+
+### smoke (1 epoch, seed 42; 학습 가능 여부만 봄)
+| 과제 | 조건 | 결과 | 에너지 µJ | 파라미터 | 시간 s |
+|---|---|---|---:|---:|---:|
+| MIT-BIH | muxlin, 검증 분할, lr 0.005, 층 3 | 검증 macro-F1 59.09, test 56.03 | 10.61 | 1,497,216 | 50 |
+| MIT-BIH | muxlin ADD | test macro-F1 76.93 | 9.79(정수 규칙) | 1,200,768 | 40 |
+| CinC | Spikformer식 lr 5e-4 | test 점수 32.95 | 105.8 | 918,088(기준 run과 같음) | 108 |
+| CinC | muxlin 층 1 | test 점수 37.27 | 108.6 | 916,224 | 206 |
+
+### 실행 순서(계획에서 한 가지를 바꿈)
+- 계획은 "c0–c5와 smoke가 모두 통과한 뒤 MIT-BIH·CinC 튜닝 시작"이었다. c4는 CinC에만 관계되므로 MIT-BIH S1은 MIT-BIH 점검(c0, c1, c2, c5) 통과 뒤 지금 시작하고, CinC S1은 c3·c4 통과 뒤 시작한다.
+- MIT-BIH S1: `nohup bash scripts/gpu_pool2.sh cinc_mixer_v1/scripts/queues/mitbih-tune-lr-20261101.txt 0,1,2,3 > cinc_mixer_v1/results/flif-v1-mitbih-spkmux-tune/pool_log_lr.txt 2>&1 &`(NSMT/에서).
+- 단계마다: 모든 run 완료(SKIP 0) → `summarize_*_tune.py --stage <단계>`(선택 파일) → `make_queue_spk.sh <다음 단계>` → 기록·commit. MIT-BIH는 S3 뒤 `mfinal` 재학습 → `energy_recount_mitbih.py` → `--stage final`.
+
+**commit:** 코드·점검·smoke·이 기록을 `exp/f-lif-pop-v3`에 commit·push한 뒤 MIT-BIH S1을 시작한다.

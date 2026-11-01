@@ -8,6 +8,8 @@
 #   COND: spkmx_lif_<comb>_<cf>  (SpkMixer, LIF in every layer; comb or|sdor|sdlin|muxor|muxlin, cf iand|or|add)
 #         spk_ssa                (Spikformer-style; only for the reproduction check -- the baseline values are reused)
 #   env:  SUITE EPOCHS (30) RES LOG DATA PY THREADS
+#         LR (0.01) MLAYERS (mixer layers per direction, --time_layers; 2) VAL_FOLD (unset = no validation split; k = stratified fold
+#         k of 5 of the training file as validation, train.py --val_fold) -- 2026-11-01 tuning; defaults = the original arguments
 set -u
 S=${1:?}; GPU=${2:?}
 W="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # cinc_mixer_v1
@@ -25,7 +27,8 @@ case $COND in
     CF="--model spkMixer --mixer lif --mixer_comb $COMB --connect_f $CFA --hippo_T 4" ;;
   *) echo "bad cond $COND"; exit 1 ;;
 esac
-LAYERS=1
+LAYERS=1                                                # model blocks (--layers), as run_mitbih2.sh
+LR=${LR:-0.01}; ML=${MLAYERS:-2}                      # MLAYERS = mixer layers per direction (--time_layers)
 SUITE=${SUITE:-flif-v1-mitbih-spkmux-$(date +%Y%m%d)}
 EPOCHS=${EPOCHS:-30}
 RES=${RES:-$W/results/$SUITE}; LOG=${LOG:-$W/log/$SUITE}
@@ -33,14 +36,16 @@ DATA=${DATA:-/home/yschoi/CLS_spiking_transformer/data}   # 5class_mitbih_{train
 mkdir -p "$RES" "$LOG"
 RES="$(cd "$RES" && pwd)"; LOG="$(cd "$LOG" && pwd)"
 SHA=$(cd "$R" && git rev-parse --short HEAD); TS=$(date +%Y%m%d)
-OUT=$LOG/mitbih_${COND}_seed${S}_${TS}_${SHA}.stdout; t0=$(date +%s)
+VF=${VAL_FOLD:-}; VFA=""; TAGC="${COND}_lr${LR}_L${ML}"
+[ -n "$VF" ] && { VFA="--val_fold $VF"; TAGC="${TAGC}_v${VF}"; }
+OUT=$LOG/mitbih_${TAGC}_seed${S}_${TS}_${SHA}.stdout; t0=$(date +%s)
 (cd "$W" && CUDA_VISIBLE_DEVICES=$GPU OMP_NUM_THREADS=${THREADS:-4} $PY ./train.py \
   --model myModel --seed $S --log_dir "$LOG/MITBIH" --gating attn --attn SSA -s --test --print_epoch 1 -nd 0 \
-  -e $EPOCHS --warm_up_epoch 0 --num_channels 1 -bs 512 -lr 0.01 --max_lr 0.005 -emb 384 -nh 8 --mlp_ratios 1 \
-  --layers $LAYERS --keep_ratio 0.15 --time_layers 2 --alpha 0.1 --patch_size 32 --no-bias --scheduler cosine \
-  --data UEA --data_path ECG --seq_len 187 --root_path "$DATA" $CF --tag $COND seed$S > "$OUT" 2>&1)
+  -e $EPOCHS --warm_up_epoch 0 --num_channels 1 -bs 512 -lr $LR --max_lr 0.005 -emb 384 -nh 8 --mlp_ratios 1 \
+  --layers $LAYERS --keep_ratio 0.15 --time_layers $ML --alpha 0.1 --patch_size 32 --no-bias --scheduler cosine \
+  --data UEA --data_path ECG --seq_len 187 --root_path "$DATA" $CF $VFA --tag $TAGC seed$S > "$OUT" 2>&1)
 RC=$?
-D=$(ls -td "$LOG/MITBIH"/*/*"+${COND}+seed${S}+model+"*/seed${S}_* 2>/dev/null | head -1)
+D=$(ls -td "$LOG/MITBIH"/*/*"+${TAGC}+seed${S}+model+"*/seed${S}_* 2>/dev/null | head -1)
 CSV="$D/log/final+result.csv"
 if [ $RC -ne 0 ] || [ ! -s "$CSV" ]; then echo "SKIP(rc=$RC, no result) cond=$COND seed=$S out=$OUT" | tee -a "$RES/raw.txt"; exit 1; fi
 VALS=$($PY - "$CSV" <<'EOF'
@@ -60,4 +65,6 @@ EOF
 LRS=$(grep -aoE '^epoch +[0-9]+ \(lr=[0-9.e-]+\)' "$OUT" | grep -oE 'lr=[0-9.e-]+' | cut -d= -f2)
 EP=$(echo "$LRS" | grep -c .); LR_FINAL=$(echo "$LRS" | tail -1)
 PAR=$(grep -a 'number of parameters' "$OUT" | grep -oE '[0-9]+' | tail -1); t1=$(date +%s)
-echo "RESULT exp=cinc_mixer_v1_mitbih_spkmux cond=$COND dataset=MITBIH seed=$S $VALS epochs=$EPOCHS epochs_run=$EP lr_final=$LR_FINAL params=$PAR time_s=$((t1-t0)) sha=$SHA alpha=$ALPHA dir=$D" | tee -a "$RES/raw.txt"
+VL=""; if [ -n "$VF" ]; then VC="$D/log/val_last.csv"; [ -s "$VC" ] || { echo "SKIP(no val_last.csv) cond=$COND seed=$S out=$OUT" | tee -a "$RES/raw.txt"; exit 1; }
+  VL=" val_f1_last=$(tail -1 "$VC" | cut -d, -f4) val_acc_last=$(tail -1 "$VC" | cut -d, -f5) n_val=$(tail -1 "$VC" | cut -d, -f3)"; fi
+echo "RESULT exp=cinc_mixer_v1_mitbih_spkmux cond=$COND tag=$TAGC lr=$LR layers=$ML val_fold=${VF:--1}${VL} dataset=MITBIH seed=$S $VALS epochs=$EPOCHS epochs_run=$EP lr_final=$LR_FINAL params=$PAR time_s=$((t1-t0)) sha=$SHA alpha=$ALPHA dir=$D" | tee -a "$RES/raw.txt"

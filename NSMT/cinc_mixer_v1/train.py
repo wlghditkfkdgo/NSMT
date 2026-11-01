@@ -205,7 +205,11 @@ def train(args:Config):
     early_stopping_pre = EarlyStopping(verbose=True)
     early_stopping_fine = EarlyStopping(verbose=True)
     
-    loader, class_num_samples = create_loader(train=True, batch_size=args.batch_size, num_classes=args.num_classes, data_root=args.root_path+'/5class_mitbih_train_7_187.csv', train_val_ratio=None, data_window_size=187, sampling='None', num_workers=args.num_workers)
+    vf = globals().get('VAL_FOLD', -1)                                     # 2026-11-01 (exp/f-lif-pop-v3): MIT-BIH tuning
+    if vf >= 0:   # validation = stratified fold vf of 5 of the training file (create_loader's StratifiedKFold, random_state 42)
+        loader, class_num_samples = create_loader(train=True, batch_size=args.batch_size, num_classes=args.num_classes, data_root=args.root_path+'/5class_mitbih_train_7_187.csv', train_val_ratio=[4, 1], data_window_size=187, sampling='None', n_folds=5, fold_id=vf, num_workers=args.num_workers)
+    else:
+        loader, class_num_samples = create_loader(train=True, batch_size=args.batch_size, num_classes=args.num_classes, data_root=args.root_path+'/5class_mitbih_train_7_187.csv', train_val_ratio=None, data_window_size=187, sampling='None', num_workers=args.num_workers)
 
     if isinstance(loader, tuple):
         train_loader = loader[0]
@@ -260,8 +264,14 @@ def train(args:Config):
                 print("Early stopping")
                 break
         
+    if vf >= 0:                                                            # 2026-11-01: last-epoch validation metrics (tuning)
+        with open(os.path.join(args.save_log_path, 'val_last.csv'), 'w') as _f:
+            _f.write('epoch,val_fold,n_val,f1,tot_acc,pre,loss,ce\n')
+            _f.write(f"{epoch},{vf},{len(val_loader.dataset)},{val_result['f1']:.6f},{val_result['tot_acc']:.6f},{val_result['pre']:.6f},"
+                     f"{float(val_result['loss']):.6f},{float(val_result['ce']):.6f}\n")
+
     best_model = model.state_dict() # inference mode
-    
+
     torch.save(best_model, args.save_model_state_path + f"/best+model.pt")
     print(f"Model saved to `{args.save_model_state_path}`")
 
@@ -281,9 +291,13 @@ def train(args:Config):
         else:
             evaluation(args=args, model=model)
     
-if __name__ == '__main__' : 
-    
-    
+if __name__ == '__main__' :
+
+    import sys as _sys                                                     # 2026-11-01 (exp/f-lif-pop-v3): --val_fold k (MIT-BIH
+    VAL_FOLD = -1                                                          # tuning) is taken off argv before the shared config parser;
+    if '--val_fold' in _sys.argv:                                          # absent = the original training (no validation split)
+        _i = _sys.argv.index('--val_fold'); VAL_FOLD = int(_sys.argv[_i + 1]); del _sys.argv[_i:_i + 2]
+
     config = parse_arguments()
     args = Config()
     
