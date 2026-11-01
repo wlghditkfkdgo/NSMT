@@ -5243,3 +5243,54 @@ annotated tag `exp/nsmt-flif-neo-20261101-followup`(CinC 후속 묶음 완료)�
 **commit:** 이 항목과 코드를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 pool을 시작한다.
 
 ---
+
+## 2026-11-01 19:38 KST — MIT-BIH query 1단계 결과 (6 run) — **query population LIF·f-LIF는 Spikformer식과 차이 없음(−0.05 / −0.20 %p; energy 1.16·1.28배, 기준 (2) 미충족). 그래서 사전 고정 규칙대로 2단계(learning rate 튜닝, 36 run)를 시작한다. 바꿔 넣기([NSMT T=4])보다는 좋음(+0.61 / +0.54 %p, 3/3 seed), 덧붙이기(B형)와는 차이 없음**
+
+**직전 commit:** `1bc51a2d2` (사전 고정·구현).
+
+**실행:**
+- 6 run이 pool 4칸에서 18:46:00–19:37:18에 돌았다. 다른 대화의 ETT 작업 약 20개와 GPU를 나눠 썼다.
+- 6/6 RESULT, SKIP 0, 모두 30/30 epoch, sha `1bc51a2d2`다. run 시간은 1,352–1,748 s다.
+- 결과: `classification/results/flif-v1-mitbih-query/{raw.txt, pool_runs.txt}`
+- 요약: `summarize_mitbih_query.py` → `results/flif-v1-mitbih-query-summary.md`
+
+### 결과 (test, 마지막 epoch 가중치, seed 42 / 7 / 2026 평균)
+
+| 모델 | macro-F1 (평균 ± 표준편차) | 정확도 | F1 N / S / V / F / Q | energy µJ |
+|---|---|---|---|---|
+| Spikformer식 | 92.22 ± 0.21 | 98.55 | 99.24 / 85.28 / 96.04 / 81.38 / 99.17 | 9.55 |
+| **query population LIF** | **92.17 ± 0.16** | 98.57 | 99.26 / **86.18** / 96.08 / 80.36 / 98.98 | 11.10 |
+| **query population f-LIF** | **92.02 ± 0.17** | 98.54 | 99.23 / 85.70 / 96.14 / 79.97 / 99.04 | 12.26 |
+| 바꿔 넣기 population LIF / f-LIF (10-30) | 91.56 / 91.47 | 98.41 / 98.36 | S 83.37 / 82.81 | 10.01 / 11.02 |
+| 덧붙이기 B형 population LIF / f-LIF (10-30) | 92.20 / 92.06 | 98.57 / 98.56 | S 85.96 / 85.41 | 12.37 / 13.49 |
+
+| 비교 | seed 42 / 7 / 2026 차 (%p) | 평균 | 판정 | energy A/B |
+|---|---|---|---|---|
+| **M1 (주) query population LIF − Spikformer식** | −0.23 / −0.24 / +0.32 | −0.05 | 차이 없음 | 1.16 (기준 (2) 미충족) |
+| **M1 (주) query population f-LIF − Spikformer식** | −0.38 / −0.41 / +0.17 | −0.20 | 차이 없음 | 1.28 (미충족) |
+| M2 query − 바꿔 넣기, population LIF | +0.72 / +0.38 / +0.73 | **+0.61** | **좋음** | 1.11 |
+| M2 query − 바꿔 넣기, population f-LIF | +0.49 / +0.01 / +1.12 | **+0.54** | **좋음** | 1.11 |
+| M3 query − B형, population LIF | −0.18 / +0.02 / +0.06 | −0.03 | 차이 없음 | 0.90 |
+| M3 query − B형, population f-LIF | +0.12 / −0.34 / +0.10 | −0.04 | 차이 없음 | 0.91 |
+| (보고) query population f-LIF − population LIF | −0.15 / −0.16 / −0.15 | −0.16 | 차이 없음 | 1.10 |
+
+**사전 예상과 비교:**
+- M1 "차이 없음, 기준 (2) 미충족": 맞았다.
+- M2 "+0.3 ~ +0.7, 하나는 좋음일 수 있음": 크기는 맞았고, 둘 다 "좋음"이었다.
+- M3 "차이 없음": 맞았다.
+
+**읽는 법 (탐색, seed 3):**
+- **바꿔 넣기의 손해는 MIT-BIH에서도 query로 사라진다.** 바꿔 넣기 population은 S 부류(심실상성 이소성) F1이 83.4 / 82.8로 낮았다. query는 86.2 / 85.7로 Spikformer식(85.3)보다 오히려 높다.
+  - CinC Q1(query − 바꿔 넣기 +3.1 / +5.8 %p)과 방향이 같다. 크기는 MIT-BIH가 훨씬 작다.
+- **F 부류(융합, 시험 241개)는 Spikformer식보다 1 %p가량 낮다.** 그래서 macro-F1 합계는 Spikformer식과 같아진다.
+- B형과는 같은 점수이고, energy는 0.90배다. MIT-BIH에서는 연결 방식이 query든 덧붙이기든 Spikformer식과 구분되지 않는다. 심박 하나가 token 11개라 attention이 이미 전부를 보기 때문으로 보인다(10-30 해석과 같음).
+
+**2단계 조건:** query population 둘 다 M1 "좋음"이 아니다. 그래서 사전 고정한 2단계를 시작한다.
+- 대기열: `scripts/queues/mitbih-query-tune-20261101.txt` (`make_queue_mitbih_query.sh tune`)
+- 36 run = 최고 learning rate {0.0025, 0.005, 0.01, 0.02} × {query population LIF, query population f-LIF, Spikformer식} × seed 3, 모두 `VAL=1`(학습 파일 80 / 20 분할)
+- suite `flif-v1-mitbih-query-tune`
+- 이 commit 뒤 NSMT/에서 tmux `flif_mbq2`로 `bash scripts/gpu_pool2.sh nsmt_flif_v1/classification/scripts/queues/mitbih-query-tune-20261101.txt 0,1,2,3,0,1,2,3`(8칸)을 띄운다. 끝나는 시각은 어림하지 않는다.
+
+**commit:** 이 항목, `results/flif-v1-mitbih-query/{raw.txt, pool_runs.txt}`, `results/flif-v1-mitbih-query-summary.md`를 commit 하고 `exp/nsmt-flif-neo`만 push 한다.
+
+---
