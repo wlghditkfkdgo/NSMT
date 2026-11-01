@@ -9410,3 +9410,14 @@ run별 macro-F1(seed 42 / 7 / 2026): muxlin 92.12 / 92.02 / 91.56, sdlin 92.07 /
 - 단계마다: 모든 run 완료(SKIP 0) → `summarize_*_tune.py --stage <단계>`(선택 파일) → `make_queue_spk.sh <다음 단계>` → 기록·commit. MIT-BIH는 S3 뒤 `mfinal` 재학습 → `energy_recount_mitbih.py` → `--stage final`.
 
 **commit:** 코드·점검·smoke·이 기록을 `exp/f-lif-pop-v3`에 commit·push한 뒤 MIT-BIH S1을 시작한다.
+
+## 2026-11-01 18:53 KST — 점검 c4 통과(CinC 재현) → 점검 6/6, CinC 튜닝 S1(27 run) 시작
+
+**직전 commit:** `651b3d2c1`(MIT-BIH·CinC 튜닝 사전등록).
+- c4: 이 브랜치에서 Spikformer식 CinC seed 42(학습률 1e-3, `run_rhythm_spk_mux.sh`, suite `check-cinc-spkssa-20261101`, 492 s)를 다시 학습했다. test 67.2548 %, 최고 검증 71.1220 %(epoch 28), 파라미터 918,088로 재사용 기준값과 같다(차이 0.0000%p).
+- `check_tune2.py`를 c0–c5 한 번에 다시 돌려 `results/checks/check_tune2.txt`를 깨끗하게 남겼다: **6/6 통과**.
+- 참고: Spikformer식 CinC run은 약 8분으로 SpkMixer(run당 1.5–2.5시간)보다 훨씬 빠르다. SpkMixer의 mixer neuron은 token 117개를 차례로 도는 반면 Spikformer식은 반복 4스텝뿐이기 때문이다.
+- CinC S1: `nohup bash scripts/gpu_pool2.sh cinc_mixer_v1/scripts/queues/cinc-tune-lr-20261101.txt 0,1,2,3 > cinc_mixer_v1/results/flif-v1-rhythm-spk-tune-cinc/pool_log_lr.txt 2>&1 &`(NSMT/에서). 학습률 {2.5e-4, 5e-4, 2e-3} × {muxlin, sdlin, Spikformer식} × seed 42/7/2026.
+- 진행: ETT S1과 MIT-BIH S1은 계속 돈다.
+
+**commit:** 점검 결과, 재현 run 결과, 이 기록.
