@@ -4983,3 +4983,151 @@ query energy는 143.5–180.1 µJ다. Spikformer식 @90 대비 1.13–1.38배, B
 **commit:** 위 항목과 함께 commit·push 한 뒤 시작한다.
 
 ---
+
+## 2026-11-01 16:45 KST — CinC 후속 묶음 결과 (36 run) — **(A) query 형태 population이 fold 0–4 전체에서 Spikformer식 30 epoch보다 좋음: population LIF +1.99 %p(15쌍 중 12쌍, 95 % 구간 [+0.97, +3.00]), population f-LIF +1.84 %p(13/15, [+0.93, +2.75]), energy 1.25·1.42배. 이득은 주로 AF 부류. (B) population neuron에서는 T = N memory의 몫이 있음: memoryless control 대비 +1.38·+1.19 %p(좋음, 각 2/3 seed). (C) Neo-mixer 모든 layer LIF의 zero reset은 CinC에서 기본보다 나쁨(−0.73 %p, 3/3). ETT에서 본 이득이 CinC로 옮겨지지 않음**
+
+**직전 commit:** `278299f98` (α 결과·후속 사전 고정, tag `exp/nsmt-flif-neo-20261031-alpha`).
+
+**기록이 늦었다:** 36 run 중 마지막 run은 2026-11-01 08:24:30에 끝났고, 감시 알림은 08:28:36에 났다. 이 항목은 16:45에 쓴다. 알림이 사용자 답변(α CinC 확장)과 함께 16:39에 도착해 약 8시간 늦었다. α 단계(6.5시간 늦음)와 같은 경위다.
+
+**사용자 결정 (10-31, α 질문):**
+- α 단계는 규칙상 "긍정"이었지만 CinC로 **넓히지 않는다**("넓히지 않음 (Recommended)").
+- 사전 고정 규칙("긍정이면 CinC 확장")에서 사용자 결정으로 벗어난 것이다.
+- 근거는 10-31 20:22 항목이다. 판정 1 "좋음"이 없었고, 바뀐 판정 4개는 모두 R이 문턱(±1 %)을 오가는 정도였다.
+- 그래서 튜닝 네 단계 가운데 CinC로 넓힌 것은 reset 단계(이 묶음의 C)뿐이다.
+
+**실행:**
+- 시간과 장소: pool 두 개(tmux `flif_fu`, `flif_fu2`, 합 8칸), 2026-10-31 20:22:10 – 11-01 08:24:30. 다른 대화의 작업과 GPU를 나눠 썼다.
+- 상태: 36/36 RESULT, SKIP 0. sha는 모두 `278299f98`(사전 고정 commit)다.
+- run 시간:
+
+  | run | 시간 |
+  |---|---|
+  | memoryless population | 1,979–2,037 s |
+  | Neo-mixer 모든 layer LIF | 7,507–8,825 s |
+  | query population fold 1–4 | 9,829–11,323 s |
+
+- 결과 파일:
+  - `classification/results/flif-v1-rhythm-query-cv-cinc/raw.txt` (A, 24 run)
+  - `classification/results/flif-v1-rhythm-followup-cinc/raw.txt` (B·C, 12 run)
+- pool 기록: 두 pool 기록을 이어 붙여 두 폴더에 같은 `pool_runs.txt`로 두었다.
+- 점검 (10-25 fold 러너 결함을 다시 보지 않기 위해):
+  - 36 RESULT 줄의 `dir` fold 접미사는 모두 줄의 fold와 같다. (cond, fold, seed) 중복도 없다.
+  - Spikformer식 fold 1–4의 12개는 10-25 `flif-v1-rhythm-folds-cinc/raw.txt`에 모두 있고, 각자 자기 fold 디렉터리를 가리킨다.
+  - 그때 복구 파일 `raw_recovered.txt`로 되살린 11개는 `mixlin_lif`·`mixlinmx_lif`뿐이다. 이번 요약에는 쓰지 않는다.
+- 요약: `summarize_followup.py` → `results/flif-v1-followup-summary.md`.
+  - 결과를 본 뒤 **보고용 블록**을 스크립트에 더했다. 내용은 fold 1–4만의 비교, macro-F1, 부류별 F1, energy 비다.
+  - 사전 고정 판정에는 쓰지 않는다.
+  - 사전 고정 부분의 출력은 그대로다(diff로 확인; 블록만 추가됨).
+
+### A. query 형태 population − Spikformer식 30 epoch, fold 0–4 (CinC score %, test, best-validation 가중치)
+
+CinC score는 대회 공식 점수로, 정상·AF·기타 세 부류 F1의 평균이다.
+
+| 모델 | fold 0 | fold 1 | fold 2 | fold 3 | fold 4 | 5-fold 평균 | 15쌍 평균 차 | 95 % t 구간 | 이긴 쌍 | 판정 (주) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Spikformer식 @30 | 65.60 | 66.30 | 65.89 | 64.44 | 66.46 | 65.74 | | | | |
+| query population LIF | 66.60 | 67.81 | 66.84 | 68.30 | 69.09 | **67.73** | **+1.99** | [+0.97, +3.00] | 12/15 | **좋음** |
+| query population f-LIF | 66.47 | 68.91 | 65.78 | 67.95 | 68.77 | **67.58** | **+1.84** | [+0.93, +2.75] | 13/15 | **좋음** |
+
+**fold별 판정** (평균 ≥ +0.5 %p이고 2/3 seed):
+
+| 모델 | fold 0 | fold 1 | fold 2 | fold 3 | fold 4 |
+|---|---|---|---|---|---|
+| population LIF | +1.00 좋음 | +1.51 좋음 | +0.95 좋음 | +3.86 좋음 | +2.62 좋음 |
+| population f-LIF | +0.87 좋음 | +2.61 좋음 | −0.11 차이 없음 | +3.51 좋음 | +2.31 좋음 |
+
+**보고만 (결과를 본 뒤 계산):**
+- **fold 1–4만** (query 형태를 고를 때 test를 본 fold 0을 뺀 12쌍):
+  - population LIF: +2.23 %p, [+1.10, +3.36], 10/12.
+  - population f-LIF: +2.08 %p, [+1.00, +3.16], 11/12.
+- **macro-F1** (noise 부류까지 네 부류 F1 평균), 5-fold:
+  - 62.36 / 62.27이고, Spikformer식은 61.39다.
+  - 차는 +0.98 %p(8/15) / +0.88 %p(10/15)로, CinC score보다 작고 덜 일정하다.
+- **부류별 F1 차** (15쌍 평균, 이긴 쌍):
+
+  | 모델 | 정상 | AF | 기타 | noise |
+  |---|---|---|---|---|
+  | population LIF | −0.62 (4/15) | **+5.55 (14/15)** | +1.03 (11/15) | −2.06 (7/15) |
+  | population f-LIF | −0.54 (2/15) | **+4.71 (14/15)** | +1.35 (12/15) | −1.99 (6/15) |
+
+- **energy** (5-fold 평균): 158.0 / 179.7 µJ이고, Spikformer식은 126.8 µJ다. 비는 **1.25 / 1.42배**다. "좋음"이므로 기준 (2)는 충족한다.
+
+### B. query 형태 population의 T = N memory (fold 0)
+
+| 비교 | A 평균 | B 평균 | seed 42 / 7 / 2026 차 (%p) | 평균 | 판정 | energy A/B |
+|---|---|---|---|---|---|---|
+| **query population LIF − 그 memoryless control (주)** | 66.60 | 65.22 | −0.59 / +1.81 / +2.93 | **+1.38** | **좋음** | 1.07 |
+| **query population f-LIF − 그 memoryless control (주)** | 66.47 | 65.28 | +0.02 / +2.13 / +1.42 | **+1.19** | **좋음** | 1.19 |
+| (보고) memoryless population LIF − memoryless LIF | 65.22 | 64.94 | +2.21 / −0.77 / −0.60 | +0.28 | 차이 없음 | 1.03 |
+| (보고) memoryless population f-LIF − memoryless LIF | 65.28 | 64.94 | +2.64 / −1.35 / −0.26 | +0.34 | 차이 없음 | 1.05 |
+
+- 10-31 query 묶음의 "population − memoryless LIF"(+1.66 / +1.53)는 두 부분으로 나뉜다.
+  - memory 몫: +1.38 / +1.19
+  - neuron 종류 몫: +0.28 / +0.34
+- 즉 대부분이 memory 몫이다.
+- 같은 형태에서 LIF의 memory 몫은 +0.36 %p로 차이 없었다(10-31).
+- memoryless population의 macro-F1은 62.35(LIF) / 60.29(f-LIF)다.
+
+### C. Neo-mixer 모든 layer LIF: spikeDE reset zero 대 기본 (fold 0, CinC 기본 설정 방향당 2층)
+
+| 비교 | A 평균 | B 평균 | seed 42 / 7 / 2026 차 (%p) | 평균 | 판정 | energy A/B |
+|---|---|---|---|---|---|---|
+| **zero − 기본 reset (주)** | 61.19 | 61.92 | −0.90 / −1.16 / −0.12 | **−0.73** | **나쁨** | 0.92 |
+| (보고) 기본 − Spikformer식 @90 | 61.92 | 64.89 | −2.53 / −3.57 / −2.84 | −2.98 | 나쁨 | 0.23 |
+| (보고) zero − Spikformer식 @90 | 61.19 | 64.89 | −3.43 / −4.73 / −2.95 | −3.71 | 나쁨 | 0.22 |
+| (보고) 기본 − Spikformer식 @30 | 61.92 | 65.60 | −4.14 / −3.01 / −3.90 | −3.68 | 나쁨 | 0.24 |
+| (보고) zero − Spikformer식 @30 | 61.19 | 65.60 | −5.04 / −4.17 / −4.01 | −4.41 | 나쁨 | 0.22 |
+| (보고) zero − Neocortex만 바꾼 Neo-mixer LIF @90 | 61.19 | 62.37 | +0.86 / −2.56 / −1.85 | −1.19 | 나쁨 | 0.97 |
+
+- 모든 layer에 기본 reset을 쓴 경우(61.92)는 Neocortex만 바꾼 Neo-mixer LIF(62.37)보다 평균 0.45 %p 낮다. 평균 차만 본 것이고, seed 짝 판정은 하지 않았다.
+- macro-F1은 55.68(기본) / 55.86(zero)이다.
+
+**사전 예상과 비교 (10-31 20:22):**
+- A "15쌍 평균 0 ~ +1 %p, 차이 없음 또는 문턱 근처": **틀렸다.** +1.99 / +1.84였고, 구간 하한도 +0.9 이상이다. fold 1–4의 차이가 fold 0(+1.00 / +0.87)보다 컸다.
+- B "좋음, 또는 차이 없음일 가능성도 큼": "좋음"이었다.
+- C "zero가 좋음": **틀렸다**(나쁨). "Spikformer식보다 나쁨": 맞았다.
+
+### 읽는 법 (탐색)
+- **query 형태 population은 5 fold 확인을 통과했다.**
+  - 10-25 fold 확인에서 같은 형식으로 본 것은 Neo-mixer ③ LIF다. 그 결과는 Spikformer식과 차이 없음(−0.21 %p, 구간 −1.11 ~ +0.70)이었다.
+  - 이번에는 같은 형식에서 구간이 0을 넘지 않는다.
+  - query 형태를 고르는 데 쓴 fold 0을 빼도(fold 1–4: +2.23 / +2.08) 차이가 남는다. 따라서 "fold 0에서 test가 좋은 형태를 골랐다"는 선택 효과만으로는 설명되지 않는다.
+- **이득은 AF 부류에 몰려 있다.**
+  - AF F1이 +5.6 / +4.7 %p(14/15쌍), 기타 부류가 +1.0 / +1.4 %p다.
+  - 정상 부류는 −0.6 %p, noise 부류는 −2.0 %p다.
+  - 그래서 noise까지 넣은 macro-F1 차는 절반 정도다. AF는 리듬이 불규칙한 부류다. Neocortex 상태가 무엇을 읽을지(query) 정할 때 이 부류가 가장 덕을 본다는 관찰이다. 기전은 확인하지 않았다.
+- **population neuron에서는 T = N memory가 쓸모가 있다(fold 0).**
+  - query 형태에서 memory를 끄면 population LIF·f-LIF가 1.2–1.4 %p 내려간다.
+  - LIF에서는 차이가 없었다.
+  - 이 memory 몫이 시간 순서에서 오는지는 가르지 않았다. 10-29 섞어 다시 학습한 결과에서는 CinC가 순서를 보상하지 않았다.
+- **reset `zero`의 ETT 이득은 CinC로 옮겨지지 않는다.**
+  - ETT에서는 Neo-mixer 모든 layer LIF가 zero로 −2.10 %(좋음)였다.
+  - CinC에서는 −0.73 %p(나쁨)다.
+  - 따라서 튜닝 종합(10-31)이 암시한 "모든 spikeDE neuron의 기본을 zero로" 바꿀 근거는 없다. 기본 spikede를 유지한다.
+  - CinC의 Neo-mixer 모든 layer LIF는 Spikformer식보다 3–4 %p 낮다(energy 0.22–0.24배). 기준 (2)의 "가까움"(−0.5 %p 이내)과도 거리가 멀다.
+
+**한계:**
+- A:
+  - query는 90 epoch, Spikformer식은 30 epoch다.
+  - fold 0에서는 Spikformer식 30 epoch가 90 epoch보다 높아(65.60 대 64.89) 더 강한 baseline이다. 그러나 fold 1–4에서 90 epoch Spikformer식은 돌리지 않았다.
+  - Spikformer식 fold 1–4 run은 10-25, 다른 commit·다른 GPU 부하에서 학습됐다.
+- B·C: fold 0만, seed 3이다. B의 "좋음"은 각각 2/3 seed다(seed 42에서 −0.59 / +0.02).
+- query 형태 LIF·f-LIF는 fold 0만 있다. MIT-BIH에서는 query 형태를 돌리지 않았고, ETT에서는 형태 차이가 없었다(10-31).
+- energy는 연산 수 기반 추정이다.
+
+**다음 후보 (사용자 결정 필요):**
+1. B(memory 몫)를 fold 1–4로 확인한다. memoryless population 2종 × 4 fold × seed 3 = 24 run이다. 이번 실측으로 run 하나는 약 2,000 s다.
+2. Spikformer식 90 epoch를 fold 1–4에서 돌린다(12 run). 학습 예산이 같은 비교를 채운다.
+3. query 형태 LIF·f-LIF를 fold 1–4에서 돌린다(24 run). neuron 4종 비교를 5 fold로 맞춘다.
+4. query 형태 population의 일반화를 MIT-BIH에서 확인한다.
+
+**commit / tag:** 아래를 commit 한다.
+- 이 항목
+- `classification/results/flif-v1-rhythm-query-cv-cinc/{raw.txt, pool_runs.txt}`, `classification/results/flif-v1-rhythm-followup-cinc/{raw.txt, pool_runs.txt}`
+- `results/flif-v1-followup-summary.md`
+- `summarize_followup.py`(보고용 블록 추가)
+
+annotated tag `exp/nsmt-flif-neo-20261101-followup`(CinC 후속 묶음 완료)을 붙이고, `exp/nsmt-flif-neo`와 이 tag만 push 한다.
+
+---

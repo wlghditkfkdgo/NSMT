@@ -101,6 +101,33 @@ def main():
                 cells.append('incomplete'); continue
             m, v = verdict([100 * (a['score'] - b['score']) for a, b in pr], 2); cells.append(f'{m:+.2f} {v}')
         L.append(f'| query {n} | ' + ' | '.join(cells) + ' |')
+    # report only, added 2026-11-01 after the results were seen (not part of the pre-registered verdicts)
+    L += ['', '### report only (added after the results): folds 1-4 only (the query form was chosen on fold 0), macro-F1, energy', '',
+          '| model | folds 1-4 A − B (12 pairs) | 95 % t interval (11 df) | A > B pairs | 5-fold macro-F1 A − B | A > B pairs | energy A/B (5 folds) |',
+          '|---|---|---|---|---|---|---|']
+    T11 = 2.2009851601                                       # t_{0.975, 11}
+    for n in ('pop_lif', 'pop_flif'):
+        tag = f'q_{n}'
+        pairs = [(get(by, tag, f, s), get(by, 'spk30', f, s)) for f in range(5) for s in SEEDS]
+        if any(a is None or b is None for a, b in pairs):
+            L.append(f'| query {n} | incomplete | | | | | |'); continue
+        d = [100 * (a['score'] - b['score']) for a, b in pairs[3:]]; m = float(np.mean(d))
+        h = T11 * float(np.std(d, ddof=1)) / math.sqrt(len(d))
+        dm = [100 * (a['macro_f1'] - b['macro_f1']) for a, b in pairs]
+        er = float(np.mean([a['total_fft_uJ'] for a, _ in pairs]) / np.mean([b['total_fft_uJ'] for _, b in pairs]))
+        L.append(f'| query {n} | {m:+.2f} | [{m - h:+.2f}, {m + h:+.2f}] | {sum(z > 0 for z in d)}/12 | {np.mean(dm):+.2f} | '
+                 f'{sum(z > 0 for z in dm)}/15 | {er:.2f} |')
+    L += ['', 'per-class F1, A − B over the 15 pairs (%p, A > B pairs; score = mean of N / AF / Other, macro-F1 adds Noisy)', '',
+          '| model | Normal | AF | Other | Noisy |', '|---|---|---|---|---|']
+    for n in ('pop_lif', 'pop_flif'):
+        pairs = [(get(by, f'q_{n}', f, s), get(by, 'spk30', f, s)) for f in range(5) for s in SEEDS]
+        if any(a is None or b is None for a, b in pairs):
+            L.append(f'| query {n} | incomplete | | | |'); continue
+        cells = []
+        for k in range(4):
+            dk = [100 * (a[f'f1_{k}'] - b[f'f1_{k}']) for a, b in pairs]
+            cells.append(f'{np.mean(dk):+.2f} ({sum(z > 0 for z in dk)}/15)')
+        L.append(f'| query {n} | ' + ' | '.join(cells) + ' |')
     # B, C: fold-0 paired comparisons
     def fold0(title, Q):
         out = ['', title, '', '| comparison | A (mean) | B (mean) | A − B per seed (%p) | mean | verdict | energy A/B |', '|---|---|---|---|---|---|---|']
