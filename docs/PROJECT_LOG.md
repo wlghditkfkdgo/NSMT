@@ -9229,3 +9229,41 @@ MAE: Spikformer식 0.3350 / 0.4366 / 0.2536 / 0.3959, sdlin 0.3364 / 0.4415 / 0.
 - 참고(다른 세션 결과, 같은 4칸·같은 기준): Neo-mixer OR 합치기 LIF는 Spikformer식과 R +0.22 %, 에너지 0.20배로 기준 (2)를 충족했다(MODI_PROJECT_LOG). 그 모델은 반복 축이 없는 Neo-mixer이고, SpkMixer는 Spikformer식 몸통에 mixer를 넣은 모델이라 구조가 다르다.
 
 **commit·태그:** 결과(`raw.txt`, `energy_recount.csv`, `summary.md`, pool 기록)와 이 기록을 `exp/f-lif-pop-v3`에 commit·push하고 annotated tag `exp/f-lif-pop-v3-ett-mux-20261031`을 붙인다(태그된 commit이 이 기록의 commit이다).
+
+## 2026-11-01 16:39 KST — 결과: SpkMixer 재실험 B2·C 완료(CinC fold 0, OR 잔차; B2 45 run + C 3 run, SKIP 0; B1과 합쳐 75 run) — 기준 (2) 충족은 19개 조건 중 **LIF sdlin 하나뿐**(+1.37%p, 1.02배); LIF가 아닌 5종 neuron의 15개 조건은 모두 Spikformer식보다 "나쁨"(−1.24 ~ −5.59%p); s_d 합치기 효과는 neuron마다 다름(LIF·f-LIF·popg는 좋음 또는 차이 없음, population f-LIF는 나쁨); C 참조 linmx(실수 입력)는 sdlin보다 −2.94 나쁨, 에너지 8.37배
+
+**직전 commit:** `7dc312c7a`(ETT 검증 결과). 이 항목은 10-29 17:03 사전등록(B1 → B2 → C)의 마지막 결과다. 실행: B2·C pool 10-29 23:07 – 11-01 무렵(48 run, SKIP 0, rc 0). 10-30 14:50 중간 집계 이후 끝난 run을 포함한 최종 판정이다. `summarize_spk.py --stage verdicts --cf or` → `results/flif-v1-rhythm-spk-cinc/summary.md`.
+
+### test 점수(CinC 점수 %, seed 3개 평균 ± 표준편차; Spikformer식 65.60 ± 1.21, 127.4 µJ)
+
+| neuron | or | sdor | sdlin | linmx(참조) |
+|---|---:|---:|---:|---:|
+| LIF | 61.78 ± 0.74 | 63.47 ± 1.13 | **66.96 ± 0.95** | 64.02 ± 0.57 |
+| f-LIF | 62.10 ± 0.34 | 62.03 ± 0.45 | 63.73 ± 0.63 | — |
+| population LIF(soma) | 62.85 ± 0.45 | 63.48 ± 1.19 | 62.20 ± 0.98 | — |
+| population f-LIF(soma) | 62.28 ± 0.15 | 61.62 ± 0.63 | 61.25 ± 1.10 | — |
+| popg LIF(τ 그룹, soma 없음) | 63.57 ± 1.12 | 64.36 ± 0.69 | 63.55 ± 0.75 | — |
+| popg f-LIF(τ 그룹, soma 없음) | 60.01 ± 0.44 | 60.81 ± 0.79 | 60.48 ± 1.15 | — |
+
+에너지(기준 규칙 µJ, or / sdor / sdlin): LIF 110.5 / 115.9 / 129.8(linmx 1066.0), f-LIF 128.7 / 138.0 / 155.0, population LIF 199.4 / 217.4 / 244.6, population f-LIF 332.3 / 378.3 / 432.6, popg LIF 115.8 / 122.7 / 137.3, popg f-LIF 132.4 / 143.3 / 160.1.
+
+### 사전등록 판정
+- **V2 vs Spikformer식(기준 (2)):** LIF sdlin +1.37(−1.40, +2.43, +3.06) 좋음, 1.02배 → 충족. 나머지 18개 조건은 모두 나쁨: LIF or −3.81, sdor −2.13, linmx −1.57(8.37배); f-LIF −3.49 / −3.57 / −1.87; population LIF −2.74 / −2.11 / −3.40(1.57–1.92배); population f-LIF −3.31 / −3.98 / −4.35(2.61–3.40배); popg LIF −2.03 / −1.24 / −2.04; popg f-LIF −5.59 / −4.79 / −5.12.
+- **V1 합치기 효과(같은 neuron):**
+  - LIF: sdor − or +1.69 좋음, sdlin − or +5.18 좋음, sdlin − sdor +3.49 좋음.
+  - f-LIF: −0.07 차이 없음, +1.63 좋음, +1.70 좋음.
+  - population LIF: +0.63 좋음, −0.65 나쁨, −1.28 차이 없음.
+  - population f-LIF: −0.67 나쁨, −1.03 나쁨, −0.37 차이 없음.
+  - popg LIF: +0.79 좋음, −0.01 차이 없음, −0.81 나쁨.
+  - popg f-LIF: +0.80 좋음, +0.47 차이 없음, −0.33 차이 없음.
+- **V3 참조:** linmx − sdlin −2.94(−2.57, −2.18, −4.07) 나쁨, linmx − sdor +0.55(+1.41, +0.38, −0.14) 좋음.
+
+### 읽기
+- 학습하는 합치기 sdlin의 큰 이득(LIF +5.18)은 f-LIF(+1.63)까지만 이어지고, population 계열 네 종에서는 없거나 반대다.
+- s_d를 OR로 더하는 것(sdor)은 LIF·population LIF·popg 두 종에서 좋음, f-LIF 차이 없음, population f-LIF 나쁨이다. 10-30 14:50의 "가장 일관된 결과"라는 표현은 population f-LIF에서 깨졌다(10-30 21:21 브리핑에서 정정).
+- population 계열은 에너지가 Spikformer식의 1.6–3.4배라 점수로만 기준 (2)를 넘을 수 있는데, 모두 나빴다.
+- 실수 입력 합치기 linmx는 0/1 입력 sdlin보다 점수도 낮고 에너지는 8배다.
+- 이 표 밖의 후속: MUX 합치기 muxlin(10-31)이 같은 조건에서 Spikformer식 +2.92(3/3)로 이 계열 최고다. ETT에서는 나빴다(10-31).
+- 한계: fold 0 하나, seed 3개, 잔차는 LIF에서 고른 OR을 모든 neuron에 썼다.
+
+**commit·태그:** `raw.txt`(RESULT 75), `summary.md`, `pool_log_b2c.txt`, 이 기록을 commit·push하고, 10-29 사전등록 실험(B1·B2·C) 완료 annotated tag `exp/f-lif-pop-v3-spkmixer-rerun-20261101`을 붙인다.
