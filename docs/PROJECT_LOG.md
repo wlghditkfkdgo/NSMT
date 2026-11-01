@@ -9327,3 +9327,33 @@ MAE: Spikformer식 0.3350 / 0.4366 / 0.2536 / 0.3959, sdlin 0.3364 / 0.4415 / 0.
 - 튜닝은 SpkMixer에 3단계, Spikformer식에는 학습률만이다(Spikformer식에는 mixer 층·잔차 대응 항목이 없음).
 
 **commit:** 코드·점검·smoke·기준값 사본·이 기록을 `exp/f-lif-pop-v3`에 commit·push한 뒤 MIT-BIH와 ETT S1을 시작한다.
+
+## 2026-11-01 17:23 KST — 결과: MUX 합치기의 MIT-BIH 확장(SpkMixer LIF, OR 잔차, 6 run, SKIP 0) — 세 사전등록 비교 모두 "차이 없음": **M1 muxlin vs Spikformer식 −0.32%p**(−0.30, −0.22, −0.45; 세 seed 모두 낮지만 문턱 0.5 안, 에너지 0.93배, 기준 (2) 미충족), M2 muxlin vs sdlin +0.07(+0.05, +0.08, +0.09), M3 sdlin vs Spikformer식 −0.39; 클래스별로는 가장 작은 F 클래스에서 muxlin 79.24 vs 81.38
+
+**직전 commit:** `0ae0d9952`(사전등록). 실행: 11-01 16:56 – 17:22, GPU 4장에 1개씩(ETT 튜닝 pool·다른 세션 학습과 공유), run당 757–949 s. `summarize_mitbih_mux.py` → `results/flif-v1-mitbih-spkmux/summary.md`.
+
+### 결과 (test, 마지막 epoch 가중치, seed 3개 평균)
+
+| 조건 | macro-F1 % | 정확도 % | F1 N | S | V | F | Q | 총 µJ | 파라미터 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Spikformer식(재사용) | 92.22 ± 0.17 | 98.55 ± 0.02 | 99.24 | 85.28 | 96.04 | 81.38 | 99.17 | 9.55 | 904,488 |
+| sdlin | 91.83 ± 0.26 | 98.58 ± 0.05 | 99.26 | 86.10 | 96.25 | 78.48 | 99.04 | 9.09 | 1,200,768 |
+| **muxlin** | 91.90 ± 0.25 | 98.55 ± 0.01 | 99.24 | 85.74 | 96.38 | 79.24 | 98.89 | 8.89 | 1,200,768 |
+
+run별 macro-F1(seed 42 / 7 / 2026): muxlin 92.12 / 92.02 / 91.56, sdlin 92.07 / 91.94 / 91.47.
+
+### 사전등록 판정 (같은 seed끼리 macro-F1 차이, %p)
+| 질문 | 평균 | seed 42 / 7 / 2026 | 판정 | 에너지 배율 | 기준 (2) |
+|---|---:|---|---|---:|---|
+| **M1 muxlin vs Spikformer식** | −0.32 | −0.30, −0.22, −0.45 | 차이 없음 | 0.93 | 미충족 |
+| M2 muxlin vs sdlin | +0.07 | +0.05, +0.08, +0.09 | 차이 없음 | 0.98 | |
+| M3 sdlin vs Spikformer식 | −0.39 | −0.34, −0.30, −0.54 | 차이 없음 | 0.95 | 미충족 |
+
+### 읽기
+- 세 seed 모두 muxlin이 Spikformer식보다 낮다(−0.22 ~ −0.45). 규칙상 "차이 없음"이지만 방향은 일관되게 낮은 쪽이다. 에너지는 0.93배로 절반에 못 미쳐 기준 (2)를 넘지 못한다.
+- MUX 자체의 효과(M2)는 MIT-BIH에서 +0.07로 거의 없다. ETT(10-31, R −0.39)와 같고, CinC의 +1.56%p는 다른 두 과제로 옮겨지지 않았다.
+- 차이는 대부분 가장 작은 F 클래스(학습 562, test 241 창)에서 온다(muxlin 79.24, sdlin 78.48, Spikformer식 81.38). S·V는 muxlin이 조금 높다.
+- 참고(다른 세션, 같은 절차·기준): Neo-mixer OR 합치기 4종은 Spikformer식보다 −0.95 ~ −1.08%p "나쁨"이었고(10-27), 모든 층 교체 4종은 −1.10 ~ −3.39였다. SpkMixer muxlin(−0.32)은 그보다 기준 모델에 가깝다. 구조가 달라 같은 비교는 아니다.
+- 한계: seed 3개, MIT-BIH는 검증 분할 없이 마지막 epoch를 test에서 잰다(기존 절차).
+
+**commit·태그:** `raw.txt`, `summary.md`, `pool_log.txt`, 이 기록을 commit·push하고 annotated tag `exp/f-lif-pop-v3-mitbih-mux-20261101`. ETT 튜닝 S1(144 run)은 계속 돈다.
