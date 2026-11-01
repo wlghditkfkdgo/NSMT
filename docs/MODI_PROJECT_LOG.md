@@ -5131,3 +5131,115 @@ CinC score는 대회 공식 점수로, 정상·AF·기타 세 부류 F1의 평�
 annotated tag `exp/nsmt-flif-neo-20261101-followup`(CinC 후속 묶음 완료)을 붙이고, `exp/nsmt-flif-neo`와 이 tag만 push 한다.
 
 ---
+
+## 2026-11-01 18:45 KST — 사전 고정 + 구현: MIT-BIH에서 query 형태 population (사용자 결정 11-01) — 1단계 6 run(기본 설정). 성능이 좋지 않으면 2단계 learning rate 튜닝(36 run, 학습 파일을 80 / 20으로 나눈 validation으로 선택). MIT-BIH loss가 CAL 가중 CE임을 코드로 확인. 기존 경로 비트 동일, smoke 5/5
+
+**직전 commit:** `0b8b6ff41` (CinC 후속 묶음 결과, tag `exp/nsmt-flif-neo-20261101-followup`).
+
+**사용자 지시 (11-01):**
+1. "[query+ population LIF/f-LIF] 조합을 [NSMT 해마만 T=4] 모델에 실험을 진행하자. 만약 성능이 좋지 않으면 간단하게 하이퍼파라미터(학습률 등)를 튜닝하고 보고해줘."
+   - 바로 앞 답변(MIT-BIH 모델 비교)에서 "query 형태는 MIT-BIH 결과가 없다"고 보고했다. 그래서 이 지시를 MIT-BIH 실험으로 읽었다.
+2. "현재 MIT-BIH 분류 과제의 task loss는 CAL loss(클래스 불균형 맞춤 손실함수)를 사용하고 있는거지?"
+
+**질문 2에 대한 답 (코드 확인):**
+- `train.py`는 학습 손실로 `nn.CrossEntropyLoss(weight=get_class_weights(class_num_samples))`를 쓴다.
+- `utils.get_class_weights`는 부류 c의 가중치를 w_c = max(1, ln(n_max / n_c))로 정한다. 가장 많은 부류의 표본 수를 n_max라 할 때, 수가 적은 부류일수록 가중치가 커지고 1 밑으로는 내려가지 않는다.
+- 전체 학습 파일에서 N / S / V / F / Q의 가중치는 1.000 / 3.484 / 2.527 / 4.726 / 2.422다. 학습 stdout과 아래 분할 점검에서 확인했다.
+- dual-path(B형·[NSMT T=4]·query) run은 보조 손실 가중치가 0이다. 그래서 손실은 CAL 가중 CE뿐이다.
+  - 식은 `ce·(1 − α) + mse·α`이고 α = 0이다.
+- Spikformer식은 Neocortex(`time_block`)가 없어서 CE만 쓴다.
+- epoch마다 찍는 "val" 손실은 가중치 없는 CE다. 기록용일 뿐이고 선택에는 쓰지 않는다.
+
+**질문 (1단계):** CinC 5 fold에서 Spikformer식보다 좋았던 조합이 MIT-BIH에서도 그런가? 그 조합은 query 형태(Neocortex = attention query, Hippocampus 자기 token = key·value)와 population neuron이다.
+
+**조건 (1단계):**
+- `nsmt4q_pop_lif`, `nsmt4q_pop_flif` × seed 42 / 7 / 2026 = **6 run**, suite `flif-v1-mitbih-query`.
+- 학습은 ECG 학습 틀 그대로다.
+  - 30 epoch, batch 512, AdamW
+  - 최고 learning rate 0.01: 처음 6 epoch 동안 올린 뒤 cosine으로 내린다.
+  - CAL 가중 CE, 마지막 epoch 가중치로 시험한다.
+- 설정은 CinC query와 같다.
+  - 보조 손실 0, `--neo_grad 1.0`
+  - Neocortex neuron만 바꾸고 Hippocampus는 spikingjelly LIF로 둔다.
+  - population LIF는 soma 0.5, population f-LIF는 α 0.5에 soma 1.0이다.
+- 비교 run은 기존 것을 쓴다.
+  - `spk_ssa`: `flif-v1-gen-mitbih`
+  - `nsmt4_pop_*`, `spkneo_pop_*`: `flif-v1-mitbih-dual`
+
+**판정 (사전 고정, `summarize_mitbih_query.py` docstring):** 평균 ≥ +0.5 %p이고 seed 3개 중 2개 이상이면 "좋음", 거울이면 "나쁨"이다. 값이 빠지거나 중복되거나 유한하지 않으면 "미완"이다.
+- **M1 (주):** query population n − Spikformer식. 기준 (2)는 "좋음", 또는 평균 ≥ −0.5 %p이면서 energy ≤ 0.5배다.
+- **M2:** query − 바꿔 넣기([NSMT T=4], `nsmt4_pop_n`).
+- **M3:** query − 덧붙이기(B형, `spkneo_pop_n`).
+- **보고만:** query population f-LIF − population LIF, 부류별 F1.
+
+**2단계 조건 ("성능이 좋지 않으면"):** M1에서 query population 둘 다 "좋음"이 아니면 2단계를 돈다. 요약 스크립트가 이 조건을 출력한다.
+
+**2단계 설계 (사전 고정):**
+- **바꾸는 것:** 최고 learning rate ∈ {0.0025, 0.005, 0.01(기본), 0.02}.
+  - "간단하게"라는 지시에 따라 learning rate 하나만 바꾼다.
+  - learning rate는 MIT-BIH에서 한 번도 바꾼 적이 없는 값이다.
+  - ETT 튜닝(10-31)에서도 layer 수·reset·α는 test를 거의 바꾸지 않았다.
+- **모델:** query population LIF, query population f-LIF, **Spikformer식**.
+  - Spikformer식도 같은 값으로 튜닝한다. 사용자의 10-30 지시("지금 비교는 불공정함. 같은 세팅에서 learning rate가 달라졌을 때의 결과값 변화를 병기")에 따른 것이다.
+  - 4 × 3 × seed 3 = **36 run**, suite `flif-v1-mitbih-query-tune`.
+- **validation:** MIT-BIH 파일에는 validation이 없다. test로 고르지 않기 위해 새 옵션 `--mitbih_val`을 쓴다.
+  - 학습 파일을 부류별 5 묶음으로 나눈 것 중 첫 묶음(`StratifiedKFold`, random_state 42)을 validation으로 뗀다.
+  - 학습 61,289 / validation 15,323이고, 모든 run이 같은 분할을 쓴다.
+  - 2단계 run은 모두(기본 lr 포함) 학습 파일의 80 %로 학습한다. 그래서 1단계 숫자와 직접 비교하지 않고, 2단계 안에서만 비교한다.
+- **선택:** 모델마다 마지막 epoch validation macro-F1의 seed 평균이 가장 높은 learning rate다.
+- **판정:**
+  - T1: 고른 lr − 기본 lr(test, 같은 분할).
+  - T2 (주): query population n @고른 lr − Spikformer식 @고른 lr(기준 (2)).
+  - 보고: T2를 기본 lr끼리도 적고, 모든 lr의 validation·test를 나란히 적는다.
+
+**사전 예상:**
+- M1: 두 neuron 모두 "차이 없음"일 것이다. MIT-BIH에서는 모든 dual-path가 Spikformer식과 ±0.5 %p 안에 있다(10-30). energy는 약 1.05–1.2배라 기준 (2)는 미충족일 것이다. 그러면 2단계가 돈다.
+- M2: +0.3 ~ +0.7 %p로, 하나는 "좋음"일 수 있다. 바꿔 넣기 population은 S 부류를 잃었고, query는 Hippocampus 자기 key·value를 지키기 때문이다.
+- M3: 차이 없음.
+- 2단계: 대부분 0.005 또는 0.01을 고를 것이고, T2는 차이 없음일 것이다.
+
+**코드 (`nsmt_flif_v1/classification/`; 기존 경로 비트 동일):**
+- `train.py`: `--mitbih_val`이면 `create_loader(train_val_ratio=[4, 1])`를 쓴다. 기존 함수의 분할 경로를 그대로 쓰고, 끄면 기존 그대로 None이다.
+- `config.py`: `--mitbih_val`(기본 꺼짐, 폴더 접미사 `_mbval`)을 추가했다.
+- `scripts/run_mitbih4.sh` (새 파일, `run_mitbih3.sh` 복사):
+  - `nsmt4q_pop_{lif,flif}` 조건을 추가했다.
+  - env `LR`(기본 0.01)과 `VAL`(1이면 `--mitbih_val`)을 받는다.
+  - 실행 폴더 tag가 `<조건>_lr<LR>_v<VAL>`이라 동시에 도는 run이 폴더를 같이 쓰지 않는다. 10-25 fold 결함의 재발을 막기 위해서다.
+  - RESULT에 `lr`·`val`을 적고, VAL=1이면 마지막 epoch `val_f1`도 적는다. 마지막 기록 epoch가 EPOCHS − 1이 아니면 실패로 처리한다.
+- `summarize_mitbih_query.py` (새 파일): 1단계와 `--tune` 2단계.
+- `scripts/make_queue_mitbih_query.sh` (새 파일): `stage1` / `tune` 대기열을 만든다.
+
+**점검:**
+- **기존 경로 비트 동일:**
+  - 수정 전에 `run_mitbih3.sh`로 `spk_ssa`·`nsmt4_pop_lif`를 1 epoch(seed 42) 두 번 돌렸다. GPU 1·2에서 두 번 모두 같은 값이 나왔다(`spk_ssa` macro-F1 0.638122 / energy 8.104430, `nsmt4_pop_lif` 0.651971 / 9.030454).
+  - 수정 뒤 다시 돌렸다: 두 조건 모두 수정 전과 같은 값이다(`spk_ssa` 0.638122 / 8.104430, `nsmt4_pop_lif` 0.651971 / 9.030454; `results/smoke-mbq-{pre-20261101-a,pre-20261101-b,post-20261101}/raw.txt`).
+  - `run_mitbih4.sh` 기본값(LR 0.01, VAL 0)의 `spk_ssa`도 같은 값이다(0.638122 / 8.104430).
+- **validation 분할** (`check_mbval.py`, classification 폴더에서 실행; 학습 파일 76,612개):
+  - 학습 61,289 = [50,729, 1,557, 4,052, 449, 4,502], validation 15,323 = [12,683, 389, 1,013, 113, 1,125]. 부류마다 정확히 80 / 20이다.
+  - 두 부분은 겹치지 않고, 합치면 76,612다.
+  - 두 번 만들어도 같은 분할이다.
+  - 80 % 부분의 CAL 가중치는 1.000 / 3.484 / 2.527 / 4.727 / 2.422로 전체와 거의 같다.
+- **smoke** (`results/smoke-mbq-20261101/raw.txt`): 5/5(18:3x–18:44, seed 42). 모두 학습·시험·energy까지 끝났다.
+  - `nsmt4q_pop_lif` (1 epoch, LR 0.01, VAL 0): macro-F1 0.5878, 9.74 µJ.
+  - `nsmt4q_pop_flif` (1 epoch, LR 0.01, VAL 0): 0.6963, 10.77 µJ.
+  - `nsmt4q_pop_lif` (2 epoch, LR 0.005, VAL 1): val_f1 0.7777, test 0.7630.
+  - `spk_ssa` (2 epoch, LR 0.02, VAL 1): val_f1 0.8057, test 0.8035.
+  - `spk_ssa` (1 epoch, 기본): 위 비트 동일 값.
+  - `logargs.txt`: query run은 `hippo_xattn_mode` query, `alpha`(보조 손실) 0.0, `neo_grad` 1.0, `pop_soma_init` 0.5 / 1.0, `mitbih_val`이 VAL과 같다. `lr`이 LR과 같다. 폴더 접미사 `_xaquery`·`_mbval`도 맞다.
+  - query population의 parameter 수는 1,230,888개로, 바꿔 넣기(`nsmt4_pop_*`)와 같다.
+  - `spk_ssa`의 `logargs`에는 `alpha` 0.1이 남지만, Neocortex가 없어 쓰지 않는다(일반화 묶음과 같음).
+
+**실행:**
+- NSMT/에서 tmux `flif_mbq`로 `bash scripts/gpu_pool2.sh nsmt_flif_v1/classification/scripts/queues/mitbih-query-20261101.txt 0,1,2,3`을 띄운다.
+- 다른 대화의 ETT 작업 약 20개와 GPU를 나눠 쓴다.
+- 끝나는 시각은 어림하지 않는다.
+- 2단계 여부는 1단계 결과 항목에서 규칙대로 정한다.
+
+**한계:**
+- MIT-BIH는 심박 하나 = token 11개라서 T = N memory 주장을 시험하지 못한다.
+- 심박 단위 무작위 분할이라 같은 환자의 심박이 학습·시험에 섞인다.
+- 비교 run은 다른 날(10-27·10-30)에 학습됐다.
+
+**commit:** 이 항목과 코드를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 pool을 시작한다.
+
+---

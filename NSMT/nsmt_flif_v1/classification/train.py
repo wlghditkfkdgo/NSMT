@@ -205,7 +205,9 @@ def train(args:Config):
     early_stopping_pre = EarlyStopping(verbose=True)
     early_stopping_fine = EarlyStopping(verbose=True)
     
-    loader, class_num_samples = create_loader(train=True, batch_size=args.batch_size, num_classes=args.num_classes, data_root=args.root_path+'/5class_mitbih_train_7_187.csv', train_val_ratio=None, data_window_size=187, sampling='None', num_workers=args.num_workers)
+    # MODI 2026-11-01 --mitbih_val: fold 0 of create_loader's stratified 5-fold split (random_state 42) of the training file is the
+    # validation set (80 / 20); the per-epoch "val" columns then refer to it, and evaluation() still tests the test file at the end
+    loader, class_num_samples = create_loader(train=True, batch_size=args.batch_size, num_classes=args.num_classes, data_root=args.root_path+'/5class_mitbih_train_7_187.csv', train_val_ratio=[4, 1] if getattr(args, 'mitbih_val', False) else None, data_window_size=187, sampling='None', num_workers=args.num_workers)
 
     if isinstance(loader, tuple):
         train_loader = loader[0]
