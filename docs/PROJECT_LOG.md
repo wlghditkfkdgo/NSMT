@@ -9267,3 +9267,63 @@ MAE: Spikformer식 0.3350 / 0.4366 / 0.2536 / 0.3959, sdlin 0.3364 / 0.4415 / 0.
 - 한계: fold 0 하나, seed 3개, 잔차는 LIF에서 고른 OR을 모든 neuron에 썼다.
 
 **commit·태그:** `raw.txt`(RESULT 75), `summary.md`, `pool_log_b2c.txt`, 이 기록을 commit·push하고, 10-29 사전등록 실험(B1·B2·C) 완료 annotated tag `exp/f-lif-pop-v3-spkmixer-rerun-20261101`을 붙인다.
+
+## 2026-11-01 16:55 KST — 사전등록 + 구현: MUX 합치기(muxlin)의 ETT 하이퍼파라미터 튜닝(학습률 → 방향별 mixer 층 수 → 잔차, 4칸에서 검증으로 선택; muxlin·sdlin, Spikformer식은 학습률만; 새 run 240) + MIT-BIH 분류 확장(muxlin·sdlin × seed 3 = 6 run, Spikformer식 3 run 재사용) — 점검 5/5(기존 결과 불변, ADD 정수 규칙 에너지, 인자 전달, MIT-BIH 기준 모델 비트 동일, MIT-BIH 재현 run = 기준값), smoke 5/5
+
+**직전 commit:** `dfe5cb500`(B2·C 결과, 태그 `exp/f-lif-pop-v3-spkmixer-rerun-20261101`). **계획 승인:** 사용자(11-01).
+
+**사용자 지시(11-01, 원문):** "해당 mux 기반 '합치기'를 1. ETT 실험 - 하이퍼파라미터 튜닝 2. MIT-BIH 분류 과제로 확장"
+- 10-31 결과에서 muxlin은 ETT에서 Spikformer식보다 '나쁨'(R +1.36 %)이었고, SpkMixer 24 run 모두 최고 검증이 epoch 0–1이었다(기준 모델은 4칸 중 3칸에서 더 늦게). 그래서 학습률이 첫 의심 대상이다. 10-31 규칙("ETT가 나쁘면 1번 보류")은 이번 지시로 사용자가 직접 풀었다.
+- 질문 답(사용자 결정 11-01): (1) 튜닝값은 **4칸 모두**(ETTh2·ETTm2 × 96·720)에서 검증으로 고른다. (2) 학습률은 **낮은 값을 추가**하고 **Spikformer식도 같은 격자로 튜닝**한다. (3) 잔차는 **IAND와 ADD 모두** OR과 비교하고, ADD의 ETT 에너지는 정수 규칙으로 센다. (4) **sdlin도 같이** 튜닝하고 MIT-BIH에도 넣는다.
+
+### ETT 튜닝 (suite `flif-v1-ett-spkmux-tune`)
+| 단계 | 후보(굵게 = 기본값, 재사용) | 대상 | 새 run |
+|---|---|---|---:|
+| S1 학습률 | 1e-4, 2.5e-4, **5e-4**, 1e-3, 2e-3 | muxlin, sdlin, Spikformer식 | 144 |
+| S2 방향별 mixer 층 수 | 1, 2, 3(ETTh2 기본 **1**, ETTm2 기본 **2**) | muxlin, sdlin(각자 고른 학습률에서) | 48 |
+| S3 잔차 | **OR**, IAND, ADD | muxlin, sdlin(고른 학습률·층 수에서) | 48 |
+- 기본값 run: muxlin·sdlin은 10-31 ETT 검증 run, Spikformer식은 재사용한 기준값 12행. 각 단계가 4칸 전부에서 돌아 최종 비교에 필요한 run은 단계 안에 있다.
+- **선택(검증만):** 조건과 데이터(ETTh2, ETTm2)마다 따로. 점수 = 두 예측 길이의 [seed 평균 최고 검증 L1(후보)] / [seed 평균 최고 검증 L1(기본값)] 평균. 가장 낮은 값, 동률이면 기본값, run이 빠지면 선택 안 함. 다른 세션 `summarize_tune.py`의 규칙을 데이터별로 적용(표 13 기본값이 데이터마다 다르기 때문). `selected_<단계>.json`은 다른 값으로 덮어쓰지 않는다.
+- **판정 1(보고):** 고른 값 vs 기본값, 데이터별 2칸(6쌍 중 4쌍, R ≤ −1 %).
+- **최종 판정(주):** 각 조건의 S3 뒤 설정(Spikformer식은 S1 설정)으로 4칸, r = 100·(MSE_A − MSE_B)/MSE_B, R ≤ −1 %이고 12쌍 중 8쌍 이상 낮으면 좋음(반대 나쁨), 기준 (2) = 좋음 또는 R ≤ +1 %이면서 보정 에너지 ≤ 0.5배.
+  - **T1 muxlin(튜닝) vs Spikformer식(튜닝)**(기준 (2)), T2 muxlin(튜닝) vs sdlin(튜닝), T3 sdlin(튜닝) vs Spikformer식(튜닝)(기준 (2)), T4 muxlin(튜닝) vs muxlin(기본값). 보고만: MAE 기준 R, 칸별 판정, 최고 epoch, 에너지.
+- ETT test는 10-31에 이미 열었으므로 선택은 검증으로만 한다.
+
+### MIT-BIH (suite `flif-v1-mitbih-spkmux`)
+- 조건 `spkmx_lif_{muxlin,sdlin}_or` × seed 42/7/2026 = 6 run. 절차는 다른 세션 `run_mitbih2.sh` 그대로: 5클래스 AAMI(N, S, V, F, Q), 187 샘플, 학습 76,612 / test 32,833 창, 패치 32 → token 11, D 384, 블록 1, 방향별 mixer 2층, 30 epoch, batch 512, lr 0.01, cosine, CAL 가중 CE, 마지막 epoch 가중치로 test macro-F1(검증 분할 없음, 선택 없음).
+- Spikformer식 기준: 다른 세션 `flif-v1-gen-mitbih`의 spk_ssa 3 run(run commit `26915f45b`, 파일 commit `f0950c9a1`) 사본 `results/flif-v1-mitbih-spkmux/baseline_spk_ssa_raw.txt`. macro-F1 92.42 / 92.24 / 92.00(평균 92.22), 9.49–9.67 µJ.
+- 판정(기존 MIT-BIH 규칙): 같은 seed끼리 macro-F1 차이(%p), 평균 ≥ +0.5이고 2/3 seed면 좋음(반대 나쁨); 기준 (2) = 좋음 또는 −0.5%p 안이면서 에너지 ≤ 0.5배. **M1 muxlin vs Spikformer식**, M2 muxlin vs sdlin, M3 sdlin vs Spikformer식.
+
+### 코드
+- `scripts/run_ett_spk.sh`: 환경변수 `LR`(기본 5e-4), `LAYERS`(기본 표 13), 태그 `<cond>_lr<LR>_L<LAYERS>`, RESULT에 `tag= lr= layers=`. 기본값의 학습 인자는 이전과 같다(점검 k0).
+- `energy_recount_ett.py`: 같은 test 통과에서 `energy.SynOpRecorder`로 몸통 시냅스 에너지를 두 규칙으로 잼(`body_syn_uJ`, `body_syn_int_uJ`, `rule` 열 추가). ADD run의 보정 = (기록 total − 기록 시냅스) + 몸통 정수 규칙 + head 덧셈(반복별 입력 평균값). 0/1 run은 원래 식 그대로이고, SpkMixer run에서는 기록기 몸통 = syops 몸통을 검사한다(상대 1e-3).
+- 새 파일: `scripts/run_mitbih_spk.sh`(다른 세션 `run_mitbih2.sh` 바탕, 출처는 `ETT_PROVENANCE.md`), `summarize_ett_tune.py`, `summarize_mitbih_mux.py`, `check_tune_mit.py`, `mit_k3_snapshot.py`, `make_queue_spk.sh` 단계 `tunesmoke`·`mitrepro`·`mitbih`·`tune_lr`·`tune_layers`·`tune_res`.
+- 기존 CinC 코드(`spk_mixer.py`, `config.py`, `model.py`, `train.py`)는 수정하지 않았다.
+
+### 점검 (`check_tune_mit.py`, `results/checks/check_tune_mit.txt`) — **5/5 통과**
+- k0 기존 결과 불변: 고친 재계산 스크립트를 10-31 suite 두 개에 다시 돌리면 기존 열이 25행 모두 같고, 기록기 몸통 = syops 몸통 검사도 24개 SpkMixer run에서 통과. 기본 학습률·층 수의 smoke run 학습 인자가 10-31 run과 같다(다른 열쇠는 날짜·경로·epoch 수뿐).
+- k1 ADD 에너지(smoke): ADD run(muxlin, lr 1e-4, 층 2) 기록 21.75 µJ → 보정 11.38 µJ, 몸통 시냅스 syops 규칙 12.76 µJ → 정수 규칙 6.56 µJ, 반복별 head 입력이 0 이상 정수. 0/1 run은 원래 식과 같고 몸통 두 규칙 값이 같다.
+- k2 인자 전달: smoke 3 run의 logargs에 요청한 lr·층 수가 들어가고, 2층 run의 파라미터(177,728)가 1층(169,280)보다 많다.
+- k3 MIT-BIH 기준 모델: 기준 run commit `26915f45b`의 코드(`git archive`, `python -B`)와 이 브랜치 코드로 만든 Spikformer식 MIT-BIH 모델의 초기 state_dict 45개, test 배치, 평가·학습 출력, CE 기울기 23개가 비트 단위로 같다. 클래스 수 63412 / 1946 / 5065 / 562 / 5627. SpkMixer MIT-BIH smoke 2 run 정상.
+- k4 MIT-BIH 재현: 이 브랜치에서 Spikformer식 seed 42를 다시 학습(264 s) → macro-F1 92.4183 %, 정확도 98.5563 %, 9.489799 µJ로 기준값과 같다.
+
+### smoke (1 epoch, seed 42)
+| 실험 | 조건 | 결과 | 보정/기록 에너지 µJ | 시간 s |
+|---|---|---|---:|---:|
+| ETT ETTh2 H96 | muxlin OR, lr 5e-4, 층 1 | MSE 0.2912(10-31 smoke와 같음) | 9.10 | — |
+| ETT ETTh2 H96 | muxlin ADD, lr 1e-4, 층 2 | MSE 0.3024 | 11.38 | — |
+| ETT ETTh2 H96 | Spikformer식, lr 1e-4 | MSE 0.3010 | 9.15 | — |
+| MIT-BIH | muxlin | macro-F1 72.50 | 9.61 | 34 |
+| MIT-BIH | sdlin | macro-F1 74.82 | 9.06 | 39 |
+- 1 epoch이라 학습 가능 여부만 본다. MIT-BIH SpkMixer는 파라미터 1,200,768(Spikformer식 904,488).
+
+### 실행
+- MIT-BIH: `nohup bash scripts/gpu_pool2.sh cinc_mixer_v1/scripts/queues/mitbih-spkmux-20261101.txt 0,1,2,3 > cinc_mixer_v1/results/flif-v1-mitbih-spkmux/pool_log.txt 2>&1 &`(NSMT/에서).
+- ETT S1: `nohup bash scripts/gpu_pool2.sh cinc_mixer_v1/scripts/queues/ett-tune-lr-20261101.txt 0,1,2,3,0,1,2,3 > cinc_mixer_v1/results/flif-v1-ett-spkmux-tune/pool_log_lr.txt 2>&1 &`. 끝나면 `energy_recount_ett.py --suite flif-v1-ett-spkmux-tune`, `summarize_ett_tune.py --stage lr` → `make_queue_spk.sh tune_layers` → … → `--stage final`.
+- 예상 시간: ETTh2 run 약 6분, ETTm2 run 약 35분 이상(낮은 학습률은 더 길 수 있음), GPU당 2개. 다른 세션 학습과 공유해 S1에 반나절 이상, 전체 하루 이상(측정해 기록).
+
+### 한계
+- seed 3개, ETT 4칸, MIT-BIH는 마지막 epoch 평가(선택 없음). ETT test는 이미 열었다.
+- 튜닝은 SpkMixer에 3단계, Spikformer식에는 학습률만이다(Spikformer식에는 mixer 층·잔차 대응 항목이 없음).
+
+**commit:** 코드·점검·smoke·기준값 사본·이 기록을 `exp/f-lif-pop-v3`에 commit·push한 뒤 MIT-BIH와 ETT S1을 시작한다.

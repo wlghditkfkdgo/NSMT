@@ -27,3 +27,13 @@ Also used as templates (not copied verbatim): `NSMT/nsmt_flif_v1/forecasting/scr
 `sys.path.append('../forecasting')` finds no `data_provider` in this worktree. ETT csv files: `NSMT/forecasting/dataset/ETT-small/`
 (a symlink of this worktree to the main tree's dataset folder; read only). `check_ett_mux.py` t0 re-checks the unchanged files
 against the source blobs.
+
+## 2026-11-01 additions (ETT tuning + MIT-BIH extension of the fusion MUX)
+- `scripts/run_mitbih_spk.sh` is built from `NSMT/nsmt_flif_v1/classification/scripts/run_mitbih2.sh` at dcfdc4811 (blob
+  0d726ba13f0a30b24c6e01b4b749e6f8b24aa709): the same training line and RESULT parsing; only the conditions (SpkMixer `spkmx_lif_*`,
+  `spk_ssa` for the reproduction check) and the data path (`/home/yschoi/CLS_spiking_transformer/data`, md5 = the baseline's copy) differ.
+  The MIT-BIH entry `train.py` (and `test.py`, `dataloader.py`, `utils.py`) of this folder are byte-identical to the files behind the
+  baseline runs (commit 26915f45b).
+- `summarize_ett_tune.py` follows the selection / verdict rules of `NSMT/nsmt_flif_v1/classification/summarize_tune.py` (other session),
+  applied per condition and dataset; `summarize_mitbih_mux.py` the MIT-BIH rule of `summarize_gen.py --mitbih`.
+- Reused baseline copies: `results/flif-v1-mitbih-spkmux/baseline_spk_ssa_raw.txt` (3 rows of flif-v1-gen-mitbih, commit f0950c9a1).

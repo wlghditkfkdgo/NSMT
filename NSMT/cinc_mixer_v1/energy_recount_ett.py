@@ -20,6 +20,15 @@ usage: python energy_recount_ett.py --suite flif-v1-gen-ett   ->  forecasting/re
 2026-10-31 (exp/f-lif-pop-v3, copied from exp/nsmt-flif-neo dcfdc4811, see ETT_PROVENANCE.md): + the SpkMixer forecasters
 (conditions spkmx_*, Forecaster kind 'spkmix'): their head also reads the T_h-averaged block output and is recounted the same way;
 results live in <this folder>/results/<suite> (--res_root; the source tree's forecasting/results does not exist here).
+
+2026-11-01 (exp/f-lif-pop-v3): the ADD residual (spkmx_*_add; block output 0-3) under the integer rule of the CinC runs (user
+decision 10-29 / 11-01). The same test pass also runs energy.SynOpRecorder on the forecaster body (model.inner: every Linear / BN /
+neuron except the forecast head) and gives its synaptic energy under the syops rule (body_syn_uJ) and the integer rule
+(body_syn_int_uJ; a non-negative integer input to a Linear = sum(values) ACs). For ADD runs:
+    total_fft_uJ_corr = (total_fft_uJ - syn_energy_uJ)   [logged neuron energy]   + body_syn_int_uJ + AC_head * 0.9 pJ
+with AC_head from the mean per-step head input value (integers 0-3), the per-step input required non-negative integer. For the 0/1
+runs the corrected value keeps the original formula, and for spkmx_ runs body_syn_uJ must equal syn_energy_uJ - MAC_head * 4.6 pJ
+(relative 1e-3; check) -- i.e. the recorder reproduces syops and the two formulas agree. Existing columns are unchanged.
 """
 import argparse
 import csv
@@ -39,6 +48,7 @@ from forecast_wrap import Forecaster
 from summarize_rhythm import parse
 from train_forecast import data_args
 from data_provider.data_factory import data_provider
+from energy import SynOpRecorder                                       # 2026-11-01: integer rule for the ADD residual
 
 E_AC, E_MAC = 0.9e-6, 4.6e-6                                          # µJ per operation (utils.get_energy_consumption)
 UNIT = {'': 1., 'K': 1e3, 'M': 1e6, 'G': 1e9}
@@ -72,7 +82,8 @@ def measure(run, device):
         raise RuntimeError(f'{run}: expected a bias-free Spikformer-style, dual-path or SpkMixer forecaster')
     _, dl = data_provider(data_args(args, args), 'test')
     m = model.inner
-    se = 0.; cnt = 0; spikes = 0.; n_el = 0; binary = True; T_h = None; C = None
+    se = 0.; cnt = 0; spikes = 0.; n_el = 0; binary = True; integer = True; T_h = None; C = None
+    syn = SynOpRecorder(m)                                             # 2026-11-01: body synaptic ops, both rules
     functional.reset_net(model)
     for x, y, _, _ in dl:
         x = x.float().to(device); y = y.float().to(device)[:, -args.pred_len:, :]
@@ -81,13 +92,18 @@ def measure(run, device):
         stdev = torch.sqrt(torch.var(xc, dim=1, keepdim=True, unbiased=False) + 1e-5)
         z = (xc / stdev).permute(0, 2, 1).reshape(B * C, 1, L)
         xh = model.step_features(z)                                    # [T_h, B*C, N, D], per-step head input
+        syn.add_samples(B)                                             # per window (all C channels), as syops in train_forecast
         functional.reset_net(model)
         T_h = xh.shape[0]
         binary &= bool(((xh == 0) | (xh == 1)).all())
+        integer &= bool((xh >= 0).all() and torch.equal(xh, torch.round(xh)))
         spikes += float(xh.double().sum()); n_el += xh.numel()
         out = model.head(xh.mean(0).reshape(B * C, -1)).reshape(B, C, args.pred_len).permute(0, 2, 1) * stdev + means
         d = (out - y).double(); se += float((d ** 2).sum()); cnt += d.numel()
-    return dict(mse=se / cnt, rate=spikes / n_el, binary=binary, T_h=T_h, C=C, ND=m.num_patches * args.embed_dim, H=args.pred_len)
+    syn.detach(); s = syn.summary()
+    return dict(mse=se / cnt, rate=spikes / n_el, binary=binary, integer=integer, T_h=T_h, C=C, ND=m.num_patches * args.embed_dim,
+                H=args.pred_len, add=str(getattr(args, 'connect_f', '')).upper() == 'ADD',
+                body_syn=s['rec_syn_uJ'], body_syn_int=s['syn_energy_int_uJ'])
 
 
 def main():
@@ -113,23 +129,34 @@ def main():
         if not recount(r['cond']):                                     # MODI 2026-10-29: + spkall_*, dual-path spkneo_* / nsmt4_*
             if mac_p != 0:
                 bad.append(f'{run}: Neo-mixer head has MAC {mac_p}')
-            rec.update(mse_recomputed='', rate='', binary='', head_MAC=0, head_AC_corr='', total_fft_uJ_corr=r['total_fft_uJ'])
+            rec.update(mse_recomputed='', rate='', binary='', head_MAC=0, head_AC_corr='', total_fft_uJ_corr=r['total_fft_uJ'],
+                       body_syn_uJ='', body_syn_int_uJ='', rule='')                     # 2026-11-01: same columns as recounted rows
             out.append(rec); continue
         q = measure(run, a.device)
         mac = q['ND'] * q['H'] * q['C']
         ac = q['T_h'] * q['rate'] * mac + (q['T_h'] - 1) * q['H'] * q['C']
-        corr = r['total_fft_uJ'] - mac * E_MAC + ac * E_AC
+        if q['add']:                                                   # 2026-11-01: integer rule for the body (ADD residual)
+            corr = r['total_fft_uJ'] - r['syn_energy_uJ'] + q['body_syn_int'] + ac * E_AC
+        else:
+            corr = r['total_fft_uJ'] - mac * E_MAC + ac * E_AC
         rel = abs(q['mse'] - r['mse']) / r['mse']
         if not (math.isfinite(q['mse']) and rel < 1e-5):
             bad.append(f"{run}: test MSE {q['mse']:.6f} != logged {r['mse']:.6f}")
-        if not q['binary']:
+        if q['add'] and not q['integer']:
+            bad.append(f'{run}: ADD per-step head input is not a non-negative integer')
+        if not q['add'] and not q['binary']:
             bad.append(f'{run}: per-step head input is not binary')
+        body_ref = r['syn_energy_uJ'] - mac * E_MAC                    # syops body = logged synaptic energy minus the MAC head
+        if r['cond'].startswith('spkmx_') and not q['add'] and abs(q['body_syn'] - body_ref) > 1e-3 * max(1e-9, r['syn_energy_uJ']):
+            bad.append(f"{run}: recorder body {q['body_syn']:.6f} uJ != syops body {body_ref:.6f} uJ")
         if abs(mac - mac_p) > 0.006 * mac:                             # syops prints 3 significant digits
             bad.append(f'{run}: MAC_head {mac} != syops {mac_p}')
         if not (math.isfinite(corr) and corr > 0):
             bad.append(f'{run}: corrected energy {corr}')
         rec.update(mse_recomputed=f"{q['mse']:.6f}", rate=f"{q['rate']:.6f}", binary=q['binary'], head_MAC=mac,
-                   head_AC_corr=f'{ac:.1f}', total_fft_uJ_corr=f'{corr:.6f}')
+                   head_AC_corr=f'{ac:.1f}', total_fft_uJ_corr=f'{corr:.6f}',
+                   body_syn_uJ=f"{q['body_syn']:.6f}", body_syn_int_uJ=f"{q['body_syn_int']:.6f}",   # 2026-11-01
+                   rule='integer' if q['add'] else 'binary')
         out.append(rec)
         print(f"{r['ds']} H{int(r['pl'])} seed{int(r['seed'])}: mse {q['mse']:.6f} (logged {r['mse']:.6f}) rate {q['rate']:.4f} "
               f"head MAC {mac / 1e6:.2f}M -> AC {ac / 1e6:.2f}M  energy {r['total_fft_uJ']:.2f} -> {corr:.2f} µJ", flush=True)

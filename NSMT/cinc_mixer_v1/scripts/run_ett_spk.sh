@@ -8,6 +8,8 @@
 #   COND: spkmx_lif_<comb>_<cf>  (SpkMixer, LIF in every layer; comb or|sdor|sdlin|muxor|muxlin, cf iand|or|add)
 #         spk_ssa                (Spikformer-style; only for the reproduction check t4 -- the baseline values are reused)
 #   env:  SUITE EPOCHS PATIENCE (10) RES LOG PY THREADS
+#         LR (0.0005) LAYERS (mixer layers per direction; ETTh2 1, ETTm2 2) -- 2026-11-01 tuning (Table 13 values by default; the
+#         training arguments are then the same as before, only the tag / folder name and the RESULT fields tag= lr= layers= are new)
 set -u
 DS=${1:?}; PL=${2:?}; S=${3:?}; GPU=${4:?}
 W="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # cinc_mixer_v1: model code, train_forecast.py, results/, log/
@@ -26,23 +28,29 @@ case $COND in
   *) echo "bad cond $COND"; exit 1 ;;
 esac
 case $DS in                       # patch emb heads mlp M lr bs epochs   (as run_ett_mixer.sh; heads unused by the SpkMixer)
-  ETTh2) HP="--patch_size 8 -emb 64 -nh 8  --mlp_ratios 0.5 --time_layers 1 -lr 0.0005 -bs 64"; E=100 ;;
-  ETTm2) HP="--patch_size 8 -emb 64 -nh 16 --mlp_ratios 1   --time_layers 2 -lr 0.0005 -bs 64"; E=50 ;;
+  ETTh2) L0=1; E=100 ;;           # Table 13: --patch_size 8 -emb 64 -nh 8  --mlp_ratios 0.5 --time_layers 1 -lr 0.0005 -bs 64
+  ETTm2) L0=2; E=50 ;;            # Table 13: --patch_size 8 -emb 64 -nh 16 --mlp_ratios 1   --time_layers 2 -lr 0.0005 -bs 64
   *) echo "bad dataset $DS (ETTh2 / ETTm2 only)"; exit 1 ;;
 esac
+LR=${LR:-0.0005}; LAYERS=${LAYERS:-$L0}                                  # 2026-11-01 tuning knobs
+case $DS in
+  ETTh2) HP="--patch_size 8 -emb 64 -nh 8  --mlp_ratios 0.5 --time_layers $LAYERS -lr $LR -bs 64" ;;
+  ETTm2) HP="--patch_size 8 -emb 64 -nh 16 --mlp_ratios 1   --time_layers $LAYERS -lr $LR -bs 64" ;;
+esac
+TAGC="${COND}_lr${LR}_L${LAYERS}"
 E=${EPOCHS:-$E}; P=${PATIENCE:-10}
 SUITE=${SUITE:-flif-v1-ett-spkmux-$(date +%Y%m%d)}
 RES=${RES:-$W/results/$SUITE}; LOG=${LOG:-$W/log/$SUITE}
 mkdir -p "$RES" "$LOG"; RES="$(cd "$RES" && pwd)"; LOG="$(cd "$LOG" && pwd)"
 SHA=$(cd "$R" && git rev-parse --short HEAD); TS=$(date +%Y%m%d)
-OUT=$LOG/ett_${DS}_p${PL}_${COND}_seed${S}_${TS}_${SHA}.stdout; t0=$(date +%s)
+OUT=$LOG/ett_${DS}_p${PL}_${TAGC}_seed${S}_${TS}_${SHA}.stdout; t0=$(date +%s)
 (cd "$W" && CUDA_VISIBLE_DEVICES=$GPU OMP_NUM_THREADS=${THREADS:-4} $PY ./train_forecast.py \
   --log_dir "$LOG/$DS/p$PL" --seed $S -s -nd 0 --gating attn --no-bias --scheduler reduce -e $E --warm_up_epoch 0 \
   --layers 1 --tau 2.0 --weight_decay 0.06 --patience $P \
   --data $DS --data_path $DS.csv --root_path "$W/../forecasting/dataset/ETT-small" --seq_len 96 --pred_len $PL --features M --target OT \
-  $HP $CF --tag $COND seed$S > "$OUT" 2>&1)
+  $HP $CF --tag $TAGC seed$S > "$OUT" 2>&1)
 RC=$?
-D=$(ls -td "$LOG/$DS/p$PL"/*/*"+${COND}+seed${S}+"*"+epoch+${E}+"*/seed${S}_* 2>/dev/null | head -1)
+D=$(ls -td "$LOG/$DS/p$PL"/*/*"+${TAGC}+seed${S}+"*"+epoch+${E}+"*/seed${S}_* 2>/dev/null | head -1)
 CSV="$D/log/final+result.csv"; LCSV="$D/log/last/final+result.csv"
 if [ $RC -ne 0 ] || [ ! -s "$CSV" ]; then echo "SKIP(rc=$RC, no result) ds=$DS pl=$PL cond=$COND seed=$S out=$OUT" | tee -a "$RES/raw.txt"; exit 1; fi
 VALS=$($PY - "$CSV" "$LCSV" <<'EOF'
@@ -55,4 +63,4 @@ EOF
 [ -z "$VALS" ] && { echo "SKIP(result parse failed) ds=$DS pl=$PL cond=$COND seed=$S out=$OUT" | tee -a "$RES/raw.txt"; exit 1; }
 BE=$(cat "$D/log/best_epoch.txt" 2>/dev/null | tr ' ' ':')
 PAR=$(grep -a 'number of parameters' "$OUT" | grep -oE 'parameters : [0-9]+' | grep -oE '[0-9]+'); t1=$(date +%s)
-echo "RESULT exp=cinc_mixer_v1_ett_spkmux ds=$DS pl=$PL cond=$COND seed=$S $VALS best_epoch_val_epochs=$BE params=$PAR time_s=$((t1-t0)) sha=$SHA dir=$D" | tee -a "$RES/raw.txt"
+echo "RESULT exp=cinc_mixer_v1_ett_spkmux ds=$DS pl=$PL cond=$COND tag=$TAGC lr=$LR layers=$LAYERS seed=$S $VALS best_epoch_val_epochs=$BE params=$PAR time_s=$((t1-t0)) sha=$SHA dir=$D" | tee -a "$RES/raw.txt"
