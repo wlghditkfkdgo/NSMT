@@ -9473,3 +9473,32 @@ run별 macro-F1(seed 42 / 7 / 2026): muxlin 92.12 / 92.02 / 91.56, sdlin 92.07 /
 - 드라이버를 만들며 고친 점: 처음 쓴 대기열 파일 찾기 패턴(`*tune_layers-*`)이 다른 과제 파일(`mtune_layers`, `ctune_layers`)에도 맞아 엉뚱한 풀을 기다릴 수 있었다. 과제별 정확한 파일 이름 앞부분으로 바꾸고 세 과제 모두 맞는 파일을 고르는지 확인한 뒤 시작했다(13:20).
 
 **commit:** `scripts/tune_driver.sh`, 이 기록.
+
+## 2026-11-02 14:45 KST — MIT-BIH 튜닝 S2(방향별 mixer 층 수) 결과: muxlin·sdlin 모두 기본값(층 2) 선택 → 드라이버가 S3(잔차) 12 run을 14:08에 시작; ETT S1 에너지 재계산(144 run) 완료
+
+**직전 commit:** `8e7589ced`(드라이버). 이 기록의 모든 단계는 `tune_driver.sh mit`이 사전등록 규칙대로 실행했다(`results/flif-v1-mitbih-spkmux-tune/driver.log`). 사람이 고른 것은 없다.
+
+### MIT-BIH S2 (`summarize_mitbih_tune.py --stage layers`, 마지막 epoch 검증 macro-F1 %, 검증 = 학습 파일 fold 0, 15,323창)
+- 풀 `mtune_layers-20261102.txt` 12 run, 11-02 13:16 → 14:07, RESULT 12 / SKIP 0. run 시간: 층 1 573–721 s, 층 3 901–1,139 s.
+- 층 2(기본값)는 S1에서 같은 학습률로 돌린 run을 그대로 쓴다(새 run 없음).
+
+| 조건(학습률) | 층 1 | 층 2(기본) | 층 3 | 선택 |
+|---|---:|---:|---:|---|
+| muxlin (0.02) | 92.06 (91.80, 92.17, 92.21) | **92.60** (93.05, 92.55, 92.21) | 92.25 (91.78, 92.38, 92.60) | 2(기본) |
+| sdlin (0.0025) | 92.32 (92.30, 92.51, 92.14) | **93.02** (93.39, 92.93, 92.73) | 92.34 (92.66, 92.34, 92.03) | 2(기본) |
+
+- 괄호 안은 seed 42, 7, 2026. 두 조건 모두 기본값이 가장 높다. 차이는 muxlin 0.35%p(층 3과), sdlin 0.68%p(층 3과)로 작고, muxlin은 seed 2026에서 층 3이 더 높다(92.60 > 92.21).
+- 튜닝 run의 test 값은 보지 않았다.
+
+### MIT-BIH S3 시작(드라이버, 14:08)
+- `mtune_res-20261102.txt` 12 run(GPU 0–3, 검증 분할): muxlin(lr 0.02, 층 2)과 sdlin(lr 0.0025, 층 2)에 잔차 {IAND, ADD}. OR(기본)은 S1 run을 쓴다.
+- 이어서 드라이버가 `mfinal`(고른 설정으로 학습 파일 전체 재학습, 기본값과 같은 설정은 기존 run 재사용)과 `energy_recount_mitbih.py`, 최종 TM1–TM4 요약을 낸다.
+
+### ETT S1 에너지 재계산 (`energy_recount_ett.py --suite flif-v1-ett-spkmux-tune`, GPU 3, 14:38 완료)
+- S1 144 run 모두 재계산. 모두 0/1 run(`rule=binary`, ADD run은 S3에서만 나온다). 다시 잰 MSE = 기록 MSE, 스크립트 자체 점검 통과("all checks passed").
+- 조건·데이터별 평균(µJ, 기록값 → 출력 head를 AC로 다시 센 값): Spikformer식 ETTh2 29.13 → 9.92, ETTm2 29.97 → 10.70; muxlin 28.75 → 10.31, 31.43 → 12.79; sdlin 28.79 → 10.45, 31.46 → 12.89. 최종 비교(T1–T4)의 에너지 비는 보정값(`total_fft_uJ_corr`)으로 낸다.
+
+### 진행 중(14:45)
+- ETT S2: 48 run 중 13 완료(13:16 시작). CinC S2: 12 run 중 1 완료(muxlin 층 1 seed 42, 약 1시간 20분).
+
+**commit:** MIT-BIH `raw.txt`, `summary_layers.md`, `selected_layers.json`, `pool_log_layers.txt`, `pool_log_res.txt`(진행 중 사본); ETT `energy_recount.csv`, `raw.txt`, `pool_log_layers.txt`(진행 중 사본); CinC `raw.txt`, `pool_log_layers.txt`(진행 중 사본); 11-01 MIT-BIH smoke의 남아 있던 요약 `results/smoke-mitbih-spkmux-20261101/summary.md`(smoke 1 epoch, 판정 아님); 이 기록.
