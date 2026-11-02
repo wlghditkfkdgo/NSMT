@@ -9622,3 +9622,22 @@ run별 macro-F1(seed 42 / 7 / 2026): muxlin 92.12 / 92.02 / 91.56, sdlin 92.07 /
 - CinC S2 12 run 중 10 완료. 드라이버가 S2 선택 → S3 → TC1–TC4를 이어 간다.
 
 **commit:** ETT `raw.txt`(240 RESULT, SKIP 0), `summary_res.md`, `summary_final.md`, `selected_res.json`, `energy_recount.csv`(240), `pool_log_res.txt`; CinC `raw.txt`, `pool_log_layers.txt`(진행 중 사본); 이 기록. 태그 `exp/f-lif-pop-v3-ett-tune-20261102`(ETT 튜닝 완료 run; 이 commit을 가리킨다).
+
+## 2026-11-02 20:25 KST — CinC 튜닝 S2(방향별 mixer 층 수) 결과: muxlin·sdlin 모두 기본값(층 2) 선택 → 드라이버가 S3(잔차) 6 run을 19:26에 시작(sdlin의 IAND·ADD는 B1 run 재사용)
+
+**직전 commit:** `ca2fb7fdc`(ETT 튜닝 완료, 태그 `exp/f-lif-pop-v3-ett-tune-20261102`). 선택과 S3 시작은 `tune_driver.sh cinc`가 사전등록(11-01 18:48) 규칙대로 실행했다(로컬 `driver.log`: 19:26 풀 종료 RESULT 39 / SKIP 0, 선택, S3 시작).
+
+### CinC S2 (`summarize_cinc_tune.py --stage layers`, 최고 검증 점수 %, fold 0; 학습률 = S1 선택 1e-3)
+- 풀 `ctune_layers-20261102.txt` 12 run(GPU 0–3), 13:16 → 19:26, SKIP 0. run 시간 3,537–10,625 s(ETT 풀과 다른 세션의 CinC run 8개가 같은 GPU를 써서 S1의 약 3,700 s보다 길다).
+
+| 조건 | 층 1 | 층 2(기본) | 층 3 | 선택 | test 평균(보고만) 층 1 / 2 / 3 |
+|---|---:|---:|---:|---|---|
+| muxlin | 70.30 (70.05, 69.70, 71.13) | **72.46** (72.84, 70.96, 73.58) | 71.44 (70.71, 71.63, 71.97) | 2(기본) | 65.58 / 68.52 / 67.10 |
+| sdlin | 69.11 (68.33, 70.30, 68.71) | **72.02** (69.89, 71.30, 74.88) | 70.04 (70.15, 70.04, 69.94) | 2(기본) | 63.66 / 66.96 / 66.66 |
+- 괄호 안은 seed 42, 7, 2026. 두 조건 모두 기본값이 1–3%p 차이로 가장 높다. test도 같은 순서다(판정에는 쓰지 않음).
+
+### CinC S3 시작(드라이버, 19:26)
+- `ctune_res-20261102.txt` 6 run: muxlin(lr 1e-3, 층 2)에 잔차 {IAND, ADD} × seed 3. sdlin은 고른 학습률·층이 기본값이라 사전등록대로 B1 run(IAND·ADD, `results/flif-v1-rhythm-spk-cinc`)을 재사용한다. OR은 기존 run.
+- 20:19 기준 4 run 진행 중(52분째), 2 run 대기. 끝나면 드라이버가 `--stage res` 선택과 최종 TC1–TC4 요약을 낸다.
+
+**commit:** CinC `raw.txt`, `summary_layers.md`, `selected_layers.json`, `pool_log_layers.txt`, `pool_log_res.txt`(진행 중 사본); 이 기록.
