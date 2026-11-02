@@ -9574,3 +9574,51 @@ run별 macro-F1(seed 42 / 7 / 2026): muxlin 92.12 / 92.02 / 91.56, sdlin 92.07 /
 - S2 `ctune_layers-20261102.txt` 12 run 중 8 완료, 4 진행 중(run당 약 1.3–1.5시간). 같은 GPU에서 다른 세션의 CinC run 8개도 돌고 있어 속도가 느리다.
 
 **commit:** ETT `raw.txt`, `summary_layers.md`, `selected_layers.json`, `energy_recount.csv`(S2까지), `pool_log_layers.txt`, `pool_log_res.txt`(진행 중 사본); CinC `raw.txt`, `pool_log_layers.txt`(진행 중 사본); 이 기록.
+
+## 2026-11-02 18:50 KST — ETT 튜닝 완료: S3(잔차) 네 칸 모두 IAND 선택 → 최종 T1–T4 모두 '차이 없음'; muxlin(튜닝) − Spikformer식(튜닝) R +0.45 %(튜닝 전 +1.36 % '나쁨'에서 '차이 없음'으로), 기준 (2) 미충족(에너지 0.98배); 튜닝으로 SpkMixer의 첫 epoch 조기 종료가 풀림(ETTm2)
+
+**직전 commit:** `cc72cd2a0`(ETT S2). S3 선택, 에너지 재계산, 최종 요약은 `tune_driver.sh ett`가 사전등록(11-01 16:56) 규칙대로 실행했다(로컬 `driver.log`: 18:27 풀 종료 RESULT 240 / SKIP 0, 18:27–18:38 에너지 재계산, 18:38 선택·최종 요약). 사람이 고른 것은 없다.
+
+### S3 잔차 (`summarize_ett_tune.py --stage res`, 점수 = 검증 L1 비율 [후보 / OR] 두 예측 길이 평균, 낮을수록 좋음)
+- 풀 `ett-tune_res-20261102.txt` 48 run(GPU 8자리), 16:30 → 18:27, SKIP 0. run 시간 ETTh2 318–498 s, ETTm2 1,333–3,829 s. 학습률은 S1, 층은 S2 선택(네 칸 모두 층 1).
+
+| 조건 | 데이터 | OR(기본) | IAND | ADD | 선택 | 판정 1(IAND vs OR, test MSE 6쌍) |
+|---|---|---:|---:|---:|---|---|
+| muxlin | ETTh2 | 1.0000 | **0.9938** | 1.0041 | IAND | R +0.43 %, 2/6, 차이 없음 |
+| muxlin | ETTm2 | 1.0000 | **0.9927** | 0.9998 | IAND | R −0.73 %, 6/6, 차이 없음 |
+| sdlin | ETTh2 | 1.0000 | **0.9924** | 1.0056 | IAND | R −1.29 %, 5/6, 좋음 |
+| sdlin | ETTm2 | 1.0000 | **0.9912** | 1.0019 | IAND | R −0.75 %, 4/6, 차이 없음 |
+- 검증으로는 네 칸 모두 IAND가 가장 좋다(0.6–0.9 %). ADD는 OR과 비슷하거나 조금 나쁘다.
+- 에너지 재계산: 240 run 모두(0/1 run 216, ADD 정수 규칙 24). 다시 잰 MSE = 기록 MSE(불일치 0), 자체 점검 통과. 예: muxlin ADD ETTm2 H720 seed 42, 기록 57.36 µJ → 정수 규칙 13.88 µJ.
+
+### 최종 (`summarize_ett_tune.py --stage final`; ETT 규칙: R = 네 칸 평균 r, r = 100(MSE_A − MSE_B)/MSE_B, 좋음 = R ≤ −1 %이고 12쌍 중 8쌍 이상 낮음, 나쁨은 반대)
+- 고른 설정: muxlin ETTh2 (5e-4, 층 1, IAND)·ETTm2 (1e-4, 층 1, IAND); sdlin ETTh2 (2.5e-4, 1, IAND)·ETTm2 (1e-4, 1, IAND); Spikformer식 ETTh2 5e-4(기본)·ETTm2 2.5e-4. 최종 run은 모두 튜닝 단계 안에 있다(재학습 없음, test는 각 run의 최고 검증 가중치).
+
+| 질문 | R | 낮은 쌍 | 판정 | 에너지 A/B | 기준 (2) | MAE R |
+|---|---:|---|---|---:|---|---:|
+| T1 muxlin(튜닝) vs Spikformer식(튜닝) | +0.45 % | 3/12 | 차이 없음 | 0.98 | 미충족 | +0.45 % |
+| T2 muxlin(튜닝) vs sdlin(튜닝) | +0.57 % | 5/12 | 차이 없음 | 1.00 | | +0.27 % |
+| T3 sdlin(튜닝) vs Spikformer식(튜닝) | −0.12 % | 5/12 | 차이 없음 | 0.98 | 미충족 | +0.18 % |
+| T4 muxlin(튜닝) vs muxlin(기본값) | −0.92 % | 8/12 | 차이 없음 | 0.89 | | −0.84 % |
+
+- 칸별 r(seed 평균): T1 ETTh2 H96 +1.67, H720 −0.12, ETTm2 H96 +0.47, H720 −0.23. T4 ETTh2 H96 +0.75, H720 +0.12, **ETTm2 H96 −2.79, H720 −1.78**(세 seed 모두 낮음).
+- T4는 8/12 쌍이 낮지만 R −0.92 %가 문턱(−1 %)에 못 미쳐 '차이 없음'이다. 튜닝 효과는 ETTm2에만 있고 ETTh2에는 없다.
+
+| 조건 (test MSE, seed 평균; 괄호 = 평균 최고 검증 epoch) | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 |
+|---|---:|---:|---:|---:|
+| Spikformer식(튜닝) | 0.2903 (3.7) | 0.4223 (3.3) | 0.1767 (8.7) | 0.4044 (1.3) |
+| sdlin(튜닝) | 0.2890 (2.0) | 0.4205 (1.7) | 0.1775 (11.0) | 0.4044 (3.0) |
+| muxlin(튜닝) | 0.2952 (3.3) | 0.4218 (1.0) | 0.1775 (14.3) | 0.4034 (2.7) |
+| muxlin(기본값) | 0.2930 (0.3) | 0.4214 (0.3) | 0.1826 (0.0) | 0.4107 (0.0) |
+
+### 해석
+- 튜닝 전(10-31) muxlin은 ETT에서 Spikformer식보다 '나쁨'(R +1.36 %)이었다. 튜닝 뒤에는 '차이 없음'(R +0.45 %)이다. 다만 12쌍 중 9쌍은 여전히 muxlin이 높고(나쁨 방향), ETTh2 H96에서 +1.67 %다. "따라잡았다"고 쓰지 않는다. "나쁨 판정은 사라졌지만 더 좋지는 않다"가 맞는 표현이다.
+- 튜닝의 실제 효과는 학습 속도 문제의 완화다. 기본 설정의 muxlin은 최고 검증이 epoch 0–0.3(사실상 첫 epoch)이었다. 튜닝 뒤에는 ETTm2 H96 14.3 epoch 등 Spikformer식과 비슷하거나 늦어졌다. 낮은 학습률(ETTm2 1e-4)과 IAND 잔차가 함께 기여했다.
+- MUX의 효과(muxlin − sdlin, T2)는 R +0.57 %로, ETT에서는 MUX가 sdlin보다 나을 게 없다(ETTh2 H96에서 +2.18 %).
+- 에너지: muxlin(튜닝) 대 Spikformer식(튜닝) 0.98배. ETT에서 에너지 이점이 없다.
+- 한계: seed 3개, ETTh2·ETTm2 × H96·H720(사용자 결정 12). 선택 격자의 끝 문제는 남아 있다: ETTm2 학습률 1e-4(가장 낮은 값), 층 1(가장 작은 값).
+
+### 진행 중(18:41)
+- CinC S2 12 run 중 10 완료. 드라이버가 S2 선택 → S3 → TC1–TC4를 이어 간다.
+
+**commit:** ETT `raw.txt`(240 RESULT, SKIP 0), `summary_res.md`, `summary_final.md`, `selected_res.json`, `energy_recount.csv`(240), `pool_log_res.txt`; CinC `raw.txt`, `pool_log_layers.txt`(진행 중 사본); 이 기록. 태그 `exp/f-lif-pop-v3-ett-tune-20261102`(ETT 튜닝 완료 run; 이 commit을 가리킨다).
