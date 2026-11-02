@@ -9549,3 +9549,28 @@ run별 macro-F1(seed 42 / 7 / 2026): muxlin 92.12 / 92.02 / 91.56, sdlin 92.07 /
 - ETT와 CinC 튜닝은 계속 진행 중이다(ETT S2, CinC S2; 드라이버 동작 중).
 
 **commit:** `results/flif-v1-mitbih-spkmux-tune/`의 `raw.txt`(69 RESULT, SKIP 0), `summary_res.md`, `summary_final.md`, `selected_res.json`, `energy_recount.csv`, `pool_log_res.txt`, `pool_log_final.txt`, 이 기록. 태그 `exp/f-lif-pop-v3-mitbih-tune-20261102`(MIT-BIH 튜닝 완료 run; 이 commit을 가리킨다).
+
+## 2026-11-02 17:45 KST — ETT 튜닝 S2(방향별 mixer 층 수) 결과: 네 칸 모두 층 1 선택(ETTh2는 기본값, ETTm2는 기본 2 → 1), 판정 1은 모두 '차이 없음' → 드라이버가 S3(잔차) 48 run을 16:30에 시작; CinC S2는 12 run 중 8 완료
+
+**직전 commit:** `0a2588b93`(MIT-BIH 튜닝 완료, 태그 `exp/f-lif-pop-v3-mitbih-tune-20261102`). 이 기록의 선택과 S3 시작은 `tune_driver.sh ett`가 사전등록(11-01 16:56) 규칙대로 실행했다(로컬 `driver.log`: 16:12 풀 종료 RESULT 192 / SKIP 0, 16:12–16:30 에너지 재계산 `--missing_only`, 16:30 선택 → S3 시작).
+
+### ETT S2 (`summarize_ett_tune.py --stage layers`; 점수 = 검증 L1 비율 [후보 / 기본값]의 두 예측 길이 평균, 낮을수록 좋음)
+- 풀 `ett-tune_layers-20261102.txt` 48 run(GPU 8자리), 13:16 → 16:12, SKIP 0. run 시간 ETTh2 481–934 s, ETTm2 1,366–4,763 s(MIT-BIH·CinC 풀과 GPU 공유).
+- 학습률은 S1 선택값: muxlin ETTh2 5e-4·ETTm2 1e-4, sdlin ETTh2 2.5e-4·ETTm2 1e-4.
+
+| 조건 | 데이터 | 층 1 | 층 2 | 층 3 | 선택 | 판정 1(고른 값 vs 기본값, test MSE 6쌍) |
+|---|---|---:|---:|---:|---|---|
+| muxlin | ETTh2 | **1.0000**(기본) | 1.0022 | 1.0017 | 1(기본) | — |
+| muxlin | ETTm2 | **0.9984** | 1.0000(기본) | 1.0012 | 1 | R +0.05 %, 3/6, 차이 없음 |
+| sdlin | ETTh2 | **1.0000**(기본) | 1.0015 | 1.0037 | 1(기본) | — |
+| sdlin | ETTm2 | **0.9980** | 1.0000(기본) | 1.0006 | 1 | R −0.41 %, 4/6, 차이 없음 |
+- 후보 사이 검증 차이는 0.4 % 안이다. 층 수는 ETT 결과를 거의 바꾸지 않는다. ETTm2에서 층 1이 골라졌지만 test는 기본값과 같은 수준이다(muxlin MSE 0.1796 / 0.4047 vs 기본 0.1793 / 0.4050).
+
+### ETT S3 시작(드라이버, 16:30)
+- `ett-tune_res-20261102.txt` 48 run: muxlin·sdlin × ETTh2·ETTm2 × 잔차 {IAND, ADD} × H96·H720 × seed 3, 각자 고른 학습률과 층 1에서. OR(기본)은 S2/S1 run을 쓴다. 17:39 기준 15 완료.
+- S3 뒤 드라이버가 에너지 재계산(ADD는 정수 규칙)과 최종 T1–T4 요약을 낸다.
+
+### CinC 진행(17:39)
+- S2 `ctune_layers-20261102.txt` 12 run 중 8 완료, 4 진행 중(run당 약 1.3–1.5시간). 같은 GPU에서 다른 세션의 CinC run 8개도 돌고 있어 속도가 느리다.
+
+**commit:** ETT `raw.txt`, `summary_layers.md`, `selected_layers.json`, `energy_recount.csv`(S2까지), `pool_log_layers.txt`, `pool_log_res.txt`(진행 중 사본); CinC `raw.txt`, `pool_log_layers.txt`(진행 중 사본); 이 기록.
