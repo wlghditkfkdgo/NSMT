@@ -5294,3 +5294,71 @@ annotated tag `exp/nsmt-flif-neo-20261101-followup`(CinC 후속 묶음 완료)�
 **commit:** 이 항목, `results/flif-v1-mitbih-query/{raw.txt, pool_runs.txt}`, `results/flif-v1-mitbih-query-summary.md`를 commit 하고 `exp/nsmt-flif-neo`만 push 한다.
 
 ---
+
+## 2026-11-02 13:16 KST — MIT-BIH query 2단계 결과: learning rate 튜닝 (36 run, 학습 파일 80 / 20 분할) — **validation으로 고른 lr은 query population LIF 0.02, query population f-LIF 0.01(기본), Spikformer식 0.005. 고른 lr − 기본은 모두 차이 없음. 각자 고른 lr에서도 query population − Spikformer식은 +0.35 / +0.22 %p로 차이 없음(energy 1.16·1.30배, 기준 (2) 미충족). lr을 바꿔도 MIT-BIH 결론은 그대로다: query population은 Spikformer식과 같다**
+
+**직전 commit:** `af6e553de` (1단계 결과).
+
+**기록이 늦었다:** 36 run은 2026-11-01 19:39:01–21:08:11에 끝났다. 이 항목은 11-02 13:16에 쓴다(약 16시간 늦음). 세션이 끝나 완료 알림이 사용자의 "세션 이어서 진행" 요청과 함께 도착했다.
+
+**실행:**
+- pool 8칸(GPU당 2개)에서 돌았다. 다른 대화의 ETT 작업과 GPU를 나눠 썼다.
+- 36/36 RESULT, SKIP 0, 모두 30/30 epoch, sha `af6e553de`다. run 시간은 338–1,560 s다.
+- **점검:** 36줄 모두 `dir`이 자기 `<조건>_lr<LR>_v1` 폴더와 `_mbval` 접미사를 가리킨다. (조건, lr, seed) 중복은 없다.
+- 결과: `classification/results/flif-v1-mitbih-query-tune/{raw.txt, pool_runs.txt}`
+- 요약: `summarize_mitbih_query.py --tune` → `results/flif-v1-mitbih-query-tune-summary.md`
+
+### 모든 learning rate (seed 3 평균 ± 표준편차; validation = 학습 파일의 20 %, test = 30 % 시험 파일, 모두 마지막 epoch 가중치; * 기본, 굵게 = 고른 값)
+
+| 모델 | lr 0.0025 | 0.005 | 0.01* | 0.02 |
+|---|---|---|---|---|
+| query population LIF, validation | 91.77 ± 0.32 | 92.16 ± 0.23 | 92.01 ± 0.29 | **92.28 ± 0.40** |
+| 〃 test | 91.09 ± 0.59 | 91.22 ± 0.15 | 91.50 ± 0.45 | **91.66 ± 0.44** |
+| query population f-LIF, validation | 91.85 ± 0.10 | 92.07 ± 0.14 | **92.49 ± 0.28** | 92.41 ± 0.16 |
+| 〃 test | 91.15 ± 0.21 | 91.56 ± 0.47 | **91.52 ± 0.29** | 91.41 ± 0.34 |
+| Spikformer식, validation | 91.93 ± 0.19 | **92.60 ± 0.46** | 92.43 ± 0.19 | 92.29 ± 0.20 |
+| 〃 test | 91.17 ± 0.46 | **91.31 ± 0.13** | 91.76 ± 0.40 | 91.57 ± 0.47 |
+
+energy(µJ)는 lr에 따라 거의 변하지 않는다. query population LIF는 10.7–11.1, f-LIF는 11.8–12.3, Spikformer식은 9.3–9.5다.
+
+### 사전 고정 판정 (test, seed별 짝)
+
+| 비교 | seed 42 / 7 / 2026 차 (%p) | 평균 | 판정 | energy A/B |
+|---|---|---|---|---|
+| T1 query population LIF @0.02 − @0.01 | +0.32 / −0.64 / +0.78 | +0.15 | 차이 없음 | 0.99 |
+| T1 query population f-LIF | 기본(0.01)을 골랐다 | | | |
+| T1 Spikformer식 @0.005 − @0.01 | −0.13 / −0.98 / −0.23 | −0.45 | 차이 없음 | 1.00 |
+| **T2 (주) query population LIF @0.02 − Spikformer식 @0.005** | +0.76 / −0.03 / +0.32 | **+0.35** | **차이 없음** | 1.16 (기준 (2) 미충족) |
+| **T2 (주) query population f-LIF @0.01 − Spikformer식 @0.005** | +0.48 / −0.00 / +0.18 | **+0.22** | **차이 없음** | 1.30 (미충족) |
+| (보고) query population LIF − Spikformer식, 둘 다 @0.01 | +0.31 / −0.37 / −0.70 | −0.25 | 차이 없음 | 1.17 |
+| (보고) query population f-LIF − Spikformer식, 둘 다 @0.01 | +0.35 / −0.98 / −0.06 | −0.23 | 차이 없음 | 1.29 |
+
+**사전 예상과 비교:**
+- "대부분 0.005 또는 0.01을 고름": 셋 중 둘이 맞았다. query population LIF는 0.02를 골랐다.
+- "T2 차이 없음": 맞았다.
+
+**읽는 법 (탐색, seed 3):**
+- **lr은 test를 크게 바꾸지 않는다.**
+  - 네 값 사이의 test 차이는 모델마다 최대 0.4–0.6 %p다. seed 간 표준편차(0.13–0.59)와 비슷한 크기다.
+  - 일관된 경향은 하나뿐이다. 가장 작은 lr 0.0025가 세 모델 모두에서 가장 낮다(기본 대비 −0.4 ~ −0.6 %p).
+- **validation 선택은 test와 잘 맞지 않는다.**
+  - Spikformer식은 validation이 가장 높은 0.005(92.60)를 골랐다. 그런데 그 test(91.31)는 네 값 중 두 번째로 낮다.
+  - validation 차이(0.1–0.7 %p)가 seed 흔들림 수준이라, 이 범위에서 lr을 고르는 일 자체가 잡음에 가깝다.
+- **결론:** lr을 고르든 기본으로 두든, MIT-BIH에서 query population은 Spikformer식과 같다(−0.25 ~ +0.35 %p). energy는 1.16–1.30배라 기준 (2)를 채우지 못한다.
+  - 1단계와 합치면, query 형태는 바꿔 넣기의 손해(S 부류)를 없애지만 Spikformer식이나 B형보다 낫지는 않다.
+  - 그 이유로 두 가지를 본다. 심박 하나가 token 11개라 attention이 이미 전부를 본다. 또 심박 단위 무작위 분할이라 과제가 쉽고 천장에 가깝다(macro-F1 약 92).
+- 80 % 학습의 영향: 같은 기본 lr에서 Spikformer식 test는 92.22(전체 학습, 1단계) → 91.76(80 %)이다. 그래서 2단계 숫자는 2단계 안에서만 비교했다.
+
+**한계:**
+- seed 3, lr만 바꿨다.
+- validation이 하나의 20 % 분할이다.
+- 마지막 epoch 가중치를 쓴다(ECG 학습 틀).
+- MIT-BIH는 T = N memory 주장을 시험하지 못한다.
+
+**다음 후보 (사용자 결정):** MIT-BIH에서는 더 할 것이 적다고 본다. query 형태의 남은 확인은 CinC 쪽이다.
+- population memoryless fold 1–4
+- Spikformer식 90 epoch fold 1–4
+
+**commit / tag:** 이 항목, `results/flif-v1-mitbih-query-tune/{raw.txt, pool_runs.txt}`, `results/flif-v1-mitbih-query-tune-summary.md`를 commit 한다. annotated tag `exp/nsmt-flif-neo-20261102-mbquery`(MIT-BIH query 묶음 완료: 1단계 6 + 2단계 36 run)를 붙이고, `exp/nsmt-flif-neo`와 이 tag만 push 한다.
+
+---
