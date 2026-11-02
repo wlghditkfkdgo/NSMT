@@ -9641,3 +9641,52 @@ run별 macro-F1(seed 42 / 7 / 2026): muxlin 92.12 / 92.02 / 91.56, sdlin 92.07 /
 - 20:19 기준 4 run 진행 중(52분째), 2 run 대기. 끝나면 드라이버가 `--stage res` 선택과 최종 TC1–TC4 요약을 낸다.
 
 **commit:** CinC `raw.txt`, `summary_layers.md`, `selected_layers.json`, `pool_log_layers.txt`, `pool_log_res.txt`(진행 중 사본); 이 기록.
+
+## 2026-11-02 22:05 KST — CinC 튜닝 완료: S3(잔차) 두 조건 모두 OR(기본) 선택 → muxlin의 고른 설정은 세 단계 모두 기본값; 최종 TC1 muxlin(튜닝) vs Spikformer식(튜닝) **+2.16%p, 3/3 seed, '좋음'**(기준 (2) 충족, 에너지 0.98배), TC2 muxlin vs sdlin +1.56%p '좋음', TC3 sdlin vs Spikformer식 +0.61%p '좋음'; 기준 모델 학습률은 격자 위쪽 끝(2e-3)이라 덜 튜닝됐을 가능성은 남음
+
+**직전 commit:** `1efd61bac`(CinC S2). S3 선택과 최종 요약은 `tune_driver.sh cinc`가 사전등록(11-01 18:48) 규칙대로 실행했다(로컬 `driver.log`: 21:55 풀 종료 RESULT 45 / SKIP 0, 선택, 최종 요약). 사람이 고른 것은 없다.
+
+### S3 잔차 (`summarize_cinc_tune.py --stage res`, 최고 검증 점수 %, fold 0; 학습률 1e-3, 층 2)
+- 풀 `ctune_res-20261102.txt` 6 run(muxlin IAND·ADD × seed 3), 19:26 → 21:55, SKIP 0. run 시간 4,296–4,588 s. sdlin의 IAND·ADD는 사전등록대로 B1 run(`results/flif-v1-rhythm-spk-cinc`)을 재사용했다.
+
+| 조건 | OR(기본) | IAND | ADD | 선택 | test 평균(보고만) OR / IAND / ADD |
+|---|---:|---:|---:|---|---|
+| muxlin | **72.46** (72.84, 70.96, 73.58) | 72.29 (72.56, 71.64, 72.67) | 71.71 (72.15, 70.23, 72.74) | OR(기본) | 68.52 / 67.20 / 67.93 |
+| sdlin | **72.02** (69.89, 71.30, 74.88) | 70.98 (71.20, 70.35, 71.39) | 71.34 (72.14, 71.05, 70.82) | OR(기본) | 66.96 / 67.11 / 65.91 |
+
+### 최종 (`summarize_cinc_tune.py --stage final`; CinC 규칙: 같은 seed끼리 test 점수 차이 %p, 좋음 = 평균 ≥ +0.5이고 2/3 seed)
+- 고른 설정(잔차, 학습률, 방향별 mixer 층): muxlin (OR, 1e-3, 2) = 기본값, sdlin (OR, 1e-3, 2) = 기본값, Spikformer식 (—, 2e-3, 2).
+
+| 질문 | 평균 %p | seed별 (42, 7, 2026) | 판정 | 에너지 A/B | 기준 (2) |
+|---|---:|---|---|---:|---|
+| TC1 muxlin(튜닝) vs Spikformer식(튜닝) | **+2.16** | +2.86, +2.54, +1.09 | **좋음** | 0.98 | 충족('좋음') |
+| TC2 muxlin(튜닝) vs sdlin(튜닝) | +1.56 | +3.64, +0.67, +0.37 | 좋음 | 1.00 | |
+| TC3 sdlin(튜닝) vs Spikformer식(튜닝) | +0.61 | −0.78, +1.88, +0.72 | 좋음 | 0.99 | 충족('좋음') |
+| TC4 muxlin(튜닝) vs muxlin(기본값) | +0.00 | +0.00, +0.00, +0.00 | 차이 없음(같은 run) | 1.00 | |
+
+| 조건 | 검증 % | test 점수 % | macro-F1 % | AF / Other / Noisy F1 | 에너지 µJ |
+|---|---:|---:|---:|---|---:|
+| Spikformer식(튜닝, 2e-3) | 71.27 | 66.36 ± 1.04 | 62.38 | 61.18 / 54.94 / 50.43 | 131.5 |
+| sdlin(튜닝) | 72.02 | 66.96 ± 0.95 | 61.74 | 63.64 / 54.45 / 46.08 | 129.8 |
+| muxlin(튜닝 = 기본값) | 72.46 | 68.52 ± 0.81 | 64.35 | 65.16 / 56.88 / 51.85 | 129.4 |
+
+### 해석과 한계
+- CinC fold 0에서는 튜닝 뒤에도 muxlin이 Spikformer식보다 낫다. 튜닝 전 +2.92%p(Spikformer식 기본 학습률 1e-3, 65.60)에서, 기준 모델이 2e-3로 66.36까지 올라 +2.16%p로 줄었다. 차이는 주로 AF F1(+3.98%p)에서 온다.
+- MUX의 효과(TC2)는 CinC에서 +1.56%p(3/3)다. ETT(R +0.57 %, 나쁨 방향)와 MIT-BIH(+0.00%p)에서는 없었다.
+- 에너지는 세 조건이 같은 수준이다(0.98배). 에너지 이점은 없다.
+- **한계:**
+  - Spikformer식의 고른 학습률(2e-3)은 격자의 위쪽 끝이다. 더 높은 값에서 더 좋아질 수 있어, 기준 모델이 덜 튜닝됐을 가능성이 남는다. 격자 확장(4e-3, 8e-3) 여부는 사용자 결정 대기다.
+  - fold 0만, seed 3개다. 선택에 쓴 검증 분할도 하나다.
+  - muxlin은 세 단계 모두 기본값이 뽑혀, 튜닝 run이 최종 비교를 바꾸지 않았다.
+
+### 세 과제 튜닝 정리(muxlin(튜닝) vs Spikformer식(튜닝))
+| 과제 | 결과 | 에너지 비 | 태그 |
+|---|---|---:|---|
+| CinC(fold 0) | +2.16%p, 3/3, 좋음 | 0.98 | `exp/f-lif-pop-v3-cinc-tune-20261102`(이 commit) |
+| ETT(4칸) | R +0.45 %, 차이 없음 | 0.98 | `exp/f-lif-pop-v3-ett-tune-20261102` |
+| MIT-BIH | +0.20%p, 차이 없음 | 0.98 | `exp/f-lif-pop-v3-mitbih-tune-20261102` |
+
+### 진행 중
+- AD(이상 탐지) 확장: 사용자 결정(11-02 21시대)대로 코드와 smoke를 진행 중이다. 사전등록은 점검이 통과한 뒤 다음 항목으로 쓴다.
+
+**commit:** CinC `raw.txt`(45 RESULT, SKIP 0), `summary_res.md`, `summary_final.md`, `selected_res.json`, `pool_log_res.txt`, 이 기록. 태그 `exp/f-lif-pop-v3-cinc-tune-20261102`(CinC 튜닝 완료 run; 이 commit을 가리킨다).
