@@ -9502,3 +9502,50 @@ run별 macro-F1(seed 42 / 7 / 2026): muxlin 92.12 / 92.02 / 91.56, sdlin 92.07 /
 - ETT S2: 48 run 중 13 완료(13:16 시작). CinC S2: 12 run 중 1 완료(muxlin 층 1 seed 42, 약 1시간 20분).
 
 **commit:** MIT-BIH `raw.txt`, `summary_layers.md`, `selected_layers.json`, `pool_log_layers.txt`, `pool_log_res.txt`(진행 중 사본); ETT `energy_recount.csv`, `raw.txt`, `pool_log_layers.txt`(진행 중 사본); CinC `raw.txt`, `pool_log_layers.txt`(진행 중 사본); 11-01 MIT-BIH smoke의 남아 있던 요약 `results/smoke-mitbih-spkmux-20261101/summary.md`(smoke 1 epoch, 판정 아님); 이 기록.
+
+## 2026-11-02 16:15 KST — MIT-BIH 튜닝 완료: S3(잔차) 선택 muxlin ADD·sdlin OR(기본), 최종 재학습 9 run → TM1–TM4 모두 '차이 없음'(muxlin(튜닝) − Spikformer식(튜닝) +0.20%p, 기준 (2) 미충족); 검증으로 고른 Spikformer식 학습률(0.005)의 test는 기본값(0.01)보다 낮아 튜닝이 MIT-BIH 결론을 바꾸지 않음
+
+**직전 commit:** `3bf73ffaf`(MIT-BIH S2). 이 기록의 S3 선택, 최종 재학습, 에너지 재계산, 최종 요약은 모두 `tune_driver.sh mit`이 사전등록(11-01 18:48) 규칙대로 실행했다. 사람이 고른 것은 없다. 드라이버 로그(`results/flif-v1-mitbih-spkmux-tune/driver.log`)와 대기열 파일(`scripts/queues/mtune_res-20261102.txt`, `mfinal-20261102.txt`)은 `.gitignore` 대상이라 로컬에 있다. 선택 과정은 `summary_{lr,layers,res}.md`와 `selected_*.json`에 그대로 남는다.
+
+### S3 잔차 (`summarize_mitbih_tune.py --stage res`, 마지막 epoch 검증 macro-F1 %, 검증 = 학습 파일 fold 0)
+- 풀 `mtune_res-20261102.txt` 12 run, 14:08 → 15:01, RESULT 12 / SKIP 0. OR(기본)은 S1 run을 쓴다.
+
+| 조건(학습률, 층) | OR(기본) | IAND | ADD | 선택 |
+|---|---:|---:|---:|---|
+| muxlin (0.02, 2) | 92.60 (93.05, 92.55, 92.21) | 91.72 (92.08, 91.08, 92.00) | **92.62** (92.84, 92.94, 92.08) | ADD |
+| sdlin (0.0025, 2) | **93.02** (93.39, 92.93, 92.73) | 92.63 (92.82, 92.17, 92.91) | 92.74 (92.76, 92.62, 92.85) | OR(기본) |
+- muxlin의 ADD 선택은 OR과 0.02%p 차이다. 사실상 같지만 사전등록 동률 기준(1e-9)보다 크므로 규칙대로 ADD가 골라졌다. IAND는 두 조건 모두 가장 낮다.
+
+### 최종 재학습 (`mfinal-20261102.txt`, 학습 파일 전체, 30 epoch, 마지막 epoch로 test)
+- 고른 설정(잔차, 학습률, 방향별 mixer 층): muxlin (ADD, 0.02, 2), sdlin (OR, 0.0025, 2), Spikformer식 (—, 0.005, 2). 세 조건 모두 기본값과 달라 9 run을 새로 돌렸다(15:01 → 15:47, RESULT 9 / SKIP 0; run 시간 muxlin 1,297–1,311 s, sdlin 1,284–1,356 s, Spikformer식 408–420 s).
+- 기본값 비교(TM4)는 11-01 MIT-BIH 확장의 muxlin run(`results/flif-v1-mitbih-spkmux`)을 쓴다.
+- 에너지: `energy_recount_mitbih.py --suite flif-v1-mitbih-spkmux-tune`(69 run, 15:47 → 16:04). 모든 run에서 다시 잰 macro-F1 = 기록값, 0/1 run은 SynOpRecorder 값 = 기록된 시냅스 에너지("all checks passed"). ADD run은 정수 규칙으로 보정했다(예: muxlin ADD seed 42, 시냅스 37.05 → 7.59 µJ, total 9.39 µJ).
+
+### 최종 판정 (`summarize_mitbih_tune.py --stage final`, test macro-F1, 같은 seed끼리 차이 %p; MIT-BIH 규칙)
+| 질문 | 평균 %p | seed별 (42, 7, 2026) | 판정 | 에너지 A/B | 기준 (2) |
+|---|---:|---|---|---:|---|
+| TM1 muxlin(튜닝) vs Spikformer식(튜닝) | +0.20 | −0.22, +0.39, +0.44 | 차이 없음 | 0.98 | 미충족 |
+| TM2 muxlin(튜닝) vs sdlin(튜닝) | +0.00 | −0.16, +0.18, −0.01 | 차이 없음 | 1.03 | |
+| TM3 sdlin(튜닝) vs Spikformer식(튜닝) | +0.20 | −0.06, +0.21, +0.45 | 차이 없음 | 0.95 | 미충족 |
+| TM4 muxlin(튜닝) vs muxlin(기본값) | +0.09 | −0.24, +0.11, +0.39 | 차이 없음 | 1.06 | |
+
+| 조건 | macro-F1 % | F1 N / S / V / F / Q | 에너지 µJ |
+|---|---:|---|---:|
+| Spikformer식(튜닝, lr 0.005) | 91.78 ± 0.25 | 99.20 / 84.38 / 96.12 / 80.17 / 99.03 | 9.61 |
+| sdlin(튜닝) | 91.98 ± 0.04 | 99.25 / 85.54 / 96.31 / 79.78 / 99.03 | 9.14 |
+| muxlin(튜닝) | 91.99 ± 0.10 | 99.24 / 85.94 / 96.31 / 79.49 / 98.95 | 9.44 |
+| muxlin(기본값) | 91.90 ± 0.25 | 99.24 / 85.74 / 96.38 / 79.24 / 98.89 | 8.89 |
+
+### 보고만(판정 아님): 기본값 run과의 비교
+- 기본값 test(11-01, 학습 파일 전체): Spikformer식(lr 0.01) 92.22 (92.42, 92.24, 92.00), sdlin 91.83 (92.07, 91.94, 91.47), muxlin 91.90 (92.12, 92.02, 91.56).
+- **Spikformer식은 튜닝 뒤 test가 더 낮다:** 검증으로 고른 lr 0.005는 91.78로, 기본값 0.01의 92.22보다 −0.44%p(세 seed 모두 낮음: 92.10 / 91.74 / 91.50). S1 검증 점수 차이(0.005: 92.60, 0.01: 92.43)는 0.17%p였다. MIT-BIH에서는 검증 분할 점수가 test 순서를 잘 따라가지 않는다(다른 세션의 MIT-BIH query 2단계 결론과 같음: "validation selection tracks test poorly").
+- 그래서 TM1의 +0.20%p는 muxlin이 좋아져서라기보다 기준 모델이 튜닝으로 낮아진 몫이 크다. muxlin(튜닝) − Spikformer식(기본값)은 −0.23%p(−0.53, −0.11, −0.06)다.
+- sdlin은 튜닝으로 +0.15%p(91.83 → 91.98), muxlin은 +0.09%p(91.90 → 91.99)로 둘 다 seed 흔들림 안이다.
+
+### 결론
+- MIT-BIH에서 muxlin은 튜닝 전후 모두 Spikformer식과 '차이 없음'이다. MUX의 효과(muxlin − sdlin)도 튜닝 뒤 +0.00%p다. 튜닝은 MIT-BIH 결론을 바꾸지 않는다.
+- 에너지도 0.98배로 기준 (2)를 만족하지 않는다(ADD 잔차가 정수 규칙으로 9.44 µJ).
+- 한계: seed 3개. 검증 분할이 심박 단위라 같은 환자가 학습·검증·test에 섞여 있다. 후보 사이 검증 차이(0.02–0.7%p)가 seed 흔들림과 같은 크기라 선택 자체가 불안정하다.
+- ETT와 CinC 튜닝은 계속 진행 중이다(ETT S2, CinC S2; 드라이버 동작 중).
+
+**commit:** `results/flif-v1-mitbih-spkmux-tune/`의 `raw.txt`(69 RESULT, SKIP 0), `summary_res.md`, `summary_final.md`, `selected_res.json`, `energy_recount.csv`, `pool_log_res.txt`, `pool_log_final.txt`, 이 기록. 태그 `exp/f-lif-pop-v3-mitbih-tune-20261102`(MIT-BIH 튜닝 완료 run; 이 commit을 가리킨다).
