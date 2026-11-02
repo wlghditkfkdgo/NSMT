@@ -9690,3 +9690,124 @@ run별 macro-F1(seed 42 / 7 / 2026): muxlin 92.12 / 92.02 / 91.56, sdlin 92.07 /
 - AD(이상 탐지) 확장: 사용자 결정(11-02 21시대)대로 코드와 smoke를 진행 중이다. 사전등록은 점검이 통과한 뒤 다음 항목으로 쓴다.
 
 **commit:** CinC `raw.txt`(45 RESULT, SKIP 0), `summary_res.md`, `summary_final.md`, `selected_res.json`, `pool_log_res.txt`, 이 기록. 태그 `exp/f-lif-pop-v3-cinc-tune-20261102`(CinC 튜닝 완료 run; 이 commit을 가리킨다).
+
+## 2026-11-02 23:10 KST — 사전등록 + 구현: Anomaly Detection(AD) 확장 — muxlin·sdlin·Spikformer식, MSL·SMAP·PSM, 다른 과제와 같은 3단계 튜닝(검증 분할 선택 → 학습 파일 전체 재학습), 판정은 AUC-PR; 점검 6/6, smoke 35 run(SKIP 0); 드라이버로 S1(135 run) 시작
+
+**직전 commit:** `6e7da21b6`(CinC 튜닝 완료). 브랜치 `exp/f-lif-pop-v3`(SpkMixer·MUX 작업 흐름을 잇는다).
+
+### 목적과 사용자 결정
+- 사용자(11-02): "Anomaly Detection에 대해서도 성능을 측정해서 '시계열 범용 모델'을 주장하고 싶어."
+- 사용자 결정(질문 답, 계획 승인):
+  1. 튜닝은 다른 과제와 같은 3단계(학습률 → 방향별 mixer 층 → 잔차)로 한다.
+  2. AUC-PR, raw F1, point-adjusted F1을 모두 산출하고, 비교는 AUC-PR 중심으로 한다.
+  3. 작은 3개 데이터(MSL, SMAP, PSM)부터 한다. SMD와 SWaT는 결과를 보고 정한다.
+- 이 확장이 말할 수 있는 것과 없는 것(미리 적음):
+  - AD는 과제 범위(예측·분류·이상 탐지)를 넓힌다.
+  - 지금까지 muxlin이 Spikformer식보다 나은 과제는 CinC뿐이다(ETT·MIT-BIH는 '차이 없음', 에너지 0.98배). AD 결과는 미리 정하지 않는다.
+  - AD 창은 100 step이라 token이 25개뿐이다(CinC 117).
+
+### 데이터와 절차(TSLib AD 절차; 이 저장소 `neorecall_ad_v1/anomaly_detection`과 같음)
+- 로더: 이 폴더 `data_provider`의 `MSLSegLoader`·`SMAPSegLoader`·`PSMSegLoader`. 10-31 ETT 복사분(`ETT_PROVENANCE.md`)으로, `neorecall_ad_v1`의 것과 md5가 같다. 다른 세션 코드 새 복사는 없다.
+- 데이터: 메인 트리 `NSMT/anomaly_detection/dataset/{MSL,SMAP,PSM}`(읽기만).
+- 창 100, 간격 1, 학습 파일로 표준화. 검증 = 학습 파일 뒤 20 %. test는 겹치는 창(간격 1)을 이어 붙인 점수열이다.
+- 창 수(점검 d1):
+
+| 데이터 | 채널 | 학습 창 | holdout 학습 창 | 검증 창 | test 창 | 이상 비율 |
+|---|---:|---:|---:|---:|---:|---:|
+| MSL | 55 | 58,218 | 46,554 | 11,565 | 73,630 | 0.1053 |
+| SMAP | 25 | 135,084 | 108,047 | 26,938 | 427,518 | 0.1279 |
+| PSM | 25 | 132,382 | 105,885 | 26,398 | 87,742 | 0.2776 |
+
+- `anomaly_ratio` = 1(세 데이터; `neorecall_ad_v1/.../run_recall_ad.sh`와 같음).
+
+### 모델(`ad_wrap.Reconstructor`; 몸통은 바꾸지 않고 양 끝만)
+- 창 정규화: 창마다 채널별 평균·표준편차로 나누고, 출력에서 되돌린다(ETT Forecaster와 TimesNet AD와 같음).
+- **채널 혼합 입력:** 한 token = 모든 채널의 패치(8 step × C). 기존 `in_channels` 경로를 쓴다.
+  - ETT의 채널 독립 방식은 계산량이 C배(25–55배)라 쓰지 않는다. TimesNet과 Anomaly Transformer의 AD도 채널 혼합이다.
+- 패치 8, 간격 4, 끝 채움 → token 25개(T = N = 25).
+- **token별 출력:** Linear(D → 4·C)로 token i가 step [4i, 4i+4)를 복원한다. head 입력은 T_h 평균 스파이크로, 다른 과제와 같다.
+- 몸통 값(ETT와 같음): emb 64, mlp 1, heads 8, weight decay 0.06, τ 2, 방향별 mixer 층 2(기본), 잔차 OR(기본). Spikformer식은 같은 emb와 T_h 4다.
+- 파라미터: SpkMixer MSL 76,160 / SMAP·PSM 53,120; Spikformer식 68,104 / 45,064.
+
+### 학습과 지표(`train_ad.py`)
+- MSE 재구성 손실, AdamW, ReduceLROnPlateau, batch 128, 최대 10 epoch, 검증 MSE로 early stopping(patience 3).
+- test는 최고 검증 가중치로 잰다.
+- 점수 = 시점별 채널 평균 제곱 오차.
+- `ad_metrics.py`:
+  - AUC-PR(주 지표), AUC-ROC.
+  - raw F1, point-adjusted F1. 문턱값은 TSLib 방식으로, 학습 점수와 test 점수를 합친 분포의 상위 1 %다.
+  - point adjustment는 `neorecall_ad_v1/anomaly_detection/utils.adjustment`(blob `c0eb878a9`) 그대로다.
+- 에너지: syops 시냅스 에너지 + 뉴런 에너지(`FiringRateRecorder`).
+  - head는 T_h 동안 0/1 스파이크를 받는 AC로 다시 센다. ETT 재계산과 같은 공식을 같은 test 통과 안에서 쓴다.
+  - ADD 잔차의 몸통은 정수 규칙으로 센다.
+  - syops가 head를 실제로 센 값(아래 '고친 점')을 빼고 재계산값을 더한다.
+
+### 튜닝과 최종 판정(사전 고정)
+- 튜닝 run(`HOLDOUT=1`): 학습 파일 앞 80 % 안의 창으로 학습하고 뒤 20 %로 검증한다. test 통과는 하지 않는다.
+- 선택 점수 = seed 평균 최고 검증 MSE ÷ 기본값의 같은 값. 낮을수록 좋다. 조건·데이터마다 고르고, 동률(1e-12)이면 기본값이다. run이 빠지면 선택하지 않는다.
+
+| 단계 | 후보(굵게 = 기본) | 대상 | run |
+|---|---|---|---:|
+| S1 학습률 | 1e-4, 2.5e-4, **5e-4**, 1e-3, 2e-3 | muxlin, sdlin(OR, 층 2), Spikformer식 | 135 |
+| S2 방향별 mixer 층 | 1, **2**, 3 | muxlin, sdlin | 36 |
+| S3 잔차 | **OR**, IAND, ADD | muxlin, sdlin | 36 |
+| 최종 | 고른 설정, 학습 파일 전체(TSLib) | 3 조건 + muxlin 기본값(튜닝값과 같으면 생략) | ≤ 36 |
+
+- 최종 판정(AUC-PR):
+  - 같은 seed끼리 r = 100(AUC-PR_A − AUC-PR_B)/AUC-PR_B. R = 세 데이터의 seed 평균 r의 평균.
+  - '좋음' = R ≥ +2 %이면서 9쌍 중 6쌍 이상 높음. '나쁨'은 그 반대다.
+  - 기준 (2) = '좋음', 또는 R ≥ −2 %이면서 에너지 ≤ 0.5배.
+  - **A1** muxlin(튜닝) vs Spikformer식(튜닝)(기준 2), **A2** muxlin vs sdlin, **A3** sdlin vs Spikformer식(기준 2), **A4** muxlin 튜닝 vs 기본값.
+  - 최종 행의 AUC-PR이 유한하지 않거나 `energy_check`가 ok가 아니면 그 비교는 'incomplete'다.
+  - 보고만: 데이터별 AUC-PR·AUC-ROC·raw F1·PA-F1·에너지·best epoch 표.
+- 계획과 달라진 점: 계획의 "발표된 TSLib 수치 참고 열"은 요약 스크립트에 넣지 않았다. 기억으로 수치를 옮기지 않고, 논문을 쓸 때 원문에서 인용한다.
+- seed는 42, 7, 2026이다.
+
+### 코드(새 파일만; 기존 파일 diff 없음 = 점검 d0)
+- `ad_wrap.py`, `ad_metrics.py`, `train_ad.py`, `check_ad.py`, `summarize_ad_tune.py`
+- `scripts/run_ad_spk.sh`, `scripts/make_queue_ad.sh`(adsmoke, adsmoke2, adtune_lr, adtune_layers, adtune_res, adfinal), `scripts/ad_driver.sh`
+  - `ad_driver.sh`는 `tune_driver.sh` 방식이다. 지금 실행 중인 드라이버 파일은 건드리지 않으려고 새 파일로 만들었다.
+
+### 고친 점(smoke에서 발견)
+- 처음 smoke의 SMAP muxlin 전체 방식 run에서 에너지 점검이 FAIL이었다(기록기 몸통 6.40 vs syops 몸통 6.08 µJ, 4.8 %).
+- 원인: syops는 입력값의 종류가 2개 이하이고 [0, 1] 안이면 0/1 스파이크로 보고 AC로 센다(`syops.ops.spike_rate`).
+  - T_h 평균 head 입력(0, 0.25, …)이 어떤 배치에서 {0, 0.25}뿐이면 head를 AC로 센다. 그 run의 head MAC는 88.91K로, 전체 160K의 56 %였다.
+  - 그런데 제 보정식은 head가 전부 MAC로 세어졌다고 가정하고 빼고 있었다.
+- 고침:
+  - 같은 test 통과에서 syops 규칙 그대로 배치마다 head를 세고(`head_syops_AC/MAC`), 그 값을 빼고 재계산값을 더한다.
+  - syops per-layer 기록의 head 줄과 0.6 % 안으로 맞는지 모든 모델에서 점검한다.
+  - 다시 돌린 smoke에서 SMAP Spikformer식도 head MAC가 86 %만 세어졌다. 옛 공식이었다면 이 run도 틀렸을 것이고, 옛 점검(기록기 대조는 SpkMixer만)은 잡지 못했을 것이다.
+- ETT 재계산(`energy_recount_ett.py`)은 head MAC가 syops 기록과 0.6 % 안으로 맞는지 점검했고 240 run 모두 통과했으므로, 이 문제가 없었다.
+- 점검 실행 중 고친 점: CPU 점검이 스레드 다툼으로 30분 안에 끝나지 않아 `OMP_NUM_THREADS=4`로 묶었다. 이 모델들의 뉴런이 CUDA를 요구해서 d2·d4는 GPU에서 돈다. PSM 라벨은 창마다 [100, 1] 모양이라 점검에서 펴서 본다(`train_ad.py`는 원래 편다).
+
+### 점검 `check_ad.py` 6/6(GPU 1, `--smoke smoke-ad-spkmux-20261102b`)
+- d0: 기존 코드 diff 없음.
+- d1: 창 수 = TSLib 식. holdout 학습 창은 앞 80 % 안이고 마지막 창은 경계에 닿는다(최대). TSLib 검증 = 뒤 20 %. 라벨은 0/1이고 step마다 하나다.
+- d2: 출력 [3, 100, 55]. token 0, 7, 24 → step [4i, 4i+4)(24는 96–99). 특징 = SpkMixer 몸통 출력. C = 1에서 Forecaster 특징과 비트 단위로 같다(spkmix, ssa).
+- d3: 무작위 점수·라벨 3회(동점 포함)에서 문턱값, raw F1, PA-F1이 `neorecall_ad_v1` test.py 계산과 같다. AUC-PR = 직접 계산값(1e-10).
+- d4: Spikformer식 55채널 forward·backward가 유한하다(23개 기울기).
+- d5: 전체 방식 smoke 12 run 모두 `energy_check` ok, head MAC = 25·64·4·C, 보정 에너지를 손으로 다시 계산한 값과 같다(0/1 규칙과 ADD 정수 규칙).
+
+### smoke(1 epoch, seed 42; 판정에 쓰지 않음)
+- `smoke-ad-spkmux-20261102`: 23 run(수동 5 + 풀 18), SKIP 0. 같은 설정을 두 번 돌린 run은 값이 똑같다(MSL muxlin holdout 0.256513, MSL Spikformer식 전체 AUC-PR 0.149837).
+- `smoke-ad-spkmux-20261102b`: 고친 뒤 전체 방식 12 run(3 데이터 × muxlin·sdlin·Spikformer식·muxlin ADD), SKIP 0, energy_check 모두 ok.
+- 시간(GPU 공유 중):
+  - holdout epoch: SpkMixer MSL 70–76 s, SMAP 149–224 s, PSM 173–218 s. Spikformer식 MSL 18 s, SMAP 35 s, PSM 30 s(SpkMixer의 mixer가 token 25개를 차례로 돌아 약 3–6배 느림).
+  - 전체 방식 1 epoch + test·에너지: SpkMixer SMAP 1,400–1,488 s, PSM 594–614 s, MSL 353–364 s.
+- 1 epoch 지표(보고만): point adjustment의 부풀림이 크다. 예: PSM muxlin raw F1 0.050 → PA-F1 0.963, SMAP 0.023 → 0.682. SMAP의 AUC-PR 0.112–0.118은 이상 비율 0.128보다 낮다.
+- 예상 시간: S1 약 6–9시간(GPU 8자리, 다른 세션 run과 공유), S2·S3 각 2–3시간, 최종 약 3시간. 전체 15–20시간이다.
+
+### 실행
+- `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/ad_driver.sh &`(NSMT/에서).
+- 드라이버는 S1 → 선택 → S2 → 선택 → S3 → 선택 → 최종 → A1–A4 요약을 한다. 선택 파일이 없으면 멈춘다. 기록·commit은 세션이 한다.
+- run 하나: `HOLDOUT=1 LR=<lr> MLAYERS=<L> SUITE=flif-v1-ad-spkmux-tune COND=<cond> bash cinc_mixer_v1/scripts/run_ad_spk.sh <DS> <seed> <gpu>`.
+- 점검: `LD_LIBRARY_PATH=<env>/lib OMP_NUM_THREADS=4 CUDA_VISIBLE_DEVICES=1 python -u check_ad.py --smoke smoke-ad-spkmux-20261102b`.
+
+### 한계
+- 최종 run은 TSLib 그대로라 검증(뒤 20 %)이 학습에도 들어간다. early stopping은 표본 안 손실로 한다.
+- 선택은 라벨 없는 재구성 MSE로 하는데, 이것이 AUC-PR 순서를 따라간다는 보장은 없다(MIT-BIH에서 검증 선택이 test를 잘 따라가지 않았다).
+- raw·PA F1의 문턱값에 test 분포가 들어간다(TSLib). AUC-PR은 문턱값이 없다.
+- MSL·SMAP 라벨 품질 문제가 알려져 있다(Wu & Keogh 2021). test 점수는 겹치는 창을 이어 붙인 것이다(TSLib).
+- seed 3개, 데이터 3개. population 뉴런은 넣지 않았다(ETT·MIT-BIH 확장과 같은 구성).
+
+**commit:** 새 코드 8개, smoke 두 suite의 `raw.txt`·`pool_log_smoke.txt`, 이 기록. 훈련 결과는 다음 기록에서 남긴다.
