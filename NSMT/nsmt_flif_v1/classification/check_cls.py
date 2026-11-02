@@ -2480,12 +2480,122 @@ def c52():
                 + f'; refused (selective, gl) {refused}; folder {fold} (suffix ok {sfx})')
     report('c52', ok, '; '.join(rows))
 
+@check('c53')
+def c53():
+    """(MODI 2026-11-02) Neocortex-only order control (--neo_shuffle, query form) at CinC size, the real nsmt4q_pop_lif seed 42 fold 0
+    config: (a) the option adds no parameter and leaves the initial weights unchanged; (b) with the trained weights in evaluation the
+    Neocortex output equals inverse-permute(time_block(encoding_neo(permute(neo_in)))) of the plain model with the fixed
+    default_rng(0) permutation, and differs from the unshuffled output; the whole forward equals the plain model's forward with that
+    manual Neocortex; (c) training permutations: one per sample, every row a permutation, a second call differs, the global torch RNG
+    is untouched; (d) order of the history: changing Neocortex input token j changes the outputs only at tokens that come at or after j
+    in the shuffled order (plain model: only at tokens >= j), and the changed set is not empty; (f) a training step under
+    torch.use_deterministic_algorithms(True) runs, reaches the Neocortex and is repeatable; (e) refused with neo_memoryless,
+    without hippo_xattn (hippo_ssa) and with neo_bidir; folder suffix _nshuf."""
+    import glob as _glob
+    import numpy as _np
+    from spikingjelly.clock_driven import functional
+    from load_model import LOAD_MODEL
+    from token_order import permute_tokens
+    run = [r for r in sorted(_glob.glob(os.path.join(HERE, 'log', 'flif-v1-rhythm-query-cinc', '**', '*+nsmt4q_pop_lif+lr0.001+seed42+*', 'seed42_*_f0'), recursive=True))
+           if os.path.exists(os.path.join(r, 'model_state', 'best+model.pt'))]
+    cfg = torch.load(os.path.join(run[0], 'model_state', 'config.pt'), map_location='cpu')
+    sd = torch.load(os.path.join(run[0], 'model_state', 'best+model.pt'), map_location='cpu')
+    torch.manual_seed(0); ms = LOAD_MODEL['myModel'](NS(**dict(cfg, neo_shuffle=True, device='cuda')), True).cuda()
+    torch.manual_seed(0); mp = LOAD_MODEL['myModel'](NS(**dict(cfg, device='cuda')), True).cuda()
+    s0, p0 = ms.state_dict(), mp.state_dict()
+    init_same = s0.keys() == p0.keys() and all(torch.equal(s0[k], p0[k]) for k in s0) and mp.neo_shuffle is None and ms.neo_shuffle is not None
+    ms.load_state_dict(sd); mp.load_state_dict(sd)
+    for m in (ms, mp):
+        m.eval(); m.train_mode = 'testing'
+    xin = torch.randn(2, 1, 3750, generator=torch.Generator().manual_seed(3)).cuda()
+    N = ms.num_patches
+    perm = torch.as_tensor(_np.random.default_rng(0).permutation(N)).cuda().unsqueeze(0).expand(2, -1)
+    inv = torch.argsort(perm, dim=1)
+    def manual(neo_in, org):
+        functional.reset_net(mp)
+        e = mp.encoding_neo(permute_tokens(neo_in, 0, perm)); o = mp.time_block(e, org)
+        return permute_tokens(e, 0, inv), permute_tokens(o, 0, inv)
+    with torch.no_grad():
+        functional.reset_net(ms); _, neo_in = ms._tokens_mc(xin)
+        functional.reset_net(ms); o_s = ms.neo_forward(neo_in, xin.clone())[1]
+        o_m = manual(neo_in, xin.clone())[1]
+        functional.reset_net(mp); o_p = mp.neo_forward(neo_in, xin.clone())[1]
+        functional.reset_net(ms); lg_s = ms(xin); lg_s = lg_s[0] if isinstance(lg_s, tuple) else lg_s
+        orig = mp.neo_forward; mp.neo_forward = manual
+        functional.reset_net(mp); lg_m = mp(xin); lg_m = lg_m[0] if isinstance(lg_m, tuple) else lg_m
+        mp.neo_forward = orig; functional.reset_net(mp)
+    eval_ok = torch.equal(o_s, o_m) and not torch.equal(o_s, o_p) and torch.equal(lg_s, lg_m) and float(o_s.sum()) > 0
+    rng0 = torch.get_rng_state()
+    p1 = ms.neo_shuffle.perms(8, 'cuda', True); p2 = ms.neo_shuffle.perms(8, 'cuda', True)
+    rows_perm = all(torch.equal(torch.sort(r).values, torch.arange(N, device=r.device)) for r in p1)
+    distinct = len({tuple(r.tolist()) for r in p1}) == 8
+    train_ok = rows_perm and distinct and not torch.equal(p1, p2) and torch.equal(rng0, torch.get_rng_state())
+    j = 40
+    rank = inv[0]                                                    # rank[i] = position of token i in the shuffled order
+    with torch.no_grad():
+        nj = neo_in.clone(); nj[j] = nj[j] + 3.0 * torch.randn_like(nj[j])
+        functional.reset_net(ms); a1 = ms.neo_forward(neo_in, None)[1]; functional.reset_net(ms); a2 = ms.neo_forward(nj, None)[1]
+        functional.reset_net(mp); b1 = mp.neo_forward(neo_in, None)[1]; functional.reset_net(mp); b2 = mp.neo_forward(nj, None)[1]
+        functional.reset_net(ms); functional.reset_net(mp)
+    ch_s = ((a1 - a2).abs().flatten(1).sum(1) > 0).nonzero().flatten()
+    ch_p = ((b1 - b2).abs().flatten(1).sum(1) > 0).nonzero().flatten()
+    hist_ok = (len(ch_s) > 0 and bool((rank[ch_s] >= rank[j]).all()) and len(ch_p) > 0 and bool((ch_p >= j).all())
+               and bool((ch_s < j).any()))                           # the shuffled history reaches tokens before j
+    # (f) a training step under torch.use_deterministic_algorithms(True) (as config.set_random_seed in training): the backward runs,
+    # reaches the Neocortex, and is repeatable with the same permutations (generator re-seeded)
+    det0 = torch.are_deterministic_algorithms_enabled(); os.environ.setdefault('CUBLAS_WORKSPACE_CONFIG', ':16:8')
+    torch.use_deterministic_algorithms(True)
+    grads, det_err = [], ''
+    try:
+        ms.train(); ms.train_mode = 'training'
+        for _ in range(2):
+            ms.neo_shuffle.gen = None; ms.zero_grad(); functional.reset_net(ms)
+            o = ms(xin); lg = o[0] if isinstance(o, tuple) else o
+            torch.nn.functional.cross_entropy(lg, torch.tensor([0, 1], device=lg.device)).backward()
+            grads.append({n: p.grad.detach().clone() for n, p in ms.named_parameters() if p.grad is not None}); functional.reset_net(ms)
+    except RuntimeError as err:
+        det_err = str(err)[:80]
+    finally:
+        torch.use_deterministic_algorithms(det0); ms.eval(); ms.train_mode = 'testing'
+    neo_g = sum(float(g.abs().sum()) for n, g in grads[0].items() if 'neo' in n or 'time_block' in n) if len(grads) == 2 else 0.
+    det_ok = (not det_err and len(grads) == 2 and grads[0].keys() == grads[1].keys()
+              and all(torch.equal(grads[0][n], grads[1][n]) for n in grads[0]) and neo_g > 0)
+    refused = []
+    for ov in (dict(neo_memoryless=True), dict(hippo_xattn=False, hippo_xattn_mode='replace', hippo_ssa=True, neo_neuron='sj_lif', pop_soma_init=None),
+               dict(neo_bidir=True)):
+        try:
+            LOAD_MODEL['myModel'](NS(**dict(cfg, neo_shuffle=True, device='cuda', **ov)), True); refused.append(False)
+        except ValueError:
+            refused.append(True)
+    import tempfile
+    import config as _cfg
+    tmp = tempfile.mkdtemp(dir=os.environ.get('CHECK_TMP')); names, argv0 = {}, sys.argv
+    try:
+        for extra in ([], ['--neo_shuffle']):
+            sys.argv = ['train_rhythm.py', '--log_dir', tmp, '--seed', '42', '-s', '--data', 'CINC2017', '--patch_size', '64', '--model', 'myModel',
+                        '--neo_neuron', 'pop_lif', '--neo_where', 'both', '--pop_soma_init', '0.5', '--hippo_T', '4', '--hippo_xattn',
+                        '--hippo_xattn_mode', 'query', '--neo_grad', '1.0'] + extra
+            a_ = _cfg.Config(); a_.set_args(_cfg.parse_arguments()); names[len(extra)] = os.path.basename(a_.save_result_path)
+    finally:
+        sys.argv = argv0
+    sfx = '_nshuf' not in names[0] and names[1] == names[0].replace('_ng1_', '_ng1_nshuf_')
+    ok = init_same and eval_ok and train_ok and hist_ok and det_ok and all(refused) and sfx
+    report('c53', ok, f'init unchanged / no new parameter {init_same}; eval: = manual permute-run-unpermute {torch.equal(o_s, o_m)}, '
+                      f'differs from unshuffled {not torch.equal(o_s, o_p)}, whole forward = manual {torch.equal(lg_s, lg_m)}, '
+                      f'spikes {int(o_s.sum())}; training perms: rows are permutations {rows_perm}, 8 distinct {distinct}, '
+                      f'second call differs {not torch.equal(p1, p2)}, global RNG untouched {torch.equal(rng0, torch.get_rng_state())}; '
+                      f'history (token {j} changed): shuffled changes {len(ch_s)} tokens, all at or after it in the shuffled order '
+                      f'{bool((rank[ch_s] >= rank[j]).all()) if len(ch_s) else False}, some before it in time {bool((ch_s < j).any()) if len(ch_s) else False}; '
+                      f'plain changes {len(ch_p)} tokens, all >= {j} {bool((ch_p >= j).all()) if len(ch_p) else False}; '
+                      f'deterministic-mode training backward: ran {not det_err} {det_err}, repeatable / reaches the Neocortex {det_ok} (|grad| {neo_g:.3e}); '
+                      f'refused (memoryless, hippo_ssa, bidir) {refused}; folder {names[1]} (suffix ok {sfx})')
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', default=os.path.join(HERE, 'results', 'checks', 'check_cls.txt'))
     ap.add_argument('--only', nargs='*', default=None)
     a = ap.parse_args()
-    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30, c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44, c45, c46, c47, c48, c49, c50, c51, c52):
+    for fn in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30, c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44, c45, c46, c47, c48, c49, c50, c51, c52, c53):
         if a.only and fn.__name__ not in a.only:
             continue
         fn()

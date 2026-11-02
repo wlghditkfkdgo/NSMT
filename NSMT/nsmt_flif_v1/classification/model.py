@@ -17,7 +17,7 @@ from timm.utils import *
 from layers import SpkEncoder, SpikLinearLayer, SpikLinearMaxLayer, MLP, SSA_rel_scl, MutualCrossAttention
 from layers import build_neo_neuron, NeoNeuron, apply_tau_calibration, swap_sj_neurons   # nsmt_flif_v1; swap: MODI 2026-10-29
 from positional import tAPE
-from token_order import TokenShuffle, permute_tokens   # MODI 2026-10-28 (shuffle-retrain)
+from token_order import TokenShuffle, permute_tokens, permute_tokens_det   # MODI 2026-10-28 (shuffle-retrain); 2026-11-02 (neo_shuffle)
 from utils import random_masking_3D, cyclic_shift_batch_dim1
 from einops import rearrange
 
@@ -573,6 +573,15 @@ class myModel(nn.Module):
         self.token_shuffle = TokenShuffle(self.num_patches, kwargs.get('shuffle_seed', 0)) if kwargs.get('token_shuffle', False) else None
         if self.token_shuffle is not None and not self.hippo_ssa:
             raise ValueError('token_shuffle is implemented for hippo_ssa (Spikformer-style) only')
+        # MODI 2026-11-02: neo_shuffle = Neocortex-only order control. The Neocortex runs the N tokens in a shuffled order (TokenShuffle:
+        # per-sample random in training, the fixed default_rng(0) permutation in evaluation) and its outputs are put back at the
+        # original token positions, so the Neocortex output of token i still meets hippocampus token i and the hippocampus (keys /
+        # values, relative position bias) keeps the true order; state still crosses tokens, but the history it carries is not the past
+        self.neo_shuffle = TokenShuffle(self.num_patches, kwargs.get('shuffle_seed', 0)) if kwargs.get('neo_shuffle', False) else None
+        if self.neo_shuffle is not None and (not self.hippo_xattn or self.neo_memoryless or self.neo_bidir or self.neo_streams
+                                             or self.token_shuffle is not None):
+            raise ValueError('neo_shuffle: hippo_xattn with a unidirectional single-stream neocortex that keeps its memory '
+                             '(not with neo_memoryless / neo_bidir / popk streams / token_shuffle)')
         self.neo_neuron, self.neo_where = neo_neuron, neo_where
         _neo = dict(tau=self.neo_tau, alpha=float(kwargs.get('neo_alpha', 0.5)), method=str(kwargs.get('fde_method', 'pred')),
                     step=float(kwargs.get('fde_step', 1.0)), memory=int(kwargs.get('fde_memory', 0)),
@@ -864,6 +873,12 @@ class myModel(nn.Module):
             e = self.encoding_neo(neo_in.reshape(1, N * B, *neo_in.shape[2:]))
             o = self.time_block(e, org_seq)
             return e.reshape(N, B, *e.shape[2:]), o.reshape(N, B, *o.shape[2:])
+        if getattr(self, 'neo_shuffle', None) is not None:                  # MODI 2026-11-02: Neocortex-only order control
+            perm = self.neo_shuffle.perms(neo_in.shape[1], neo_in.device, self.training)
+            e = self.encoding_neo(permute_tokens_det(neo_in, perm))
+            o = self.time_block(e, org_seq)
+            inv = torch.argsort(perm, dim=1)                                 # back to the original token positions
+            return permute_tokens_det(e, inv), permute_tokens_det(o, inv)
         e = self.encoding_neo(neo_in)
         if getattr(self, 'neo_streams', False):                        # MODI 2026-10-23: [N, B, K, D], stream k -> hippocampus step k
             if getattr(self, 'neo_stream_fuse', 'none') == 'mx':       # MODI 2026-10-24: both token directions, fused per stream

@@ -34,3 +34,11 @@ def permute_tokens(x, n_dim, perm):
     else:
         raise ValueError(n_dim)
     return torch.gather(x, n_dim, idx.expand_as(x).contiguous())
+
+
+def permute_tokens_det(x, perm):
+    """MODI 2026-11-02: permute_tokens(x, 0, perm) through index_select, whose CUDA backward is deterministic (gather's is
+    scatter_add, refused under torch.use_deterministic_algorithms); for tensors that need a gradient (the --neo_shuffle outputs)."""
+    n, b = x.shape[0], x.shape[1]
+    idx = (perm.t() * b + torch.arange(b, device=x.device).unsqueeze(0)).reshape(-1)   # flat index of (token perm[b, t], sample b)
+    return x.reshape(n * b, *x.shape[2:]).index_select(0, idx).reshape(x.shape)

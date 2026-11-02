@@ -134,6 +134,9 @@ def parse_arguments():
     snn_arg.add_argument('--neo_grad', type=float, default=0.5, help='task-gradient share to the neocortex (0.5 = the ECG code)')
     snn_arg.add_argument('--neo_memoryless', action='store_true', default=False,
                          help='every token runs through the neocortex as its own 1-step sequence (no state crosses tokens)')
+    snn_arg.add_argument('--neo_shuffle', action='store_true', default=False,
+                         help='MODI 2026-11-02 order control: the Neocortex runs the tokens in a shuffled order and its outputs go back to the '
+                              'original positions (hippocampus order unchanged)')
     snn_arg.add_argument('--token_shuffle', action='store_true', default=False,
                          help='MODI 2026-10-28 shuffle-retrain: random token order per sample in training, one fixed order in evaluation')
     snn_arg.add_argument('--neuron_scope', choices=['mixer', 'all', 'lifbase'], default='mixer',
@@ -269,6 +272,8 @@ class Config():
             _iso += "_nomem"
         if getattr(args, 'token_shuffle', False):                         # MODI 2026-10-28
             _iso += "_tshuf"
+        if getattr(args, 'neo_shuffle', False):                           # MODI 2026-11-02
+            _iso += "_nshuf"
         if getattr(args, 'neuron_scope', 'mixer') != 'mixer':             # MODI 2026-10-29
             _iso += {'all': '_nall', 'lifbase': '_nlb'}[args.neuron_scope]
         if getattr(args, 'neuron_all', 'sj_lif') != 'sj_lif':             # MODI 2026-10-29 (myModel)

@@ -5362,3 +5362,114 @@ energy(µJ)는 lr에 따라 거의 변하지 않는다. query population LIF는 
 **commit / tag:** 이 항목, `results/flif-v1-mitbih-query-tune/{raw.txt, pool_runs.txt}`, `results/flif-v1-mitbih-query-tune-summary.md`를 commit 한다. annotated tag `exp/nsmt-flif-neo-20261102-mbquery`(MIT-BIH query 묶음 완료: 1단계 6 + 2단계 36 run)를 붙이고, `exp/nsmt-flif-neo`와 이 tag만 push 한다.
 
 ---
+
+## 2026-11-02 13:54 KST — 사전 고정 + 구현: query 형태 population의 T = N memory를 CinC fold 0–4로 확인하고, 그 몫을 "순서"와 "순서 없는 누적"으로 나눈다 (사용자 결정 11-02) — population memoryless fold 1–4 (24 run) + Neocortex만 순서를 섞은 대조 fold 0–4 (30 run); 새 옵션 `--neo_shuffle`, 기존 경로 비트 동일, 점검 c50·c51·c53 통과, smoke 3/3 (첫 시도에서 결함 1건을 잡아 고침)
+
+**직전 commit:** `b60900592` (MIT-BIH query 묶음 결과, tag `exp/nsmt-flif-neo-20261102-mbquery`).
+
+**사용자 결정 (11-02):** "population memoryless" 설명을 들은 뒤 "오케이 진행하자. 1. 나머지 fold와 2. 순서의 영향"이라고 했다.
+- 1번은 10-31 B(population memory 몫, fold 0만)를 fold 1–4로 넓히는 것으로 읽었다.
+- 2번은 그 memory 몫이 시간 순서에서 오는지 가르는 것으로 읽었다. 설명에서 "순서와 누적을 함께 없앤다 — 순서인지는 모른다"고 한 부분이다.
+- 2번은 1번과 같은 5 fold로 한다. fold 하나는 ±2 %p 흔들려서, fold 0만으로는 1번과 같은 약점이 남기 때문이다.
+
+**질문:** query 형태 population neuron의 T = N memory 몫(fold 0: +1.38 / +1.19 %p)이 다섯 fold에서도 유지되는가? 유지된다면 그것은 "앞 token들의 시간 순서"에서 오는가, 아니면 "여러 token을 쌓은 요약"에서 오는가?
+
+**세 모델 (모두 query 형태: Neocortex 출력 = attention query, Hippocampus 자기 token = key·value; 보조 손실 0, `--neo_grad 1.0`, 90 epoch, lr 1e-3):**
+
+| 이름 | Neocortex가 token을 처리하는 방식 | token i의 Neocortex 상태에 담기는 것 |
+|---|---|---|
+| 순서대로 (`nsmt4q_pop_n`, 기존) | 시간 순서대로 117 step, 막전위가 이어짐 | token 1 … i (과거, 시간 순서) |
+| **Neocortex만 섞기** (`nsmt4q_pop_n_nshuf`, 새) | 섞은 순서대로 117 step, 막전위가 이어짐. 출력은 원래 token 자리로 되돌림 | 섞은 순서에서 i보다 앞선 token들 (시간 순서가 아닌 무작위 묶음) |
+| memoryless (`nsmt4q_pop_n_nomem`) | token마다 정지 상태에서 1 step | token i 하나 |
+
+- **섞는 방법:** 10-28 순서 섞기와 같다(`token_order.TokenShuffle`).
+  - 학습 때는 표본마다 117 token의 무작위 순열을 쓴다. 순열은 모델 전용 생성기(seed + 1)에서 뽑으므로, 초기값·데이터 순서·crop 등 다른 난수는 그대로다.
+  - 검증·시험 때는 모든 창에 고정 순열 `default_rng(0).permutation(117)`을 쓴다.
+- **10-28 `--token_shuffle`과 다른 점:** 그때는 Hippocampus와 Neocortex의 순서를 함께 섞었다. 이번에는 **Neocortex만** 섞고 출력을 원래 자리로 되돌린다.
+  - 그래서 token i의 Neocortex 출력은 여전히 Hippocampus token i의 query다.
+  - Hippocampus의 key·value와 상대 위치 보정은 진짜 순서를 그대로 본다.
+  - 바뀌는 것은 Neocortex 상태가 담는 이력의 "순서"뿐이다.
+- **누적량은 같다.** 두 모델 모두 출력 자리마다 담긴 token 수가 1, 2, …, 117로 같은 묶음이다. 어떤 token이 담기는지만 다르다.
+
+**조건 (seed 42 / 7 / 2026, suite `flif-v1-rhythm-order-cinc`):**
+- `nsmt4q_pop_lif_nshuf`, `nsmt4q_pop_flif_nshuf` × fold 0–4 = **30 run**
+- `nsmt4q_pop_lif_nomem`, `nsmt4q_pop_flif_nomem` × fold 1–4 = **24 run**. fold 0은 10-31 후속 묶음 run이다.
+- 합계 54 run. 순서대로 run(fold 0–4)은 기존 run을 쓴다.
+
+**판정 (사전 고정, `summarize_order.py` docstring):** neuron마다 5 fold × 3 seed = 15쌍(같은 fold·seed끼리 짝)이다. 평균 ≥ +0.5 %p이고 15쌍 중 10쌍 이상이면 "좋음", 거울이면 "나쁨"이다. 95 % t 구간(자유도 14)과 fold별 판정(평균 ≥ +0.5 %p, 2/3 seed)을 함께 적는다. 값이 빠지거나 중복되거나 유한하지 않으면 "미완"이다.
+- **A (주) memory 몫** = 순서대로 − memoryless
+- **B (주) 순서 몫** = 순서대로 − Neocortex만 섞기. "좋음"은 "순서가 도움", "나쁨"은 "섞은 쪽이 더 좋음"이다.
+- **C 순서 없는 누적 몫** = Neocortex만 섞기 − memoryless
+- **보고:** 섞기·memoryless − Spikformer식 30 epoch(15쌍), energy 비
+
+**읽는 법 (미리 적음):**
+
+| A | B | C | 해석 |
+|---|---|---|---|
+| 좋음 | 좋음 | 차이 없음 | memory 몫은 시간 순서(과거의 흐름) 덕분이다 |
+| 좋음 | 차이 없음 | 좋음 | memory 몫은 순서와 무관한 누적, 즉 여러 token의 요약 덕분이다 |
+| 좋음 | 좋음 | 좋음 | 둘 다 기여한다 |
+| 좋음 | 나쁨 | 좋음 | 누적은 도움이 되지만, 시간 순서는 오히려 방해다 |
+| 차이 없음 | — | — | fold 0의 memory 몫은 다섯 fold에서 유지되지 않는다. B·C는 보고만 한다 |
+
+**사전 예상:**
+- A: 두 neuron 모두 "좋음"이고 15쌍 평균은 +0.8 ~ +1.5 %p일 것이다.
+- B: "차이 없음"(−0.5 ~ +0.7 %p)일 것이다. Spikformer식은 순서를 섞어 학습해도 같은 점수였고(10-29), query 형태에서는 Hippocampus attention이 이미 순서를 본다.
+- C: A와 비슷한 크기로 "좋음"일 것이다.
+- 따라서 예상하는 해석은 표의 둘째 줄("요약" 덕분)이다.
+
+**코드 (`nsmt_flif_v1/classification/`; 기존 경로 비트 동일):**
+- `model.py`: `neo_shuffle` 옵션을 추가했다.
+  - `neo_forward`에서 Neocortex 입력을 순열대로 섞어 임베딩과 2개 층을 돌린 뒤, 출력(임베딩 스파이크 포함)을 역순열로 되돌린다.
+  - Hippocampus 쪽은 그대로다.
+  - memoryless, `hippo_xattn` 없음, 양방향, popk stream, `token_shuffle`과는 함께 쓰지 못하게 막았다.
+  - `TemporalBlock`은 `org_seq`를 쓰지 않음을 확인했다(보조 손실 0이기도 하다).
+- `token_order.py`: `permute_tokens_det`(새 함수)를 추가했다. 기존 `permute_tokens`(10-28 `--token_shuffle`이 씀)는 그대로다. 아래 smoke 결함 참고.
+- `load_model.py`: `neo_shuffle`을 전달한다.
+- `config.py`: `--neo_shuffle`(폴더 접미사 `_nshuf`)을 추가했다.
+- `scripts/run_rhythm_addneo.sh`: `nsmt4q_pop_{lif,flif}_nshuf` 두 조건을 추가했다. 돌고 있지 않음을 확인한 뒤 수정했다.
+- `summarize_order.py`, `scripts/make_queue_order.sh` (새 파일)
+- `check_cls.py`: c53을 추가했다.
+
+**점검:**
+- **기존 경로 비트 동일:** 수정 전 기준을 GPU에서 두 번 만들어 같음을 먼저 확인했다. 수정 뒤 13개 항목이 모두 비트 단위로 같다(`fw_identity_nshuf.py save` → 수정 → `compare`). 항목은 다음과 같다.
+  - CinC 크기의 새 모델 4종(query population LIF, 바꿔 넣기 LIF, 덧붙이기 LIF, query memoryless LIF)의 초기 state_dict, 학습 모드 출력, 모든 parameter의 기울기
+  - 실제 학습된 query population LIF(seed 42, fold 0) checkpoint의 평가 로짓
+- **c53 (새, 통과; `results/checks/check_cls_c50_c51_c53_20261102.txt`):** 실제 `nsmt4q_pop_lif` seed 42 fold 0 설정과 학습된 가중치로 확인했다.
+  - (a) 옵션을 켜도 parameter가 늘지 않고 초기 가중치가 같다.
+  - (b) 평가 때 Neocortex 출력이 "고정 순열로 섞기 → 정상 모델의 임베딩·2개 층 → 역순열" 손 계산과 비트 단위로 같고, 섞지 않은 출력과는 다르다. 모델 전체 로짓도 같은 손 계산 Neocortex를 끼운 정상 모델과 같다. 스파이크 11,054개로, 검사가 비어 있지 않다.
+  - (c) 학습 때 순열은 표본마다 다르고(8/8), 각 행이 순열이다. 두 번 부르면 달라지고, 전역 torch 난수를 건드리지 않는다.
+  - (d) Neocortex 입력 token 40을 바꾸면, 섞은 모델은 섞은 순서에서 40 이후인 token 32개만 바뀐다. 그 가운데에는 시간상 40보다 앞선 token도 있다. 정상 모델은 40 이후 token 77개만 바뀐다.
+  - (e) memoryless, `hippo_ssa`, 양방향과 함께 쓰면 거부된다.
+  - 폴더 접미사는 `…_xaquery_ng1_nshuf_psi0.5_f0`이다.
+  - 처음 실행에서는 폴더 이름 검사만 실패했다. 제가 쓴 기대값(`_nshuf`가 `_f0` 바로 앞)이 실제 위치(`_ng1` 뒤)와 달랐다. 기대값을 실제 위치로 고친 뒤 통과했다. 기능 검사는 처음부터 모두 통과했다.
+- **smoke가 잡은 결함 (고침):**
+  - 처음 구현은 출력을 원래 자리로 되돌릴 때 `torch.gather`(`permute_tokens`)를 썼다.
+  - 학습(`train_rhythm.py`)은 `torch.use_deterministic_algorithms(True)`를 켠다. 그런데 기울기가 흐르는 텐서에 쓴 `gather`의 역전파(`scatter_add`)는 CUDA에서 결정적 구현이 없다. 그래서 첫 smoke의 섞기 두 run이 첫 학습 step에서 `RuntimeError`로 끝났다(`results/smoke-order-cinc-20261102/raw.txt`의 SKIP 2줄; memoryless smoke는 통과).
+  - 10-28 `--token_shuffle`은 기울기가 없는 입력 token만 섞어서 이 문제가 없었다.
+  - c53 첫 판은 결정적 모드에서 역전파를 해 보지 않아 이것을 놓쳤다.
+  - **고친 방법:** 새 함수 `permute_tokens_det`(`index_select`, CUDA 역전파가 결정적)로 바꿨다. 순방향 값은 `gather` 판과 비트 단위로 같고, 기울기는 역순열한 값과 같으며 반복해도 같음을 결정적 모드 GPU에서 확인했다.
+  - c53에 (f)를 더했다: 결정적 모드에서 학습 step 역전파가 돌고, Neocortex에 기울기가 닿고(|grad| 4.1e4), 같은 순열로 두 번 돌리면 기울기가 같다. 고친 뒤 기존 경로 13개 항목 비트 동일, c50·c51·c53 통과를 다시 확인했다.
+- **c50·c51 재통과:** dual-path·query forecaster 점검이다.
+- **요약 스크립트:** 새 run이 없는 상태에서 돌리면 기존 값이 재현된다(Spikformer식 @30 5-fold 65.74, query population 67.73 / 67.58, memoryless fold 0 65.22 / 65.28). 새 비교는 모두 "미완"이다.
+- **smoke** (1 epoch, seed 42): 3/3이 학습·시험·energy까지 끝났다.
+  - 첫 시도(`results/smoke-order-cinc-20261102/raw.txt`): `nsmt4q_pop_lif_nomem` fold 1은 통과했다(score 0.3198, 80 s). 섞기 두 run은 위 결함으로 SKIP이었다.
+  - 고친 뒤(`results/smoke-order-cinc-20261102b/raw.txt`): `nsmt4q_pop_lif_nshuf` fold 0은 0.3411, 128.0 µJ, 787 s다. `nsmt4q_pop_flif_nshuf` fold 2는 0.3482, 150.8 µJ, 861 s다.
+  - `logargs.txt`: `neo_shuffle` True / `neo_memoryless` False(섞기), 반대(memoryless). `hippo_xattn_mode` query, `alpha`(보조 손실) 0.0, `neo_grad` 1.0, soma 0.5 / 1.0, fold가 의도와 같다. 폴더 접미사는 `_nshuf_psi…_f0`, `_nomem_psi…_f1`이다.
+  - parameter 수는 세 모델 모두 1,269,064개로, 기존 query population과 같다.
+
+**실행:**
+- NSMT/에서 tmux `flif_order`로 `bash scripts/gpu_pool2.sh nsmt_flif_v1/classification/scripts/queues/order-20261102.txt 0,1,2,3,0,1,2,3`(8칸)을 띄운다.
+- 섞기 30 run(fold 0부터)을 먼저, memoryless 24 run을 나중에 돌린다.
+- 지금 GPU 4개 모두 다른 대화의 작업으로 사용률 100 %다.
+- 실측 run 시간은 순서대로 population이 9,829–11,323 s(10-31, 8칸), memoryless가 1,979–2,037 s였다. 끝나는 시각은 어림하지 않는다.
+
+**한계:**
+- 섞은 모델에서는 token i의 상태에 시간상 뒤의 token도 섞여 들어간다. Hippocampus attention은 원래 모든 token을 보므로 모델 전체로는 새 정보가 아니다. 그러나 Neocortex 상태로서는 순서대로 모델이 볼 수 없는 정보다.
+- 시험 순서가 고정 순열 하나다.
+- token이 반씩 겹쳐서 0.5 s 안의 순서는 남는다.
+- 순서대로 run과 memoryless fold 0은 다른 날(10-30·10-31)에 학습됐다.
+
+**commit:** 이 항목, 코드, 점검·smoke 결과를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 pool을 시작한다.
+
+---

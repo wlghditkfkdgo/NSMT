@@ -23,6 +23,7 @@ def _neo_kwargs(args):
                 stream_rev=getattr(args, 'stream_rev', False), neo_stream_fuse=getattr(args, 'neo_stream_fuse', 'none'),   # MODI 2026-10-24
                 hippo_xattn_mode=getattr(args, 'hippo_xattn_mode', 'replace'), neo_grad=float(getattr(args, 'neo_grad', 0.5)),   # MODI 2026-10-26
                 neo_memoryless=getattr(args, 'neo_memoryless', False),
+                neo_shuffle=getattr(args, 'neo_shuffle', False),                                   # MODI 2026-11-02
                 token_shuffle=getattr(args, 'token_shuffle', False), shuffle_seed=int(getattr(args, 'seed', 0)))   # MODI 2026-10-28
 
 
