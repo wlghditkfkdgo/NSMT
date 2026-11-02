@@ -9463,3 +9463,13 @@ run별 macro-F1(seed 42 / 7 / 2026): muxlin 92.12 / 92.02 / 91.56, sdlin 92.07 /
 - ETT S1 에너지 재계산(`energy_recount_ett.py --suite flif-v1-ett-spkmux-tune`)은 백그라운드에서 돈다(최종 비교용).
 
 **commit:** 세 suite의 `raw.txt`, `summary_lr.md`, `selected_lr.json`, `pool_log_lr.txt`, 이 기록.
+
+## 2026-11-02 13:20 KST — 진행 방식 보충: 남은 튜닝 단계를 사전등록 규칙대로 잇는 드라이버(`scripts/tune_driver.sh`) 시작 — S1 뒤 GPU가 12–16시간 비었던 일을 막기 위함
+
+**직전 commit:** `ff5013f35`(S1 결과).
+- 드라이버는 과제마다 하나(ett, mit, cinc). 돌고 있는 S2 풀이 끝나면 `summarize_*_tune.py --stage layers`로 검증만으로 선택(`selected_layers.json`) → `make_queue_spk.sh`로 S3 대기열 → 풀 실행 → `--stage res` 선택 → (MIT-BIH는 `mfinal` 재학습과 `energy_recount_mitbih.py`) → `--stage final` 요약까지 한다. ETT는 단계마다 `energy_recount_ett.py --missing_only`를 돌린다.
+- **사람이 고르는 단계는 없다.** 선택 규칙과 다음 단계 구성은 사전등록(11-01 16:56, 18:4x)과 같다. 선택 파일이 만들어지지 않으면(run 누락, SKIP) 그 자리에서 멈춘다.
+- 계획과 달라지는 점은 하나다. 계획은 "단계마다 선택 → 기록·commit → 다음 단계"였다. 드라이버는 기록·commit을 기다리지 않고 다음 단계를 띄운다. 기록과 commit은 세션이 열릴 때 단계별로 남긴다. 드라이버의 모든 단계는 suite 폴더의 `driver.log`에 시각과 함께 남는다.
+- 드라이버를 만들며 고친 점: 처음 쓴 대기열 파일 찾기 패턴(`*tune_layers-*`)이 다른 과제 파일(`mtune_layers`, `ctune_layers`)에도 맞아 엉뚱한 풀을 기다릴 수 있었다. 과제별 정확한 파일 이름 앞부분으로 바꾸고 세 과제 모두 맞는 파일을 고르는지 확인한 뒤 시작했다(13:20).
+
+**commit:** `scripts/tune_driver.sh`, 이 기록.
