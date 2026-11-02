@@ -9421,3 +9421,45 @@ run별 macro-F1(seed 42 / 7 / 2026): muxlin 92.12 / 92.02 / 91.56, sdlin 92.07 /
 - 진행: ETT S1과 MIT-BIH S1은 계속 돈다.
 
 **commit:** 점검 결과, 재현 run 결과, 이 기록.
+
+## 2026-11-02 13:19 KST — 튜닝 S1(학습률) 결과와 선택: ETT(144 run), MIT-BIH(36), CinC(27), 모두 SKIP 0 — muxlin은 ETTm2 1e-4·ETTh2 5e-4(기본)·MIT-BIH 0.02·CinC 1e-3(기본), sdlin은 ETTm2 1e-4·ETTh2 2.5e-4·MIT-BIH 0.0025·CinC 1e-3(기본), Spikformer식은 ETTm2 2.5e-4·ETTh2 5e-4(기본)·MIT-BIH 0.005·CinC 2e-3; 여러 선택이 격자의 끝(ETTm2 1e-4, MIT-BIH 0.02·0.0025, CinC Spikformer식 2e-3); S2(방향별 mixer 층 수) 72 run 시작
+
+**직전 commit:** `616d5aaa6`. S1 완료 시각: ETT 11-01 20:56, MIT-BIH 21:09, CinC 11-02 00:03. 다음 세션이 열린 11-02 13:16까지 S2를 띄우지 못해 GPU가 12–16시간 비었다(진행 지연, 결과에는 영향 없음). run 시간: ETT ETTh2 149–1,091 s, ETTm2 311–3,304 s; MIT-BIH(검증 분할) 288–1,428 s; CinC muxlin 평균 3,742 s, sdlin 3,654 s, Spikformer식 353 s.
+
+### ETT (`summarize_ett_tune.py --stage lr`, 검증 L1 비율 = 두 예측 길이 평균 [후보 / 기본값], 낮을수록 좋음)
+| 조건 | 데이터 | 선택 | 점수 | 판정 1(고른 값 vs 기본값, test MSE, 6쌍) |
+|---|---|---|---:|---|
+| muxlin | ETTh2 | 5e-4(기본) | 1.0000 | — |
+| muxlin | ETTm2 | **1e-4** | 0.9943 | R −1.61 %, 6/6 낮음, 좋음 |
+| sdlin | ETTh2 | 2.5e-4 | 0.9986 | R +0.26 %, 차이 없음 |
+| sdlin | ETTm2 | **1e-4** | 0.9926 | R −1.55 %, 6/6, 좋음 |
+| Spikformer식 | ETTh2 | 5e-4(기본) | 1.0000 | — |
+| Spikformer식 | ETTm2 | 2.5e-4 | 0.9975 | R −0.09 %, 차이 없음 |
+- ETTm2에서 SpkMixer 두 조건의 선택은 격자의 가장 낮은 값(1e-4)이다. 더 낮은 값이 더 좋을 수 있으나 사전등록 격자를 넘어서지 않는다.
+- 학습률을 낮추면 SpkMixer의 최고 검증 epoch가 늦어진다(ETTm2 muxlin: 기본 0–2 → 1e-4에서 1–4). 그래도 Spikformer식(1e-4에서 3–25)보다는 훨씬 이르다.
+- 참고(test, 판정 아님): ETTm2 muxlin 1e-4의 MSE 0.1793 / 0.4050은 기본값 0.1826 / 0.4107보다 낮고, Spikformer식 기본값 0.1775 / 0.4034에 가까워졌다.
+
+### MIT-BIH (`summarize_mitbih_tune.py --stage lr`, 마지막 epoch 검증 macro-F1 %, 검증 = 학습 파일 fold 0, 15,323창)
+| 조건 | 0.0025 | 0.005 | 0.01(기본) | 0.02 | 선택 |
+|---|---:|---:|---:|---:|---|
+| muxlin | 92.47 | 92.28 | 92.31 | **92.60** | 0.02 |
+| sdlin | **93.02** | 92.91 | 92.56 | 92.58 | 0.0025 |
+| Spikformer식 | 91.93 | **92.60** | 92.43 | 92.29 | 0.005 |
+- 후보 사이 차이가 0.3–0.5%p로 작고 seed마다 순서가 바뀐다(예: muxlin 0.02는 seed 42 93.05, seed 2026 92.21). muxlin(0.02)과 sdlin(0.0025)은 격자의 양 끝에서 골라졌다. 튜닝 run의 test 값은 보지 않았다.
+
+### CinC (`summarize_cinc_tune.py --stage lr`, 최고 검증 점수 %, fold 0)
+| 조건 | 2.5e-4 | 5e-4 | 1e-3(기본) | 2e-3 | 선택 |
+|---|---:|---:|---:|---:|---|
+| muxlin | 69.68 | 71.75 | **72.46** | 71.76 | 1e-3(기본) |
+| sdlin | 68.53 | 70.73 | **72.02** | 71.28 | 1e-3(기본) |
+| Spikformer식 | 65.07 | 67.33 | 68.79 | **71.27** | **2e-3** |
+- Spikformer식은 학습률이 높을수록 검증이 좋아지고 격자의 위쪽 끝(2e-3)이 골라졌다. 더 높은 값에서 더 좋아질 여지가 있다. 최종 비교 TC1·TC3의 기준 모델이 이 값으로 정해지므로, 기준 모델이 덜 튜닝됐을 가능성을 결과와 함께 적는다(사전등록 격자는 넘지 않는다).
+- 참고(test, 판정 아님): Spikformer식 2e-3의 test 66.36(기본 65.60), muxlin 1e-3 68.52, muxlin 2e-3 68.97.
+
+### S2 시작(11-02 13:16–13:18)
+- ETT `ett-tune_layers-20261102.txt` 48 run(GPU 8자리): ETTh2 층 {2, 3}(기본 1), ETTm2 층 {1, 3}(기본 2), 각 조건의 선택 학습률에서.
+- MIT-BIH `mtune_layers-20261102.txt` 12 run(4자리, 검증 분할): muxlin lr 0.02, sdlin lr 0.0025, 층 {1, 3}(기본 2).
+- CinC `ctune_layers-20261102.txt` 12 run(4자리): muxlin·sdlin lr 1e-3, 층 {1, 3}(기본 2).
+- ETT S1 에너지 재계산(`energy_recount_ett.py --suite flif-v1-ett-spkmux-tune`)은 백그라운드에서 돈다(최종 비교용).
+
+**commit:** 세 suite의 `raw.txt`, `summary_lr.md`, `selected_lr.json`, `pool_log_lr.txt`, 이 기록.
