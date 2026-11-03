@@ -10159,3 +10159,66 @@ run별 macro-F1(seed 42 / 7 / 2026): muxlin 92.12 / 92.02 / 91.56, sdlin 92.07 /
 - 분류의 `mem_readout`은 T_h 스텝마다 계산한 뒤 평균한다(head와 같은 방식). 평균한 뒤 한 번 계산하는 방식보다 MAC가 4배지만 에너지는 0.03 µJ 수준이다.
 
 **commit:** 새 코드 5개, 고친 파일 10개, smoke 세 suite의 `raw.txt`·`pool_log.txt`, H1 smoke의 ETT·MIT-BIH `energy_recount.csv`, 이 기록. 결과는 단계마다 다음 기록에 남긴다.
+
+## 2026-11-03 17:20 KST — H1 CinC 결과(6 run, SKIP 0): G1 muxlin+H1 vs muxlin −1.33%p '나빠짐'(3 seed 중 2개 낮음), G2 Spikformer식+H1 vs Spikformer식 −0.63%p '나빠짐'(경계, 2/3 낮음), G3 muxlin+H1 vs Spikformer식+H1 +1.46%p '좋아짐'(3/3, 에너지 1.16배, 기준 (2) 충족); 사후 관찰(보고만): H1은 6쌍 모두 마지막 epoch 학습 손실이 더 낮고 test는 마지막 epoch 기준으로도 6쌍 모두 낮음 → 막전위 경로는 학습 데이터를 더 맞추는 데 쓰였고 일반화로 이어지지 않음; 드라이버는 ETT 단계로 넘어감
+
+**직전 commit:** `4be7ceb08`(H1 사전등록 + 구현). 브랜치 `exp/f-lif-pop-v3`.
+
+### 실행
+- `hm_driver.sh`(15:42:12 시작) 단계 hm_cinc: 큐 `cinc_mixer_v1/scripts/queues/hm_cinc-20261103.txt`(6줄, 로컬), GPU 0–3 8자리, 다른 세션의 ETT·head probe run과 함께 사용.
+- 끝남: Spikformer식 15:50–15:51(508–543 s), muxlin seed 7·2026 16:37(3,318·3,335 s), muxlin seed 42 17:05(5,004 s, GPU 3이 다른 세션 run과 겹쳐 느림).
+- `driver.log`: "pool done: cinc (RESULT 6, SKIP 0)" → `summarize_hm.py --task cinc` → "summary written" → 17:06:44 hm_ett 12 run 시작.
+- 모든 run `sha=4be7ceb08`, tag 접미사 `_hm`.
+- 산출물: `cinc_mixer_v1/results/flif-v1-headmem-cinc/{raw.txt,pool_log.txt}`, `cinc_mixer_v1/results/flif-v1-headmem/summary_cinc.md`(Git). checkpoint·TensorBoard는 `cinc_mixer_v1/log/flif-v1-headmem-cinc/CINC2017/261103/…/`(로컬).
+
+### 결과(사전등록 판정, `summary_cinc.md` 그대로; CinC fold 0, test CinC 점수)
+- 설정: muxlin OR·lr 1e-3·mixer 층 2, Spikformer식 lr 2e-3·층 2. 대조는 `summarize_cinc_tune.py`의 튜닝 최종 run(같은 seed·설정, H1 없음).
+
+| 비교 | 평균 %p | seed 42 / 7 / 2026 | 판정 | 에너지 A/B | 기준 (2) |
+|---|---:|---|---|---:|---|
+| G1 muxlin+H1 vs muxlin | −1.33 | −3.16, +0.86, −1.70 | worse(나빠짐) | 0.96 | |
+| G2 Spikformer식+H1 vs Spikformer식 | −0.63 | −1.30, +1.15, −1.72 | worse(나빠짐) | 0.82 | |
+| G3 muxlin+H1 vs Spikformer식+H1 | +1.46 | +0.99, +2.26, +1.12 | better(좋아짐) | 1.16 | 충족 |
+
+- 보고만: G1 변화 − G2 변화(seed 짝) −1.86, −0.29, +0.03(평균 −0.71%p). H1은 muxlin을 Spikformer식보다 조금 더 깎았다.
+
+| 조건 | CinC 점수 % | macro-F1 % | F1 클래스 0 / 1 / 2 / 3 % | 에너지 µJ | best epoch:val |
+|---|---:|---:|---|---:|---|
+| Spikformer식 | 66.36 ± 1.04 | 62.38 | 82.95 / 61.18 / 54.94 / 50.43 | 131.51 | 23:0.716447, 20:0.717337, 26:0.704277 |
+| Spikformer식 + H1 | 65.73 ± 0.32 | 61.67 | 82.91 / 60.03 / 54.25 / 49.50 | 107.84 | 23:0.699001, 25:0.706039, 23:0.720384 |
+| muxlin | 68.52 ± 0.81 | 64.35 | 83.51 / 65.16 / 56.88 / 51.85 | 129.39 | 23:0.728381, 16:0.709590, 29:0.735785 |
+| muxlin + H1 | 67.19 ± 0.86 | 62.70 | 83.83 / 62.59 / 55.14 / 49.26 | 124.60 | 18:0.705358, 21:0.708810, 26:0.701197 |
+
+- G2 '나빠짐'은 규칙 경계(−0.5%p)를 겨우 넘긴 값이다. seed 사이 흔들림(대조 표준편차 1.04)보다 작다.
+- G3 '좋아짐'은 튜닝 비교(muxlin vs Spikformer식, 11-02 기록 +2.16%p)와 같은 방향이다. 두 모델이 함께 낮아져서 차이가 줄었다.
+
+### 사후 관찰(보고만, 사전등록 아님; 같은 run의 `best_log_0.csv`·RESULT·`best+model.pt`에서 읽음)
+- **학습은 더 맞추고 일반화는 낮다.** 마지막 epoch(29) 학습 손실이 6쌍 모두 H1 쪽이 낮다.
+  - muxlin: 0.1315 / 0.1410 / 0.1320 → 0.1162 / 0.1092 / 0.1068
+  - Spikformer식: 0.1888 / 0.1913 / 0.1832 → 0.1340 / 0.1374 / 0.1273
+  - 첫 epoch 학습 손실도 H1이 낮다(muxlin 1.335–1.367 → 1.251–1.258, Spikformer식 1.366–1.379 → 1.260–1.262).
+  - 그런데 검증 최고 점수는 muxlin 3/3, Spikformer식 2/3에서 H1이 낮다(위 표의 best epoch:val).
+  - 마지막 epoch 가중치의 test CinC 점수(`last_score`)도 6쌍 모두 H1이 낮다: muxlin 0.6832 / 0.6931 / 0.6855 → 0.6767 / 0.6899 / 0.6639, Spikformer식 0.6708 / 0.6621 / 0.6814 → 0.6612 / 0.6577 / 0.6533. 그래서 결과가 best epoch 선택 때문에 생긴 것은 아니다.
+- **H1은 몸통 발화를 줄였다.** Neo-mixer 밖 뉴런의 평균 발화율(RESULT `rho_hippo`):
+  - muxlin 0.0964 / 0.0920 / 0.0957 → 0.0687 / 0.0701 / 0.0678
+  - Spikformer식 0.1201 / 0.1113 / 0.1172 → 0.0777 / 0.0801 / 0.0813
+  - mixer 뉴런(`rho_neo`, muxlin): 0.0609 / 0.0606 / 0.0604 → 0.0561 / 0.0573 / 0.0537
+  - 그래서 에너지가 줄었다(Spikformer식 0.82배, muxlin 0.96배). `mem_readout` 자체는 0.03 µJ다.
+- **`mem_readout`은 크게 학습됐다.** best 가중치의 Frobenius norm(가중치 크기)은 muxlin 1.62–1.65(스파이크 head 2.98–3.04), Spikformer식 2.20–2.21(head 3.90–4.16)이다. 막전위 경로는 쓰이지 않은 것이 아니라 쓰였다.
+- **읽는 방법:** CinC에서 head가 받지 못하던 막전위 정보는 학습 데이터를 더 맞추는 데는 쓰였지만 검증·test로는 이어지지 않았다. 'head가 일반화에 쓸 정보를 잃는다'는 가설은 CinC·H1에서 뒷받침되지 않는다.
+  - 이것은 H1 한 가지 방식(마지막 층, 0 초기화, H1 없이 고른 lr·weight decay)의 결과다. 다른 head 수정(H2 순서 보존 pooling, H4 여러 층 읽기)이나 H1에 맞춘 정규화는 재지 않았다.
+  - 몸통 발화가 줄어든 이유(막전위 경로의 기울기가 문턱 아래 값을 쓰도록 몸통을 밀었는지)는 확인하지 않은 추측이다.
+
+### 점검
+- 완결성: RESULT 6, SKIP 0, 모든 지표·에너지 유한(요약기 incomplete 없음).
+- 대조 행은 요약기의 dry run(대조를 H1처럼 넣어 G1·G2 = 0, G3 = 튜닝 판정 +2.16 재현, 15:45 기록 전)과 같은 선택 경로다.
+- 다른 점검(h0–h3)은 15:45 기록 그대로.
+
+### 한계
+- CinC fold 0, seed 3개. 판정은 탐색 수준이다.
+- 튜닝 설정은 H1 없이 고른 값이다.
+
+### 다음
+- 드라이버가 ETT 단계(ETTh2-96·ETTm2-96, 12 run)를 17:06:44에 시작했다. 이어서 MIT-BIH(6), AD(18).
+
+**commit:** `results/flif-v1-headmem-cinc/{raw.txt,pool_log.txt}`, `results/flif-v1-headmem/summary_cinc.md`, 이 기록.
