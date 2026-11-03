@@ -99,6 +99,10 @@ def main():
         g = lambda r: np.array([J[(c, s)]['readouts'][r]['test_f1'] for s in SEEDS])
         L.append(f"| {NAMES[c]} | {100 * np.mean(g('R0') - g('head')):+.2f} | {100 * np.mean(g('R6') - g('R0')):+.2f} | "
                  f"{100 * np.mean(g('R6') - g('head')):+.2f} | {100 * np.mean(g('R7') - g('R0')):+.2f} |")
+    nc = [(c, s, r) for c in MODELS for s in SEEDS if J[(c, s)] for r, x in J[(c, s)]['readouts'].items()
+          if r != 'head' and x['n_iter'][str(x['lam'])] >= 1000]
+    L += ['', f"L-BFGS fits at the selected lam that hit the 1000-iteration limit (not converged): {len(nc)}"
+          + (' — ' + ', '.join(f'{NAMES[c]} seed {s} {r}' for c, s, r in nc) if nc else '')]
     L += ['', 'Per-class test F1 (%, mean of 3 seeds; classes N / S / V / F / Q):', '',
           '| model | readout | N | S | V | F | Q |', '|---|---|---|---|---|---|---|']
     for c in MODELS:

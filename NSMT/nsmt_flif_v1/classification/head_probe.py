@@ -291,14 +291,18 @@ def run_mitbih(a, args, model, body, device, ref, chk):
 
 # ---------------------------------------------------------------- ETT
 class Stats:
-    """float64 weighted sufficient statistics of [X, 1] and Y."""
-    def __init__(self, d, H, device):
+    """float64 weighted sufficient statistics of [X - shift, 1] and Y. MODI 2026-11-03 (after the first full ETTh2 run): every
+    feature is shifted by a fixed reference (the mean of the first training batch, shared by train / val / test) before it is
+    accumulated. Centring makes the ridge solution shift-invariant; without the shift, nearly constant membrane features
+    (var / mean^2 ~ 1e-9) lost their variance to cancellation in G - sw mu mu^T and the standardised system got negative
+    eigenvalues (-3.4e-6 sw), so Cholesky failed at lam 1e-6 (ETTh2 H720 pop LIF seed 42, readouts R5 / R7)."""
+    def __init__(self, d, H, device, shift):
         self.G = torch.zeros(d + 1, d + 1, dtype=torch.float64, device=device)
         self.b = torch.zeros(d + 1, H, dtype=torch.float64, device=device)
-        self.syy, self.n = 0., 0
+        self.syy, self.n, self.shift = 0., 0, shift
 
     def add(self, X, Y, w):
-        Xa = torch.cat([X.double(), torch.ones(X.shape[0], 1, dtype=torch.float64, device=X.device)], 1)
+        Xa = torch.cat([X.double() - self.shift, torch.ones(X.shape[0], 1, dtype=torch.float64, device=X.device)], 1)
         Wx = Xa * w[:, None]
         self.G += Wx.T @ Xa
         self.b += Wx.T @ Y
@@ -364,13 +368,14 @@ def run_ett(a, args, model, body, device, ref, chk):
     ds_te, loaders['test'] = data_provider(da, 'test')
     sets['test'] = ds_te
     reads = {r: READ_ETT[r] for r in (('R0',) if a.check_only else READ_ETT)}
-    dims, stats = None, {}
+    dims, stats, shift = None, {}, {}
     for split in ('train', 'val', 'test'):
         for src, yn, sd, _, _ in ett_batches(model, body, loaders[split], H, device, chk):
             if dims is None:
                 dims = {r: sum(src[s].shape[1] for s in reads[r]) for r in reads}
+                shift = {r: torch.cat([src[s] for s in reads[r]], 1).double().mean(0) for r in reads}   # first training batch
             for r in reads:
-                st = stats.setdefault((split, r), Stats(dims[r], H, device))
+                st = stats.setdefault((split, r), Stats(dims[r], H, device, shift[r]))
                 st.add(torch.cat([src[s] for s in reads[r]], 1), yn, sd.square())
         n_rows = stats[(split, 'R0')].n
         C = int(next(iter(loaders[split]))[0].shape[2])
@@ -394,7 +399,7 @@ def run_ett(a, args, model, body, device, ref, chk):
         res[r] = dict(dim=dims[r], lam=best, lam_at_cap=at_cap, val_mse={str(l): v for l, v in val.items()},
                       test_mse_stats=st.sse(sel[r]) / (st.n * H))
     Wh = model.head.weight.detach().double().T
-    B_head = torch.cat([Wh, torch.zeros(1, H, dtype=torch.float64, device=device)], 0)
+    B_head = torch.cat([Wh, (shift['R0'] @ Wh)[None]], 0)                # x W = (x - shift) W + shift W
     st = stats[('test', 'R0')]
     head_stats = st.sse(B_head) / (st.n * H)
     del stats
@@ -403,7 +408,7 @@ def run_ett(a, args, model, body, device, ref, chk):
     hs = ha = 0.; cnt = 0
     for src, yn, sd, out, y in ett_batches(model, body, loaders['test'], H, device, chk):
         for r in reads:
-            X = torch.cat([src[s] for s in reads[r]], 1).double()
+            X = torch.cat([src[s] for s in reads[r]], 1).double() - shift[r]
             p = X @ sel[r][:-1] + sel[r][-1]
             e = sd[:, None] * (p - yn)
             acc[r][0] += float(e.square().sum()); acc[r][1] += float(e.abs().sum())
