@@ -10222,3 +10222,70 @@ run별 macro-F1(seed 42 / 7 / 2026): muxlin 92.12 / 92.02 / 91.56, sdlin 92.07 /
 - 드라이버가 ETT 단계(ETTh2-96·ETTm2-96, 12 run)를 17:06:44에 시작했다. 이어서 MIT-BIH(6), AD(18).
 
 **commit:** `results/flif-v1-headmem-cinc/{raw.txt,pool_log.txt}`, `results/flif-v1-headmem/summary_cinc.md`, 이 기록.
+
+## 2026-11-03 17:50 KST — H1 ETT 결과(ETTh2-96·ETTm2-96, 12 run, SKIP 0): G1 muxlin+H1 vs muxlin R +2.81 % '나빠짐'(6쌍 중 낮아진 쌍 0), G2 Spikformer식+H1 vs Spikformer식 R +0.63 % '차이 없음'(2/6), G3 muxlin+H1 vs Spikformer식+H1 R +3.25 % '나빠짐'(0/6, 기준 (2) 미충족); H1 에너지 약 1.48배(막전위 Linear +4.75 µJ); 사후 관찰: 최고 검증 손실이 12쌍 모두 H1 쪽이 높음; 앞 기록의 머리 시각 정정
+
+**직전 commit:** `d70f2abf0`(H1 CinC 결과). 브랜치 `exp/f-lif-pop-v3`.
+
+### 정정
+- 앞 항목(H1 CinC 결과)의 머리 시각 "17:20 KST"는 틀렸다. 실제로 쓴 시각은 17:09 무렵이다(commit `d70f2abf0` 직후 `date` 17:09:51). 내용은 그대로다.
+
+### 실행
+- `hm_driver.sh` 단계 hm_ett: 17:06:44 시작, 큐 `hm_ett-20261103.txt`(12줄, 로컬).
+  - 12 run 모두 `DONE(rc=0)`(17:10:41–17:44:50), run 시간 158–2,286 s.
+  - 17:45:14 "pool done: ett (RESULT 12, SKIP 0)" → `energy_recount_ett.py --suite flif-v1-headmem-ett`("12 runs (12 T_h-averaged heads recounted)", "all checks passed"; 모든 run에서 다시 계산한 MSE = 기록한 MSE, `mem_MAC` 1,032,192) → `summarize_hm.py --task ett` → 17:45:57 hm_mitbih 6 run 시작.
+- 모든 run `sha=4be7ceb08`, tag 접미사 `_hm`.
+- 산출물: `results/flif-v1-headmem-ett/{raw.txt,pool_log.txt,energy_recount.csv}`, `results/flif-v1-headmem/summary_ett.md`(Git). checkpoint·TensorBoard는 `log/flif-v1-headmem-ett/`(로컬).
+- 대조 행(`summarize_ett_tune.load`·`rows`):
+  - muxlin: 튜닝 최종 run(tag `spkmx_lif_muxlin_iand_lr0.0005_L1`, `…_lr0.0001_L1`).
+  - Spikformer식 ETTm2: tag `spk_ssa_lr0.00025_L2`.
+  - Spikformer식 ETTh2: 튜닝 suite가 재사용한 기존 baseline 행(tag '-', lr 5e-4, 층 1; 튜닝 기록대로 선택 lr이 기본값과 같아 다시 돌리지 않은 run).
+
+### 결과(사전등록 판정, `summary_ett.md` 그대로; best 검증 가중치의 test MSE, r = 100 (MSE_A − MSE_B) / MSE_B)
+| 비교 | R (MSE, %) | 낮아진 쌍 | 판정 | 에너지 A/B | 기준 (2) | R (MAE) |
+|---|---:|---|---|---:|---|---:|
+| G1 muxlin+H1 vs muxlin | +2.81 | 0/6 | worse(나빠짐) | 1.48 | | +2.21 |
+| G2 Spikformer식+H1 vs Spikformer식 | +0.63 | 2/6 | no clear difference(차이 없음) | 1.47 | | +0.84 |
+| G3 muxlin+H1 vs Spikformer식+H1 | +3.25 | 0/6 | worse(나빠짐) | 0.98 | 미충족 | +2.12 |
+
+| 비교 | 칸별 평균 r(seed 42, 7, 2026) |
+|---|---|
+| G1 | ETTh2 H96 +4.38(+0.70, +6.89, +5.56) ; ETTm2 H96 +1.23(+1.99, +1.03, +0.68) |
+| G2 | ETTh2 H96 +0.90(−0.89, +1.40, +2.18) ; ETTm2 H96 +0.35(+1.16, −0.30, +0.19) |
+| G3 | ETTh2 H96 +5.16(+4.02, +5.83, +5.63) ; ETTm2 H96 +1.35(+1.01, +1.77, +1.26) |
+
+- 보고만: G1 변화 − G2 변화(쌍별, MSE) +1.59, +5.49, +3.38, +0.82, +1.33, +0.48(평균 +2.18 %). H1은 muxlin을 Spikformer식보다 더 깎았다(CinC와 같은 방향).
+
+| 조건 | ETTh2 H96 MSE / MAE / 에너지 µJ | ETTm2 H96 MSE / MAE / 에너지 µJ |
+|---|---|---|
+| Spikformer식 | 0.2903 / 0.3350 / 9.30 | 0.1767 / 0.2533 / 10.29 |
+| Spikformer식 + H1 | 0.2929 / 0.3393 / 13.99 | 0.1773 / 0.2543 / 14.74 |
+| muxlin | 0.2952 / 0.3381 / 9.06 | 0.1775 / 0.2547 / 9.89 |
+| muxlin + H1 | 0.3081 / 0.3500 / 13.72 | 0.1797 / 0.2571 / 14.33 |
+
+- 에너지 증가는 거의 다 막전위 Linear(1,032,192 MAC = 4.75 µJ)다. 사전등록에서 예상한 그대로다.
+- G3: H1 없이도 이 두 칸에서 muxlin MSE가 Spikformer식보다 조금 높았다(0.2952 vs 0.2903, 0.1775 vs 0.1767). H1이 그 차이를 키웠다.
+
+### 사후 관찰(보고만, 사전등록 아님; RESULT·`best_log_0.csv`에서 읽음)
+- **최고 검증 손실이 12쌍 모두 H1 쪽이 높다**(`val_loss_best`, 대조 → H1).
+  - muxlin ETTh2 0.3123 / 0.3121 / 0.3135 → 0.3235 / 0.3260 / 0.3265
+  - muxlin ETTm2 0.2368 / 0.2362 / 0.2364 → 0.2400 / 0.2399 / 0.2387
+  - Spikformer식 ETTh2 0.3111 / 0.3106 / 0.3129 → 0.3176 / 0.3194 / 0.3196
+  - Spikformer식 ETTm2 0.2363 / 0.2363 / 0.2361 → 0.2375 / 0.2371 / 0.2368
+  - Spikformer식의 test는 '차이 없음'이었지만 검증으로는 일관되게 나빠졌다.
+- **마지막 epoch 가중치의 test MSE(`last_mse`)도 H1이 12쌍 중 11쌍에서 높다.** 예외는 Spikformer식 ETTm2 seed 7(0.17663 → 0.17623)이다.
+- best epoch(0부터 셈)는 H1 유무로 일관된 차이가 없다(ETT는 검증 손실이 10 epoch 동안 나아지지 않으면 멈춤). 그래서 CinC처럼 학습 손실을 같은 epoch에서 비교하지는 않았다.
+- 발화율: muxlin의 mixer 뉴런(`rho_neo`)은 H1에서 높아졌다(0.041–0.049 → 0.054–0.064, 6/6). Neo-mixer 밖 뉴런(`rho_hippo`)은 ETTm2에서 낮아졌다(0.081–0.087 → 0.069–0.072). ETTh2에서는 거의 같았다. CinC(둘 다 낮아짐)와 방향이 다르다.
+
+### 점검
+- 완결성: RESULT 12, SKIP 0, 에너지 재계산 모든 점검 통과, 요약기 incomplete 없음.
+
+### 지금까지의 H1(보고만)
+- CinC: G1 나빠짐, G2 나빠짐(경계).
+- ETT: G1 나빠짐, G2 차이 없음.
+- 두 과제 모두 H1이 muxlin을 더 깎았고, 검증 지표도 일관되게 나빠졌다.
+
+### 다음
+- 드라이버가 MIT-BIH(6 run)를 17:45:57에 시작했다. 이어서 AD(18).
+
+**commit:** `results/flif-v1-headmem-ett/{raw.txt,pool_log.txt,energy_recount.csv}`, `results/flif-v1-headmem/summary_ett.md`, 이 기록.
