@@ -21,6 +21,7 @@ from timm.models.layers import trunc_normal_
 from forecast_wrap import Forecaster
 from model import myModel
 from spk_mixer import SpkMixer
+from head_mem import drop_classification_term, zero_linear              # 2026-11-03 H1
 
 __all__ = ['Reconstructor']
 
@@ -47,6 +48,9 @@ class Reconstructor(Forecaster):
         trunc_normal_(self.head.weight, std=.02)
         if self.head.bias is not None:
             nn.init.constant_(self.head.bias, 0)
+        self.tap = drop_classification_term(inner)                         # 2026-11-03 H1 (head_mem.py): None without --head_mem
+        if self.tap is not None:                                           # + per-token Linear(D -> S*C) on the charge, zero init
+            self.mem_readout = zero_linear(embed_dim, self.stride * self.C)
 
     def norm(self, x):
         means = x.mean(1, keepdim=True).detach()
@@ -54,12 +58,21 @@ class Reconstructor(Forecaster):
         stdev = torch.sqrt(torch.var(xc, dim=1, keepdim=True, unbiased=False) + 1e-5).detach()
         return xc / stdev, means, stdev
 
-    def decode(self, f):
-        """per-token features [B, N, D] -> normalised reconstruction [B, L, C]."""
+    def decode(self, f, c=None):
+        """per-token features [B, N, D] (H1: and the per-token charge c [B, N, D]) -> normalised reconstruction [B, L, C]."""
         B, N, _ = f.shape
-        return self.head(f).reshape(B, N * self.stride, self.C)[:, :self.seq_len]
+        y = self.head(f)
+        if self.tap is not None:                                           # 2026-11-03 H1
+            if c is None:
+                raise ValueError('head_mem model: decode needs the charge')
+            y = y + self.mem_readout(c)
+        return y.reshape(B, N * self.stride, self.C)[:, :self.seq_len]
+
+    def charge(self):
+        """2026-11-03 H1: the last forward's per-token charge [B, N, D] (T_h mean), None without --head_mem."""
+        return None if self.tap is None else self.tap.charge.mean(0)
 
     def forward(self, x):
         xn, means, stdev = self.norm(x)
         f = self.features(xn.permute(0, 2, 1))                             # [B, N, D]
-        return self.decode(f) * stdev + means
+        return self.decode(f, self.charge()) * stdev + means

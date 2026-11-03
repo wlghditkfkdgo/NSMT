@@ -60,10 +60,11 @@ def recount(cond):
                                                  'spkmx_'))                                   # 2026-10-31: + SpkMixer
 
 
-def head_line(run):
-    """(AC ops, MAC ops) of the top-level forecast head from the syops per-layer file (rounded as printed)."""
+def head_line(run, name='head'):
+    """(AC ops, MAC ops) of the top-level forecast head from the syops per-layer file (rounded as printed); 2026-11-03 H1: name
+    'mem_readout' reads the membrane readout's line."""
     for line in open(os.path.join(run, 'log', 'model+info+per+layer.txt'), encoding='utf-8'):
-        if line.startswith('  (head): Linear('):
+        if line.startswith(f'  ({name}): Linear('):
             m = re.search(r'%\s*Params,\s*([\d.]+)\s*([KMG]?)\s*Ops,\s*[\d.]+%\s*ACs,\s*([\d.]+)\s*([KMG]?)\s*Ops', line)
             if m:
                 return float(m.group(1)) * UNIT[m.group(2)], float(m.group(3)) * UNIT[m.group(4)]
@@ -98,11 +99,14 @@ def measure(run, device):
         binary &= bool(((xh == 0) | (xh == 1)).all())
         integer &= bool((xh >= 0).all() and torch.equal(xh, torch.round(xh)))
         spikes += float(xh.double().sum()); n_el += xh.numel()
-        out = model.head(xh.mean(0).reshape(B * C, -1)).reshape(B, C, args.pred_len).permute(0, 2, 1) * stdev + means
+        out = model.head(xh.mean(0).reshape(B * C, -1))
+        if model.tap is not None:                                      # 2026-11-03 H1: + the charge readout (forecast_wrap)
+            out = out + model.mem_readout(model.tap.charge.mean(0).reshape(B * C, -1))
+        out = out.reshape(B, C, args.pred_len).permute(0, 2, 1) * stdev + means
         d = (out - y).double(); se += float((d ** 2).sum()); cnt += d.numel()
     syn.detach(); s = syn.summary()
     return dict(mse=se / cnt, rate=spikes / n_el, binary=binary, integer=integer, T_h=T_h, C=C, ND=m.num_patches * args.embed_dim,
-                H=args.pred_len, add=str(getattr(args, 'connect_f', '')).upper() == 'ADD',
+                H=args.pred_len, add=str(getattr(args, 'connect_f', '')).upper() == 'ADD', hm=model.tap is not None,
                 body_syn=s['rec_syn_uJ'], body_syn_int=s['syn_energy_int_uJ'])
 
 
@@ -135,8 +139,9 @@ def main():
         q = measure(run, a.device)
         mac = q['ND'] * q['H'] * q['C']
         ac = q['T_h'] * q['rate'] * mac + (q['T_h'] - 1) * q['H'] * q['C']
+        mem = mac if q['hm'] else 0                                    # 2026-11-03 H1: the charge readout, real input -> MAC, kept
         if q['add']:                                                   # 2026-11-01: integer rule for the body (ADD residual)
-            corr = r['total_fft_uJ'] - r['syn_energy_uJ'] + q['body_syn_int'] + ac * E_AC
+            corr = r['total_fft_uJ'] - r['syn_energy_uJ'] + q['body_syn_int'] + ac * E_AC + mem * E_MAC
         else:
             corr = r['total_fft_uJ'] - mac * E_MAC + ac * E_AC
         rel = abs(q['mse'] - r['mse']) / r['mse']
@@ -146,17 +151,23 @@ def main():
             bad.append(f'{run}: ADD per-step head input is not a non-negative integer')
         if not q['add'] and not q['binary']:
             bad.append(f'{run}: per-step head input is not binary')
-        body_ref = r['syn_energy_uJ'] - mac * E_MAC                    # syops body = logged synaptic energy minus the MAC head
+        body_ref = r['syn_energy_uJ'] - (mac + mem) * E_MAC            # syops body = logged synaptic energy minus the MAC head (and readout)
         if r['cond'].startswith('spkmx_') and not q['add'] and abs(q['body_syn'] - body_ref) > 1e-3 * max(1e-9, r['syn_energy_uJ']):
             bad.append(f"{run}: recorder body {q['body_syn']:.6f} uJ != syops body {body_ref:.6f} uJ")
         if abs(mac - mac_p) > 0.006 * mac:                             # syops prints 3 significant digits
             bad.append(f'{run}: MAC_head {mac} != syops {mac_p}')
+        if q['hm']:                                                    # 2026-11-03 H1: syops counted the readout as MAC only
+            m_ac, m_mac = head_line(run, 'mem_readout')
+            if m_ac > 1. or abs(mem - m_mac) > 0.006 * mem:
+                bad.append(f'{run}: mem_readout ops AC {m_ac} MAC {m_mac} != MAC {mem}')
         if not (math.isfinite(corr) and corr > 0):
             bad.append(f'{run}: corrected energy {corr}')
         rec.update(mse_recomputed=f"{q['mse']:.6f}", rate=f"{q['rate']:.6f}", binary=q['binary'], head_MAC=mac,
                    head_AC_corr=f'{ac:.1f}', total_fft_uJ_corr=f'{corr:.6f}',
                    body_syn_uJ=f"{q['body_syn']:.6f}", body_syn_int_uJ=f"{q['body_syn_int']:.6f}",   # 2026-11-01
                    rule='integer' if q['add'] else 'binary')
+        if q['hm']:
+            rec.update(mem_MAC=mem)
         out.append(rec)
         print(f"{r['ds']} H{int(r['pl'])} seed{int(r['seed'])}: mse {q['mse']:.6f} (logged {r['mse']:.6f}) rate {q['rate']:.4f} "
               f"head MAC {mac / 1e6:.2f}M -> AC {ac / 1e6:.2f}M  energy {r['total_fft_uJ']:.2f} -> {corr:.2f} µJ", flush=True)

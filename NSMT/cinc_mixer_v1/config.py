@@ -121,6 +121,8 @@ def parse_arguments():
     # stage 9 (MODI 2026-10-19): CinC 2017 / SHD, Spikformer-style Hippo-only, population calibration (see train_rhythm.py)
     snn_arg.add_argument('--hippo_ssa', action='store_true', default=False, help='Hippo-only with Spikformer-style token self-attention')
     snn_arg.add_argument('--hippo_T', type=int, default=0, help='hippocampus repetitions (0 = number of tokens; only hippo_ssa / hippo_xattn may differ)')
+    snn_arg.add_argument('--head_mem', action='store_true', default=False,   # 2026-11-03 H1 (head_mem.py; spkMixer / myModel --hippo_ssa)
+                         help='the head also reads the charge (H - theta) of the last neuron layer through a zero-initialised Linear')
     # MODI 2026-10-21 (stage 9 cause-separation): 1-B position, 1-C hippocampus T_h with token cross-attention over neocortex tokens
     snn_arg.add_argument('--ssa_pe', type=int, choices=[0, 1], default=1, help='relative position bias in SSA / hippo_xattn (0 = none)')
     snn_arg.add_argument('--pos_emb', action='store_true', default=False, help='learned absolute position in the hippocampus / mixer embedding')

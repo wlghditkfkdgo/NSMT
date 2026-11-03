@@ -41,11 +41,12 @@ RES=${RES:-$W/results/$SUITE}; LOG=${LOG:-$W/log/$SUITE}
 mkdir -p "$RES" "$LOG"; RES="$(cd "$RES" && pwd)"; LOG="$(cd "$LOG" && pwd)"
 SHA=$(cd "$R" && git rev-parse --short HEAD); TS=$(date +%Y%m%d)
 TAGC="${COND}_lr${LR}_L${ML}"
+HM=""; [ "${HEADMEM:-0}" = 1 ] && { HM="--head_mem"; TAGC="${TAGC}_hm"; }   # 2026-11-03 H1 (head_mem.py): HEADMEM=1 -> --head_mem, tag _hm
 OUT=$LOG/${DATA}_${TAGC}_f${FOLD}_seed${S}_lr${LR}_${TS}_${SHA}.stdout; t0=$(date +%s)
 (cd "$W" && CUDA_VISIBLE_DEVICES=$GPU OMP_NUM_THREADS=${THREADS:-4} $PY ./train_rhythm.py \
   --data $DATA --seed $S --log_dir "$LOG/$DATA" --gating attn -s -nd 0 --warm_up_epoch 0 \
   -emb 384 -nh 8 --mlp_ratios 1 --layers 1 --time_layers $ML --keep_ratio 0.15 --alpha 0.1 --tau 2.0 --no-bias \
-  --scheduler cosine -bs ${BS:-32} --eval_bs ${BS:-32} -lr $LR --weight_decay 1e-4 --max_lr 0.005 $HP $CF_ARGS --tag $TAGC lr$LR seed$S > "$OUT" 2>&1)
+  --scheduler cosine -bs ${BS:-32} --eval_bs ${BS:-32} -lr $LR --weight_decay 1e-4 --max_lr 0.005 $HP $CF_ARGS $HM --tag $TAGC lr$LR seed$S > "$OUT" 2>&1)
 RC=$?
 D=$(ls -td "$LOG/$DATA"/*/*"+${TAGC}+lr${LR}+seed${S}+"*/seed${S}_*_f${FOLD} 2>/dev/null | head -1)
 CSV="$D/log/final+result.csv"; LCSV="$D/log/last/final+result.csv"

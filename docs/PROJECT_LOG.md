@@ -10031,3 +10031,131 @@ run별 macro-F1(seed 42 / 7 / 2026): muxlin 92.12 / 92.02 / 91.56, sdlin 92.07 /
   3. AD는 head 대신 수준 정보 복원과 점수 방식 쪽을 따로 본다.
 
 **commit:** `ad_winmean_val.py`, `posthoc_winmean_val.md`, 이 기록(태그 없음: 분석과 제안만).
+
+## 2026-11-03 15:45 KST — 사전등록 + 구현: H1 head(마지막 뉴런 층의 막전위를 head가 함께 읽음) — muxlin·Spikformer식, CinC → ETTh2-96·ETTm2-96 → MIT-BIH → AD, 각 과제의 튜닝 설정 그대로; 점검 4/4(기본 경로 비트 단위 동일, 막전위 = 스파이크 재현, 0 초기화로 학습 시작이 대조와 비트 단위 동일, 에너지), smoke 24 run(SKIP 0); 드라이버 시작
+
+**직전 commit:** `783072bcf`(head 정보 손실 검토). 브랜치 `exp/f-lif-pop-v3`.
+
+### 사용자 결정
+- 사용자(11-03): "1. `H3` 방법이 효과가 있을까? T=N 설계는 `Neo-mixer` 모듈 안에서만 적용되고 있는 것 아니야? 2. `H1` 을 우선 수행해보자. - CinC -> ETT(일부) -> MIT-BIH -> AD 순으로 진행해줘."
+- ETT 범위(질문 답): "ETTh2-96 + ETTm2-96".
+- 계획 승인(plan mode).
+
+### H3에 대한 답과 앞 항목의 정정
+- 사용자 말이 맞다. T = N(token 축 시간 처리)은 Neo-mixer 안에서만 일어난다. 임베딩과 MLP 뉴런은 같은 패치를 4번 반복하는 축(T_h)으로 돈다(`spk_mixer.py` 머리말).
+- mixer 뉴런은 LIF τ = 2다. 막전위가 token마다 (1 − 1/τ) = 0.5배로 줄고, 발화하면 리셋된다(`layers.spikes_and_charge`: H_t = u + (I_t − u)/τ).
+  - k token 전 입력의 비중은 0.5^k다. 5 token 전은 3 %다.
+  - 끝 상태는 마지막 2–3 token만 기억한다. CinC token 간격은 0.256 s(패치 64, 간격 32, 125 Hz)이므로 30 s 창 중 약 0.8 s다.
+- **정정:** 앞 항목(10:40)의 H3 설명 "시퀀스 전체를 적분한 상태"는 틀렸다. 이 모델(LIF τ 2)의 끝 상태는 시퀀스 요약이 아니다. H3은 보류한다(긴 τ의 뉴런이 있어야 의미가 생긴다).
+
+### H1 정의(사전 고정)
+- **마지막 뉴런 층** = 마지막 블록 MLP의 fc2 뉴런. 두 모델 모두 head 직전의 마지막 발화 층이다.
+  - SpkMixer: `blocks[-1].fc2.lif`, spikeDE LIF(`NeoNeuron`).
+  - Spikformer식: `data_block[-1].mlp.fc2.lif`, spikingjelly LIF(τ 2, 문턱 1, 리셋 0, 입력 감쇠).
+- **막전위** = 그 층이 문턱과 비교하는 값 − 문턱(H − θ)이다. T_h 4 스텝 각각에서 잰다.
+  - SpkMixer: `NeoNeuron._capture` 경로(`layers.spikes_and_charge`, forward와 같은 rhs·integrate·emit 호출, 기울기 연결).
+  - Spikformer식: 그 뉴런 입력에 forward hook을 달고 같은 점화식으로 다시 계산한다(H_t = v + (x_t − v)/2, s = [H ≥ 1], v ← H(1 − s)). 계산한 스파이크가 실제 출력과 다르면 run을 멈춘다(fail closed).
+- **head = 지금 head + `mem_readout`(새 Linear, 편향 없음, 0으로 초기화).** 스파이크 head는 그대로 두고 막전위 항을 더한다.
+  - 분류(CinC, MIT-BIH): z = head(token 평균 스파이크) + mem_readout(token 평균 막전위). 둘 다 T_h 스텝마다 계산하고 평균한다. `head`에 forward hook으로 붙인다(state_dict 키 `head` 유지, 새 키 `mem_readout.weight`).
+  - ETT: y = head(token별 스파이크 펼침) + mem_readout(token별 막전위 펼침), 둘 다 Linear(N·D → H). 막전위는 T_h 평균한다.
+  - AD: token별 head(D → 4C) + mem_readout(D → 4C).
+  - `mem_readout`은 `torch.random.fork_rng` 안에서 만들고 0으로 채운다(전역 난수를 쓰지 않음). 그래서 학습 시작 시점의 H1 모델은 같은 seed의 대조 모델과 가중치·출력·손실·기울기·데이터 순서가 비트 단위로 같다(점검 h2). 차이는 학습 중에 막전위 경로로만 생긴다.
+- **같은 변경을 Spikformer식에도 준다**(공정성).
+- **에너지:** `mem_readout`은 실수 입력이라 MAC(4.6 pJ)이다(syops가 그렇게 셈). 막전위를 읽는 것 자체는 세지 않는다.
+
+| 과제 | `mem_readout` MAC(창 하나) | 에너지 |
+|---|---:|---|
+| CinC | T_h·D·클래스 = 4·384·4 = 6,144 | 0.03 µJ |
+| MIT-BIH | 4·384·5 = 7,680 | 0.04 µJ |
+| ETT H96 | N·D·H·C = 24·64·96·7 = 1,032,192 | 4.75 µJ(대조 9–12 µJ에 비해 큼) |
+| AD | N·D·4C(MSL 352,000, SMAP·PSM 160,000) | 1.62 / 0.74 µJ |
+
+### 실험(각 과제의 튜닝 설정 그대로; seed 42·7·2026; 새 run 42개)
+| 과제 | muxlin(튜닝) | Spikformer식(튜닝) | run | suite |
+|---|---|---|---:|---|
+| CinC fold 0 | OR, lr 1e-3, 층 2 | lr 2e-3 | 6 | `flif-v1-headmem-cinc` |
+| ETTh2-96 + ETTm2-96 | IAND, 층 1, lr 5e-4(ETTh2) / 1e-4(ETTm2) | lr 5e-4 / 2.5e-4 | 12 | `flif-v1-headmem-ett` |
+| MIT-BIH(학습 파일 전체, 마지막 epoch 가중치 test) | ADD, lr 0.02, 층 2 | lr 0.005 | 6 | `flif-v1-headmem-mitbih` |
+| AD MSL·SMAP·PSM(학습 파일 전체) | MSL OR·2e-3·층 2, SMAP ADD·2e-3·층 1, PSM ADD·1e-3·층 3 | 2.5e-4 / 2e-3 / 5e-4 | 18 | `flif-v1-headmem-ad` |
+
+- 대조(H1 없음)는 각 튜닝의 최종 비교에 쓴 run 그대로다. 각 과제 요약기(`summarize_{cinc,ett,mitbih,ad}_tune.py`)의 `load`·`seeds`·`rows`로 같은 행을 고른다.
+  - 대조 run은 이전 commit에서 만들어졌다. 지금 코드의 기본 경로가 `783072bcf`와 비트 단위로 같음은 점검 h0으로 확인했다.
+- 비교(`summarize_hm.py --task <과제>`, 과제별 기존 규칙):
+
+| 비교 | 질문 | 판정 |
+|---|---|---|
+| **G1** | muxlin+H1 vs muxlin | 과제 규칙 |
+| **G2** | Spikformer식+H1 vs Spikformer식 | 과제 규칙 |
+| **G3** | muxlin+H1 vs Spikformer식+H1 | 과제 규칙 + 기준 (2) |
+| 보고만 | G1 변화 − G2 변화(seed·칸·데이터 짝) | 판정 없음 |
+
+- 과제 규칙:
+  - CinC(CinC 점수)·MIT-BIH(macro-F1): 평균 ≥ +0.5%p이면서 seed 2/3. 기준 (2) = 좋음, 또는 평균 ≥ −0.5이면서 에너지 ≤ 0.5배.
+  - ETT(test MSE): R ≤ −1 %이면서 6쌍 중 4쌍 이상 낮음(`summarize_ett_tune.compare`). 기준 (2) = 좋음, 또는 R ≤ +1 %이면서 에너지 ≤ 0.5배.
+  - AD(AUC-PR): R ≥ +2 %이면서 9쌍 중 6쌍 이상 높음(`summarize_ad_tune.compare`).
+- 에너지 값: CinC `total_fft_int_uJ`(없으면 `total_fft_uJ`), ETT·MIT-BIH는 그 suite의 `energy_recount.csv`의 `total_fft_uJ_corr`, AD `total_fft_uJ_corr`.
+- fail closed: run 누락, 유한하지 않은 지표, 에너지 누락은 그 비교를 incomplete로 하고 드라이버를 멈춘다.
+
+### 코드
+- **새 파일:**
+  - `head_mem.py`(`ChargeTap`, `zero_linear`, `enable_head_mem`, `drop_classification_term`)
+  - `check_hm.py`
+  - `summarize_hm.py`
+  - `scripts/make_queue_hm.sh`(hm_cinc, hm_ett, hm_mitbih, hm_ad; 설정은 각 튜닝 suite의 selected json에서 읽음)
+  - `scripts/hm_driver.sh`
+- **고친 파일**(플래그를 끄면 지금 경로 그대로 = h0):
+  - `config.py`: `--head_mem` 추가.
+  - `load_model.py`: `load_mymodel`·`load_spk_mixer`가 플래그일 때 `enable_head_mem`을 부른다. 평가용 경로에서는 checkpoint를 읽기 전에 부른다.
+  - `forecast_wrap.py`·`ad_wrap.py`: 분류용 막전위 항을 떼고 자기 `mem_readout`을 만든다. `Reconstructor.decode(f, c)`, `charge()`.
+  - `train_ad.py`:
+    - `scores`가 막전위를 넘긴다.
+    - 에너지 대조식에서 `mem_readout` MAC를 뺀다.
+    - ADD 규칙에는 MAC를 더한다.
+    - syops의 `mem_readout` 줄이 MAC만 N·D·4C인지 점검하고, H1일 때만 `mem_MAC`·`mem_uJ` 열을 둔다.
+  - `energy_recount_ett.py`: 다시 계산하는 MSE에 막전위 항을 넣는다. body 대조식에서 `mem_readout` MAC를 빼고, ADD 규칙에는 더한다. syops의 `mem_readout` 줄을 점검하고 `mem_MAC` 열을 둔다.
+  - 러너 4개(`run_rhythm_spk_mux.sh`, `run_ett_spk.sh`, `run_mitbih_spk.sh`, `run_ad_spk.sh`): `HEADMEM=1` → `--head_mem`, tag 접미사 `_hm`.
+- 계획과 달라진 점:
+  - suite를 과제마다 나눴다(`flif-v1-headmem-<과제>`). 에너지 재계산 스크립트가 suite 안의 모든 run을 한 과제로 읽기 때문이다. 요약은 `results/flif-v1-headmem/summary_<과제>.md`에 쓴다.
+
+### 점검 `check_hm.py --date 20261103` 4/4
+- **h0(기본 경로 불변):** 고치기 전(`783072bcf`, suite `smoke-hm-before-20261103`)과 고친 뒤 플래그를 끈 상태(`smoke-hm-after-20261103`)의 1 epoch smoke 8개(4 과제 trainer × muxlin·Spikformer식)가 RESULT 필드(시간·sha·폴더 제외 31–48개)에서 모두 같다. HEAD 대비 바뀐 파일은 위 10개뿐이다.
+- **h1(막전위 = 스파이크 재현):** [H − θ ≥ 0]이 그 층의 실제 출력 스파이크와 정확히 같다.
+  - 분류(4 × 1 × 3750 무작위), ETT(2 × 96 × 7 무작위), AD(MSL test 창 4개)에서, 두 모델 모두 확인했다.
+  - 막전위 모양은 [4, B, N, D]이고, 마지막 층 발화율은 0.038–0.054다.
+- **h2(0 초기화):** 같은 seed에서 H1 모델은 생성 후 난수 상태가 같다. 가중치도 같고(추가는 0인 `mem_readout.weight`뿐), 학습 모드 첫 forward의 출력·손실과 모든 공유 파라미터의 기울기가 대조와 비트 단위로 같다(6 조합). AdamW 한 step 뒤 `mem_readout`은 0이 아니다.
+- **h3(에너지, H1 smoke):**
+  - AD 두 모델: `energy_check` ok, `mem_MAC` 352,000.
+  - CinC 두 모델: syops `mem_readout` 줄이 AC 0, MAC 6.14K(= 6,144).
+  - ETT: `energy_recount_ett.py` 모든 점검 통과, `mem_MAC` = head MAC = 1,032,192.
+  - MIT-BIH: `energy_recount_mitbih.py` 모든 점검 통과.
+- **smoke:** before·after·H1 각 8 run, SKIP 0.
+
+### H1 smoke(1 epoch, seed 42; 보고만, 판정 아님)
+| 과제 | 지표 | muxlin 끔 → H1 | Spikformer식 끔 → H1 |
+|---|---|---|---|
+| CinC | CinC 점수 | 0.3818 → 0.4029 | 0.3615 → 0.4066 |
+| MIT-BIH | macro-F1 | 0.7435 → 0.7635 | 0.6666 → 0.6420 |
+| ETTh2-96 | MSE | 0.2895 → 0.3006 | 0.2879 → 0.2963 |
+| AD MSL | AUC-PR | 0.1487 → 0.1509 | 0.1493 → 0.1485 |
+
+- run 시간은 H1 유무와 거의 같다(CinC muxlin 177 → 161 s, AD muxlin 216 → 192 s; GPU 공유 중).
+
+### 실행
+- `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/hm_driver.sh &`(NSMT/에서).
+  - 순서: hm_cinc(6) → hm_ett(12, 이어서 `energy_recount_ett.py`) → hm_mitbih(6, 이어서 `energy_recount_mitbih.py`) → hm_ad(18).
+  - 각 단계 뒤에 `summarize_hm.py --task`를 돈다. RESULT 수가 모자라거나 SKIP이 있거나, 재계산·요약이 실패하면 멈춘다.
+  - 기록·commit은 세션이 한다(`results/flif-v1-headmem/driver.log`는 로컬).
+- run 하나: `HEADMEM=1 SUITE=flif-v1-headmem-<과제> COND=<cond> LR=<lr> [MLAYERS|LAYERS=<L>] [HOLDOUT=0] bash cinc_mixer_v1/scripts/run_<…>.sh <args> <seed> <gpu>`.
+- 점검: `LD_LIBRARY_PATH=<env>/lib OMP_NUM_THREADS=4 CUDA_VISIBLE_DEVICES=0 python -u check_hm.py --date 20261103`.
+- GPU 4장은 다른 세션의 ETT run(`nsmt_flif_v1/forecasting`, 장마다 약 45 % 사용)과 함께 쓴다.
+- 예상 시간: CinC 2–3시간(muxlin 튜닝 run 평균 4,805 s), ETT 약 1시간, MIT-BIH 약 0.5시간, AD 1–1.5시간. 전체 약 5–7시간이다.
+
+### 한계(미리 적음)
+- 막전위 읽기는 마지막 한 층의 실수값을 head로 내보낸다. '모든 통신이 스파이크'라는 조건이 그 층에서 깨진다. 하드웨어가 그 값을 내보낼 수 있어야 한다.
+- ETT는 head가 커서 에너지가 크게 는다(약 +4.75 µJ).
+- 0 초기화는 학습 시작을 대조와 같게 하려는 선택이다. 무작위 초기화라면 결과가 다를 수 있다.
+- 튜닝 설정은 H1 없이 고른 값이고, H1에 맞춘 재튜닝은 하지 않는다.
+- CinC는 fold 0만, 모든 과제 seed 3개다.
+- 분류의 `mem_readout`은 T_h 스텝마다 계산한 뒤 평균한다(head와 같은 방식). 평균한 뒤 한 번 계산하는 방식보다 MAC가 4배지만 에너지는 0.03 µJ 수준이다.
+
+**commit:** 새 코드 5개, 고친 파일 10개, smoke 세 suite의 `raw.txt`·`pool_log.txt`, H1 smoke의 ETT·MIT-BIH `energy_recount.csv`, 이 기록. 결과는 단계마다 다음 기록에 남긴다.

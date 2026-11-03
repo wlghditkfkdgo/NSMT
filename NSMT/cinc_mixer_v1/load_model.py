@@ -3,6 +3,7 @@ import os
 import torch
 
 from model import myModel
+from head_mem import enable_head_mem                                  # 2026-11-03 H1
 # nsmt_flif_v1: `from ab4 import myModelAB4` dropped (the ab4 ablation model is not copied; ECG/ab4.py keeps it)
 
 def _neo_kwargs(args):
@@ -56,6 +57,8 @@ def load_mymodel(args, train=True):
                 neo_tau=getattr(args, 'neo_tau', 2.0),
                 **_neo_kwargs(args),                               # nsmt_flif_v1
             )
+        if getattr(args, 'head_mem', False):                          # 2026-11-03 H1 (head_mem.py)
+            enable_head_mem(model)
     else:
         saved_model_path = os.path.join(args.save_result_path, "model_state", f"best+model.pt")
         model = create_model(
@@ -63,7 +66,7 @@ def load_mymodel(args, train=True):
             pretrained=False,
             pretrained_cfg=None,
             pretrained_cfg_overlay=None,
-            checkpoint_path=saved_model_path,
+            checkpoint_path=(None if getattr(args, 'head_mem', False) else saved_model_path),   # 2026-11-03 H1: loaded below
             drop_rate=0.,
             keep_ratio = args.keep_ratio,
             drop_path_rate=0.,
@@ -92,6 +95,9 @@ def load_mymodel(args, train=True):
                 neo_tau=getattr(args, 'neo_tau', 2.0),
                 **_neo_kwargs(args),                               # nsmt_flif_v1
         )
+        if getattr(args, 'head_mem', False):                          # 2026-11-03 H1: the membrane term exists before the weights load
+            enable_head_mem(model)
+            model.load_state_dict(torch.load(saved_model_path, map_location='cpu'))
 
         model = model.to(args.device)
         model.train_mode = 'testing'
@@ -173,6 +179,8 @@ def load_spk_mixer(args, train=True):
                      in_channels=getattr(args, 'num_channels', 1), pop_soma_init=getattr(args, 'pop_soma_init', None),
                      mixer_comb=getattr(args, 'mixer_comb', 'or'), connect_f=getattr(args, 'connect_f', 'IAND'),
                      tau_calib=getattr(args, 'tau_calib', True))
+    if getattr(args, 'head_mem', False):                              # 2026-11-03 H1 (head_mem.py)
+        enable_head_mem(model)
     if not train:
         saved_model_path = os.path.join(args.save_result_path, "model_state", "best+model.pt")
         model.load_state_dict(torch.load(saved_model_path, map_location='cpu'))

@@ -38,12 +38,13 @@ RES="$(cd "$RES" && pwd)"; LOG="$(cd "$LOG" && pwd)"
 SHA=$(cd "$R" && git rev-parse --short HEAD); TS=$(date +%Y%m%d)
 VF=${VAL_FOLD:-}; VFA=""; TAGC="${COND}_lr${LR}_L${ML}"
 [ -n "$VF" ] && { VFA="--val_fold $VF"; TAGC="${TAGC}_v${VF}"; }
+HM=""; [ "${HEADMEM:-0}" = 1 ] && { HM="--head_mem"; TAGC="${TAGC}_hm"; }   # 2026-11-03 H1 (head_mem.py): HEADMEM=1 -> --head_mem, tag _hm
 OUT=$LOG/mitbih_${TAGC}_seed${S}_${TS}_${SHA}.stdout; t0=$(date +%s)
 (cd "$W" && CUDA_VISIBLE_DEVICES=$GPU OMP_NUM_THREADS=${THREADS:-4} $PY ./train.py \
   --model myModel --seed $S --log_dir "$LOG/MITBIH" --gating attn --attn SSA -s --test --print_epoch 1 -nd 0 \
   -e $EPOCHS --warm_up_epoch 0 --num_channels 1 -bs 512 -lr $LR --max_lr 0.005 -emb 384 -nh 8 --mlp_ratios 1 \
   --layers $LAYERS --keep_ratio 0.15 --time_layers $ML --alpha 0.1 --patch_size 32 --no-bias --scheduler cosine \
-  --data UEA --data_path ECG --seq_len 187 --root_path "$DATA" $CF $VFA --tag $TAGC seed$S > "$OUT" 2>&1)
+  --data UEA --data_path ECG --seq_len 187 --root_path "$DATA" $CF $VFA $HM --tag $TAGC seed$S > "$OUT" 2>&1)
 RC=$?
 D=$(ls -td "$LOG/MITBIH"/*/*"+${TAGC}+seed${S}+model+"*/seed${S}_* 2>/dev/null | head -1)
 CSV="$D/log/final+result.csv"

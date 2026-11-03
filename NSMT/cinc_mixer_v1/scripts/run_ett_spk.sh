@@ -38,6 +38,7 @@ case $DS in
   ETTm2) HP="--patch_size 8 -emb 64 -nh 16 --mlp_ratios 1   --time_layers $LAYERS -lr $LR -bs 64" ;;
 esac
 TAGC="${COND}_lr${LR}_L${LAYERS}"
+HM=""; [ "${HEADMEM:-0}" = 1 ] && { HM="--head_mem"; TAGC="${TAGC}_hm"; }   # 2026-11-03 H1 (head_mem.py): HEADMEM=1 -> --head_mem, tag _hm
 E=${EPOCHS:-$E}; P=${PATIENCE:-10}
 SUITE=${SUITE:-flif-v1-ett-spkmux-$(date +%Y%m%d)}
 RES=${RES:-$W/results/$SUITE}; LOG=${LOG:-$W/log/$SUITE}
@@ -48,7 +49,7 @@ OUT=$LOG/ett_${DS}_p${PL}_${TAGC}_seed${S}_${TS}_${SHA}.stdout; t0=$(date +%s)
   --log_dir "$LOG/$DS/p$PL" --seed $S -s -nd 0 --gating attn --no-bias --scheduler reduce -e $E --warm_up_epoch 0 \
   --layers 1 --tau 2.0 --weight_decay 0.06 --patience $P \
   --data $DS --data_path $DS.csv --root_path "$W/../forecasting/dataset/ETT-small" --seq_len 96 --pred_len $PL --features M --target OT \
-  $HP $CF --tag $TAGC seed$S > "$OUT" 2>&1)
+  $HP $CF $HM --tag $TAGC seed$S > "$OUT" 2>&1)
 RC=$?
 D=$(ls -td "$LOG/$DS/p$PL"/*/*"+${TAGC}+seed${S}+"*"+epoch+${E}+"*/seed${S}_* 2>/dev/null | head -1)
 CSV="$D/log/final+result.csv"; LCSV="$D/log/last/final+result.csv"

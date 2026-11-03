@@ -49,10 +49,11 @@ E_AC, E_MAC = 0.9e-6, 4.6e-6                                          # µJ per 
 UNIT = {'': 1., 'K': 1e3, 'M': 1e6, 'G': 1e9}
 
 
-def head_line(out_dir):
-    """(AC ops, MAC ops) of the top-level head from the syops per-layer file (as energy_recount_ett.head_line)."""
+def head_line(out_dir, name='head'):
+    """(AC ops, MAC ops) of the top-level head from the syops per-layer file (as energy_recount_ett.head_line); 2026-11-03 H1: name
+    'mem_readout' reads the membrane readout's line."""
     for line in open(os.path.join(out_dir, 'model+info+per+layer.txt'), encoding='utf-8'):
-        if line.startswith('  (head): Linear('):
+        if line.startswith(f'  ({name}): Linear('):
             m = re.search(r'%\s*Params,\s*([\d.]+)\s*([KMG]?)\s*Ops,\s*[\d.]+%\s*ACs,\s*([\d.]+)\s*([KMG]?)\s*Ops', line)
             if m:
                 return float(m.group(1)) * UNIT[m.group(2)], float(m.group(3)) * UNIT[m.group(4)]
@@ -128,7 +129,7 @@ def scores(model, dl, device, probe=None):
         xn, means, stdev = model.norm(x)
         xh = model.step_features(xn.permute(0, 2, 1))                    # [T_h, B, N, D], per-step head input
         f = xh.mean(0)
-        rec = model.decode(f) * stdev + means
+        rec = model.decode(f, model.charge()) * stdev + means
         functional.reset_net(model)
         if probe is not None:
             for r in probe['recorders']:                               # once per forward, as train_forecast.evaluate
@@ -179,23 +180,30 @@ def final_test(args, fc, model, train_dl, test_dl, out_dir):
     p_ac, p_mac = head_line(out_dir)                                    # syops' own per-layer line (3 significant digits)
     line_ok = abs(p_ac - h_ac) <= max(1., 0.006 * h_ac) and abs(p_mac - h_mac) <= max(1., 0.006 * h_mac)
     add = str(getattr(args, 'connect_f', '')).upper() == 'ADD' and model.kind == 'spkmix'
+    hm = model.tap is not None                                         # 2026-11-03 H1: the charge readout, real input -> MAC
+    mem_mac = N * D * out_dim if hm else 0
+    mem_uJ = mem_mac * E_MAC
+    if hm:
+        q_ac, q_mac = head_line(out_dir, 'mem_readout')
+        line_ok = line_ok and q_ac <= 1. and abs(q_mac - mem_mac) <= max(1., 0.006 * mem_mac)
     if add:                                                            # ADD residual: body under the integer rule
-        corr = total - syn_uJ + s['syn_energy_int_uJ'] + head_ac * E_AC
+        corr = total - syn_uJ + s['syn_energy_int_uJ'] + head_ac * E_AC + mem_uJ
         ok = probe['integer']
     else:
         corr = total - head_syops_uJ + head_ac * E_AC
-        body_ref = syn_uJ - head_syops_uJ                              # syops body = synaptic energy minus syops' head
+        body_ref = syn_uJ - head_syops_uJ - mem_uJ                     # syops body = synaptic energy minus syops' head (and readout)
         ok = probe['binary'] and (model.kind != 'spkmix' or abs(s['rec_syn_uJ'] - body_ref) <= 1e-3 * max(1e-9, syn_uJ))   # as ETT
     ok = ok and line_ok and math.isfinite(corr) and corr > 0
     head = ['weights', 'val_mse_best', 'best_epoch', 'epochs_run'] + list(met) + \
            ['total_op_M', 'AC_op_M', 'MAC_op_M', 'params_M', 'syops_firing_rate', 'syn_energy_uJ'] + en['columns'] + \
            ['head_rate', 'head_MAC', 'head_AC_corr', 'head_syops_AC', 'head_syops_MAC', 'body_syn_uJ', 'body_syn_int_uJ', 'rule',
-            'total_fft_uJ_corr', 'energy_check']
+            'total_fft_uJ_corr', 'energy_check'] + (['mem_MAC', 'mem_uJ'] if hm else [])
     row = ['best', f'{args.best_val_loss:.6f}', str(args.best_epoch), str(args.epochs_run)] + \
           [f'{v:.6f}' if isinstance(v, float) else str(v) for v in met.values()] + \
           [f'{ops[0] / 1e6:.4f}', f'{ops[1] / 1e6:.4f}', f'{ops[2] / 1e6:.4f}', f'{params / 1e6:.6f}', f'{rate:.6f}', f'{syn_uJ:.6f}'] + \
           en['values'] + [f'{head_rate:.6f}', str(head_mac), f'{head_ac:.1f}', f'{h_ac:.3f}', f'{h_mac:.3f}', f"{s['rec_syn_uJ']:.6f}",
-                          f"{s['syn_energy_int_uJ']:.6f}", 'integer' if add else 'binary', f'{corr:.6f}', 'ok' if ok else 'FAIL']
+                          f"{s['syn_energy_int_uJ']:.6f}", 'integer' if add else 'binary', f'{corr:.6f}', 'ok' if ok else 'FAIL'] + \
+          ([str(mem_mac), f'{mem_uJ:.6f}'] if hm else [])
     with open(os.path.join(out_dir, 'final+result.csv'), 'w', newline='') as f:
         w = csv.writer(f); w.writerow(head); w.writerow(row)
     print(f"[test] aucpr={met['aucpr']:.6f} aucroc={met['aucroc']:.6f} raw_f1={met['raw_f1']:.6f} pa_f1={met['pa_f1']:.6f} "

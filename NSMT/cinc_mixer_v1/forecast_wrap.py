@@ -27,6 +27,7 @@ from timm.models.layers import trunc_normal_
 from neo_mixer import NeoMixer
 from model import myModel
 from spk_mixer import SpkMixer
+from head_mem import drop_classification_term, zero_linear              # 2026-11-03 H1
 
 __all__ = ['Forecaster']
 
@@ -52,6 +53,9 @@ class Forecaster(nn.Module):
         trunc_normal_(self.head.weight, std=.02)
         if self.head.bias is not None:
             nn.init.constant_(self.head.bias, 0)
+        self.tap = drop_classification_term(inner)                         # 2026-11-03 H1 (head_mem.py): None without --head_mem
+        if self.tap is not None:                                           # + Linear(N * D -> H) on the per-token charge, zero init
+            self.mem_readout = zero_linear(embed_dim * self.num_patches, self.pred_len)
 
     @property
     def train_mode(self):
@@ -89,5 +93,8 @@ class Forecaster(nn.Module):
         x = x / stdev
         z = x.permute(0, 2, 1).reshape(B * C, 1, L)
         f = self.features(z)
-        y = self.head(f.reshape(B * C, -1)).reshape(B, C, self.pred_len).permute(0, 2, 1)   # [B, H, C]
+        y = self.head(f.reshape(B * C, -1))
+        if self.tap is not None:                                           # 2026-11-03 H1: the charge, pooled as the spikes
+            y = y + self.mem_readout(self.tap.charge.mean(0).reshape(B * C, -1))
+        y = y.reshape(B, C, self.pred_len).permute(0, 2, 1)                # [B, H, C]
         return y * stdev + means

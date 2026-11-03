@@ -30,6 +30,7 @@ case $DS in MSL|SMAP|PSM) AR=1 ;; *) echo "bad dataset $DS (MSL / SMAP / PSM)"; 
 LR=${LR:-0.0005}; ML=${MLAYERS:-2}; HO=${HOLDOUT:-0}
 case $HO in 0) HOA="" ; HOT="" ;; 1) HOA="--holdout"; HOT="_ho" ;; *) echo "HOLDOUT 0 or 1"; exit 1 ;; esac
 TAGC="${COND}_lr${LR}_L${ML}${HOT}"
+HM=""; [ "${HEADMEM:-0}" = 1 ] && { HM="--head_mem"; TAGC="${TAGC}_hm"; }   # 2026-11-03 H1 (head_mem.py): HEADMEM=1 -> --head_mem, tag _hm
 E=${EPOCHS:-10}; P=${PATIENCE:-3}
 SUITE=${SUITE:-flif-v1-ad-spkmux-$(date +%Y%m%d)}
 RES=${RES:-$W/results/$SUITE}; LOG=${LOG:-$W/log/$SUITE}
@@ -41,7 +42,7 @@ OUT=$LOG/ad_${DS}_${TAGC}_seed${S}_${TS}_${SHA}.stdout; t0=$(date +%s)
   --layers 1 --tau 2.0 --weight_decay 0.06 --patience $P --anomaly_ratio $AR $HOA \
   --data $DS --root_path "$DATA_ROOT/$DS" --seq_len 100 \
   --patch_size 8 -emb 64 -nh 8 --mlp_ratios 1 --time_layers $ML -lr $LR -bs 128 \
-  $CF --tag $TAGC seed$S > "$OUT" 2>&1)
+  $CF $HM --tag $TAGC seed$S > "$OUT" 2>&1)
 RC=$?
 D=$(ls -td "$LOG/$DS"/*/*"+${TAGC}+seed${S}+"*"+epoch+${E}+"*/seed${S}_* 2>/dev/null | head -1)
 CSV="$D/log/final+result.csv"
