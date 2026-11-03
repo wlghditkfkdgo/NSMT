@@ -5784,3 +5784,55 @@ energy(µJ)는 lr에 따라 거의 변하지 않는다. query population LIF는 
 **commit:** 이 항목과 대기열 스크립트를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 pool을 시작한다.
 
 ---
+
+## 2026-11-03 16:01 KST — 구현 + 점검: head 읽기 진단 (`head_probe.py`) — 점검 c54a–e가 MIT-BIH 6개·ETTh2 12개 checkpoint 전부에서 통과(R0만 써서, 다른 읽기는 아직 맞추지 않음). λ 격자를 "가장 큰 값이 뽑히면 10배씩 넓힘"으로 바꿈(R0 점검에서 격자 끝이 뽑혀서, 다른 읽기를 보기 전에 정함)
+
+**직전 commit:** `b703c407b` (사전 고정, 15:36 항목).
+
+**코드 (`nsmt_flif_v1/classification/`, 새 파일; 기존 코드는 바꾸지 않음):**
+- `head_probe.py`: checkpoint 하나에 대해 몸통을 고정하고, 사전 고정한 읽기 R0–R7마다 새 선형층을 맞춘다.
+  - 특징은 모델 forward를 그대로 옮겨 적은 사본(`Body`)에서 뽑는다. 순서는 `_tokens_mc` → embedding → Neocortex → Hippocampus block이다.
+  - 막전위는 두 neuron(`ssa.proj_linear.lif`, `mlp.fc2.lif`)에 단 forward hook이 neuron 입력으로 다시 계산한다.
+    - 식은 설치된 spikingjelly cupy 커널과 같다: H = v + (1/τ)(I − v + v_reset), 발화하면 v = v_reset.
+    - τ = 2라 1/τ = 0.5여서 곱셈 오차가 없다.
+  - MIT-BIH는 CAL 가중 로지스틱 회귀(L-BFGS), ETT는 가중 ridge(float64 통계, 닫힌 식)다.
+  - `--check_only`: R0만 맞추고 점검만 한다.
+- `scripts/run_head_probe.sh`: 묶음(mitbih / etth2 / ettm2)의 RESULT 줄에서 checkpoint를 찾아 차례로 돈다. 이미 JSON이 있으면 건너뛴다. 점검에 실패하면 JSON 없이 FAIL 줄을 남긴다.
+- `summarize_head_probe.py`: 사전 고정 규칙으로 판정표와 보고표를 만든다(`results/flif-v1-head-probe-summary.md`).
+  - JSON이 없는 상태에서 돌리면 모든 비교가 "미완"이다.
+  - 학습된 모델 보고표는 기존 수치를 재현한다: Spikformer식 0.2903 / 0.4223 / 0.1775 / 0.4034, query pop f-LIF ETTh2 0.2890 / 0.4135.
+  - 선형 기준선은 10-18 `flif-v1-s4/summary.md`의 validation 최고 weight 값(0.291515 / 0.420805 / 0.182854 / 0.407828)을 쓴다. 그 묶음 `raw.txt`의 `mse`는 마지막 epoch weight라서 값이 조금 다르다(0.4190 / 0.1825 등).
+
+**사전 고정에서 바꾼 것 1건 — λ 격자 (다른 읽기를 맞추기 전에 정함):**
+- 첫 점검(R0만)에서 MIT-BIH는 격자의 가장 큰 λ(1e-2)가 뽑혔다. ETTh2 H96·H720도 가장 큰 λ(1)가 뽑혔고, validation MSE는 λ를 키울수록 계속 줄었다(H96 0.2522 → 0.2238, H720 0.6661 → 0.6157).
+- 격자 끝에서 고르면 그 읽기만 덜 정규화된 채 비교된다. 그래서 규칙을 바꿨다: **가장 큰 λ가 뽑히는 동안 10배씩 위로 넓힌다**(상한 MIT-BIH 1e2, ETT 1e6). 상한에서 뽑히면 표에 표시한다.
+- 아래쪽 끝(1e-6)은 사실상 정규화가 없는 값이라 넓히지 않는다.
+- 이 변경은 모든 읽기에 똑같이 적용되고, R1–R7 결과를 보기 전에 정했다.
+
+**점검 (fail-closed, 실패하면 그 checkpoint의 JSON을 쓰지 않음; `results/checks/head-probe-20261103/*_check.json`):**
+- **c54a (뜯어 놓은 forward = 모델 출력):** 18개 checkpoint의 모든 batch에서 최대 차이가 0.0이다(비트 단위로 같음). MIT-BIH는 로짓, ETT는 예측값을 비교했다.
+- **c54b (학습된 head 재현):** 보고된 test 수치가 소수 6자리까지 같다.
+  - MIT-BIH macro-F1 6/6 (예: 0.917150 대 0.91715), 시험 박동 수 32,833
+  - ETT MSE·MAE 12/12 (예: 0.286700 / 0.332554), 원소 수가 RESULT의 `n`과 같음
+- **c54c (막전위 → spike):** 다시 계산한 막전위가 만드는 spike가 두 neuron의 출력과 18개 모두, 모든 batch에서 정확히 같다.
+  - 검사가 비어 있지 않다. neuron당 발화 수는 MIT-BIH 2.4–3.9억, ETTh2 890만–3,300만이다.
+- **c54d (분할):**
+  - MIT-BIH: 학습 61,289 / validation 15,323(학습 파일 76,612)이다. 서로 겹치지 않고 파일 전체를 덮는다. 학습 부분의 부류 수 [50,729, 1,557, 4,052, 449, 4,502]가 학습 때 sampler의 수와 같다.
+  - ETTh2: 행 수 = 창 × 7채널이다. H96은 창 8,449 / 2,785 / 2,785, H720은 7,825 / 2,161 / 2,161이다.
+- **c54e (ETT 통계 MSE = 직접 계산 MSE):** R0와 학습된 head에서 상대 차이가 최대 1.5e-9다.
+- **결정성:** 두 checkpoint를 다른 GPU(GPU 3, 일괄 점검은 GPU 1)에서 다시 돌렸다. JSON이 시간·GPU 이름을 빼면 완전히 같다. MIT-BIH는 query pop f-LIF seed 42, ETTh2는 H720 query pop f-LIF seed 42다.
+- **새 λ 규칙에서 R0가 고른 λ:**
+  - ETTh2는 12개 모두 10이다. 다음 값 100이 더 나빠서 격자 안쪽 값이다.
+  - MIT-BIH는 1e-4 – 0.1이다. 상한에 걸린 것은 없다.
+- 결과 파일: `results/checks/head-probe-20261103/*_check.json` 18개. 실행 출력은 로컬 `log/flif-v1-head-probe/`에 있다.
+
+**판정·예상·한계:** 15:36 항목 그대로다(λ 격자만 위와 같이 바뀜).
+
+**실행:**
+- MIT-BIH 6개와 ETTh2 12개의 전체 probe를 지금 돌린다(`scripts/run_head_probe.sh mitbih|etth2 <gpu>`).
+- ETTm2 12개는 학습(`flif-v1-ett-query-m2`, pool `flif_hprobe`)이 끝난 뒤 돌린다.
+- 실측 시간: 점검 모드(R0만)는 checkpoint당 MIT-BIH 50–61초, ETTh2 25–36초였다(GPU를 학습과 나눠 씀).
+
+**commit:** 이 항목과 코드, 점검 결과를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 전체 probe를 시작한다.
+
+---
