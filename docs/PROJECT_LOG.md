@@ -10671,3 +10671,117 @@ run별 macro-F1(seed 42 / 7 / 2026): muxlin 92.12 / 92.02 / 91.56, sdlin 92.07 /
 - 드라이버가 MIT-BIH 단계(24 run)를 22:50:30에 시작했다. 끝나면 `energy_recount_mitbih.py`와 `summarize_hp.py --task mitbih`(채택 표 포함)가 이어서 돈다.
 
 **commit:** `results/flif-v1-headpool-cinc/{raw.txt,pool_log.txt}`, `results/flif-v1-headpool/{summary_cinc.md,posthoc_cinc.txt}`, `posthoc_hp.py`, 이 기록.
+
+## 2026-11-03 23:35 KST — head 입력 형태 MIT-BIH 결과(24 run, SKIP 0; 에너지 재계산 모든 점검 통과): 4형태 × G1–G3 모두 '차이 없음'(G1 −0.48 – +0.06, G2 −0.32 – +0.18 %p; G3 기준 (2) 미충족) → 사전 채택 표 max·seg4·layers 모두 'no' → head 입력 형태 실험 끝: 채택 후보 없음; 사후 관찰(보고만): MIT-BIH에서는 새 경로를 많이 썼고(seg4 새 항이 head의 2.3–3.6배) 몸통 발화가 크게 줄었는데(muxlin+max rho_hippo 0.100 → 0.055) macro-F1은 그대로; H1과 합쳐 분류 head 수정 4가지가 모두 개선 없음; tag `exp/f-lif-pop-v3-headpool-20261103`
+
+**직전 commit:** `c83f04573`(head 입력 형태 CinC 결과). 브랜치 `exp/f-lif-pop-v3`.
+
+### 실행
+- `hp_driver.sh` 단계 hp_mitbih:
+  - 22:50:30 시작, 큐 `hp_mitbih-20261103.txt`(24줄, 로컬).
+  - 24 run 모두 `DONE(rc=0)`(23:05:26–23:27:02). run 시간은 muxlin 894–917 s, Spikformer식 412–439 s.
+- `driver.log` 순서:
+  - 23:29:01 "pool done: mitbih (RESULT 24, SKIP 0)"
+  - `energy_recount_mitbih.py --suite flif-v1-headpool-mitbih`: "24 runs", "all checks passed". 모든 run에서 다시 계산한 macro-F1이 기록한 값과 6자리까지 같다.
+  - `summarize_hp.py --task mitbih`(채택 표 포함)
+  - 23:30:46 "driver end"
+- **sha:** 8 run은 `sha=6adb353a2`, 16 run은 `sha=c83f04573`이다.
+  - 러너는 run을 시작할 때의 HEAD를 적는다. MIT-BIH 단계 도중에 CinC 결과 commit으로 HEAD가 옮겨갔다.
+  - 두 commit 사이에는 학습 코드 변경이 없다. 바뀐 것은 `posthoc_hp.py`(새 파일, 학습에서 안 씀), 결과 파일, 이 기록뿐이다(`git diff --stat 6adb353a2 c83f04573`, 6개 파일).
+- 산출물:
+  - Git: `results/flif-v1-headpool-mitbih/{raw.txt,pool_log.txt,energy_recount.csv}`, `results/flif-v1-headpool/{summary_mitbih.md,posthoc_mitbih.txt}`
+  - 로컬: checkpoint·TensorBoard는 `log/flif-v1-headpool-mitbih/`, `driver.log`
+
+### 결과(사전등록 판정, `summary_mitbih.md` 그대로; MIT-BIH test macro-F1, 마지막 epoch 가중치)
+- 설정: muxlin ADD·lr 0.02·mixer 층 2, Spikformer식 lr 0.005·층 2.
+- 대조는 `summarize_mitbih_tune.py`의 튜닝 최종 run이다(H1과 같은 대조 행).
+
+| 형태 | G1 muxlin+형태 vs muxlin | G2 Spikformer식+형태 vs Spikformer식 | G3 muxlin+형태 vs Spikformer식+형태 |
+|---|---|---|---|
+| max | −0.23(−0.31, −0.29, −0.09) 차이 없음, 에너지 0.95배 | −0.32(−0.66, −0.51, +0.23) 차이 없음, 0.80배 | +0.29(+0.14, +0.61, +0.12) 차이 없음, 1.17배, 기준 (2) 미충족 |
+| seg4 | +0.06(+0.11, −0.09, +0.15) 차이 없음, 0.95배 | +0.18(+0.09, −0.00, +0.44) 차이 없음, 0.84배 | +0.08(−0.20, +0.30, +0.15) 차이 없음, 1.11배, 미충족 |
+| layers | −0.08(+0.31, −0.10, −0.44) 차이 없음, 0.99배 | +0.00(−0.20, +0.11, +0.10) 차이 없음, 0.90배 | +0.12(+0.29, +0.18, −0.09) 차이 없음, 1.09배, 미충족 |
+| attn(참고) | −0.48(−0.19, −0.64, −0.60) 차이 없음(경계, 3/3 낮음), 1.08배 | −0.18(−0.46, −0.01, −0.07) 차이 없음, 0.81배 | −0.09(+0.05, −0.24, −0.08) 차이 없음, 1.31배, 미충족 |
+
+- 괄호 안은 seed 42 / 7 / 2026 순서의 %p 차이다.
+
+| 조건 | macro-F1 % | F1 N / S / V / F / Q % | 에너지 µJ |
+|---|---:|---|---:|
+| Spikformer식 | 91.78 ± 0.25 | 99.20 / 84.38 / 96.12 / 80.17 / 99.03 | 9.61 |
+| + max | 91.47 ± 0.21 | 99.17 / 83.42 / 95.98 / 79.75 / 99.01 | 7.66 |
+| + seg4 | 91.96 ± 0.19 | 99.22 / 84.95 / 96.13 / 80.61 / 98.89 | 8.04 |
+| + layers | 91.78 ± 0.13 | 99.19 / 84.54 / 96.05 / 80.08 / 99.06 | 8.61 |
+| + attn(참고) | 91.60 ± 0.13 | 99.18 / 84.14 / 95.82 / 79.86 / 99.01 | 7.81 |
+| muxlin | 91.99 ± 0.10 | 99.24 / 85.94 / 96.31 / 79.49 / 98.95 | 9.44 |
+| + max | 91.76 ± 0.13 | 99.21 / 85.31 / 96.13 / 79.25 / 98.88 | 8.94 |
+| + seg4 | 92.04 ± 0.04 | 99.23 / 85.97 / 96.26 / 79.80 / 98.94 | 8.97 |
+| + layers | 91.91 ± 0.29 | 99.25 / 85.83 / 96.18 / 79.25 / 99.03 | 9.36 |
+| + attn(참고) | 91.51 ± 0.14 | 99.19 / 85.10 / 96.15 / 78.27 / 98.83 | 10.23 |
+
+### 채택(사전 기준: CinC G1 또는 G2가 better이고, 같은 G가 MIT-BIH에서 worse가 아님; attn 제외)
+
+| 형태 | CinC G1 | CinC G2 | MIT-BIH G1 | MIT-BIH G2 | 채택 |
+|---|---|---|---|---|---|
+| max | worse | worse | 차이 없음 | 차이 없음 | no |
+| seg4 | worse | worse | 차이 없음 | 차이 없음 | no |
+| layers | worse | worse | 차이 없음 | 차이 없음 | no |
+
+- **결론(사전등록 판정):** 채택 후보 없음.
+  - CinC fold 0에서는 세 형태 모두 두 모델을 낮췄다(−0.75 – −2.26 %p).
+  - MIT-BIH에서는 세 형태 모두 차이가 없었다(±0.5 %p 안).
+  - 실수 연산 참고(attn)도 어느 과제에서도 낫지 않았다(CinC −5.4 / −5.6, MIT-BIH −0.48 / −0.18 %p).
+
+### 사후 관찰(보고만, 사전등록 아님; `posthoc_mitbih.txt`)
+- **MIT-BIH에서는 새 경로를 많이 썼다**(best 가중치의 Frobenius norm, 가중치 크기). CinC muxlin+max(0.29)와 다르다.
+
+| 형태 | muxlin: 새 항 / head | Spikformer식: 새 항 / head |
+|---|---|---|
+| 대조(head만) | — / 12.8–13.4 | — / 19.8–20.6 |
+| max | 5.9–6.2 / 7.0–7.6 | 7.1–7.4 / 7.7–8.1 |
+| seg4 | 17.6–18.2 / 5.1–5.4 | 18.7–19.6 / 7.6–8.2 |
+| layers | 8.4–10.4 / 12.1–12.3 | 12.3–12.9 / 18.3–19.4 |
+| attn(q / head) | 2.8–3.1 / 9.3–9.6 | 3.9–4.0 / 10.5–10.9 |
+
+- **몸통 발화가 크게 줄었는데 macro-F1은 그대로다.** Neo-mixer 밖 뉴런의 평균 발화율(`rho_hippo`, seed 평균):
+  - muxlin 0.1001 → max 0.0553, seg4 0.0646, layers 0.0998, attn 0.0741
+  - Spikformer식 0.1275 → max 0.0948, seg4 0.0831, layers 0.1189, attn 0.0812
+  - mixer 뉴런(`rho_neo`, muxlin) 0.0720 → max 0.0769, seg4 0.0682, layers 0.0679, attn 0.1142(attn만 크게 늘었다).
+  - 그래서 에너지가 Spikformer식 0.80–0.90배, muxlin 0.95–0.99배로 줄었다(muxlin+attn은 1.08배).
+  - 예: Spikformer식+seg4는 macro-F1 +0.18 %p(차이 없음)이면서 에너지가 0.84배다. 이 에너지 감소는 사전등록한 판정 대상이 아니다(기준 (2)는 G3에만 적용). CinC에서도 같은 방향(seg4 0.87배)이었지만 그곳에서는 점수가 낮아졌다.
+- **학습 손실은 이미 거의 0이다.** 마지막 epoch 학습 손실이 muxlin 0.0036–0.0043, Spikformer식 0.0106–0.0115다. 형태에 따른 차이도 0.007 이하다.
+  - 대조보다 낮은 seed 수: muxlin max 0/3, seg4 2/3, layers 1/3, attn 0/3; Spikformer식 max 3/3, seg4 2/3, layers 1/3, attn 3/3.
+  - 첫 epoch 학습 손실은 24쌍 모두 낮다(CinC와 같다).
+- **읽는 방법:** MIT-BIH에서는 head가 새 입력 형태를 실제로 읽었다. 그런데 macro-F1은 움직이지 않고, 몸통이 덜 발화하는 쪽으로만 바뀌었다. 지금 head 입력(token 평균)이 MIT-BIH 분류의 병목이라는 근거는 없다.
+  - 11-03 다른 세션의 head readout 진단(MIT-BIH, query pop 모델: 'head 앞에서 선형으로 읽을 수 있는 정보를 버린다는 근거 없음')과 같은 방향이다. 다만 그 진단은 다른 모델이라 직접 비교는 아니다.
+
+### 실험 전체 정리(H1 + head 입력 형태, 분류)
+- 분류 head 수정 4가지(H1 막전위 읽기, max, seg4, layers)와 실수 참고(attn)가 CinC fold 0과 MIT-BIH 어디에서도 사전등록 기준으로 낫지 않았다. CinC에서는 4가지 모두 muxlin을 낮췄다.
+- 공통으로 보인 것(보고만):
+  - 새 경로는 학습 초반 손실을 낮춘다.
+  - 몸통 발화를 줄인다.
+  - test는 좋아지지 않는다.
+- 지금 설정(지금 head로 튜닝한 lr 등)에서 head 구조·입력 형태는 이 두 과제의 병목이 아닌 것으로 읽힌다.
+- 재지 않은 것:
+  - 형태별 lr 재튜닝
+  - 지금 head를 대체하는 설계(0 초기화 추가 항이 아닌 것)
+  - CinC fold 1–4
+  - '효과 없는 변경이 test를 얼마나 흔드는가'(CinC 앞 기록)
+
+### 점검
+- 완결성: RESULT 24, SKIP 0, 모든 run rc 0. 에너지 재계산 모든 점검 통과. 요약기 incomplete 없음.
+- `posthoc_hp.py --task mitbih`: 30 run 모두 epoch 30줄, 형태·모델마다 seed 3개(빠지면 멈춤).
+- 점검 p0–p3·smoke는 20:45 기록(사전등록) 그대로다.
+
+### 한계
+- seed 3개. MIT-BIH는 학습 파일 전체로 학습하고 마지막 epoch 가중치를 test한다(검증 선택 없음).
+- 튜닝 설정은 지금 head로 골랐다.
+- 후보 3개 × 과제 2개 × 비교 3개.
+
+### 다음(사용자 결정 대기)
+- 앞서 미뤄 둔 선택지:
+  - CinC Spikformer식 lr 범위 넓히기(선택된 2e-3이 grid의 끝)
+  - CinC fold 1–4
+  - SpkMixer memoryless / shuffle 대조
+- head 쪽을 더 본다면 형태별 lr 재튜닝이 남은 한계를 직접 재는 방법이다. 다만 두 과제 모두 개선 신호가 없어 우선순위는 낮다고 본다.
+
+**commit / tag:** `results/flif-v1-headpool-mitbih/{raw.txt,pool_log.txt,energy_recount.csv}`, `results/flif-v1-headpool/{summary_mitbih.md,posthoc_mitbih.txt}`, 이 기록. 이 기록을 담은 commit에 annotated tag `exp/f-lif-pop-v3-headpool-20261103`(head 입력 형태 실험 완료, 48 run 학습 끝)을 단다.
