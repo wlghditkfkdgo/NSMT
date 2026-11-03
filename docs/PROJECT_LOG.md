@@ -10563,3 +10563,111 @@ run별 macro-F1(seed 42 / 7 / 2026): muxlin 92.12 / 92.02 / 91.56, sdlin 92.07 /
 - 사용자가 고른 '바로 재학습'이라 probe 없이 고른 후보다.
 
 **commit:** 새 코드 5개, 고친 파일 6개, `results/checks/check_hp.txt`, smoke 두 suite의 `raw.txt`·`pool_log.txt`, MIT-BIH smoke `energy_recount.csv`, 이 기록. 결과는 단계마다 다음 기록에 남긴다.
+
+## 2026-11-03 23:00 KST — head 입력 형태 CinC 결과(24 run, SKIP 0): 후보 3개 모두 G1·G2 '나빠짐'(max −1.07 / −2.26 %p, seg4 −0.75 / −0.75, layers −1.74 / −1.17), 참고 attn −5.36 / −5.63; G3은 4형태 모두 '좋아짐'(+1.59 – +3.35, 기준 (2) 충족, 두 모델이 함께 낮아짐) → CinC G1·G2에 better가 없으므로 사전 채택 기준을 만족하는 후보는 MIT-BIH 결과와 관계없이 없음; 사후 관찰(보고만): 마지막 epoch 가중치의 test도 24쌍 모두 대조보다 낮음, 학습 손실은 H1과 달리 형태마다 다름(seg4 6/6 낮음, attn 6/6 높음); 드라이버는 MIT-BIH 단계로 넘어감
+
+**직전 commit:** `6adb353a2`(head 입력 형태 사전등록 + 구현). 브랜치 `exp/f-lif-pop-v3`.
+
+### 실행
+- `hp_driver.sh`(20:49:57 시작) 단계 hp_cinc: 큐 `cinc_mixer_v1/scripts/queues/hp_cinc-20261103.txt`(24줄, 로컬), GPU 0–3 8자리. 시작할 때 다른 세션의 GPU 사용은 0 %였다.
+- 24 run 모두 `DONE(rc=0)`, 마지막 DONE 22:50:26.
+  - run 시간: muxlin 2,758–3,667 s, Spikformer식 519–596 s.
+  - 단계 전체는 2시간 0분 29초로, 계획의 2–2.5시간 안에 끝났다.
+- `driver.log`:
+  - 22:50:29 "pool done: cinc (RESULT 24, SKIP 0)"
+  - → `summarize_hp.py --task cinc` → "summary written"
+  - → 22:50:30 hp_mitbih 24 run 시작
+- 모든 run `sha=6adb353a2`, tag 접미사 `_hp<형태>`.
+- 산출물:
+  - Git: `cinc_mixer_v1/results/flif-v1-headpool-cinc/{raw.txt,pool_log.txt}`, `cinc_mixer_v1/results/flif-v1-headpool/summary_cinc.md`, 사후 관찰 `cinc_mixer_v1/results/flif-v1-headpool/posthoc_cinc.txt`(새 `posthoc_hp.py --task cinc`).
+  - 로컬: checkpoint·TensorBoard `cinc_mixer_v1/log/flif-v1-headpool-cinc/CINC2017/261103/…/`.
+
+### 결과(사전등록 판정, `summary_cinc.md` 그대로; CinC fold 0, test CinC 점수)
+- 설정: muxlin OR·lr 1e-3·mixer 층 2, Spikformer식 lr 2e-3·층 2.
+- 대조는 `summarize_cinc_tune.py`의 튜닝 최종 run이다(같은 seed·설정, 새 항 없음). H1과 같은 대조 행이다.
+
+| 형태 | 비교 | 평균 %p | seed 42 / 7 / 2026 | 판정 | 에너지 A/B | 기준 (2) |
+|---|---|---:|---|---|---:|---|
+| max | G1 muxlin+max vs muxlin | −1.07 | −1.93, −0.36, −0.92 | worse(나빠짐) | 0.97 | |
+| max | G2 Spikformer식+max vs Spikformer식 | −2.26 | −2.94, +1.63, −5.48 | worse(나빠짐) | 0.88 | |
+| max | G3 muxlin+max vs Spikformer식+max | +3.35 | +3.86, +0.55, +5.64 | better(좋아짐) | 1.08 | 충족 |
+| seg4 | G1 | −0.75 | −1.22, +0.27, −1.30 | worse(나빠짐) | 0.97 | |
+| seg4 | G2 | −0.75 | −0.35, +1.48, −3.39 | worse(나빠짐) | 0.87 | |
+| seg4 | G3 | +2.16 | +1.98, +1.33, +3.17 | better(좋아짐) | 1.09 | 충족 |
+| layers | G1 | −1.74 | −1.91, −2.47, −0.85 | worse(나빠짐) | 1.00 | |
+| layers | G2 | −1.17 | −2.03, +0.67, −2.14 | worse(나빠짐) | 0.92 | |
+| layers | G3 | +1.59 | +2.98, −0.60, +2.38 | better(좋아짐) | 1.06 | 충족 |
+| attn(참고) | G1 | −5.36 | −4.79, −3.81, −7.48 | worse(나빠짐) | 0.96 | |
+| attn(참고) | G2 | −5.63 | −5.44, −3.33, −8.13 | worse(나빠짐) | 0.83 | |
+| attn(참고) | G3 | +2.44 | +3.51, +2.06, +1.74 | better(좋아짐) | 1.13 | 충족 |
+
+- 보고만: G1 변화 − G2 변화(seed 짝 평균) max +1.19, seg4 −0.00, layers −0.58, attn +0.27 %p. 형태가 어느 한 모델에 더 유리하다는 일관된 신호는 없다.
+
+| 조건 | CinC 점수 % | F1 클래스 0 / 1 / 2 / 3 % | 에너지 µJ |
+|---|---:|---|---:|
+| Spikformer식 | 66.36 ± 1.04 | 82.95 / 61.18 / 54.94 / 50.43 | 131.51 |
+| + max | 64.10 ± 1.90 | 82.77 / 57.65 / 51.87 / 43.28 | 116.21 |
+| + seg4 | 65.61 ± 1.08 | 82.97 / 58.31 / 55.54 / 47.28 | 114.17 |
+| + layers | 65.19 ± 0.43 | 82.57 / 58.91 / 54.09 / 50.93 | 121.29 |
+| + attn(참고) | 60.72 ± 1.00 | 79.85 / 52.19 / 50.13 / 35.78 | 109.31 |
+| muxlin | 68.52 ± 0.81 | 83.51 / 65.16 / 56.88 / 51.85 | 129.39 |
+| + max | 67.45 ± 0.21 | 83.89 / 62.39 / 56.06 / 52.78 | 125.29 |
+| + seg4 | 67.77 ± 0.42 | 83.18 / 64.66 / 55.47 / 48.06 | 124.96 |
+| + layers | 66.78 ± 1.23 | 83.97 / 60.94 / 55.42 / 52.74 | 129.09 |
+| + attn(참고) | 63.16 ± 1.53 | 82.23 / 53.59 / 53.66 / 35.57 | 123.59 |
+
+- 클래스 1(AF) F1이 모든 형태에서 낮아졌다(muxlin −0.5 – −11.6 %p, Spikformer식 −2.3 – −9.0 %p). 클래스 0(정상)은 후보 3개에서 ±0.5 %p 안이다(attn은 −1.3 / −3.1 %p).
+- **채택(사전 기준):** CinC에서 G1 또는 G2가 better인 후보가 없다. 그래서 MIT-BIH 결과와 관계없이 채택 후보는 없다.
+  - MIT-BIH 단계는 사전등록대로 그대로 돌린다(약 0.5시간). 채택 표는 MIT-BIH 요약에서 나오며, 모두 'no'가 된다.
+- G3 '좋아짐'은 튜닝 비교(muxlin vs Spikformer식, +2.16 %p)와 같은 방향이다. 두 모델이 함께 낮아졌고 muxlin이 덜 낮아지거나 비슷하게 낮아졌다.
+
+### 사후 관찰(보고만, 사전등록 아님; `posthoc_cinc.txt`, 같은 run의 `log/best_log_0.csv`·RESULT·`model_state/best+model.pt`)
+- **best epoch 선택 때문이 아니다.** 마지막 epoch 가중치의 test CinC 점수(`last_score`)도 24쌍(4형태 × 2모델 × 3 seed) 모두 대조보다 낮다.
+  - 평균 차이: muxlin max −1.14, seg4 −1.30, layers −2.71, attn −4.91 %p; Spikformer식 max −1.63, seg4 −1.11, layers −1.48, attn −6.27 %p.
+  - 대조 run 6개를 4형태가 함께 쓰므로, 24쌍은 서로 독립인 24번의 비교가 아니다.
+- **학습 손실은 H1처럼 한 방향이 아니다.** 마지막 epoch(29) 학습 손실이 대조보다 낮은 seed 수:
+
+| 형태 | muxlin | Spikformer식 |
+|---|---|---|
+| max | 0/3(높음) | 3/3 |
+| seg4 | 3/3 | 3/3 |
+| layers | 2/3 | 0/3(0.001–0.006 높음) |
+| attn | 0/3(0.170–0.178 vs 0.132–0.141) | 0/3(0.205–0.207 vs 0.183–0.191) |
+
+  - 첫 epoch 학습 손실은 24쌍 모두 낮다. 특히 max(muxlin 1.25–1.26 vs 1.34–1.37, Spikformer식 1.26–1.27 vs 1.37–1.38)와 seg4가 많이 낮다. 새 경로는 학습 초반을 빠르게 한다.
+  - 그래서 "학습은 더 맞추고 일반화는 낮다"(H1)로 모든 형태를 설명할 수는 없다. seg4는 그 설명에 맞는다. attn은 학습도 덜 맞추고 test도 낮다.
+- **최고 검증 점수와 test가 엇갈린 경우가 있다.**
+  - muxlin+max: 최고 검증 점수 평균 +0.36 %p(3 seed 중 2개 높음)인데 test는 3/3 낮다.
+  - muxlin+layers: 검증 +0.21 %p(2/3 낮음), test 3/3 낮음.
+  - 나머지는 검증도 대체로 낮다(seg4 −0.72 / −0.42, Spikformer식 max −2.02, layers −1.02, attn −3.91 / −5.94 %p).
+  - 주의: 대조 run은 튜닝에서 검증 점수가 가장 높아 골라진 설정의 run 자체다. muxlin lr 단계에서는 4개 중 최고(seed 평균 72.46)였다. 그래서 검증 비교는 대조에 유리하게 기울어 있다. test는 선택에 쓰이지 않았지만, 검증과 함께 움직이는 만큼 영향을 받을 수 있다.
+- **몸통 발화가 줄었다**(H1과 같은 방향). Neo-mixer 밖 뉴런의 평균 발화율(`rho_hippo`, seed 평균):
+  - muxlin 0.0947 → max 0.0864, seg4 0.0751, layers 0.0949, attn 0.0627
+  - Spikformer식 0.1162 → max 0.1090, seg4 0.0836, layers 0.0988, attn 0.0602
+  - mixer 뉴런(`rho_neo`, muxlin) 0.0606 → 0.0536 – 0.0571(4형태 모두 낮음)
+  - 그래서 에너지가 0.83–1.00배로 줄었다. 새 항 자체는 0.11 µJ 이하다(seg4 24.6K MAC).
+- **새 항을 얼마나 썼는가**(best 가중치의 Frobenius norm, 가중치 크기; 대조 head는 muxlin 5.75–5.84, Spikformer식 11.89–12.00):
+  - seg4: 새 항이 지금 head보다 커졌다(muxlin 4.64–4.65 vs head 2.87–2.89, Spikformer식 11.11–11.16 vs 6.11–6.12). 읽기의 대부분이 구간 평균 쪽으로 옮겨갔다.
+  - layers: muxlin 2.84–2.94 vs head 5.21–5.32, Spikformer식 7.76–7.90 vs 9.69–9.76.
+  - max: muxlin에서는 거의 안 썼다(0.28–0.29 vs head 5.88–6.02). Spikformer식은 2.49–2.58 vs 8.23–8.41.
+  - attn: q 1.04–1.11(muxlin), 2.88–3.00(Spikformer식). head는 2.76–2.85 / 5.84–6.07로 줄었다.
+- **읽는 방법:**
+  - CinC fold 0에서 지금 head 위에 무엇을 더해도(정보량이 많은 seg4·layers, 0/1인 max, 실수 attn) 두 모델의 test가 낮아졌다. 'head 입력 형태를 바꾸면 CinC 성능이 나아진다'는 가설은 이 세 형태에서 뒷받침되지 않는다.
+  - muxlin+max는 새 가중치가 head의 약 5 %인데도 test가 3/3 낮다(−1.07 %p). 새 항이 거의 쓰이지 않아도 학습 경로가 바뀌면 이 정도는 움직일 수 있다는 뜻일 수 있다. 다만 '효과 없는 변경이 test를 얼마나 흔드는가'는 재지 않았다. 그래서 형태별 차이의 크기(−0.75 vs −1.74 등)를 서로 비교하는 데는 쓰지 않는다.
+  - 대조 설정이 지금 head로 튜닝된 점(한계에 미리 적음)이 '무엇을 더해도 낮아지는' 결과의 한 원인일 수 있다. 형태별로 lr을 다시 고르면 달라지는지는 재지 않았다.
+  - AF F1이 가장 많이 떨어진 이유는 확인하지 않았다.
+
+### 점검
+- 완결성: RESULT 24, SKIP 0, 모든 run rc 0, 모든 지표·에너지 유한(요약기 incomplete 없음).
+- `posthoc_hp.py`는 run마다 epoch 30줄을 요구하고, 형태·모델마다 seed 3개가 모두 있어야 결과를 쓴다(빠지면 멈춤). 30 run 모두 통과했다.
+- 점검 p0–p3·smoke는 20:45 기록(사전등록) 그대로다.
+
+### 한계
+- CinC fold 0, seed 3개. 판정은 탐색 수준이다.
+- 튜닝 설정은 지금 head로 골랐고, 형태별 재튜닝은 없다.
+- 0 초기화 추가 항이라는 한 가지 설계다.
+
+### 다음
+- 드라이버가 MIT-BIH 단계(24 run)를 22:50:30에 시작했다. 끝나면 `energy_recount_mitbih.py`와 `summarize_hp.py --task mitbih`(채택 표 포함)가 이어서 돈다.
+
+**commit:** `results/flif-v1-headpool-cinc/{raw.txt,pool_log.txt}`, `results/flif-v1-headpool/{summary_cinc.md,posthoc_cinc.txt}`, `posthoc_hp.py`, 이 기록.
