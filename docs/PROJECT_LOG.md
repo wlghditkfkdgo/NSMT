@@ -10355,3 +10355,89 @@ run별 macro-F1(seed 42 / 7 / 2026): muxlin 92.12 / 92.02 / 91.56, sdlin 92.07 /
 - 드라이버가 AD(MSL·SMAP·PSM, 18 run)를 18:02:56에 시작했다. 끝나면 결과 기록 후 태그를 단다.
 
 **commit:** `results/flif-v1-headmem-mitbih/{raw.txt,pool_log.txt,energy_recount.csv}`, `results/flif-v1-headmem/summary_mitbih.md`, 이 기록.
+
+## 2026-11-03 18:50 KST — H1 AD 결과(MSL·SMAP·PSM, 18 run, SKIP 0) + H1 실험 완료: AD G1·G2·G3 모두 '차이 없음'(R +0.87 / +0.22 / +1.70 %); 사후 관찰: H1은 검증 재구성 MSE를 18쌍 모두 낮췄는데(Spikformer식 MSL 약 절반) AUC-PR은 그대로 → 11-03 결론(AD 병목은 head가 아님) 재확인; 네 과제 종합: H1이 좋아진 과제 없음(CinC·ETT에서 muxlin 나빠짐), 'head가 일반화에 쓸 정보를 잃는다'는 가설은 H1 방식으로는 뒷받침되지 않음
+
+**직전 commit:** `24fe6af3e`(H1 MIT-BIH 결과). 브랜치 `exp/f-lif-pop-v3`.
+
+### 실행
+- `hm_driver.sh` 단계 hm_ad: 18:02:56 시작, 18 run 모두 `DONE(rc=0)`(18:09:55–18:45:24), run 시간 197–2,548 s.
+  - 18:45:26 "pool done: ad (RESULT 18, SKIP 0)" → `summarize_hm.py --task ad` → 18:45:27 "driver end".
+- run commit: 8개 `2bddd98e2`, 10개 `24fe6af3e`. `4be7ceb08` 이후 바뀐 파일은 `docs/PROJECT_LOG.md`와 `results/`뿐이다(`git diff --name-only 4be7ceb08 HEAD`). 코드는 같다.
+- 모든 run `energy_check=ok`. `mem_MAC`은 MSL 352,000(6 run), SMAP·PSM 160,000(12 run)으로 사전등록 값과 같다.
+- 산출물: `results/flif-v1-headmem-ad/{raw.txt,pool_log.txt}`, `results/flif-v1-headmem/summary_ad.md`(Git). checkpoint는 `log/flif-v1-headmem-ad/`(로컬).
+- 대조: `summarize_ad_tune.seeds(…, holdout 0)`. 튜닝 최종 run(학습 파일 전체, TSLib)이다.
+
+### 결과(사전등록 판정, `summary_ad.md` 그대로; test AUC-PR, r = 100 (A − B) / B)
+| 비교 | R (AUC-PR, %) | 높아진 쌍 | 판정 | 에너지 A/B | 기준 (2) |
+|---|---:|---|---|---:|---|
+| G1 muxlin+H1 vs muxlin | +0.87 | 5/9 | no clear difference(차이 없음) | 1.08 | |
+| G2 Spikformer식+H1 vs Spikformer식 | +0.22 | 5/9 | no clear difference(차이 없음) | 1.09 | |
+| G3 muxlin+H1 vs Spikformer식+H1 | +1.70 | 7/9 | no clear difference(차이 없음) | 1.03 | 미충족 |
+
+| 비교 | 데이터별 평균 r(seed 42, 7, 2026) |
+|---|---|
+| G1 | MSL +0.37(−1.48, +0.98, +1.60) ; SMAP +2.78(+0.44, +1.66, +6.25) ; PSM −0.54(−0.51, −0.46, −0.64) |
+| G2 | MSL +0.51(+0.49, +0.77, +0.29) ; SMAP +0.64(−0.31, +0.02, +2.20) ; PSM −0.49(−0.30, −0.34, −0.83) |
+| G3 | MSL +1.27(+0.93, +1.16, +1.70) ; SMAP +4.08(+2.79, +3.82, +5.61) ; PSM −0.25(−0.45, −0.35, +0.06) |
+
+- 보고만: G1 변화 − G2 변화(쌍별) 평균 +0.65 %.
+
+| 조건 | MSL AUC-PR % | SMAP AUC-PR % | PSM AUC-PR % | 에너지 µJ(MSL / SMAP / PSM) |
+|---|---:|---:|---:|---|
+| Spikformer식 | 14.46 ± 0.06 | 11.59 ± 0.05 | 38.76 ± 0.04 | 14.50 / 7.18 / 7.79 |
+| Spikformer식 + H1 | 14.54 ± 0.04 | 11.66 ± 0.16 | 38.57 ± 0.06 | 15.97 / 7.80 / 8.33 |
+| muxlin | 14.67 ± 0.14 | 11.81 ± 0.04 | 38.69 ± 0.06 | 14.64 / 7.06 / 8.66 |
+| muxlin + H1 | 14.72 ± 0.08 | 12.14 ± 0.30 | 38.48 ± 0.03 | 16.03 / 7.72 / 9.23 |
+
+- 학습 없는 참고 점수(10:00 기록, `posthoc_trivial_baselines.md`)와 비교한다.
+  - MSL: 창 평균 점수 14.96이 H1 포함 모든 모델보다 높다.
+  - SMAP: 무작위 12.79가 H1 포함 모든 모델보다 높다.
+  - PSM: 학습 평균과의 거리 47.26이 모든 모델보다 높다.
+  - H1은 이 관계를 바꾸지 않았다.
+- point-adjusted F1(이상 구간 안에서 한 점이라도 잡으면 그 구간 전체를 맞춘 것으로 치는 F1)은 seed 사이 흔들림이 크다(MSL Spikformer식 + H1 55.69 ± 11.25). 10:00 기록대로 무작위 점수가 가장 높게 나오는 지표라 판단에 쓰지 않는다.
+
+### 사후 관찰(보고만, 사전등록 아님; RESULT에서 읽음)
+- **H1은 재구성을 더 잘하게 했지만 이상 탐지는 그대로다.** 검증 재구성 MSE(`val_mse_best`)가 18쌍 모두 H1 쪽이 낮다.
+  - Spikformer식 MSL 0.0423 / 0.0432 / 0.0416 → 0.0219 / 0.0225 / 0.0218(약 절반)
+  - Spikformer식 SMAP 0.0181 / 0.0189 / 0.0182 → 0.0106 / 0.0100 / 0.0097
+  - muxlin MSL 0.0208 / 0.0199 / 0.0204 → 0.0156 / 0.0161 / 0.0147
+  - muxlin SMAP 0.0094 / 0.0095 / 0.0093 → 0.0069 / 0.0066 / 0.0066
+  - PSM 두 모델은 3–10 % 낮아졌다.
+  - 그런데 AUC-PR 변화는 −0.8 – +6 %이고 판정은 모두 '차이 없음'이다.
+  - 11-03 10:40 기록("AD 병목은 head가 아니라 재구성 점수와 창 정규화")과 맞는다. 재구성 오차를 크게 줄여도 이상 탐지가 따라오지 않는다.
+- **몸통 발화가 줄었다**(`rho_hippo`, 18쌍 모두). 예: muxlin MSL 0.113 / 0.095 / 0.119 → 0.025 / 0.029 / 0.026, Spikformer식 SMAP 0.081 / 0.079 / 0.088 → 0.040 / 0.035 / 0.039. 그래도 막전위 Linear MAC(0.74–1.62 µJ) 때문에 전체 에너지는 1.03–1.09배다.
+- 10 epoch 중 best epoch가 대부분 마지막(9, 0부터 셈)인 것은 H1 유무와 상관없이 같다(튜닝 기록의 한계 그대로).
+
+### H1 실험 종합(사전등록 판정)
+| 과제 | G1 muxlin+H1 vs muxlin | G2 Spikformer식+H1 vs Spikformer식 | G3 muxlin+H1 vs Spikformer식+H1 |
+|---|---|---|---|
+| CinC fold 0 | 나빠짐 −1.33%p | 나빠짐 −0.63%p(경계) | 좋아짐 +1.46%p(기준 (2) 충족) |
+| ETTh2-96·ETTm2-96 | 나빠짐 R +2.81 % | 차이 없음 R +0.63 % | 나빠짐 R +3.25 %(미충족) |
+| MIT-BIH | 차이 없음 +0.01%p | 차이 없음 −0.26%p | 차이 없음 +0.47%p(미충족) |
+| AD MSL·SMAP·PSM | 차이 없음 R +0.87 % | 차이 없음 R +0.22 % | 차이 없음 R +1.70 %(미충족) |
+
+- **결론:** H1(마지막 뉴런 층의 막전위를 head가 함께 읽음)은 네 과제 어디에서도 좋아지지 않았다. CinC와 ETT에서는 muxlin을 나빠지게 했다.
+- CinC G3 '좋아짐'은 H1 효과가 아니다. H1 없는 튜닝 비교(+2.16%p)에서 남은 차이다.
+- 사후 관찰을 모으면 같은 모양이 반복된다. H1은 학습 목표(분류 손실, 재구성 MSE)를 더 잘 맞추게 하지만 검증·test 성능으로는 이어지지 않는다.
+  - CinC: 학습 손실 6/6 낮음, test 마지막 epoch 6/6 낮음.
+  - ETT: 검증 손실 12/12 높음.
+  - MIT-BIH Spikformer식: 학습 손실 3/3 낮음, test 3/3 낮음.
+  - AD: 재구성 MSE 18/18 낮음, AUC-PR 변화 없음.
+- **사용자 질문("head가 학습한 정보를 잃는 것 같다")에 대한 답:**
+  - 마지막 층 막전위라는 형태로 head에 정보를 더 주는 것은 downstream 성능을 올리지 않았다.
+  - 이 결과는 "head가 일반화에 필요한 정보를 잃는다"는 가설을 뒷받침하지 않는다.
+  - 다만 다른 형태의 정보 손실까지 배제하지는 않는다. 여러 층 읽기(H4), token 순서를 지키는 pooling(H2), 그리고 H1에 맞춘 정규화·재튜닝은 재지 않았다.
+- 탐색 수준이다. seed 3개, CinC는 fold 0, ETT는 H96 두 칸이고, 튜닝 설정은 H1 없이 골랐다.
+
+### 점검
+- 네 단계 모두 RESULT 수 = 예정(6 / 12 / 6 / 18), SKIP 0, rc 0.
+- ETT·MIT-BIH 에너지 재계산 모든 점검 통과, AD `energy_check` 18/18 ok.
+- 요약기 incomplete 없음.
+
+### 한계(사전등록 그대로 + 결과에서)
+- 막전위 읽기는 마지막 한 층의 실수값을 내보낸다('모든 통신이 스파이크' 조건이 깨짐).
+- 0 초기화, H1 없이 고른 lr·weight decay.
+- 몸통 발화가 왜 줄었는지는 확인하지 않았다(세 과제 Spikformer식, AD 두 모델에서 뚜렷함).
+
+**commit / 태그:** `results/flif-v1-headmem-ad/{raw.txt,pool_log.txt}`, `results/flif-v1-headmem/summary_ad.md`, 이 기록. 이 commit에 annotated 태그 `exp/f-lif-pop-v3-headmem-20261103`(H1 실험 완료, 42 run)을 단다. 이 기록은 태그로 자기 commit을 가리킨다.
