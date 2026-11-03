@@ -101,6 +101,23 @@ def main():
     L += block('## C order-free share = Neocortex-shuffled − memoryless', [(f'C {n}', f'shf_{n}', f'nom_{n}') for n in ('pop_lif', 'pop_flif')])
     L += block('## report: − Spikformer-style @30', [(f'{names[k]} {n} − Spikformer-style @30', f'{k}_{n}', 'spk30')
                                                       for n in ('pop_lif', 'pop_flif') for k in ('shf', 'nom')])
+    # MODI 2026-11-03: report-only block added after the results (not pre-registered; the sections above are unchanged)
+    cls = ['macro_f1', 'f1_0', 'f1_1', 'f1_2', 'f1_3']
+    def cell(tag, k):
+        v = [T.get(tag, f, s) for f in FOLDS for s in SEEDS]
+        v = [x.get(k) for x in v if x is not None]
+        return float(np.mean(v)) if len(v) == 15 and all(fin(z) for z in v) else None
+    L += ['', '## report only (added after the results): per-class test F1 (%) and firing rates, 5-fold × 3-seed means', '',
+          'CinC score = mean F1 of N / AF / Other (Noisy excluded); macro-F1 includes Noisy. rho = mean firing rate.', '',
+          '| model | macro-F1 | F1 N | F1 AF | F1 Other | F1 Noisy | rho_neo | rho_hippo |', '|---|---|---|---|---|---|---|---|']
+    for tag, name in tags:
+        c = [cell(tag, k) for k in cls] + [cell(tag, 'rho_neo'), cell(tag, 'rho_hippo')]
+        L.append(f'| {name} | ' + ' | '.join('—' if z is None else (f'{100 * z:.2f}' if i < 5 else f'{z:.4f}') for i, z in enumerate(c)) + ' |')
+    L += ['', '| difference (%p, 15-pair mean) | macro-F1 | F1 N | F1 AF | F1 Other | F1 Noisy |', '|---|---|---|---|---|---|']
+    for q, a, b in [(f'{q} {n}', f'{x}_{n}', f'{y}_{n}') for n in ('pop_lif', 'pop_flif')
+                    for q, x, y in (('A', 'ord', 'nom'), ('B', 'ord', 'shf'), ('C', 'shf', 'nom'))]:
+        c = [cell(a, k) for k in cls], [cell(b, k) for k in cls]
+        L.append(f'| {q} | ' + ' | '.join('—' if x is None or y is None else f'{100 * (x - y):+.2f}' for x, y in zip(*c)) + ' |')
     out = os.path.join(HERE, 'results', 'flif-v1-order-summary.md')
     open(out, 'w').write('\n'.join(L) + '\n'); print('\n'.join(L))
 

@@ -5473,3 +5473,168 @@ energy(µJ)는 lr에 따라 거의 변하지 않는다. query population LIF는 
 **commit:** 이 항목, 코드, 점검·smoke 결과를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 pool을 시작한다.
 
 ---
+
+## 2026-11-03 08:57 KST — memory·순서 묶음 결과 (54 run) — **query 형태 population의 T = N memory 몫은 다섯 fold에서 유지된다(population LIF +2.40 %p, f-LIF +1.37 %p, 둘 다 좋음). 그 대부분은 Neocortex가 token을 시간 순서대로 처리한 몫이다(순서 몫 +1.65 / +1.25 %p, 둘 다 좋음, 계산량 같음). 순서 없는 누적 몫은 작다(+0.74 좋음·경계 / +0.12 차이 없음). 사전 예상("순서 몫 차이 없음, 요약 덕분")은 틀렸다. 보고 전용: 순서 몫은 주로 AF F1에서 나오고 Noisy F1은 떨어진다. memoryless 대조는 population Neocortex가 거의 발화하지 않아(0.1 % / 0.7 %) memory만 없앤 대조가 아니다**
+
+**직전 commit:** `b3461104a` (사전 고정 + 구현, 2026-11-02 13:54 항목).
+
+**목적:** 사전 고정 항목의 질문 그대로다. query 형태 population neuron의 T = N memory 몫이 다섯 fold에서도 유지되는가? 유지된다면 "앞 token들의 시간 순서"에서 오는가, "여러 token을 쌓은 요약"에서 오는가?
+
+**branch / 기준:** `exp/nsmt-flif-neo`, 코드 기준 commit `b3461104a`(54 run 모두 이 sha). 순서대로 run(fold 0: 10-30–10-31, fold 1–4: 10-31–11-01)과 memoryless fold 0(10-31)은 기존 run이다(run 폴더 날짜). 기존 경로가 비트 단위로 같음은 사전 고정 때 확인했다(13개 항목).
+
+**코드 변경 (결과를 본 뒤):** `summarize_order.py` 끝에 **보고 전용** 블록(부류별 F1, 발화율)을 덧붙였다. 사전 고정 출력은 바뀌지 않았다. 덧붙이기 전 출력과 diff 하면 추가된 줄만 나온다. 모델·학습 코드는 바꾸지 않았다.
+
+**데이터:** PhysioNet/CinC 2017 단일 유도 ECG 4부류(N, AF, Other, Noisy). 기존 5-fold 분할 fold 0–4, crop 없음. 선택은 validation score(best-validation 가중치), 판정은 test CinC score다. CinC score는 N·AF·Other F1의 평균이고 Noisy는 뺀다.
+
+**환경:** `snn_recall` conda env, GPU 4개 8칸. 다른 대화(wt-flif-pop-v3)의 작업과 GPU를 나눠 썼다.
+
+**명령:**
+- NSMT/에서 tmux `flif_order`: `bash scripts/gpu_pool2.sh nsmt_flif_v1/classification/scripts/queues/order-20261102.txt 0,1,2,3,0,1,2,3`
+- 대기열 한 줄: `COND=<조건> FOLD=<f> DATA=CINC2017 SUITE=flif-v1-rhythm-order-cinc LR=0.001 EPOCHS=90 bash nsmt_flif_v1/classification/scripts/run_rhythm_addneo.sh <seed>`
+- 요약: `nsmt_flif_v1/classification/`에서 `LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib /home/yschoi/.conda/envs/snn_recall/bin/python summarize_order.py`
+
+**seed / hyperparameter:** seed 42 / 7 / 2026. 90 epoch, lr 1e-3, D 384, 8 head, patch 64, keep_ratio 0.15, Neocortex 2 layer, MLP ratio 1.0, T_h 4, 보조 손실 0, `--neo_grad 1.0`, soma 가중치 초기값 0.5(LIF) / 1(f-LIF), f-LIF α 0.5.
+
+**실행 점검:**
+- pool은 11-02 13:54:11에 처음 START했고 11-03 08:51:55에 마지막으로 DONE했다. DONE 54개, SKIP 0개다. `gpu_pool2.sh`는 늘 rc=0을 쓰므로 SKIP 줄로 확인했다.
+- `raw.txt`에 RESULT가 54줄 있고, 모두 sha `b3461104a`다. (조건, fold, seed) 중복이 없고, 조건·fold마다 seed가 3개다.
+- 54개 폴더 모두 `log/final+result.csv`, `log/best_log_0.csv`, `logargs.txt`, `model_state/{best+model.pt,config.pt}`가 있다.
+- `logargs.txt` 값:
+  - 섞기 30 run: `neo_shuffle` True, `neo_memoryless` False
+  - memoryless 24 run: `neo_shuffle` False, `neo_memoryless` True
+- 실측 run 시간은 섞기가 13,314–23,128 s, memoryless가 1,437–2,358 s다.
+  - GPU를 나눠 쓴 정도가 run마다 달랐다. 순서대로 run도 fold 0은 10,379–32,374 s, fold 1–4는 9,829–11,323 s였다.
+  - 그래서 섞기가 본래 느리다는 뜻으로 읽지 않는다.
+- 감시 작업은 08:52:38에 끝을 알렸고, 이 항목은 08:57에 쓴다. 늦게 기록한 것은 없다.
+- pool 기록은 `log/order-pool.log`를 `results/flif-v1-rhythm-order-cinc/pool_runs.txt`로 복사했다.
+
+**결과 (사전 고정 판정; `results/flif-v1-order-summary.md`; test CinC score %, seed 3개 평균):**
+
+| 모델 | fold 0 | fold 1 | fold 2 | fold 3 | fold 4 | 5-fold 평균 | energy µJ |
+|---|---|---|---|---|---|---|---|
+| Spikformer식 @30 | 65.60 | 66.30 | 65.89 | 64.44 | 66.46 | 65.74 | 126.8 |
+| query pop LIF 순서대로 | 66.60 | 67.81 | 66.84 | 68.30 | 69.09 | 67.73 | 158.0 |
+| query pop LIF memoryless | 65.22 | 65.42 | 64.63 | 65.29 | 66.08 | 65.33 | 148.8 |
+| query pop LIF Neocortex만 섞기 | 66.18 | 66.55 | 65.37 | 65.72 | 66.53 | 66.07 | 158.7 |
+| query pop f-LIF 순서대로 | 66.47 | 68.91 | 65.78 | 67.95 | 68.77 | 67.58 | 179.7 |
+| query pop f-LIF memoryless | 65.28 | 65.99 | 64.96 | 66.63 | 68.16 | 66.20 | 150.2 |
+| query pop f-LIF Neocortex만 섞기 | 65.97 | 66.83 | 65.43 | 66.76 | 66.62 | 66.32 | 178.1 |
+
+| 비교 (15쌍) | 평균 (%p) | 95 % t 구간 | 앞선 쌍 | 판정 | fold별 (평균, 판정) | energy 비 |
+|---|---|---|---|---|---|---|
+| **A** memory 몫 pop LIF (순서대로 − memoryless) | **+2.40** | [+1.48, +3.32] | 14/15 | **좋음** | f0 +1.38 좋음; f1 +2.39 좋음; f2 +2.21 좋음; f3 +3.01 좋음; f4 +3.00 좋음 | 1.06 |
+| **A** memory 몫 pop f-LIF | **+1.37** | [+0.59, +2.16] | 12/15 | **좋음** | f0 +1.19 좋음; f1 +2.93 좋음; f2 +0.82 차이 없음; f3 +1.32 좋음; f4 +0.61 좋음 | 1.20 |
+| **B** 순서 몫 pop LIF (순서대로 − 섞기) | **+1.65** | [+0.64, +2.67] | 11/15 | **좋음** | f0 +0.42 차이 없음; f1 +1.26 좋음; f2 +1.47 좋음; f3 +2.58 좋음; f4 +2.55 좋음 | 1.00 |
+| **B** 순서 몫 pop f-LIF | **+1.25** | [+0.58, +1.93] | 12/15 | **좋음** | f0 +0.50 차이 없음; f1 +2.08 좋음; f2 +0.35 차이 없음; f3 +1.19 좋음; f4 +2.15 좋음 | 1.01 |
+| C 순서 없는 누적 몫 pop LIF (섞기 − memoryless) | +0.74 | [−0.07, +1.56] | 10/15 | 좋음 | f0 +0.96 좋음; f1 +1.13 좋음; f2 +0.74 좋음; f3 +0.43 차이 없음; f4 +0.45 차이 없음 | 1.07 |
+| C 순서 없는 누적 몫 pop f-LIF | +0.12 | [−0.76, +1.01] | 8/15 | 차이 없음 | f0 +0.69 좋음; f1 +0.85 좋음; f2 +0.47 차이 없음; f3 +0.14 차이 없음; f4 −1.54 나쁨 | 1.19 |
+
+- 같은 쌍끼리의 차이이므로 A = B + C가 성립한다: 2.40 ≈ 1.65 + 0.74, 1.37 = 1.25 + 0.12(반올림).
+- population LIF의 C "좋음"은 경계에 있다.
+  - 평균 +0.74 %p로, 정확히 10/15쌍이다.
+  - 95 % 구간 [−0.07, +1.56]이 0을 포함한다.
+  - fold별로 좋음은 3/5다.
+
+**읽는 법 표에 대기 (사전 고정):**
+- population LIF: A 좋음 · B 좋음 · C 좋음(경계) → 셋째 줄 "둘 다 기여한다". 다만 크기는 순서 몫이 누적 몫의 두 배 남짓이다.
+- population f-LIF: A 좋음 · B 좋음 · C 차이 없음 → 첫째 줄 "memory 몫은 시간 순서(과거의 흐름) 덕분이다".
+
+**사전 예상과 비교:**
+
+| | 예상 | 결과 |
+|---|---|---|
+| A | 둘 다 좋음, +0.8 ~ +1.5 %p | 둘 다 좋음. LIF +2.40은 범위보다 크고, f-LIF +1.37은 범위 안 |
+| B | 차이 없음 (−0.5 ~ +0.7 %p) | **둘 다 좋음 (+1.65 / +1.25) — 틀림** |
+| C | A와 비슷한 크기로 좋음 | LIF +0.74 좋음(경계), f-LIF +0.12 차이 없음 — 틀림 |
+| 해석 | 둘째 줄("요약" 덕분) | LIF 셋째 줄, f-LIF 첫째 줄 — 틀림 |
+
+- 예상의 근거 둘 가운데 첫째는 "Spikformer식은 순서를 섞어 학습해도 같은 점수(10-29, −0.06 %p)"였다.
+  - 이 사실은 Hippocampus attention이 순서를 쓰지 않는다는 뜻이었다. Neocortex도 쓰지 못한다는 뜻은 아니었다.
+- 둘째 근거는 "query 형태에서는 Hippocampus attention이 이미 순서를 본다"였다.
+  - Hippocampus는 상대 위치 보정으로 거리를 보기는 한다. 하지만 Neocortex가 나르는 순서 정보를 대신하지 못했다.
+- fold 0만 보면 B는 두 neuron 모두 "차이 없음"이었다(+0.42 / +0.50).
+  - 11-02 중간 확인(fold 0, 15쌍 가운데 3쌍)이 예상과 같은 방향으로 보인 이유다.
+  - B가 커진 것은 fold 1–4에서였다. 다섯 fold로 하기로 한 사전 결정이 결론을 바꿨다.
+
+**보고 (사전 고정 보고 항목): 섞기·memoryless − Spikformer식 @30 (15쌍)**
+
+| 비교 | 평균 (%p) | 95 % t 구간 | 앞선 쌍 | 판정 | energy 비 |
+|---|---|---|---|---|---|
+| 섞기 pop LIF − Spikformer식 | +0.33 | [−0.51, +1.17] | 10/15 | 차이 없음 | 1.25 |
+| memoryless pop LIF − Spikformer식 | −0.41 | [−0.90, +0.08] | 4/15 | 차이 없음 | 1.17 |
+| 섞기 pop f-LIF − Spikformer식 | +0.58 | [−0.29, +1.46] | 10/15 | 좋음 (구간이 0 포함) | 1.40 |
+| memoryless pop f-LIF − Spikformer식 | +0.46 | [−0.42, +1.35] | 8/15 | 차이 없음 | 1.18 |
+
+- 10-31·11-01에는 query population이 Spikformer식보다 좋았다(+1.99 / +1.84 %p). Neocortex의 순서를 없애면 이 이득은 대부분 사라진다(+0.33 / +0.58).
+
+**보고 전용 (결과를 본 뒤 추가, 사전 고정 아님; 같은 파일 끝 블록):**
+
+| 차이 (%p, 15쌍 평균) | macro-F1 | F1 N | F1 AF | F1 Other | F1 Noisy |
+|---|---|---|---|---|---|
+| A pop LIF | +0.12 | −0.22 | +5.68 | +1.73 | −6.70 |
+| B pop LIF | +0.67 | −0.24 | +4.63 | +0.58 | −2.29 |
+| C pop LIF | −0.54 | +0.01 | +1.06 | +1.16 | −4.41 |
+| A pop f-LIF | +0.60 | −0.38 | +3.00 | +1.50 | −1.73 |
+| B pop f-LIF | +0.55 | −0.16 | +3.23 | +0.69 | −1.57 |
+| C pop f-LIF | +0.05 | −0.22 | −0.23 | +0.81 | −0.16 |
+
+- **순서 몫은 주로 AF F1이다**(+4.63 / +3.23 %p). Other F1은 +0.58 / +0.69 %p, N은 −0.24 / −0.16 %p다.
+- **Noisy F1은 순서대로 쪽이 낮다**(B −2.29 / −1.57, A −6.70 / −1.73).
+  - Noisy를 포함한 macro-F1로 보면 B는 +0.67 / +0.55, A는 +0.12 / +0.60이다.
+  - population LIF의 memory 몫은 CinC score로는 +2.40 %p인데, macro-F1로는 거의 없다. memoryless population LIF의 Noisy F1(52.97)이 일곱 모델 가운데 가장 높아서다.
+- **Neocortex 발화율** (평균, `rho_neo`):
+
+  | 대조 | pop LIF | pop f-LIF |
+  |---|---|---|
+  | 순서대로 | 0.0629 | 0.0644 |
+  | 섞기 | 0.0767 | 0.0607 |
+  | memoryless | 0.0011 | 0.0074 |
+
+  - **memoryless population Neocortex는 거의 발화하지 않는다.**
+    - 비교하면 LIF memoryless(fold 0, 10-31 학습)는 0.0373이다.
+    - population neuron은 정지 상태에서 한 step만 받으면, member(τ 4–32)와 soma(τ 2)를 거치며 입력이 줄어 문턱에 거의 닿지 않는 것으로 보인다(판단, 미확인).
+    - 그래서 population의 memoryless 대조는 "memory만 없앤 Neocortex"가 아니라 "query가 거의 0인 Neocortex"에 가깝다.
+    - 10-31·11-01의 "population memory 몫 +1.38 / +1.19"와 이번 A·C에도 같은 문제가 있다.
+  - **B는 이 문제가 없다.** 두 모델은 발화율이 비슷하고(0.063 대 0.077, 0.064 대 0.061) 계산량이 같다(energy 비 1.00 / 1.01). 담긴 token 수도 같다. 그래서 이번 묶음에서 가장 깨끗한 결론은 순서 몫이다.
+
+**정정 — 11-02 조사 보고서와 그 요약에서 내가 한 말:** `NSMT/reports/NSMT query 구조 개선 제안.md`(commit하지 않음)와 사용자에게 보낸 요약에서 이 결과로 틀린 것은 다음과 같다.
+1. "우리 이득(+1.99 / +1.84 %p)은 population neuron의 순서 없는 누적에서 온다." → 틀렸다. 대부분 순서 몫이다(B +1.65 / +1.25, C +0.74 / +0.12).
+2. "지금 구조에서는 Neocortex를 어떻게 바꿔도 순서를 쓸 자리가 거의 없다. 실험 이전에 계산식이 정한다." → 틀렸다.
+   - Neocortex 출력 q_i는 residual에서 token i의 gate로 들어간다. 이 통로로 순서가 쓰인다.
+   - 보고서도 이 통로를 적어 두었지만, 쓰이지 않을 것이라고 판단했다.
+3. "+2 %p를 memory·순서의 증거로 쓰면 안 된다. '다중 시간상수 neuron이 만든 더 좋은 token별 gate'로 설명해야 한다." → 순서의 증거로는 쓸 수 있다(B).
+   - 다만 memory 몫(A)은 위의 memoryless 발화 문제를 안는다.
+   - 이것이 "gate 형태의 순서 사용"이라는 점은 여전히 맞다.
+4. 보고서의 판단 "AF 단서는 기록 전체의 분포, 순서가 label을 바꾸는 곳은 Other 안쪽" → 결과와 반대다. 순서 몫은 주로 AF F1에서 나왔다.
+- 보고서의 추천 순서표 단계 0 행에는 이 결과에 맞는 갈래가 미리 적혀 있었다: "순서 몫 좋음 → 순서가 이미 쓰인다. 단계 4로 그 몫을 키운다."
+- 보고서 파일 맨 앞에 2026-11-03 정정 상자를 덧붙였다. 본문은 그대로 둔다.
+
+**한계:**
+- **B의 다른 설명:** 섞기 모델은 학습 때 표본마다 다른 순서를 본다.
+  - "순서 정보가 없음"과 "매번 다른 순서로 학습하는 어려움"을 이 설계로는 가를 수 없다.
+  - 순서대로 학습한 모델을 시험 때만 섞는 probe(보고서 P2, 학습 없음)가 이 둘을 가른다.
+- 시험 순서가 고정 순열 하나다.
+- memoryless 대조의 발화 문제(위)가 있다. A와 C는 "memory만 없앤 효과"로 읽을 수 없다.
+- 이득은 Noisy F1과 맞바꾼 몫을 포함한다. CinC score는 Noisy를 빼기 때문에 이 손해가 점수에 드러나지 않는다.
+- fold 0에서는 B가 차이 없음이었다. fold별 B는 +0.35 ~ +2.58 %p로 흔들린다.
+- token이 반씩 겹쳐서, 섞기 모델에도 token 안쪽의 짧은 순서는 남는다.
+- 순서대로 run과 memoryless fold 0은 다른 날, 다른 commit에서 학습됐다. 기본 경로가 비트 단위로 같음은 확인했다.
+- 과제는 CinC 하나다. MIT-BIH(무작위 분할)에서는 query population이 Spikformer식과 같았다(11-02).
+
+**결론:**
+- CinC의 query 형태에서 population neuron Neocortex는 token의 시간 순서를 쓴다.
+  - 계산량과 발화율이 같은 상태에서 순서를 섞으면 CinC score가 1.65 / 1.25 %p 떨어진다(15쌍 중 11·12쌍).
+  - 그 몫은 주로 AF 부류에서 나온다.
+- 10-31·11-01에 본 Spikformer식 대비 +2 %p 이득은 대부분 이 순서 몫이다.
+- "memory 몫"이라는 이름의 A는 population에서는 memoryless 대조가 거의 발화하지 않아, 순서 몫보다 약한 근거다.
+
+**다음 (사용자 결정 필요):** 학습 없이 할 수 있는 순서 probe(P2)와 energy 재계산(P1)이 B의 다른 설명을 가장 싸게 가른다. 이후 보고서 제안 가운데 무엇을 할지는 사용자 결정을 기다린다.
+
+**산출물:**
+- `nsmt_flif_v1/classification/results/flif-v1-rhythm-order-cinc/{raw.txt,pool_runs.txt}`
+- `nsmt_flif_v1/classification/results/flif-v1-order-summary.md`
+- run 폴더는 `nsmt_flif_v1/classification/log/flif-v1-rhythm-order-cinc/CINC2017/{261102,261103}/…`에 있다. checkpoint와 TensorBoard event는 로컬에만 둔다.
+
+**commit / tag:** 이 항목, 결과 파일, `summarize_order.py` 보고 블록을 commit한다. annotated tag `exp/nsmt-flif-neo-20261103-order`(완료된 학습 run 묶음)를 붙이고, `exp/nsmt-flif-neo`와 이 tag만 push 한다. 이 항목은 자기 commit을 tag로 가리킨다.
+
+---
