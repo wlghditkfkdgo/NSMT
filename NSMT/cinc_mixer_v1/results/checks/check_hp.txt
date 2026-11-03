@@ -1,0 +1,40 @@
+[p0] pass
+   reference rows 4, flag-off rows 4, same keys True
+   spk_ssa cinc_mixer_v1_mitbih_spkmux: 38 fields, differing none
+   spkmx_lif_muxlin_add cinc_mixer_v1_mitbih_spkmux: 38 fields, differing none
+   spk_lif_muxlin_or nsmt_flif_v1_rhythm: 46 fields, differing none
+   spk_ssa nsmt_flif_v1_rhythm: 46 fields, differing none
+   changed files vs HEAD: ['NSMT/cinc_mixer_v1/ad_wrap.py', 'NSMT/cinc_mixer_v1/config.py', 'NSMT/cinc_mixer_v1/forecast_wrap.py', 'NSMT/cinc_mixer_v1/load_model.py', 'NSMT/cinc_mixer_v1/scripts/run_mitbih_spk.sh', 'NSMT/cinc_mixer_v1/scripts/run_rhythm_spk_mux.sh']; outside the list: []
+[p1p2] pass
+   cinc: seg4 sizes [30, 29, 29, 29] cover all 117 tokens in order True
+   cinc/spkmix/max: p1 True (h (4, 4, 117, 384), mean e / x1 / h (0.0825, 0.0922, 0.1375)) p2 True (rng/weights True, out True, loss True, grads True) new pool_readout.weight (4, 384) True moves True
+   cinc/spkmix/seg4: p1 True (h (4, 4, 117, 384), mean e / x1 / h (0.0825, 0.0922, 0.1375)) p2 True (rng/weights True, out True, loss True, grads True) new pool_readout.weight (4, 1536) True moves True
+   cinc/spkmix/layers: p1 True (h (4, 4, 117, 384), mean e / x1 / h (0.0825, 0.0922, 0.1375)) p2 True (rng/weights True, out True, loss True, grads True) new pool_readout.weight (4, 768) True moves True
+   cinc/spkmix/attn: p1 True (h (4, 4, 117, 384), mean e / x1 / h (0.0825, 0.0922, 0.1375)) p2 True (rng/weights True, out True, loss True, grads True) new pool_q (384,) True moves True
+   cinc/ssa/max: p1 True (h (4, 4, 117, 384), mean e / x1 / h (0.0704, 0.0702, 0.0661)) p2 True (rng/weights True, out True, loss True, grads True) new pool_readout.weight (4, 384) True moves True
+   cinc/ssa/seg4: p1 True (h (4, 4, 117, 384), mean e / x1 / h (0.0704, 0.0702, 0.0661)) p2 True (rng/weights True, out True, loss True, grads True) new pool_readout.weight (4, 1536) True moves True
+   cinc/ssa/layers: p1 True (h (4, 4, 117, 384), mean e / x1 / h (0.0704, 0.0702, 0.0661)) p2 True (rng/weights True, out True, loss True, grads True) new pool_readout.weight (4, 768) True moves True
+   cinc/ssa/attn: p1 True (h (4, 4, 117, 384), mean e / x1 / h (0.0704, 0.0702, 0.0661)) p2 True (rng/weights True, out True, loss True, grads True) new pool_q (384,) True moves True
+   mitbih: seg4 sizes [3, 3, 3, 2] cover all 11 tokens in order True
+   mitbih/spkmix/max: p1 True (h (4, 4, 11, 384), mean e / x1 / h (0.0819, 0.0941, 0.1478)) p2 True (rng/weights True, out True, loss True, grads True) new pool_readout.weight (5, 384) True moves True
+   mitbih/spkmix/seg4: p1 True (h (4, 4, 11, 384), mean e / x1 / h (0.0819, 0.0941, 0.1478)) p2 True (rng/weights True, out True, loss True, grads True) new pool_readout.weight (5, 1536) True moves True
+   mitbih/spkmix/layers: p1 True (h (4, 4, 11, 384), mean e / x1 / h (0.0819, 0.0941, 0.1478)) p2 True (rng/weights True, out True, loss True, grads True) new pool_readout.weight (5, 768) True moves True
+   mitbih/spkmix/attn: p1 True (h (4, 4, 11, 384), mean e / x1 / h (0.0819, 0.0941, 0.1478)) p2 True (rng/weights True, out True, loss True, grads True) new pool_q (384,) True moves True
+   mitbih/ssa/max: p1 True (h (4, 4, 11, 384), mean e / x1 / h (0.07, 0.07, 0.064)) p2 True (rng/weights True, out True, loss True, grads True) new pool_readout.weight (5, 384) True moves True
+   mitbih/ssa/seg4: p1 True (h (4, 4, 11, 384), mean e / x1 / h (0.07, 0.07, 0.064)) p2 True (rng/weights True, out True, loss True, grads True) new pool_readout.weight (5, 1536) True moves True
+   mitbih/ssa/layers: p1 True (h (4, 4, 11, 384), mean e / x1 / h (0.07, 0.07, 0.064)) p2 True (rng/weights True, out True, loss True, grads True) new pool_readout.weight (5, 768) True moves True
+   mitbih/ssa/attn: p1 True (h (4, 4, 11, 384), mean e / x1 / h (0.07, 0.07, 0.064)) p2 True (rng/weights True, out True, loss True, grads True) new pool_q (384,) True moves True
+[p3] pass
+   CinC spk_lif_muxlin_or attn: no pool_readout line True (dot products / softmax not counted)
+   CinC spk_lif_muxlin_or layers: pool_readout syops (AC, MAC) (0.0, 12290.0) vs MAC 12288 -> True
+   CinC spk_lif_muxlin_or max: pool_readout syops (AC, MAC) (5900.0, 0.0): MAC 0 and 0 < AC <= 6144 -> True
+   CinC spk_lif_muxlin_or seg4: pool_readout syops (AC, MAC) (0.0, 24580.0) vs MAC 24576 -> True
+   CinC spk_ssa attn: no pool_readout line True (dot products / softmax not counted)
+   CinC spk_ssa layers: pool_readout syops (AC, MAC) (0.0, 12290.0) vs MAC 12288 -> True
+   CinC spk_ssa max: pool_readout syops (AC, MAC) (4740.0, 0.0): MAC 0 and 0 < AC <= 6144 -> True
+   CinC spk_ssa seg4: pool_readout syops (AC, MAC) (0.0, 24580.0) vs MAC 24576 -> True
+   energy_recount_mitbih.py: rc 0; 8 runs -> /home/yschoi/CLS_spiking_transformer/wt-flif-pop-v3/NSMT/cinc_mixer_v1/results/smoke-hp-on-20261103-mitbih/energy_recount.csv | all checks passed
+[smoke] pass
+   smoke-hp-off: RESULT 4, SKIP 0
+   smoke-hp-on: RESULT 16, SKIP 0
+4/4 pass

@@ -10441,3 +10441,125 @@ run별 macro-F1(seed 42 / 7 / 2026): muxlin 92.12 / 92.02 / 91.56, sdlin 92.07 /
 - 몸통 발화가 왜 줄었는지는 확인하지 않았다(세 과제 Spikformer식, AD 두 모델에서 뚜렷함).
 
 **commit / 태그:** `results/flif-v1-headmem-ad/{raw.txt,pool_log.txt}`, `results/flif-v1-headmem/summary_ad.md`, 이 기록. 이 commit에 annotated 태그 `exp/f-lif-pop-v3-headmem-20261103`(H1 실험 완료, 42 run)을 단다. 이 기록은 태그로 자기 commit을 가리킨다.
+
+## 2026-11-03 20:50 KST — 사전등록 + 구현: head 입력 형태 탐색(분류만, CinC → MIT-BIH) — 스파이크 후보 3개(max, seg4, layers)와 실수 참고 1개(attn), 모두 '지금 head + 0으로 초기화한 새 항', muxlin·Spikformer식, 튜닝 설정 그대로, 48 run; 점검 4/4(p3 기대값 1건 수정), smoke 20 run(SKIP 0); 드라이버 시작
+
+**직전 commit:** `cd328a8cf`(H1 완료, 태그 `exp/f-lif-pop-v3-headmem-20261103`). 브랜치 `exp/f-lif-pop-v3`.
+
+### 사용자 결정
+- 사용자(11-03, H1 결과 뒤): "그러면 다른 `head 레이어 구조` 혹은 `head 입력 형태` 를 탐색해보자."
+- 질문 3개에 대한 답(AskUserQuestion):
+  - 탐색 방식: "후보 2–3개를 바로 재학습". 내가 권한 '학습 없는 probe로 먼저 거르기'는 하지 않는다.
+  - 범위: "CinC → MIT-BIH 분류만 (Recommended)".
+  - 실수 연산 head: "참고 행으로만 포함 (Recommended)". 판정에는 쓰지 않는다.
+- 계획 승인(plan mode).
+
+### 왜 분류인가(코드 확인)
+- 두 모델 모두 head는 z = head(h.mean(2)).mean(0)이다(`spk_mixer.SpkMixer.forward_parts` 239–240행, `model.myModel._training`·`_testing`). h는 마지막 블록 출력 스파이크 [T_h 4, B, N, D 384]다.
+  - token 전체(CinC 117개, MIT-BIH 11개)를 평균하므로 head는 token 위치·순서를 못 본다. 드문 사건은 평균에 묻힌다.
+- ETT head는 token별 값을 펼쳐 받고, AD head는 token마다 복원한다. 그래서 두 과제에는 token 평균에서 오는 손실이 없다.
+- H1에서 배운 점: head에 정보를 더 주면 학습 목표는 더 맞추지만 검증·test는 좋아지지 않았다. 같은 위험이 있으므로, 학습 시작을 대조와 비트 단위로 같게 하는 H1의 설계를 그대로 쓴다.
+
+### 후보 정의(사전 고정; 두 모델에 똑같이)
+- 공통: z = head(h.mean(2)).mean(0) + 새 항.
+  - 새 Linear(`pool_readout`, 편향 없음)는 `head_mem.zero_linear`로 만든다(`torch.random.fork_rng` 안에서 생성, 0으로 채움).
+  - attn의 `pool_q`도 fork 안에서 0으로 만든다.
+  - 그래서 학습 시작 시점의 가중치·출력·손실·기울기·데이터 순서가 대조와 비트 단위로 같다(점검 p2). 새 항은 T_h 스텝마다 계산하고, 모델의 `.mean(0)`이 평균한다.
+
+| 이름 | 새 항 | 겨냥하는 손실 | 입력 | 새 연산(CinC 창 하나) |
+|---|---|---|---|---|
+| **max** | W(h.amax(2)), W: D → C | token 평균에 묻히는 드문 사건(어느 token에서든 발화했는가). token 위치와 무관 | 0/1(OR·IAND 잔차) | 최대 4·384·4 = 6,144 AC |
+| **seg4** | W([연속 4구간의 token 평균]), W: 4D → C. `torch.tensor_split`: CinC 30/29/29/29, MIT-BIH 3/3/3/2 token | token 위치·순서(구간 수준). MIT-BIH 박동은 정렬돼 있어 위치에 의미가 있다 | 구간 발화율 | 24,576 MAC ≈ 0.11 µJ |
+| **layers** | W([e 평균; x1 평균]), W: 2D → C. e = 임베딩 스파이크, x1 = token 섞기 뒤 블록 중간 출력(MLP 입력) | 잔차(IAND·OR·ADD)가 지우거나 포화시킨 앞 층 정보(10-23 제안 H4) | 발화율 | 12,288 MAC ≈ 0.06 µJ |
+| attn(참고) | head(Σ_t (a_t − a0_t) h_t). a = token에 대한 softmax(h·q), a0 = 0의 softmax. q = 0에서 시작하므로 처음엔 정확히 0 | 학습되는 token 가중 평균(실수) | 실수 | 내적·softmax는 에너지에 세지 않음 |
+
+- 탭(두 모델 모두 블록 1개, `--layers 1`):
+  - e = `encoding` 출력.
+  - x1·y = 마지막 블록 MLP의 입력·출력. SpkMixer는 `blocks[-1].fc1` 입력과 `fc2` 출력, myModel `hippo_ssa`는 `data_block[-1].mlp`.
+  - h = connect(x1, y). SpkMixer는 `blocks[-1].connect`, myModel은 x1(1 − y).
+  - head hook이 매 forward마다 h.mean(2) = head 입력을 비트 단위로 확인한다(다르면 멈춤).
+- 에너지: `pool_readout`은 syops·`energy.SynOpRecorder`가 다른 Linear처럼 센다. attn의 내적·softmax는 세지 않는다(참고 행의 한계).
+
+### 실험(각 과제의 튜닝 설정 그대로; seed 42·7·2026; 새 run 48개)
+| 과제 | muxlin(튜닝) | Spikformer식(튜닝) | 형태 | run | suite |
+|---|---|---|---|---:|---|
+| CinC fold 0 | OR, lr 1e-3, mixer 층 2 | lr 2e-3 | max, seg4, layers, attn | 24 | `flif-v1-headpool-cinc` |
+| MIT-BIH(학습 파일 전체, 마지막 epoch 가중치 test) | ADD, lr 0.02, 층 2 | lr 0.005 | 같음 | 24 | `flif-v1-headpool-mitbih` |
+
+- 대조(지금 head)는 튜닝 최종 run이다. H1과 같은 행 선택(`summarize_cinc_tune.load`·`seeds`, `summarize_mitbih_tune.seeds(…, tuned_cfg, -1)`)을 쓴다.
+- 비교(형태마다, `summarize_hp.py --task cinc|mitbih`):
+
+| 비교 | 질문 |
+|---|---|
+| G1 | muxlin+형태 vs muxlin |
+| G2 | Spikformer식+형태 vs Spikformer식 |
+| G3 | muxlin+형태 vs Spikformer식+형태(기준 (2) 포함) |
+
+- 판정 규칙: CinC 점수 / MIT-BIH macro-F1 평균 ≥ +0.5%p이면서 seed 2/3이면 better, 반대면 worse(`summarize_hm.cls_compare`).
+- 에너지: CinC는 `total_fft_int_uJ`(없으면 `total_fft_uJ`), MIT-BIH는 `energy_recount.csv`의 `total_fft_uJ_corr`.
+- attn은 같은 표를 내되 참고이고 판정에 쓰지 않는다.
+- **채택 기준(사전 고정):** CinC에서 G1 또는 G2가 better이고, MIT-BIH의 같은 G가 worse가 아닌 후보(max, seg4, layers). `summary_mitbih.md` 끝의 표로 낸다.
+- fail closed: run 누락, 유한하지 않은 지표, 에너지 누락은 incomplete로 처리하고 드라이버를 멈춘다.
+
+### 코드(`NSMT/cinc_mixer_v1/`; 플래그를 끄면 지금 경로 그대로 = p0)
+- **새 파일:**
+  - `head_pool.py`(`KINDS`, `PoolTaps`, `enable_head_pool`)
+  - `check_hp.py`
+  - `summarize_hp.py`
+  - `scripts/make_queue_hp.sh`(hp_smoke, hp_cinc, hp_mitbih; 설정은 튜닝 suite의 selected json에서 읽음, muxlin run을 먼저 큐에 넣음)
+  - `scripts/hp_driver.sh`
+- **고친 파일:**
+  - `config.py`: `--head_pool {none,max,seg4,layers,attn}`.
+  - `load_model.py`: `load_mymodel` 학습·평가 경로와 `load_spk_mixer`에서 `enable_head_pool`을 부른다. 평가 경로는 checkpoint를 읽기 전에 부른다. `--head_mem`과 같이 켜면 오류가 난다.
+  - `forecast_wrap.py`·`ad_wrap.py`: head_pool이 켜진 모델을 받으면 오류(이번 범위 밖, fail closed).
+  - `scripts/run_rhythm_spk_mux.sh`·`run_mitbih_spk.sh`: `HEADPOOL=<형태>` → `--head_pool <형태>`, tag 접미사 `_hp<형태>`.
+- 요약기 dry run(대조 행에 형태 tag를 붙여 넣음, 커밋 전): G1·G2 = 0이 나왔다. G3은 튜닝 판정을 재현했다(CinC +2.16 better, 에너지 0.98배; MIT-BIH +0.20 차이 없음). 채택 표는 모두 'no'였다.
+
+### 점검 `check_hp.py --date 20261103` 4/4(`results/checks/check_hp.txt`)
+- **p0(기본 경로 불변):** 플래그를 끈 1 epoch smoke 4 run(`smoke-hp-off-20261103`)이 H1 점검의 플래그 끔 smoke(`smoke-hm-after-20261103`) 행과 RESULT 필드(시간·sha·폴더 제외, CinC 46개, MIT-BIH 38개)에서 모두 같다.
+  - 두 smoke는 같은 기본 코드다(`4be7ceb08` 이후 코드 변경 없음, 앞 기록).
+  - HEAD 대비 바뀐 파일은 위 6개뿐이다.
+- **p1(탭):** e·x1·h가 모델 안의 실제 텐서와 비트 단위로 같다. 학습 모드 batch norm에서 dropout은 끄고 확인했다.
+  - CinC·MIT-BIH × 두 모델 × 4형태 = 16 조합.
+  - 평균 발화율은 e / x1 / h 기준 SpkMixer CinC 0.083 / 0.092 / 0.138, Spikformer식 0.070 / 0.070 / 0.066이다.
+  - seg4 구간은 117 → 30/29/29/29, 11 → 3/3/3/2이고, 모든 token을 순서대로 덮는다.
+- **p2(0 초기화):** 16 조합 모두 다음을 확인했다.
+  - 생성 뒤 난수 상태와 공유 가중치가 대조와 같고, 추가는 0인 새 파라미터 하나뿐이다.
+  - 학습 모드 첫 forward의 출력·손실과 모든 공유 파라미터의 기울기가 비트 단위로 같다.
+  - AdamW 한 step 뒤 새 파라미터가 0이 아니다.
+- **p3(에너지, smoke):**
+  - CinC seg4·layers: syops `pool_readout` 줄이 MAC만 24,580 / 12,290이다(기대 24,576 / 12,288, syops 반올림).
+  - CinC max: AC만 5,900(muxlin) / 4,740(Spikformer식), MAC 0이다.
+  - attn: `pool_readout` 줄 없음.
+  - MIT-BIH: `energy_recount_mitbih.py` 8 run 모든 점검 통과(다시 계산한 macro-F1 = 기록한 값).
+  - **점검 수정 1건(결과를 보기 전의 실험 판정과 무관):** 첫 실행은 max에도 "AC + MAC = 입력 × 출력 × T_h(6,144)"를 기대해 FAIL이었다. syops는 0/1 입력에서 1인 입력마다 AC 하나만 센다. 그래서 max의 기대값을 "MAC 0, 0 < AC ≤ 6,144"로 고쳤다. AC 5,900 / 4,740은 4 T_h 스텝 × 4클래스에서 max 입력의 96 % / 77 %가 1이라는 뜻이다.
+- **smoke:** off 4, on 16, SKIP 0, 모두 rc 0.
+
+### smoke(1 epoch, seed 42; 보고만, 판정 아님)
+| 과제 | 지표 | 모델 | 지금 head | +max | +seg4 | +layers | +attn |
+|---|---|---|---:|---:|---:|---:|---:|
+| CinC | CinC 점수 | muxlin | 0.3818 | 0.4088 | 0.4045 | 0.4495 | 0.3419 |
+| CinC | CinC 점수 | Spikformer식 | 0.3615 | 0.4059 | 0.4039 | 0.4014 | 0.3598 |
+| MIT-BIH | macro-F1 | muxlin | 0.7435 | 0.6995 | 0.7619 | 0.7925 | 0.7439 |
+| MIT-BIH | macro-F1 | Spikformer식 | 0.6666 | 0.7566 | 0.7919 | 0.7229 | 0.7100 |
+
+- H1 smoke도 1 epoch에서는 좋아 보였지만 30 epoch에서는 아니었다. 판정 근거로 쓰지 않는다.
+
+### 실행
+- `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/hp_driver.sh &`(NSMT/에서).
+  - 순서: hp_cinc(24) → hp_mitbih(24, 이어서 `energy_recount_mitbih.py --suite flif-v1-headpool-mitbih`).
+  - 각 단계 뒤에 `summarize_hp.py --task`를 돈다. RESULT 수 부족, SKIP, 재계산·요약 실패가 있으면 멈춘다.
+  - 기록·commit은 세션이 한다(`results/flif-v1-headpool/driver.log`는 로컬).
+- run 하나: `HEADPOOL=<형태> SUITE=flif-v1-headpool-<과제> COND=<cond> LR=<lr> [MLAYERS=2] bash cinc_mixer_v1/scripts/run_{rhythm_spk_mux,mitbih_spk}.sh <seed> <gpu>`.
+- 점검: `LD_LIBRARY_PATH=<env>/lib OMP_NUM_THREADS=4 CUDA_VISIBLE_DEVICES=0 python -u check_hp.py --date 20261103`.
+- 예상 시간(GPU를 다른 세션과 함께 씀): CinC 약 2–2.5시간(muxlin 12 run이 run당 55–85분), MIT-BIH 약 0.5시간.
+
+### 한계(미리 적음)
+- 후보 3개 × 과제 2개 × 비교 3개라, 우연히 better가 나올 가능성이 커진다. 채택 기준은 두 과제의 일관성을 요구한다.
+- 튜닝 설정(lr, 층, 잔차)은 지금 head로 골랐고, 형태별 재튜닝은 하지 않는다.
+- 0 초기화 추가 항이라는 한 가지 설계다. 지금 head를 대체하는 형태는 재지 않는다.
+- CinC는 fold 0만, seed 3개다.
+- attn 에너지는 일부만 센다.
+- 사용자가 고른 '바로 재학습'이라 probe 없이 고른 후보다.
+
+**commit:** 새 코드 5개, 고친 파일 6개, `results/checks/check_hp.txt`, smoke 두 suite의 `raw.txt`·`pool_log.txt`, MIT-BIH smoke `energy_recount.csv`, 이 기록. 결과는 단계마다 다음 기록에 남긴다.

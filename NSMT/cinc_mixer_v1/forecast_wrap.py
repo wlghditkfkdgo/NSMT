@@ -53,6 +53,8 @@ class Forecaster(nn.Module):
         trunc_normal_(self.head.weight, std=.02)
         if self.head.bias is not None:
             nn.init.constant_(self.head.bias, 0)
+        if getattr(inner, '_pool_taps', None) is not None:                  # 2026-11-03 head input forms: classification only
+            raise NotImplementedError('--head_pool is for the classification head only (head_pool.py)')
         self.tap = drop_classification_term(inner)                         # 2026-11-03 H1 (head_mem.py): None without --head_mem
         if self.tap is not None:                                           # + Linear(N * D -> H) on the per-token charge, zero init
             self.mem_readout = zero_linear(embed_dim * self.num_patches, self.pred_len)

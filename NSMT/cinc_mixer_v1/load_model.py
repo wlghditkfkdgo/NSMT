@@ -4,6 +4,7 @@ import torch
 
 from model import myModel
 from head_mem import enable_head_mem                                  # 2026-11-03 H1
+from head_pool import enable_head_pool                                # 2026-11-03 head input forms
 # nsmt_flif_v1: `from ab4 import myModelAB4` dropped (the ab4 ablation model is not copied; ECG/ab4.py keeps it)
 
 def _neo_kwargs(args):
@@ -59,6 +60,8 @@ def load_mymodel(args, train=True):
             )
         if getattr(args, 'head_mem', False):                          # 2026-11-03 H1 (head_mem.py)
             enable_head_mem(model)
+        if getattr(args, 'head_pool', 'none') != 'none':              # 2026-11-03 head input forms (head_pool.py)
+            enable_head_pool(model, args.head_pool)
     else:
         saved_model_path = os.path.join(args.save_result_path, "model_state", f"best+model.pt")
         model = create_model(
@@ -66,7 +69,8 @@ def load_mymodel(args, train=True):
             pretrained=False,
             pretrained_cfg=None,
             pretrained_cfg_overlay=None,
-            checkpoint_path=(None if getattr(args, 'head_mem', False) else saved_model_path),   # 2026-11-03 H1: loaded below
+            checkpoint_path=(None if (getattr(args, 'head_mem', False) or getattr(args, 'head_pool', 'none') != 'none')
+                             else saved_model_path),                    # 2026-11-03 H1 / head input forms: loaded below
             drop_rate=0.,
             keep_ratio = args.keep_ratio,
             drop_path_rate=0.,
@@ -97,6 +101,9 @@ def load_mymodel(args, train=True):
         )
         if getattr(args, 'head_mem', False):                          # 2026-11-03 H1: the membrane term exists before the weights load
             enable_head_mem(model)
+        if getattr(args, 'head_pool', 'none') != 'none':              # 2026-11-03 head input forms: likewise
+            enable_head_pool(model, args.head_pool)
+        if getattr(args, 'head_mem', False) or getattr(args, 'head_pool', 'none') != 'none':
             model.load_state_dict(torch.load(saved_model_path, map_location='cpu'))
 
         model = model.to(args.device)
@@ -181,6 +188,8 @@ def load_spk_mixer(args, train=True):
                      tau_calib=getattr(args, 'tau_calib', True))
     if getattr(args, 'head_mem', False):                              # 2026-11-03 H1 (head_mem.py)
         enable_head_mem(model)
+    if getattr(args, 'head_pool', 'none') != 'none':                  # 2026-11-03 head input forms (head_pool.py)
+        enable_head_pool(model, args.head_pool)
     if not train:
         saved_model_path = os.path.join(args.save_result_path, "model_state", "best+model.pt")
         model.load_state_dict(torch.load(saved_model_path, map_location='cpu'))
