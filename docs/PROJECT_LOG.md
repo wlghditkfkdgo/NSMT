@@ -9975,3 +9975,59 @@ run별 macro-F1(seed 42 / 7 / 2026): muxlin 92.12 / 92.02 / 91.56, sdlin 92.07 /
 - 이전부터 대기 중: CinC Spikformer식 학습률 격자 확장(4e-3, 8e-3; 권함), CinC fold 1–4, SpkMixer memoryless·shuffle 대조.
 
 **commit:** AD suite의 `raw.txt`(243 RESULT, SKIP 0), `summary_{lr,layers,res,final}.md`, `selected_{lr,layers,res}.json`, `pool_log_{lr,layers,res,final}.txt`, `posthoc_trivial_baselines.md`, 새 스크립트 `ad_trivial_baselines.py`, 이 기록. `driver.log`, 대기열 파일, run 폴더(체크포인트·TensorBoard)는 로컬에 둔다(이전 과제와 같음). 태그 `exp/f-lif-pop-v3-ad-tune-20261103`(AD 튜닝 완료 run; 이 commit을 가리킨다).
+
+## 2026-11-03 10:40 KST — 사용자 질문 "마지막 층(head)이 학습한 정보를 잃는 것 같다" 검토: AD에서는 아니다(검증 창 안 변동의 87–97 %를 복원), 분류는 아직 재지 않음; head 수정 후보 4개와 학습 없는 probe를 먼저 하자는 제안(사용자 결정 대기)
+
+**직전 commit:** `e500738f1`(AD 튜닝 완료, 태그 `exp/f-lif-pop-v3-ad-tune-20261103`).
+
+### 질문
+- 사용자(11-03): "모델의 가장 마지막 레이어 (`head`)가 우리가 학습한 정보를 잃게 하는 것 같아. 어떻게 하면 학습 내용을 효과적으로 downstream task로 이어질 수 있도록 할 수 있을지 수정방안을 고민해줘."
+
+### 지금 head가 받는 것(코드 확인: `spk_mixer.SpkMixer.forward_parts`, `forecast_wrap.Forecaster`, `ad_wrap.Reconstructor`)
+| 과제 | head 입력 | 잃을 수 있는 것 |
+|---|---|---|
+| CinC·MIT-BIH(분류) | 마지막 블록 출력 스파이크를 token 전체(CinC 117개)와 T_h 4번에 걸쳐 평균한 384개 값 → Linear(384 → 클래스) | token 순서·위치(평균), 막전위 크기 |
+| ETT(예측) | token별 T_h 평균 스파이크(값 0, 0.25, 0.5, 0.75, 1)를 펼쳐 Linear(N·64 → H) | 막전위 크기(5단계로 양자화) |
+| AD(이상 탐지) | token별 T_h 평균 스파이크 64개 → Linear(64 → 4·C) | 막전위 크기, 이웃 token |
+
+- head 입력 발화율(에너지 기록의 `rate`·`head_rate`): ETT 6–17 %, AD 4–43 %(ADD 잔차가 높음). 대부분 0이다.
+
+### AD: head가 복원에 필요한 정보를 넘기는가(사후, 보고만; `ad_winmean_val.py` → `posthoc_winmean_val.md`)
+- holdout 튜닝 run의 검증 MSE(학습 파일 앞 80 %로 학습, 뒤 20 % 검증)를, 같은 검증 창에서 학습 없는 복원 두 가지와 비교했다.
+  - **창 평균:** 각 창의 채널 평균을 내놓는 복원. 창 정규화 뒤 출력이 0인 모델과 같다.
+  - **0:** 학습 파일 평균.
+
+| 데이터 | 창 평균 MSE | 0 MSE | muxlin(고른 설정) | Spikformer식(고른 설정) | muxlin(기본값) |
+|---|---:|---:|---:|---:|---:|
+| MSL | 0.503 | 0.551 | 0.0490(창 평균 대비 90 % 감소) | 0.0909(82 %) | 0.1064(79 %) |
+| SMAP | 0.445 | 0.496 | 0.0119(97 %) | 0.0209(95 %) | 0.0251(94 %) |
+| PSM | 0.127 | 1.674 | 0.0147(88 %) | 0.0165(87 %) | 0.0165(87 %) |
+
+- 읽는 법:
+  - AD 모델은 head를 거쳐 창 안 변동의 87–97 %를 복원한다. head가 복원 정보를 잃지는 않는다.
+  - 그런데도 탐지 점수(AUC-PR)는 학습 없는 '창 평균과의 거리' 수준이었다(앞 항목).
+  - 복원을 더 잘한 설정(튜닝값)이 AUC-PR은 더 낮았다(A4).
+  - 따라서 AD의 문제는 head가 아니다. '재구성 오차를 이상 점수로 쓰는 방식'과 '창 정규화가 지우는 수준 정보' 쪽이다.
+
+### 분류: 아직 재지 않음. 이전 근거
+- 10-23 합치기 지점 probe(옛 Neo-mixer, D 384, CinC fold 0 validation; 위 항목): token 평균한 막전위 특징이 스파이크 특징보다 일관되게 낫지 않았다(LIF −3.3, popg f-LIF +1.4, 나머지 ±1 안).
+- 반면 막전위 차이의 크기 |H_f − H_r|를 모델 안에서 학습해 쓰면 +4.58(③ linmx, LIF)이었다.
+- 따라서 "막전위를 그대로 읽으면 좋아진다"는 보장은 없다. 쓸모 있는 실수 정보가 있는 곳은 있었다.
+
+### 제안한 head 수정 후보(사용자 결정 대기; 어느 것도 아직 구현·실행하지 않음)
+| 후보 | 바꾸는 것 | 겨냥하는 손실 | 에너지 |
+|---|---|---|---|
+| H1 막전위 읽기 | 마지막 층 뉴런의 문턱 전 충전값을 head가 읽음(그 층만 실수) | 양자화 | head가 MAC. CinC는 384·4 MAC로 무시할 수준, AD MSL은 head 352K MAC ≈ +1.6 µJ(약 +11 %) |
+| H2 순서 보존 pooling | token 평균 대신 구간 평균(token을 k 구간으로 나눠 평균, k·D 값) 또는 학습되는 가중 평균 | token 순서·위치 | 구간 평균은 AC 유지, 학습 가중 평균은 실수 |
+| H3 token 축 뉴런의 끝 상태 읽기 | 마지막 mixer 층 정방향의 마지막 token, 역방향의 첫 token의 막전위(시퀀스 전체를 적분한 상태)를 head 입력에 더함 | 순서 정보가 담긴 시간 적분 상태 | 실수 2·D, MAC 소량 |
+| H4 여러 층 읽기 | 임베딩과 모든 블록 출력의 token 평균을 이어 붙여 head에 | IAND가 지우거나 OR이 포화시킨 정보 | AC 유지, head 입력이 (블록 수 + 1)배 |
+
+- 공정성: 비교가 head 효과가 아니라 mixer 효과를 보이려면, 같은 head 변경을 Spikformer식에도 똑같이 준다. H3은 token 축 뉴런이 있는 SpkMixer에만 정의된다. 이것이 'T = N 설계로 spiking neuron의 시간 처리 능력 활용' contribution과 가장 직접 맞닿는다.
+- 제안한 순서:
+  1. **학습 없는 probe를 먼저 한다.** 튜닝한 CinC fold 0 checkpoint(muxlin·Spikformer식 × seed 3)의 몸통을 고정하고, `fusion_probe.py` 방식(로지스틱 회귀, C는 내부 검증으로 선택, validation 기록 점수, test는 만들지 않음)으로 R0 현재 head 입력, R1 막전위, R2 구간 평균, R3 끝 상태, R4 여러 층을 비교한다.
+     - 판정 기준 제안: R0 대비 +1 %p 이상이면서 3 seed 중 2 이상이면 그 head를 후보로 삼는다.
+     - 한계: 몸통이 고정된 probe의 이득과 처음부터 다시 학습했을 때의 이득은 다를 수 있다.
+  2. probe에서 이득이 난 head만 사전등록해 재학습한다(muxlin·Spikformer식 둘 다, 같은 head).
+  3. AD는 head 대신 수준 정보 복원과 점수 방식 쪽을 따로 본다.
+
+**commit:** `ad_winmean_val.py`, `posthoc_winmean_val.md`, 이 기록(태그 없음: 분석과 제안만).
