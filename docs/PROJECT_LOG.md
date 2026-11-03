@@ -10289,3 +10289,69 @@ run별 macro-F1(seed 42 / 7 / 2026): muxlin 92.12 / 92.02 / 91.56, sdlin 92.07 /
 - 드라이버가 MIT-BIH(6 run)를 17:45:57에 시작했다. 이어서 AD(18).
 
 **commit:** `results/flif-v1-headmem-ett/{raw.txt,pool_log.txt,energy_recount.csv}`, `results/flif-v1-headmem/summary_ett.md`, 이 기록.
+
+## 2026-11-03 18:10 KST — H1 MIT-BIH 결과(6 run, SKIP 0): G1·G2·G3 모두 '차이 없음'(G1 +0.01%p, G2 −0.26%p, G3 +0.47%p, 기준 (2) 미충족); Spikformer식은 H1에서 몸통 발화가 약 30 % 줄어 에너지 0.72배; 앞 기록 정정 2건(ETT run의 commit id, ETTh2 Spikformer식 대조 출처)
+
+**직전 commit:** `2bddd98e2`(H1 ETT 결과). 브랜치 `exp/f-lif-pop-v3`.
+
+### 정정(앞 항목 H1 ETT 결과)
+- "모든 run `sha=4be7ceb08`"는 틀렸다. ETT 12 run 중 8개는 `4be7ceb08`, 4개는 `d70f2abf0`이다. 러너가 run 시작 시점의 HEAD를 적는데, 단계 도중 CinC 결과를 commit했기 때문이다.
+  - MIT-BIH 6 run은 모두 `d70f2abf0`이다. AD run은 `2bddd98e2` 이후를 적는다.
+  - `4be7ceb08` 이후 commit은 `docs/PROJECT_LOG.md`와 `results/` 파일만 바꿨다(`git diff --name-only 4be7ceb08 HEAD`; `cinc_mixer_v1`의 코드·러너 변경 없음). 그래서 모든 H1 run은 같은 코드로 돌았다.
+- ETTh2 Spikformer식 대조의 출처를 정확히 적는다.
+  - 다른 세션 `nsmt_flif_v1/forecasting/results/flif-v1-gen-ett`의 `spk_ssa` run(run commit `f0950c9a1`) 사본 `results/flif-v1-ett-spkmux/baseline_spk_ssa_raw.txt`다(10-31 기록 "기준값 재사용").
+  - 같은 기록의 점검 t1(초기 가중치·출력·기울기 비트 단위 동일)과 t4(이 브랜치 코드로 ETTh2 H96 seed 42를 다시 학습하면 모든 열이 같음)로 이 브랜치 코드와 같은 run임을 확인했다.
+  - ETT 튜닝에서 Spikformer식 ETTh2의 선택 lr이 기본값 5e-4였으므로, 튜닝 최종 비교도 이 행을 썼다.
+
+### 실행
+- `hm_driver.sh` 단계 hm_mitbih: 17:45:57 시작, 6 run 모두 `DONE(rc=0)`(17:50:35–18:01:04).
+  - 이어서 `energy_recount_mitbih.py --suite flif-v1-headmem-mitbih` 실행: "6 runs", "all checks passed", 다시 계산한 macro-F1 = 기록한 값.
+  - 그다음 `summarize_hm.py --task mitbih`, 18:02:56에 hm_ad 18 run 시작.
+- 산출물: `results/flif-v1-headmem-mitbih/{raw.txt,pool_log.txt,energy_recount.csv}`, `results/flif-v1-headmem/summary_mitbih.md`(Git). checkpoint는 `log/flif-v1-headmem-mitbih/`(로컬).
+- 대조: `summarize_mitbih_tune.seeds(…, tuned_cfg, -1)`. 학습 파일 전체 최종 run이며, tag는 `spkmx_lif_muxlin_add_lr0.02_L2`, `spk_ssa_lr0.005_L2`이다.
+
+### 결과(사전등록 판정, `summary_mitbih.md` 그대로; 마지막 epoch 가중치의 test macro-F1)
+| 비교 | 평균 %p | seed 42 / 7 / 2026 | 판정 | 에너지 A/B | 기준 (2) |
+|---|---:|---|---|---:|---|
+| G1 muxlin+H1 vs muxlin | +0.01 | −0.04, +0.01, +0.04 | no clear difference(차이 없음) | 1.01 | |
+| G2 Spikformer식+H1 vs Spikformer식 | −0.26 | −0.19, −0.57, −0.02 | no clear difference(차이 없음) | 0.72 | |
+| G3 muxlin+H1 vs Spikformer식+H1 | +0.47 | −0.07, +0.96, +0.51 | no clear difference(차이 없음) | 1.38 | 미충족 |
+
+- 보고만: G1 변화 − G2 변화(seed 짝) +0.15, +0.58, +0.07(평균 +0.26%p).
+
+| 조건 | macro-F1 % | F1 N / S / V / F / Q % | 에너지 µJ |
+|---|---:|---|---:|
+| Spikformer식 | 91.78 ± 0.25 | 99.20 / 84.38 / 96.12 / 80.17 / 99.03 | 9.61 |
+| Spikformer식 + H1 | 91.52 ± 0.30 | 99.15 / 83.86 / 95.58 / 80.29 / 98.72 | 6.90 |
+| muxlin | 91.99 ± 0.10 | 99.24 / 85.94 / 96.31 / 79.49 / 98.95 | 9.44 |
+| muxlin + H1 | 91.99 ± 0.12 | 99.24 / 85.21 / 96.35 / 80.22 / 98.93 | 9.54 |
+
+- G3 '차이 없음'은 튜닝 비교(11-02 기록 +0.20%p, 차이 없음)와 같다.
+
+### 사후 관찰(보고만, 사전등록 아님; RESULT·`best_log_0.csv`)
+- **몸통 발화:** Neo-mixer 밖 뉴런 평균 발화율(`rho_hippo`)이 H1에서 줄었다.
+  - Spikformer식: 0.1250 / 0.1259 / 0.1316 → 0.0883 / 0.0871 / 0.0871(약 −30 %). 에너지 0.72배는 이 때문이다.
+  - muxlin: 0.0986 / 0.0996 / 0.1020 → 0.0806 / 0.0855 / 0.0845.
+  - muxlin의 mixer 뉴런(`rho_neo`)은 늘었다: 0.0707 / 0.0718 / 0.0735 → 0.0813 / 0.0851 / 0.0858. 그래서 muxlin 에너지는 1.01배로 거의 같다.
+  - CinC·ETT·MIT-BIH 세 과제 모두 Spikformer식 몸통 발화가 줄었다.
+- **학습 손실(마지막 epoch):**
+  - Spikformer식은 H1이 3/3 낮다(0.0109 / 0.0115 / 0.0106 → 0.0071 / 0.0073 / 0.0076). 그런데 test macro-F1은 3/3 낮다(CinC와 같은 모양).
+  - muxlin은 거의 같다(0.0043 / 0.0036 / 0.0040 → 0.0042 / 0.0037 / 0.0037).
+  - MIT-BIH는 검증 분할 없이 학습 파일 전체로 학습하므로 검증 지표는 없다.
+
+### 점검
+- 완결성: RESULT 6, SKIP 0, 에너지 재계산 모든 점검 통과, 요약기 incomplete 없음.
+
+### 지금까지의 H1(보고만)
+| 과제 | G1 muxlin | G2 Spikformer식 | G3 |
+|---|---|---|---|
+| CinC | 나빠짐 −1.33%p | 나빠짐 −0.63%p(경계) | 좋아짐 +1.46%p |
+| ETT | 나빠짐 R +2.81 % | 차이 없음 R +0.63 % | 나빠짐 R +3.25 % |
+| MIT-BIH | 차이 없음 +0.01%p | 차이 없음 −0.26%p | 차이 없음 +0.47%p |
+
+- 세 과제 어디에서도 H1이 좋아진 경우가 없다.
+
+### 다음
+- 드라이버가 AD(MSL·SMAP·PSM, 18 run)를 18:02:56에 시작했다. 끝나면 결과 기록 후 태그를 단다.
+
+**commit:** `results/flif-v1-headmem-mitbih/{raw.txt,pool_log.txt,energy_recount.csv}`, `results/flif-v1-headmem/summary_mitbih.md`, 이 기록.
