@@ -5638,3 +5638,149 @@ energy(µJ)는 lr에 따라 거의 변하지 않는다. query population LIF는 
 **commit / tag:** 이 항목, 결과 파일, `summarize_order.py` 보고 블록을 commit한다. annotated tag `exp/nsmt-flif-neo-20261103-order`(완료된 학습 run 묶음)를 붙이고, `exp/nsmt-flif-neo`와 이 tag만 push 한다. 이 항목은 자기 commit을 tag로 가리킨다.
 
 ---
+
+## 2026-11-03 15:36 KST — 사전 고정: head 읽기 진단 (사용자 결정 11-03 — 진단 먼저, ETT 네 칸, Spikformer식에는 새 head를 붙이지 않음) — 학습된 query population 몸통을 고정하고, head가 읽는 지점만 바꾼 선형 probe로 "head 직전에 정보가 버려지는가"를 본다. ETTm2에는 query checkpoint가 없어 12 run을 먼저 학습한다. probe 구현·점검은 다음 항목에 적는다
+
+**직전 commit:** `1bbece33e` (memory·순서 묶음 결과, tag `exp/nsmt-flif-neo-20261103-order`).
+
+**사용자 요청 (11-03):** "ETT과제나 MIT-BIH 분류 과제의 경우에 모델의 가장 마지막 레이어 (`head`)가 우리가 학습한 정보를 잃게 하는 것 같아. 어떻게 하면 학습 내용을 효과적으로 downstream task로 이어질 수 있도록 할 수 있을지 `head` 레이어 수정방안을 고민해줘."
+- 나는 head 수정안(H1–H6)보다 먼저 학습 없는 진단을 제안했다. "head가 정보를 잃는다"와 "몸통에 애초에 정보가 없다"를 지금 기록으로는 가를 수 없기 때문이다.
+
+**사용자 결정 (11-03):**
+1. "진단부터 해보자."
+2. ETT는 ETTh2·ETTm2 × H96·H720 네 칸이다(결정 12의 범위 전부).
+3. "새 head를 Spikformer식에도 똑같이 붙인다"는 원칙에 **비동의**했다.
+   - 그래서 새 head는 우리 모델에만 붙이고, Spikformer식 baseline은 원래 head로 비교한다.
+   - 진단도 우리 모델만 대상으로 한다.
+   - 이후 head를 바꾼 모델과 Spikformer식을 비교하면, 그 차이에는 몸통 차이와 head 차이가 함께 들어간다. 그 결과 항목에 한계로 적는다.
+
+**질문:** query 형태 population 모델에서 head 바로 앞의 읽기 방식(token 평균, T_h 평균, 0/1 spike만 읽기, Neocortex를 직접 읽지 않음)이, 몸통이 이미 가진 과제 정보를 버리는가?
+
+**지금 head가 받는 것 (코드로 확인, 11-03):**
+
+| 과제 | head | head 입력 | head parameter 비중 |
+|---|---|---|---|
+| MIT-BIH | `Linear(384 → 5)` | Hippocampus block(1개) 출력 spike를 token 축(11개)과 T_h 축(4 step)으로 평균한 값 (`model.py` `_testing`: `head(x.mean(2)).mean(0)`, 선형이라 두 평균의 순서는 상관없음) | 1.9 k, 전체의 0.16 % |
+| ETT | `Linear(24·64 → H)` (bias 없음) | 같은 출력 spike를 T_h 평균한 뒤 token 24개를 위치 순서대로 이어 붙임 (`forecast_wrap.py`) | ETTh2 H96 84 %, H720 97.5 % |
+
+- Hippocampus block은 `x ← x·(1 − SSA(x, q = Neocortex))`, `x ← x·(1 − MLP(x))`이다. 세 값이 모두 0/1이라 head 입력은 항상 embedding spike의 부분집합이다. 즉 block은 spike를 끄기만 한다.
+- Neocortex 출력은 attention query로만 쓰인다. head는 Neocortex를 직접 읽지 않는다.
+- **보고용 사실 (ETT, 기존 run):** validation 최고점이 나온 epoch(0부터 셈)는 다음과 같다. 대부분의 칸에서 head가 처음 몇 epoch 안에 최고점에 닿고, 그 뒤로는 나빠진다.
+  - query population ETTh2: H96 1–3, H720 2–4 (`flif-v1-ett-query`)
+  - ETTm2의 바꿔 넣기·B형 population: H720 0–2, H96 6–21 (`flif-v1-ett-dual`)
+
+**진단 대상 (학습된 몸통, 고정):** `nsmt4q_pop_lif`, `nsmt4q_pop_flif` × seed 42 / 7 / 2026
+
+| 과제 | checkpoint | 쓰는 weight | 비교 기준(학습된 head) |
+|---|---|---|---|
+| MIT-BIH | `flif-v1-mitbih-query-tune`의 lr 0.01(기본), `--mitbih_val` run 6개 (11-01) | `best+model.pt` = 마지막 epoch, 시험에 쓴 weight | 그 run의 test macro-F1 |
+| ETTh2 H96·H720 | `flif-v1-ett-query` 12개 (10-30) | `checkpoint.pth` = validation 최고 weight, 보고 수치를 낸 weight | 그 run의 test MSE |
+| ETTm2 H96·H720 | **새로 학습** `flif-v1-ett-query-m2` 12개 (아래) | 같음 | 같음 |
+
+- MIT-BIH는 학습 파일을 80 / 20으로 나눈 run을 쓴다(11-01 `--mitbih_val`과 같은 분할). 몸통이 보지 않은 20 %로 probe의 정규화 강도를 고를 수 있기 때문이다.
+- Spikformer식은 결정 3에 따라 넣지 않는다.
+
+**읽기 지점** (모두 학습된 몸통의 같은 forward에서 뽑음; 괄호는 feature 수):
+
+| 이름 | 내용 | MIT-BIH | ETT | 확인하는 손실 |
+|---|---|---|---|---|
+| R0 지금 방식 | head 입력 그대로 | token 평균·T_h 평균 spike (384) | token별 T_h 평균 spike를 이어 붙임 (1,536) | 기준 |
+| R1 token별 | token 평균을 하지 않음 | token별 T_h 평균 spike (11 × 384 = 4,224) | R0과 같음 (ETT head는 이미 token별) | token 위치 |
+| R2 step별 | T_h 평균을 하지 않음 | step별 token 평균 spike (4 × 384 = 1,536) | step별·token별 (4 × 1,536 = 6,144) | T_h step 정보 |
+| R3 + embedding | R0 + embedding spike(같은 방식으로 평균) | 768 | 3,072 | block이 끈 spike의 정보 |
+| R4 + Neocortex | R0 + Neocortex 출력 spike(MIT-BIH token 평균, ETT token별) | 768 | 3,072 | Neocortex를 직접 읽지 않는 것 |
+| R5 + 막전위 | R0 + spike를 끄는 두 neuron(attention 출력 neuron, MLP 출력 neuron)의 막전위, T_h 평균 | 1,152 | 4,608 | 0/1로 바꾸며 버리는 값 |
+| R6 원 입력 (보고) | 몸통 없이 입력에 선형층만 | 박동 187 sample | 창 정규화한 입력 96 step (= 10-18 선형 기준선과 같은 입력) | 바닥선 |
+| R7 전부 (보고) | 다섯 출처(최종 spike, embedding, Neocortex, 막전위 2개)를 token별로, T_h 평균 | 11 × 1,920 = 21,120 | 5 × 1,536 = 7,680 | 선형 읽기의 상한 |
+
+- **막전위:** 두 neuron은 spikingjelly LIF(τ 2, 문턱 1, 발화 뒤 0으로)다. neuron 입력 I_t로 H_t = v_{t−1} + (I_t − v_{t−1}) / τ를 다시 계산한다. H_t는 문턱과 비교하기 직전 값이다. 이 H로 만든 spike가 neuron 자신의 출력 spike와 정확히 같은지 batch마다 확인한다(다르면 그 checkpoint는 미완).
+- 각 R_k는 R0에 출처 하나만 더하거나(R3–R5) 평균 하나만 풀어서(R1·R2), 손실 지점 하나씩을 따로 본다.
+
+**probe 방법 (몸통 고정, 새 선형층만):**
+- **MIT-BIH:** 다항 로지스틱 회귀.
+  - feature는 학습 부분(80 %)의 평균·표준편차로 표준화한다. 표준편차가 0인 feature는 나누지 않는다.
+  - 손실은 학습과 같은 CAL 가중 CE다(`utils.get_class_weights`, 학습 부분의 부류 수). 여기에 L2 λ‖W‖²를 더한다. bias에는 벌점을 주지 않는다.
+  - λ ∈ {1e-6, 1e-5, 1e-4, 1e-3, 1e-2}이고, 0에서 시작한 L-BFGS(최대 1,000회)로 푼다.
+  - validation(20 %) macro-F1이 가장 높은 λ를 고른다. 같으면 큰 λ를 고른다.
+  - test는 고른 λ에서만 계산한다(macro-F1, 부류별 F1, accuracy).
+- **ETT:** 가중 ridge 회귀를 닫힌 식으로 푼다.
+  - 행은 (창, 채널)이다. 목표는 창 정규화한 미래값이다.
+  - 가중치는 그 창의 표준편차²다. 그래서 목적함수가 보고하는 test MSE(정규화를 되돌린 scaled data의 MSE)와 정확히 같은 양이 된다.
+  - feature는 학습 split 기준으로 표준화한다. 절편에는 벌점을 주지 않는다.
+  - λ ∈ {1e-6, 1e-5, …, 1} × (가중치 합)이다.
+  - validation MSE(같은 가중치)가 가장 낮은 λ를 고른다. test MSE·MAE는 고른 λ에서만 계산한다.
+  - train·val·test는 기존 ETT run과 같은 split이다. train 창은 하나도 빼지 않는다.
+- probe는 난수가 없다. 같은 checkpoint에서는 늘 같은 결과가 나와야 한다(점검에서 확인).
+
+**판정 (사전 고정; 값이 빠지거나 중복되거나 유한하지 않으면, 또는 점검을 통과하지 못한 checkpoint가 있으면 "미완"):**
+- 비교는 언제나 **같은 checkpoint의 R_k probe − R0 probe**다(같은 방법으로 학습한 선형층끼리).
+- **MIT-BIH** (모델마다 seed 3쌍): Δ = test macro-F1 차이(%p)
+  - 좋음: 평균 ≥ +0.5 %p이고 3쌍 중 2쌍 이상이 양수
+  - 나쁨: 그 거울
+  - 나머지는 차이 없음
+- **ETT** (모델마다 4칸 × seed 3 = 12쌍): r = test MSE 비 − 1
+  - 좋음: 평균 r ≤ −1 %이고 12쌍 중 8쌍 이상이 음수
+  - 나쁨: 그 거울
+  - 칸별 판정(평균 ≤ −1 %, 2/3 seed)을 함께 적는다.
+- **결론 규칙:** 한 과제에서 R_k가 두 모델 모두 "좋음"이면 "그 지점에서 읽기가 병목"이다. 한 모델만 좋으면 "neuron에 따라 다름(약함)"이다. 어느 R_k도 좋지 않으면 "선형으로 읽을 수 있는 정보를 head 앞에서 버린다는 근거 없음"이다.
+- **보고 전용:**
+  - R0 probe − 학습된 head (probe가 얼마나 충실한가)
+  - R6 − R0 probe, R6 − 학습된 head (몸통이 원 입력의 선형 읽기보다 나은가)
+  - R7 − R0 probe
+  - MIT-BIH 부류별 F1 (S·F)
+  - ETTm2 query 학습 결과와 기존 ETTm2 모델(Spikformer식, B형·바꿔 넣기 population, 선형 기준선)의 비교
+
+**읽는 법 (미리 적음):**
+
+| 결과 | 뜻 | 다음 후보 (11-03 제안) |
+|---|---|---|
+| R1 좋음 (MIT-BIH) | token 평균이 위치 정보를 버린다 | H1 펼친 head, H2 attention pooling |
+| R2 좋음 | T_h 평균이 step 정보를 버린다 | step별 head, H4 발화하지 않는 누적 neuron 읽기 |
+| R3 좋음 | block이 끈 spike에 쓸 정보가 있다 | H5 여러 층 읽기 |
+| R4 좋음 | head가 Neocortex를 직접 읽어야 한다 | H3 Neocortex가 고르는 pooling, Neocortex 늦은 결합 |
+| R5 좋음 | 0/1로 바꾸며 버리는 값에 정보가 있다 | 막전위 읽기 |
+| 모두 차이 없음 | 선형 읽기로는 손실이 없다. 손실이 있다면 몸통 안(앞단) 또는 과제의 천장이다 | head 수정은 우선순위가 낮다. 앞단(embedding의 0/1 변환, 끄기만 하는 block)을 본다 |
+
+**사전 예상:**
+- MIT-BIH:
+  - R1은 두 모델 모두 "좋음"(+0.5 ~ +1.5 %p)이고, 주로 S·F 부류에서 나올 것이다. 박동이 정렬되어 있어 위치가 단서이기 때문이다.
+  - R2–R5는 차이 없음일 것이다.
+  - R0 probe는 학습된 head와 ±0.5 %p 안일 것이다.
+  - R6(원 박동)은 R0 probe보다 3 %p 이상 낮을 것이다.
+- ETT:
+  - R2–R5는 모두 차이 없음(|r| < 1 %)일 것이다. 1,536개 feature의 ridge가 이미 충분하고, 과제가 선형 모델에 유리하기 때문이다.
+  - R0 probe는 학습된 head보다 MSE가 0–2 % 낮을 것이다. ridge는 MSE를 직접 줄이고, 학습된 head는 L1으로 학습되고 일찍 멈췄기 때문이다.
+  - R6은 R0 probe와 2 % 안일 것이다.
+
+**ETTm2 query 학습 (진단용 checkpoint, 12 run):**
+- 조건: `nsmt4q_pop_lif`, `nsmt4q_pop_flif` × ETTm2 × H96·H720 × seed 42 / 7 / 2026, suite `flif-v1-ett-query-m2`
+- 설정: `forecasting/scripts/run_ett_dual.sh` 그대로다. 10-29 ETTm2 dual run과 같다(patch 8, D 64, head 16, mlp 1, Neocortex 2층, lr 5e-4, batch 64, 50 epoch, patience 10, L1 손실, validation 최고 weight로 시험).
+- 대기열: `classification/scripts/make_queue_headprobe.sh` (새 파일) → `scripts/queues/headprobe-ettm2-20261103.txt`
+- NSMT/에서 tmux `flif_hprobe`로 `bash scripts/gpu_pool2.sh nsmt_flif_v1/classification/scripts/queues/headprobe-ettm2-20261103.txt 0,1,2,3`을 띄운다.
+- **따로 smoke를 돌리지 않는다.**
+  - 같은 실행 스크립트와 같은 조건이 ETTh2에서 30 run(10-30) 끝났다.
+  - 같은 ETTm2 설정도 dual 30 run(10-29)이 끝났다.
+  - 대신 첫 4 run의 첫 epoch 출력과 SKIP 줄을 확인한다.
+- 다른 대화(wt-flif-pop-v3)의 smoke 작업이 GPU 0·2·3을 쓰고 있다. 실측 run 시간만 적고, 끝나는 시각은 어림하지 않는다.
+
+**한계 (미리 적음):**
+- 선형 probe는 하한이다. 선형으로 읽히지 않는 정보는 보지 못한다. 반대로 새 head를 몸통과 함께 학습하면 몸통이 바뀌어 결과가 달라질 수 있다.
+- ETT의 R0 probe는 MSE를 직접 줄인다. 학습된 head는 L1으로 학습됐다. 그래서 "R0 probe − 학습된 head"에는 정보 차이가 아니라 손실 함수 차이도 들어간다. 판정은 probe끼리의 비교만 쓴다.
+- ETT validation은 몸통의 early stopping에도 쓰였다. 모든 R_k에 똑같이 해당한다.
+- 막전위는 spike를 끄는 두 neuron만 본다(Hippocampus block 1개).
+- seed 3개, query population 두 모델만 본다. B형·바꿔 넣기·Neo-mixer는 보지 않는다.
+- ETTm2 checkpoint는 다른 날(11-03), ETTh2는 10-30, MIT-BIH는 11-01에 학습됐다.
+
+**다음:**
+- `classification/head_probe.py`(새 파일)를 구현한다. 점검 항목:
+  - 뜯어 놓은 forward가 모델 출력과 같은가
+  - R0에 학습된 head를 끼우면 보고된 test 수치가 재현되는가
+  - 막전위로 다시 만든 spike가 neuron 출력과 정확히 같은가
+  - MIT-BIH 분할이 학습 때와 같은가
+  - ETT의 통계로 낸 MSE가 직접 계산한 MSE와 같은가
+  - 두 번 돌리면 같은가
+- 구현과 점검 결과는 probe를 돌리기 전에 다음 항목으로 적는다. MIT-BIH·ETTh2 probe는 ETTm2 학습과 함께 돌린다.
+
+**commit:** 이 항목과 대기열 스크립트를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 pool을 시작한다.
+
+---
