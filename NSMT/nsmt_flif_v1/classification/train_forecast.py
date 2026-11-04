@@ -111,6 +111,13 @@ def final_test(args, model, dl, out_dir, H, tag):
             'syn_energy_uJ'] + en['columns']
     row = [tag, f"{m['mse']:.6f}", f"{m['mae']:.6f}", f"{getattr(args, 'best_val_loss', float('nan')):.6f}", str(m['n']),
            f'{ops[0] / 1e6:.4f}', f'{ops[1] / 1e6:.4f}', f'{ops[2] / 1e6:.4f}', f'{params / 1e6:.6f}', f'{fr:.6f}', f'{syn_uJ:.6f}'] + en['values']
+    if getattr(model, 'head_kind', 'flat') == 'h6':                    # MODI 2026-11-04 (H6): the shortcut alone, same weights
+        model.body_off = True
+        ml = evaluate(model, dl, H, args.device)
+        model.body_off = False
+        head += ['mse_lin', 'mae_lin']
+        row += [f"{ml['mse']:.6f}", f"{ml['mae']:.6f}"]
+        print(f"[{tag}] shortcut alone: test mse={ml['mse']:.6f} mae={ml['mae']:.6f}", flush=True)
     with open(os.path.join(out_dir, 'final+result.csv'), 'w', newline='') as f:
         w = csv.writer(f); w.writerow(head); w.writerow(row)
     print(f"[{tag}] test mse={m['mse']:.6f} mae={m['mae']:.6f} syn_uJ={syn_uJ:.4f}", flush=True)
@@ -131,7 +138,9 @@ def main():
     _, val_dl = data_provider(da, 'val')
     _, test_dl = data_provider(da, 'test')
     args.print_info()
-    model = Forecaster(LOAD_MODEL[args.model](args, True), args.embed_dim, fc.pred_len, bias=args.bias).to(args.device)
+    model = Forecaster(LOAD_MODEL[args.model](args, True), args.embed_dim, fc.pred_len, bias=args.bias,
+                       head_kind=getattr(args, 'fc_head', 'flat'), head_dim=getattr(args, 'fc_head_dim', 8),
+                       seq_len=args.seq_len).to(args.device)   # MODI 2026-11-04 (H6); default 'flat' unchanged
     functional.reset_net(model)
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f'creating model >> number of parameters : {n_params}  tokens {model.num_patches}  T {model.T}'

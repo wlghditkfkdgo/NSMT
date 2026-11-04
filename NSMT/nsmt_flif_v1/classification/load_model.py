@@ -24,6 +24,7 @@ def _neo_kwargs(args):
                 hippo_xattn_mode=getattr(args, 'hippo_xattn_mode', 'replace'), neo_grad=float(getattr(args, 'neo_grad', 0.5)),   # MODI 2026-10-26
                 neo_memoryless=getattr(args, 'neo_memoryless', False),
                 neo_shuffle=getattr(args, 'neo_shuffle', False),                                   # MODI 2026-11-02
+                head_pool=getattr(args, 'head_pool', 'mean'),                                      # MODI 2026-11-04 (H2)
                 token_shuffle=getattr(args, 'token_shuffle', False), shuffle_seed=int(getattr(args, 'seed', 0)))   # MODI 2026-10-28
 
 

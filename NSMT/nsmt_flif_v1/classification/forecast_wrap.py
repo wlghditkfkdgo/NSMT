@@ -14,6 +14,10 @@ and output ends for the NSMT forecasting ones (nsmt_flif_v1/forecasting/ours.py)
                  undoing the window normalisation.
 
 The inner classification head is replaced by nn.Identity (unused, no parameters). Loss / metrics are in train_forecast.py.
+MODI 2026-11-04 (H6, head test): head_kind 'h6' = a linear shortcut Linear(L -> H) on the normalised input row plus a small head
+on the body: per-token Linear(D -> d) applied to every binary T_h step (identical to applying it to the T_h mean: linear, no bias
+here; syops then counts it as spike-driven additions), averaged over T_h, flattened, Linear(N * d -> H). body_off = True drops the
+body term (shortcut alone) to measure the body's share of a trained model. Default 'flat': unchanged.
 The dual-path auxiliary decoder (weak_decoder) is never called here (plain forecasting loss), so it gets no gradient.
 """
 import torch
@@ -27,7 +31,7 @@ __all__ = ['Forecaster']
 
 
 class Forecaster(nn.Module):
-    def __init__(self, inner, embed_dim, pred_len, bias=False):
+    def __init__(self, inner, embed_dim, pred_len, bias=False, head_kind='flat', head_dim=8, seq_len=None):
         super().__init__()
         if isinstance(inner, NeoMixer):
             self.kind = 'mixer'
@@ -41,10 +45,21 @@ class Forecaster(nn.Module):
         self.inner.head = nn.Identity()
         self.num_patches, self.pred_len = inner.num_patches, int(pred_len)
         self.T = getattr(inner, 'T', None)
-        self.head = nn.Linear(embed_dim * self.num_patches, self.pred_len, bias=bias)
-        trunc_normal_(self.head.weight, std=.02)
-        if self.head.bias is not None:
-            nn.init.constant_(self.head.bias, 0)
+        self.head_kind, self.body_off = head_kind, False
+        if head_kind == 'flat':
+            self.head = nn.Linear(embed_dim * self.num_patches, self.pred_len, bias=bias)
+            heads = [self.head]
+        elif head_kind == 'h6':                                            # MODI 2026-11-04
+            self.proj = nn.Linear(embed_dim, head_dim, bias=bias)
+            self.head = nn.Linear(head_dim * self.num_patches, self.pred_len, bias=bias)
+            self.shortcut = nn.Linear(int(seq_len), self.pred_len, bias=bias)
+            heads = [self.proj, self.head, self.shortcut]
+        else:
+            raise ValueError('head_kind in {flat, h6}')
+        for h in heads:
+            trunc_normal_(h.weight, std=.02)
+            if h.bias is not None:
+                nn.init.constant_(h.bias, 0)
 
     @property
     def train_mode(self):
@@ -78,6 +93,13 @@ class Forecaster(nn.Module):
         stdev = torch.sqrt(torch.var(x, dim=1, keepdim=True, unbiased=False) + 1e-5).detach()
         x = x / stdev
         z = x.permute(0, 2, 1).reshape(B * C, 1, L)
+        if self.head_kind == 'h6':
+            y = self.shortcut(z[:, 0])
+            if not self.body_off:
+                p = self.proj(self.features(z)) if self.kind == 'mixer' else self.proj(self.step_features(z)).mean(0)   # [B', N, d]
+                y = y + self.head(p.reshape(B * C, -1))
+            y = y.reshape(B, C, self.pred_len).permute(0, 2, 1)
+            return y * stdev + means
         f = self.features(z)
         y = self.head(f.reshape(B * C, -1)).reshape(B, C, self.pred_len).permute(0, 2, 1)   # [B, H, C]
         return y * stdev + means

@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # nsmt_flif_v1: one MIT-BIH run of the ECG model (nsmt_base/classification/ECG) with the neocortex-path neuron replaced.
+# MODI 2026-11-04 (head test H2): + nsmt4q_pop_<lif|flif>_hattn = the query population with attention pooling in front of the head
+# (--head_pool attn); everything else unchanged.
 # run_mitbih4.sh (MODI 2026-11-01, query batch on MIT-BIH): copy of run_mitbih3.sh + the query form nsmt4q_<pop_lif|pop_flif>
 # (Neocortex as the attention query, hippocampus keys / values; same flags as scripts/run_rhythm_addneo.sh, AUX = 0) and two env
 # options: LR (peak learning rate, default 0.01 = unchanged) and VAL (1 = --mitbih_val: fold 0 of a stratified 5-fold split of the
@@ -64,6 +66,8 @@ case $COND in
   nsmt4_pop_flif)    AUX=0; CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha $ALPHA --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --neo_grad 1.0" ;;
   nsmt4q_pop_lif)    AUX=0; CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0" ;;   # MODI 2026-11-01
   nsmt4q_pop_flif)   AUX=0; CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha $ALPHA --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0" ;;
+  nsmt4q_pop_lif_hattn)  AUX=0; CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --head_pool attn" ;;   # MODI 2026-11-04 (H2)
+  nsmt4q_pop_flif_hattn) AUX=0; CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha $ALPHA --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --head_pool attn" ;;
   nsmt4_lif_nomem)   AUX=0; CF="--model myModel --neo_neuron lif --neo_where both --hippo_T 4 --hippo_xattn --neo_grad 1.0 --neo_memoryless" ;;
   spkall_lif)        CF="--model myModel --hippo_ssa --hippo_T 4 --neuron_all lif" ;;
   spkall_flif)       CF="--model myModel --hippo_ssa --hippo_T 4 --neuron_all flif --neo_alpha $ALPHA" ;;

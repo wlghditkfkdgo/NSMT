@@ -137,6 +137,12 @@ def parse_arguments():
     snn_arg.add_argument('--neo_shuffle', action='store_true', default=False,
                          help='MODI 2026-11-02 order control: the Neocortex runs the tokens in a shuffled order and its outputs go back to the '
                               'original positions (hippocampus order unchanged)')
+    snn_arg.add_argument('--head_pool', choices=['mean', 'attn'], default='mean',
+                         help='MODI 2026-11-04 (H2): token pooling in front of the classification head (attn = learned-query attention pooling)')
+    snn_arg.add_argument('--fc_head', choices=['flat', 'h6'], default='flat',
+                         help='MODI 2026-11-04 (H6, ETT): flat = Linear(N*D -> H); h6 = linear shortcut Linear(L -> H) on the normalised input '
+                              '+ small head (per-token Linear(D -> fc_head_dim), then Linear(N*fc_head_dim -> H))')
+    snn_arg.add_argument('--fc_head_dim', type=int, default=8, help='MODI 2026-11-04 (H6): per-token width d of the small head')
     snn_arg.add_argument('--token_shuffle', action='store_true', default=False,
                          help='MODI 2026-10-28 shuffle-retrain: random token order per sample in training, one fixed order in evaluation')
     snn_arg.add_argument('--neuron_scope', choices=['mixer', 'all', 'lifbase'], default='mixer',
@@ -274,6 +280,10 @@ class Config():
             _iso += "_tshuf"
         if getattr(args, 'neo_shuffle', False):                           # MODI 2026-11-02
             _iso += "_nshuf"
+        if getattr(args, 'head_pool', 'mean') != 'mean':                  # MODI 2026-11-04 (H2)
+            _iso += f"_hp{args.head_pool}"
+        if getattr(args, 'fc_head', 'flat') != 'flat':                    # MODI 2026-11-04 (H6)
+            _iso += f"_fh{args.fc_head}d{args.fc_head_dim}"
         if getattr(args, 'neuron_scope', 'mixer') != 'mixer':             # MODI 2026-10-29
             _iso += {'all': '_nall', 'lifbase': '_nlb'}[args.neuron_scope]
         if getattr(args, 'neuron_all', 'sj_lif') != 'sj_lif':             # MODI 2026-10-29 (myModel)

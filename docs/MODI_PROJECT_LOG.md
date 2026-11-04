@@ -5996,3 +5996,162 @@ energy(µJ)는 lr에 따라 거의 변하지 않는다. query population LIF는 
 **commit / tag:** 이 항목, `head_probe.py`(shift 수정), `summarize_head_probe.py`(L-BFGS 수렴 줄 추가), `results/flif-v1-head-probe/`(JSON 30개 + `prefix-ett-20261103/` 11개), `results/flif-v1-head-probe-summary.md`, `forecasting/results/flif-v1-ett-query-m2/{raw.txt, pool_runs.txt, energy_recount.csv}`를 commit 한다. annotated tag `exp/nsmt-flif-neo-20261103-headprobe`를 붙이고, `exp/nsmt-flif-neo`와 이 tag만 push 한다.
 
 ---
+
+## 2026-11-04 17:54 KST — 사전 고정 + 구현: head 시험 H2·H6 (사용자 결정 11-04 "H2와 H6을 간단하게 검증해보자") — H2 attention pooling은 MIT-BIH 6 run, H6 선형 지름길 + 작은 head는 ETT 네 칸 24 run이다. 둘 다 query population LIF / f-LIF에만 붙인다. 기존 경로는 비트 단위로 같고, 점검 c55a–c를 통과했고, smoke 4/4가 끝났다. **11-03 제안의 "H6은 head energy도 줄인다"는 틀렸다: spike 덧셈 기준(10-28 이후의 표준)으로 세면 H6 head는 원래 head보다 energy가 약 3.7배 크다. parameter만 81 % 줄어든다**
+
+**직전 commit:** `90d9371e6` (head 읽기 진단 결과, tag `exp/nsmt-flif-neo-20261103-headprobe`).
+
+**사용자 요청 (11-04):**
+- 진단 뒤 "시험할 head가 각각 무엇이었는지 간단하게 설명해줘"에 나는 H1–H6과 진단의 대응을 답했다. H2·H3는 "입력에 따라 바뀌는 가중치"만 진단이 보지 못했고, H6은 목적이 달라 진단으로 배제되지 않는다고 했다.
+- 사용자: "H2와 H6을 **간단하게 검증**해보자."
+
+**범위 ("간단하게"에 맞춰 내가 정함):**
+- 모델: `nsmt4q_pop_lif`, `nsmt4q_pop_flif`만이다. 11-03 결정 3(새 head는 우리 모델에만)과 population 항상 포함 원칙에 따른다. Spikformer식은 원래 head로 보고만 한다.
+- H2는 MIT-BIH만 본다.
+  - H2는 token을 하나로 모으므로 위치별로 미래를 읽는 ETT head에는 맞지 않는다.
+  - CinC는 넣지 않는다. H2가 좋으면 그때 넓힌다.
+- H6은 ETT 네 칸(ETTh2·ETTm2 × H96·H720)이다. 결정 12와 11-03 답 2에 따른다.
+- seed는 42 / 7 / 2026이다. 하이퍼파라미터 탐색은 없다(H2는 새 설정값이 없고, H6의 d = 8은 미리 고정). 그래서 validation 선택도 없다.
+- 학습 방식은 기준선과 같다.
+  - MIT-BIH: 학습 파일 전체, 30 epoch, lr 0.01, 마지막 epoch를 시험한다(`run_mitbih4.sh` 기본값).
+  - ETT: `run_ett_dual.sh` 설정 그대로, validation 최고 weight를 시험한다.
+
+**정의:**
+- **H2 attention pooling** (`--head_pool attn`):
+  - 지금 head는 `head(x.mean(2)).mean(0)`이다. x는 Hippocampus 출력 spike [T_h, B, N, D]이다.
+  - H2는 token 평균 자리에 가중 평균 Σₙ aₙxₙ을 넣는다.
+    - aₙ = softmax_N(q·xₙ / √D)이다. q ∈ ℝ^D는 학습되는 query이고, 점수층은 `Linear(D → 1)`(bias 없음)이다.
+    - T_h step마다 따로 계산하고, logit은 지금처럼 T_h로 평균한다.
+  - q는 0에서 시작한다. 그래서 처음에는 aₙ = 1/N이고, 지금 head와 똑같다.
+  - 점수층은 다른 모든 module을 만든 뒤에 만든다. 그때 CPU 난수 상태를 따로 떼어 두므로(`torch.random.fork_rng`), 같은 seed에서 나머지 model의 초기값이 기준선과 같다.
+  - 늘어나는 parameter는 384개다(1,230,888 → 1,231,272).
+- **H6 선형 지름길 + 작은 head** (`--fc_head h6 --fc_head_dim 8`):
+  - 출력은 ŷ = Linear(L → H)(x̃) + Linear(N·d → H)(펼침(proj(s)))다.
+    - x̃는 창 정규화한 입력 96 step이다.
+    - proj = token마다 `Linear(D → d)`, d = 8이다. 각 T_h step의 0/1 spike에 적용한 뒤 T_h로 평균한다. bias가 없어 T_h 평균에 적용한 것과 수학적으로 같다. 대신 syops가 이 층을 spike 덧셈으로 센다.
+    - 정규화는 출력 뒤에 되돌린다(지금과 같음). bias는 모두 없다(`--no-bias`). 초기값은 지금 head와 같은 trunc_normal(std 0.02)이다.
+  - 같은 weight에서 몸통 항을 빼고 지름길만 남긴 test MSE·MAE도 잰다(`mse_lin`·`mae_lin`, `final+result.csv`·RESULT에 추가).
+  - head parameter (D 64, N 24, L 96):
+
+| 칸 | 지금 head N·D·H | H6 (D·d + N·d·H + L·H) | 변화 |
+|---|---|---|---|
+| H96 | 147,456 | 512 + 18,432 + 9,216 = 28,160 | −80.9 % |
+| H720 | 1,105,920 | 512 + 138,240 + 69,120 = 207,872 | −81.2 % |
+
+**11-03 제안의 정정 — H6의 energy:**
+- 11-03에 나는 H6이 "head parameter와 energy도 줄인다"고 적었다. parameter는 맞지만, energy는 세는 방식에 따라 다르다.
+- 지금 head의 입력은 T_h 평균 spike다. 그래서 기록된 energy(syops)는 이 head를 곱셈(MAC, 4.6 pJ)으로 센다. 10-28 이후 우리는 이 head를 step별 spike 덧셈(AC, 0.9 pJ)으로 다시 센 값을 표준으로 쓴다(`energy_recount_ett.py`).
+- H6의 두 번째 층과 지름길은 실수를 읽으므로 MAC이다. 추정은 아래와 같다(창 하나 = 7채널, head 입력 발화율 0.063–0.075, 단위 µJ).
+
+| 칸 | 지금 head, spike 덧셈 재계산 | 지금 head, 기록값(MAC) | H6 head |
+|---|---|---|---|
+| H96 | 0.24–0.28 | 4.75 | 0.91 |
+| H720 | 1.77–2.10 | 35.61 | 6.70 |
+
+- 정리하면, H6은 기록값 기준으로는 energy가 줄지만 표준인 재계산 기준으로는 약 3.7배 늘어난다. 지름길 하나(L·H MAC)만으로도 지금 head의 재계산 energy보다 크다.
+- 전체 energy로 보면 재계산한 기준선보다 H96에서 약 +0.7 µJ, H720에서 약 +4.9 µJ 늘어날 것이다.
+
+**코드 (기본값이면 기존과 같음):**
+- `classification/model.py`: `head_pool` 인자, `head_score`, `_pool()`을 추가했다. head를 부르는 네 곳이 `_pool()`을 거친다. 기본값 `mean`은 `x.mean(2)` 그대로다.
+- `classification/forecast_wrap.py`: `Forecaster(..., head_kind, head_dim, seq_len)`, `proj`·`head`·`shortcut`, `body_off`를 추가했다. 기본값 `flat`은 기존 코드 그대로다.
+- `classification/train_forecast.py`: 새 인자를 전달하고, H6이면 `mse_lin`·`mae_lin` 열을 추가한다.
+- `classification/config.py`: `--head_pool {mean, attn}`, `--fc_head {flat, h6}`, `--fc_head_dim`(기본 8)을 추가했다. 폴더 접미사는 `_hpattn`, `_fhh6d8`이다.
+- `classification/load_model.py`: `head_pool`을 전달한다.
+- 실행 스크립트:
+  - `classification/scripts/run_mitbih4.sh`: 조건 `nsmt4q_pop_<lif|flif>_hattn` 추가
+  - `forecasting/scripts/run_ett_dual.sh`: 조건 `nsmt4q_pop_<lif|flif>_h6` 추가
+  - 나머지 조건과 설정은 그대로다. 수정 전에 두 스크립트를 쓰는 작업이 없음을 확인했다.
+- 새 파일:
+  - `classification/fw_identity_head.py` (c55a)
+  - `classification/check_head_h2h6.py` (c55b·c)
+  - `classification/scripts/make_queue_h2h6.sh` (대기열 → `scripts/queues/head-h2h6-20261104.txt`, git 제외)
+  - `classification/summarize_head_h2h6.py` (판정표)
+
+**점검 (fail-closed):**
+- **c55a 기존 경로 비트 동일:** 고치기 전에 아래 15개 항목을 저장했다. 같은 코드로 두 번 돌려 결정적임을 먼저 확인했다. 고친 뒤 다시 돌려 15개 모두 같았다.
+  - 저장 대상: MIT-BIH 크기 query pop LIF / f-LIF 새 model의 state_dict·학습 모드 logit·모든 기울기
+  - 실제 MIT-BIH query checkpoint의 시험 logit
+  - ETTh2 H96·H720 query forecaster의 state_dict·학습 출력·모든 기울기와 실제 checkpoint의 시험 출력
+- **c55b H2** (두 neuron 모두 통과):
+  - state_dict가 기준선과 같고 `head_score.weight`만 더해진다.
+  - q = 0에서 학습 logit이 mean head와 같다(최대 차이 0.0).
+  - q에 기울기가 간다(최대 2.7e-4).
+  - 무작위 q에서 pooling이 손으로 계산한 softmax 가중합과 같다(최대 1.2e-7). 가중치 합은 1이고 균일하지 않다.
+- **c55c H6** (H96·H720 통과):
+  - parameter 모양이 (8, 64), (H, 192), (H, 96)이고 N·D × H 층이 없다.
+  - step별 proj 뒤 평균 = 평균의 proj(상대 9e-8).
+  - `body_off` 출력 = 지름길만(정확히 같음).
+  - 전체 출력 = 지름길 + head(proj)를 손으로 계산한 값(상대 7e-8).
+  - 기울기가 proj·head·shortcut·Neocortex(`time_block`, `encoding_neo`)·Hippocampus(`data_block`, `encoding`)에 모두 닿는다.
+  - **점검에서 잡은 것:** 첫 시도는 새로 만든 몸통으로 했는데, 그 Hippocampus가 spike를 하나도 내지 않아 비교가 비었다(0/0 = NaN). fail-closed 규칙대로 실패했다. 몸통을 학습된 ETTh2 seed 42 checkpoint로 바꾸고(발화율 0.066 / 0.075), "spike가 있다"는 조건을 점검에 더했다.
+- **smoke** (1 epoch, seed 42; MIT-BIH는 GPU 1, ETTh2 H96은 GPU 3에서 4/4 RESULT, SKIP 0):
+  - `logargs.txt`의 설정이 의도와 같다.
+    - H2: `head_pool=attn`, `fc_head=flat`, query, `neo_grad=1.0`, lr 0.01
+    - H6: `head_pool=mean`, `fc_head=h6`, `fc_head_dim=8`, lr 0.0005
+  - syops가 층별로 의도대로 센다.
+    - `head_score`와 `proj`는 0/1 입력이라 덧셈(AC)이다. 발화율은 6.9 % / 8.0 %다.
+    - H6의 `head`(129.02 K = 192·96·7)와 `shortcut`(64.51 K = 96·96·7)은 곱셈(MAC)이다.
+  - parameter: H2 1,231,272, H6 ETTh2 H96 56,248(기준선 175,544).
+  - RESULT에 `mse_lin`이 들어간다(1 epoch 0.3007 / 0.3006).
+  - q는 1 epoch 뒤 ‖q‖ = 7.7 / 7.9로, 0에서 벗어난다.
+  - run당 33–40초가 걸렸다.
+  - `summarize_head_h2h6.py`가 기준선 수치를 재현한다: MIT-BIH query pop LIF / f-LIF 92.17 / 92.02, ETT 기준선 MSE(예: ETTh2 H96 0.291209 / 0.289049), Spikformer식 MIT-BIH 92.22.
+
+**기준선 (이미 있는 run, 같은 실행 스크립트·설정; c55a로 기존 경로가 같음을 확인):**
+- H2: `flif-v1-mitbih-query` 6 run (11-01, `nsmt4q_pop_<n>`, lr 0.01, `val=0`)
+- H6: `forecasting/results/flif-v1-ett-query` ETTh2 12 run (10-30), `flif-v1-ett-query-m2` ETTm2 12 run (11-03)
+
+**판정 (사전 고정; 값이 빠지거나 중복되거나 유한하지 않으면 "미완"):**
+- **H2** (모델마다 seed 3쌍): Δ = H2 − mean head의 test macro-F1(%p)
+  - 좋음: 평균 ≥ +0.5 %p이고 2/3 seed 양수
+  - 나쁨: 그 거울
+  - 나머지는 차이 없음
+- **H6** (모델마다 4칸 × seed 3 = 12쌍): r = H6 / 지금 head의 test MSE − 1
+  - 좋음: 평균 r ≤ −1 %이고 8/12 음수
+  - 나쁨: 평균 r ≥ +1 %이고 8/12 양수
+  - 칸별 판정(평균 ±1 %, 2/3 seed)을 함께 적는다.
+- **결론:** 두 모델 모두 좋으면 "좋음", 한 모델만이면 "neuron에 따라 다름(약함)", 둘 다 나쁘면 "나쁨", 나머지는 "차이 없음"이다.
+- **보고 전용:**
+  - 부류별 F1, H2의 학습된 ‖q‖
+  - energy: MIT-BIH는 기록값. ETT는 H6 기록값을 기준선의 spike 덧셈 재계산 및 기준선 기록값과 나란히 적는다. H6 기록값은 이미 spike를 읽는 층을 덧셈으로 센다. 다만 T_h 평균에 드는 덧셈 (T_h − 1)·N·d·C는 빠졌다(창당 약 4,000번, 0.004 µJ).
+  - parameter
+  - H6 / 10-18 선형 기준선 − 1: 몸통이 선형 예측에 더하는 몫이다. 선형 기준선 = 창 정규화 + Linear(96 → H), 다른 학습 스크립트.
+  - H6 / 자기 지름길만 − 1: 학습된 H6이 몸통 항에 얼마나 기대는가를 본다. 두 항의 나눔은 유일하지 않으므로 몸통의 가치가 아니다.
+  - Spikformer식(원래 head)과의 차이: 몸통과 head가 함께 다르다(결정 3).
+
+**읽는 법 (미리 적음):**
+
+| 결과 | 뜻 | 다음 후보 |
+|---|---|---|
+| H2 좋음 | 입력에 따라 token 가중치를 바꾸면 MIT-BIH에서 이득이 있다(진단 R1이 못 본 부분) | CinC로 넓히기, H3(Neocortex가 고르는 pooling) |
+| H2 차이 없음 | 입력에 따른 가중치로도 MIT-BIH head 읽기는 병목이 아니다 | MIT-BIH에서 H2·H3 정리 |
+| H6 좋음 | 지름길 + 작은 head가 정확도를 올린다 | 다른 구조(B형·바꿔 넣기)에도 적용 검토 |
+| H6 차이 없음 | 정확도는 같고 head parameter는 81 % 적다. 대신 energy(재계산 기준)는 늘어난다 | parameter와 energy 중 무엇을 우선할지 사용자 결정 |
+| H6 나쁨 | 이 형태로는 쓰지 않는다. 지름길과 작은 head 중 어느 쪽 탓인지는 이 시험으로 가를 수 없다 | 원하면 둘을 나눈 대조 |
+
+**사전 예상:**
+- H2: 두 모델 모두 차이 없음(|Δ| < 0.5 %p). S·F F1 변화는 1 %p 안이다.
+  - 이유: 진단에서 R1(위치별 고정 가중치를 포함)이 +0.15 / +0.11 %p였고, S·F가 어떤 읽기에서도 움직이지 않았다.
+  - q는 0에서 벗어나 가중치가 균일하지 않게 되겠지만(smoke ‖q‖ 7.7), F1은 그대로일 것이다.
+- H6 정확도: 두 모델 모두 12쌍 판정 차이 없음(|평균 r| < 1 %).
+- H6 / 선형 기준선: ETTh2 H96은 ±1 % 안, ETTm2 두 칸은 2 % 이상 낮다.
+  - 이유: 진단의 R6(원 입력 선형)이 ETTh2 H96에서 몸통과 같았고, ETTm2에서는 3–4 % / 2 % 나빴다.
+- energy: 위 추정대로 재계산 기준선보다 H96 약 +0.7 µJ, H720 약 +4.9 µJ.
+
+**실행:**
+- NSMT/에서 tmux `flif_h2h6`로 `bash scripts/gpu_pool2.sh nsmt_flif_v1/classification/scripts/queues/head-h2h6-20261104.txt 0,1,2,3`을 띄운다.
+- 순서: ETTm2 12 → MIT-BIH 6 → ETTh2 12.
+- 결과 줄: `classification/results/flif-v1-mitbih-h2/raw.txt`, `forecasting/results/flif-v1-ett-h6/raw.txt`
+- GPU는 다른 대화(wt-flif-pop-v3)의 학습과 나눠 쓴다. run 시간만 적고 끝나는 시각은 어림하지 않는다.
+
+**한계:**
+- 기준선은 다른 날(10-30·11-01·11-03)에 학습됐다. GPU 연산이 비트 단위로 재현되지 않으므로, 같은 seed라도 같은 학습 궤적은 아니다. 짝은 seed로만 맞춘다.
+- H6은 지름길과 작은 head를 함께 바꾼다. 두 효과를 가를 수 없다.
+- d = 8은 근거 없이 고정했다(탐색 안 함).
+- H2는 MIT-BIH 한 과제, 단일 query, key 변환 없음의 가장 단순한 형태다.
+- seed 3개, query population 두 모델만 본다. 탐색 수준의 결과다.
+- 선형 기준선은 다른 학습 스크립트로 학습됐다(10-18).
+
+**commit:** 이 항목과 위 코드·스크립트·점검 스크립트를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 pool을 시작한다.
+
+---

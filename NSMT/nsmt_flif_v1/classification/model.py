@@ -714,10 +714,29 @@ class myModel(nn.Module):
                 raise NotImplementedError(f'neuron_all: spikingjelly LIF left in {left}')
             self.n_swapped = nh
         
+        # MODI 2026-11-04 (H2, head test): attention pooling over the token axis in front of the head. A learned query q (score
+        # layer Linear(D -> 1), no bias) scores every token of every T_h step, a = softmax_N(q . x_n / sqrt(D)), and the head
+        # reads sum_n a_n x_n instead of the token mean. q starts at 0 (a = 1/N: exactly the mean head at init) and is built
+        # after every other module with the CPU RNG forked, so the rest of the model is initialised as without it.
+        self.head_pool = str(kwargs.get('head_pool', 'mean'))
+        if self.head_pool not in ('mean', 'attn'):
+            raise ValueError('head_pool in {mean, attn}')
+        if self.head_pool == 'attn':
+            with torch.random.fork_rng(devices=[]):
+                self.head_score = nn.Linear(embed_dim, 1, bias=False)
+            nn.init.zeros_(self.head_score.weight)
+
         if ((self.train_mode != 'training') and (self.train_mode != 'pre_training')):
             for module in self.modules():
                 if isinstance(module, nn.BatchNorm1d):
                     module.eval()
+
+    def _pool(self, x):
+        """x [T, B, N, D] -> [T, B, D]: token mean (default) or the H2 attention pooling."""
+        if self.head_pool == 'mean':
+            return x.mean(2)
+        a = torch.softmax(self.head_score(x).squeeze(-1) / x.shape[-1] ** 0.5, dim=2)   # [T, B, N]
+        return (a.unsqueeze(-1) * x).sum(2)
 
     @torch.jit.ignore
     def _get_pos_embed(self, pos_embed, patch_embed, N):
@@ -897,7 +916,7 @@ class myModel(nn.Module):
     def _training(self, x_hippo, x_neo):
         x_data = x_hippo.clone().detach().transpose(0, 2).contiguous().mean(2, keepdim=True)
         if x_neo is None:                               # no_neo: no reconstruction aux, no distill
-            return self.head(x_hippo.mean(2)).mean(0), x_data, x_data, self.org_x, self.org_x
+            return self.head(self._pool(x_hippo)).mean(0), x_data, x_data, self.org_x, self.org_x
         rec_x = self.weak_decoder(x_neo, x_hippo) #[T BxC 1 P]
         org_x = self.org_x
         if getattr(self, 'neo_streams', False):                        # MODI 2026-10-23: every stream reconstructs the same target
@@ -905,7 +924,7 @@ class myModel(nn.Module):
 
         assert org_x.shape == rec_x.shape, f"original x_time' shape is {org_x.shape}, and reconstructed x_time' shape is {rec_x.shape}"
 
-        z = self.head(x_hippo.mean(2)).mean(0)
+        z = self.head(self._pool(x_hippo)).mean(0)
 
         return z, x_data, x_neo, org_x, rec_x
 
@@ -913,9 +932,9 @@ class myModel(nn.Module):
     def _testing(self, x):
         
         if self.gating == 'ablation':
-            return self.head(x.mean(2)).mean(0)
+            return self.head(self._pool(x)).mean(0)
         else:
-            return self.head(x.mean(2)).mean(0), x.clone().detach()
+            return self.head(self._pool(x)).mean(0), x.clone().detach()
     
 
     # TODO
