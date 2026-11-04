@@ -10785,3 +10785,113 @@ run별 macro-F1(seed 42 / 7 / 2026): muxlin 92.12 / 92.02 / 91.56, sdlin 92.07 /
 - head 쪽을 더 본다면 형태별 lr 재튜닝이 남은 한계를 직접 재는 방법이다. 다만 두 과제 모두 개선 신호가 없어 우선순위는 낮다고 본다.
 
 **commit / tag:** `results/flif-v1-headpool-mitbih/{raw.txt,pool_log.txt,energy_recount.csv}`, `results/flif-v1-headpool/{summary_mitbih.md,posthoc_mitbih.txt}`, 이 기록. 이 기록을 담은 commit에 annotated tag `exp/f-lif-pop-v3-headpool-20261103`(head 입력 형태 실험 완료, 48 run 학습 끝)을 단다.
+
+## 2026-11-04 17:15 KST — 사용자 질문 1(네 과제를 통틀어 contribution 기준으로 가장 채택 가능성이 높은 세팅/모델) 답: 후보 비교(학습 없음, 보고만) → **SpkMixer muxlin LIF(OR 잔차)를 고름**, 차점 = 다른 세션의 NSMT query 형태 population LIF; 사용자 질문 2(그 모델의 병목) 진단 설계 + 에너지 분해(학습 없음, 보고만, 사전등록 아님: 첫 checkpoint 시험 실행 결과를 본 뒤 정함)
+
+**직전 commit:** `74abfe379`(head 입력 형태 실험 완료, tag `exp/f-lif-pop-v3-headpool-20261103`). 브랜치 `exp/f-lif-pop-v3`.
+
+### 사용자 요청(11-04, 원문)
+1. "지금 CinC, MIT-BIH 분류, ETT 예측, AD 과제를 통틀어서 우리의 contribution을 기준으로 '가장 채택가능성이 높은 세팅/모델'은 무엇인지 결과값을 비교분석해서 선택해줘."
+2. "1번 항목에서 선택된 세팅/모델에서 '개선 가능성이 있거나' '성능 문제의 원인'인 설계 사항을 분석해줘. 어떤 부분이 성능 개선의 병목인지 원인을 조사해줘."
+
+### 기준으로 쓴 contribution(기록에서 찾은 것)
+- 10-29 실험 경과 보고(`NSMT/reports/스파이킹 신경망 기억 모델 실험 경과 보고.md` 4.1절, 다른 세션 작성)의 초기 목표 다섯 가지와 사용자 원 의도(MODI 10-16):
+  1. token–time 정렬(T = N): spiking neuron의 시간 처리로 token을 섞는다(보고서 권고: main contribution, "attention-free token mixing").
+  2. energy–accuracy(기준 (2)).
+  3. neuron memory(f-LIF·population)의 쓸모.
+  4. CLS dual-pathway(해마 + 신피질).
+  5. 시계열 범용성(사용자 11-02: AD까지 '시계열 범용 모델').
+- 평가 축: 위 다섯 가지에 더해 근거의 강도(fold 수, 대조군)와 공정한 baseline(같은 epoch, 튜닝한 Spikformer식)을 본다.
+
+### 후보 비교(`cinc_mixer_v1/compare_candidates.py` → `results/candidates-20261104/summary.md`; 모두 기존 RESULT 줄에서 다시 계산, seed 42 / 7 / 2026 짝)
+- 다른 세션 결과는 main tree `nsmt_flif_v1`(branch `exp/nsmt-flif-neo`)의 raw·energy 파일을 **읽기만** 했다. 그쪽에는 아무것도 쓰지 않았다.
+- 후보: A = SpkMixer muxlin LIF(이 브랜치, 각 과제의 튜닝 설정), B = NSMT query 형태 population LIF / f-LIF(`nsmt4q_pop_lif` / `nsmt4q_pop_flif`, 다른 세션; CinC 90 epoch).
+
+| 과제 | A muxlin | B query pop LIF | 비고 |
+|---|---|---|---|
+| CinC fold 0, test | 68.52; 튜닝 Spikformer식(66.36) 대비 **+2.16 (3/3) 좋음**, 에너지 0.98배 | 66.60; 튜닝 Spikformer식 대비 **+0.24 (1/3) 차이 없음**, 1.21배; 기본 Spikformer식(65.60) 대비 +1.00 좋음 | **A − B +1.92 %p (+3.63, +1.01, +1.12), 에너지 0.81배** |
+| CinC fold 0–4 | 없음(fold 0만) | 67.73 vs 기본 Spikformer식 65.74: +1.99, 95 % 구간 [+0.97, +3.00], 12/15 (다른 세션 요약 재현) | B의 튜닝 Spikformer식 fold 1–4는 없음 |
+| T = N 순서·기억 대조 | 없음 | 순서 몫 +1.65 [+0.64, +2.67] (Neocortex만 섞어 재학습, 5 fold) | B의 가장 강한 근거 |
+| MIT-BIH | 튜닝 91.99 vs 튜닝 Spikformer식 91.78: +0.20 차이 없음; 기본 91.90 vs 기본 92.22: −0.32 | 기본 92.17 vs 92.22: −0.05 차이 없음(튜닝 뒤에도 차이 없음) | 둘 다 차이 없음 |
+| ETT 4칸, test MSE | 튜닝 Spikformer식 대비 R +0.45 % (3/12) 차이 없음, 0.98배 | 튜닝 Spikformer식 대비 R −0.63 % (8/12) 차이 없음, 1.23배 | **B − A R −1.07 % (10/12) 좋음** |
+| AD | AUC-PR R +1.05 % 차이 없음(세 모델 모두 학습 없는 점수 수준) | 없음 | |
+| 에너지(CinC) | 129.4 µJ(0.98배) | 158.0 µJ(1.25배, 5 fold) | |
+| neuron | LIF만 됨(B2: f-LIF·population은 모두 Spikformer식보다 나쁨) | population LIF가 LIF보다 좋음(+1.30 %p, fold 0) | |
+
+- 다른 대안(기록만 봄, 표 밖):
+  - 옛 Neo-mixer 막전위 차이 LIF: CinC 5 fold에서 Spikformer식과 같음(−0.21), 에너지 2.1배, MIT-BIH −0.78 나쁨.
+  - Neo-mixer OR / f-LIF 모든 층: ETT 에너지 0.2–0.3배이지만 CinC −3 ~ −4 %p.
+
+### 선택(내 판단)
+- **고름: A = SpkMixer muxlin LIF, OR 잔차**(CinC 설정 = 기본값: lr 1e-3, 방향별 mixer 2층; 다른 과제는 각 튜닝 선택).
+  - 같은 fold, 같은 30 epoch에서 튜닝한 Spikformer식을 3/3 seed로 넘는 유일한 후보다(+2.16 %p). 에너지는 같은 수준(0.98배)이다.
+  - 같은 fold 0에서 B보다 +1.92 %p 높고, 에너지는 0.81배다.
+  - attention 없이 T = N token 섞기만 쓴다. 보고서가 권고한 main contribution 1의 형태다.
+  - 네 과제 모두 튜닝 설정이 있다.
+- **차점: B.** 근거의 강도는 B가 낫다(5 fold, 순서 대조). ETT도 B가 낫다(R −1.07 %). population neuron(contribution 3)도 B에서만 쓸모가 있다.
+  - 다만 fold 0에서 튜닝 Spikformer식과의 차이는 +0.24로 사라진다. B의 '좋음'은 튜닝하지 않은 baseline(lr 1e-3, 30 epoch) 대비이고, B는 90 epoch다. 에너지는 1.25배다.
+- **A의 약점(선택을 뒤집을 수 있는 것):**
+  - CinC가 fold 0 하나다.
+  - 이득이 T = N 처리(순서·기억)에서 오는지 가르는 재학습 대조(섞기·memoryless)가 없다.
+  - population·f-LIF가 이 몸통에서는 쓸모가 없다(contribution 3이 빠짐).
+  - 에너지 이점이 없다.
+- 결정을 가를 다음 확인(제안, 실행 안 함):
+  - A의 CinC fold 1–4(24 run, LIF run 약 1시간).
+  - 튜닝 Spikformer식(lr 2e-3)의 CinC fold 1–4(12 run, 약 10분/run). A와 B 모두의 공정한 5 fold 비교에 필요하다.
+
+### 질문 2: 병목 진단(`cinc_mixer_v1/bottleneck_probe.py`, 학습 없음, 보고만)
+- **성격:** 사전등록이 아니다. 첫 checkpoint(seed 42) 시험 실행 네 개의 결과를 본 뒤 아래 개입과 읽는 법을 정했다(정정 아래).
+  - 시험 실행 출력은 scratchpad에만 있고 판정에 쓰지 않는다. 본 실행은 commit 뒤 처음부터 다시 돈다.
+- **대상 checkpoint(seed 42 / 7 / 2026):**
+  - CinC fold 0, 최고 검증 가중치(`checkpoint.pth`): muxlin(선택), sdlin·or(B1, 합치기 대조), population LIF sdlin·f-LIF sdlin(B2, 긴 기억 neuron 대조).
+    - muxlin·sdlin·or는 validation(683 기록)과 test(1,706)를 본다.
+    - population LIF·f-LIF는 느려서 validation만, 개입 일부만 본다.
+  - ETT: muxlin 튜닝(IAND, 층 1, lr ETTh2 5e-4 / ETTm2 1e-4) 4칸, test MSE.
+  - MIT-BIH: muxlin 튜닝 최종(ADD, 층 2, lr 0.02, 학습 파일 전체, 마지막 epoch 가중치), test macro-F1.
+- **개입**(block 0의 `mix()`, 즉 T = N 부분만 바꿈; 나머지 층은 그대로):
+  - off: mixer 출력 m = 0. 잔차가 임베딩을 그대로 통과시킨다. mixer의 몫이다.
+  - shuf0–2: 고정 순열 세 개로 mixer 안의 token 순서를 섞고, 출력은 제자리로 돌린다.
+  - rev: mixer 안의 순서를 뒤집는다(앞방향 가중치가 시퀀스를 거꾸로 읽음).
+  - kK(K = 1, 4, 16, 64): mixer 전체(두 방향, s_d, 합치기 neuron)를 K token 덩어리로 따로 돌린다. 덩어리마다 neuron이 정지 상태에서 다시 시작한다.
+  - ctxW(W = 4, 16, 64): 4 token 덩어리마다 앞뒤 W token을 문맥으로 붙여 돌리고, 덩어리 자기 출력만 쓴다. 모든 출력 token이 방향마다 최대 W token만 본다. 다시 시작하는 순간의 충전 효과는 버리는 문맥 쪽으로 밀린다.
+  - sd0 / sd1(muxlin만): MUX 문 고정. m = F ∧ R 전부 / m = L 전부.
+- **점검(fail closed):**
+  - 기본이 기록값을 재현한다(CinC val = `best_val_score`, CinC test·ETT·MIT-BIH = RESULT, 1e-6).
+  - kN(덩어리 하나)·ctxN(전체 문맥)·두 번째 기본 호출·s_d 재구현이 기본과 비트 단위로 같다.
+  - 앞방향 mixer에 시퀀스 앞 절반만 넣은 출력이 전체 실행의 앞 절반과 같다(다시 시작한 실행이 같은 동역학이라는 것; 다른 스파이크 비율 ≤ 1e-4).
+- **읽는 법**(시험 실행을 본 뒤 정함):
+  - off·shuf·rev의 하락은 "학습된 모델이 그 부분에 기대는가"다. "과제가 순서를 요구하는가"가 아니다. 뒤 층은 섞인 입력을 본 적이 없으므로 하락이 과장된다. 필요성은 재학습 대조로만 잴 수 있다.
+  - ctxW에서 기본과 0.5 %p 안에 드는 가장 작은 W를 그 모델이 실제로 쓰는 문맥 길이로 읽는다. kK는 경계 충전 효과가 섞이므로 보조로만 본다.
+- **정정(같은 항목 안):** 첫 설계에는 kK만 있었다. 시험 실행에서 muxlin seed 42 validation이 k16 69.83 / k64 72.68(기본 72.84)이었다. 이것이 긴 기억 때문인지 덩어리 경계 효과 때문인지 가릴 수 없어서 ctxW를 더했다. 시험 실행에서 본 값(seed 42 하나, validation 또는 test):
+  - CinC muxlin val: off 35.61, 섞기 38.4–40.0, rev 45.89, ctx4 71.55, ctx16 73.12.
+  - ETTh2-96 muxlin test MSE: 기본 0.2985, off 0.2951.
+  - MIT-BIH muxlin test macro-F1: 기본 91.89, off 24.17, ctx4 91.82.
+  - CinC population LIF val: 기본 65.82, ctx16 38.66, ctx64 65.70.
+
+### 에너지 분해(`bottleneck_probe.py --energy` → `results/bottleneck-probe-20261104/energy.md`; syops 층별 파일, CinC fold 0, 창 하나, seed 평균, µJ)
+
+| 부분 | muxlin | Spikformer식(lr 2e-3) |
+|---|---:|---:|
+| 임베딩 Linear(실수 입력 MAC, T_h 4번 반복) | 52.9 (41 %) | 52.9 (40 %) |
+| BatchNorm(MAC) | 14.9 (12 %) | 11.6 (9 %) |
+| token mixer / attention 사영(AC) | 16.5 (13 %) | 36.7 (28 %) |
+| 합치기 Linear(AC) | 14.2 (11 %) | 0 |
+| MLP(AC) | 10.4 (8 %) | 11.5 (9 %) |
+| neuron 입력 AC(syops) | 1.5 (1 %) | 1.3 (1 %) |
+| neuron 상태 갱신 | 19.1 (15 %) | 17.5 (13 %) |
+| 합 / 기록 total_fft_uJ | 129.4 / 129.4 | 131.5 / 131.5 |
+
+- 같은 checkpoint의 계산 방식만 바꾼 값(새 모델 아님):
+  - 임베딩을 한 번만 계산(T_h 반복의 입력이 같음): muxlin 89.7, Spikformer식 91.8(비 0.98).
+  - BN까지 앞 Linear에 접으면: 74.8 / 80.3(비 0.93).
+- 읽기:
+  - 두 모델 에너지의 절반이 같은 앞단(임베딩 + BN)이다. 그래서 비가 1 근처에 묶인다.
+  - mixer 자체(16.5)는 attention 사영(36.7)의 0.45배다. 하지만 합치기 Linear(14.2)가 그 차이의 대부분을 다시 쓴다.
+  - Spikformer식의 attention 곱(q·kᵀ·v)은 syops가 세지 않는다(다른 세션 11-02 보고서). 세면 비가 muxlin 쪽으로 조금 더 유리해진다(크기는 재지 않음).
+
+### 실행 계획
+- 본 실행: part 7개(CinC 5조건, ETT, MIT-BIH)를 GPU 4장에 나눠 돌린다(다른 세션 GPU 사용 0 %).
+  - 예상 시간(시험 실행 기준): CinC LIF 조건 약 18분/checkpoint, population·f-LIF는 validation만이라 약 20–40분/checkpoint, ETT 2–10분, MIT-BIH 2분.
+- 명령(cinc_mixer_v1/에서): `LD_LIBRARY_PATH=<env>/lib OMP_NUM_THREADS=4 python -B bottleneck_probe.py --task <cinc|ett|mitbih> --cond <cond> -nd <gpu>`. 끝나면 `--summarize` → `results/bottleneck-probe-20261104/summary.md`.
+
+**commit:** `compare_candidates.py`, `results/candidates-20261104/summary.md`, `bottleneck_probe.py`, `results/bottleneck-probe-20261104/energy.md`, 이 기록. 결과는 다음 항목에 쓴다.
