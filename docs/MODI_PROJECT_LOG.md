@@ -6155,3 +6155,157 @@ energy(µJ)는 lr에 따라 거의 변하지 않는다. query population LIF는 
 **commit:** 이 항목과 위 코드·스크립트·점검 스크립트를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 pool을 시작한다.
 
 ---
+
+## 2026-11-04 19:12 KST — 결과: head 시험 H2·H6 (30 run, query population LIF / f-LIF) — 사전 고정 규칙으로 H2(MIT-BIH)와 H6(ETT 네 칸) 모두 두 모델에서 "차이 없음"이다. H2 − mean head는 −0.09 / −0.03 %p다. H6 / 지금 head − 1은 12쌍 평균 −0.25 / −0.05 %다(음수 7/12, 5/12). 칸별로는 ETTh2 H96만 좋음(−1.75 / −1.25 %)이고, ETTh2 H720은 반대 방향이다(+0.88 / +0.42 %). H6은 head parameter를 81 % 줄이지만, 전체 energy(spike 덧셈 기준)는 H96에서 +0.5–0.7 µJ, H720에서 +4.8 µJ 늘었다. 사전 추정과 같다. 보고 전용: H2를 붙인 model은 Hippocampus 발화율이 28 % / 19 % 낮았다(기록 energy −11 % / −9 %, 6/6 seed). 원인은 이 시험으로 알 수 없다
+
+**직전 commit:** `973448596` (사전 고정 + 구현, 바로 위 항목).
+
+**실행:**
+- tmux `flif_h2h6`, NSMT/에서 `bash scripts/gpu_pool2.sh nsmt_flif_v1/classification/scripts/queues/head-h2h6-20261104.txt 0,1,2,3`
+- 17:55:57에 시작해 마지막 run이 19:08:34에 끝났다.
+- RESULT 30개(MIT-BIH 6, ETT 24), SKIP 0. `gpu_pool2.sh`는 항상 rc=0을 찍으므로 SKIP 줄로 확인했다.
+- run당 시간(`time_s`, 단위 초; GPU를 다른 대화의 학습과 나눠 씀):
+  - MIT-BIH H2 481–605
+  - ETTh2 H96 170–239, H720 196–238
+  - ETTm2 H96 861–1077, H720 715–1115
+- 코드는 `973448596`, 환경은 `snn_recall`이다. 설정은 사전 고정 항목대로이고(`logargs.txt`는 smoke에서 확인), 결과 줄의 `sha=973448596`이다.
+- 요약: classification 폴더에서 `python summarize_head_h2h6.py` → `classification/results/flif-v1-head-h2h6-summary.md`
+
+**H2 — attention pooling (MIT-BIH test macro-F1 %, 마지막 epoch weight):**
+
+| model | head | seed 42 | seed 7 | seed 2026 | 평균 |
+|---|---|---|---|---|---|
+| query pop LIF | mean (기준선) | 92.19 | 92.00 | 92.33 | 92.17 |
+| query pop LIF | H2 | 92.16 | 91.75 | 92.33 | 92.08 |
+| query pop f-LIF | mean (기준선) | 92.04 | 91.84 | 92.18 | 92.02 |
+| query pop f-LIF | H2 | 92.11 | 91.94 | 91.92 | 91.99 |
+
+| model | Δ = H2 − mean (42 / 7 / 2026) | 평균 | 양수 | 판정 |
+|---|---|---|---|---|
+| query pop LIF | −0.03 / −0.26 / +0.00 | −0.09 | 1/3 | 차이 없음 |
+| query pop f-LIF | +0.07 / +0.10 / −0.25 | −0.03 | 2/3 | 차이 없음 |
+
+**H6 — 선형 지름길 + 작은 head (ETT test MSE, validation 최고 weight):**
+
+| model | 칸 | 지금 head (평균) | H6 (평균) | r = H6 / 지금 − 1 (42 / 7 / 2026, %) | 칸 평균 | 칸 판정 |
+|---|---|---|---|---|---|---|
+| query pop LIF | ETTh2 H96 | 0.291209 | 0.286079 | −0.01 / −2.13 / −3.12 | −1.75 | 좋음 |
+| query pop LIF | ETTh2 H720 | 0.413544 | 0.417177 | +0.28 / +1.42 / +0.94 | +0.88 | 차이 없음 |
+| query pop LIF | ETTm2 H96 | 0.176042 | 0.176102 | −0.06 / −0.21 / +0.37 | +0.03 | 차이 없음 |
+| query pop LIF | ETTm2 H720 | 0.402798 | 0.402178 | +0.42 / −0.19 / −0.69 | −0.15 | 차이 없음 |
+| query pop f-LIF | ETTh2 H96 | 0.289049 | 0.285390 | +0.09 / −1.96 / −1.90 | −1.25 | 좋음 |
+| query pop f-LIF | ETTh2 H720 | 0.413543 | 0.415294 | +0.19 / −0.14 / +1.23 | +0.42 | 차이 없음 |
+| query pop f-LIF | ETTm2 H96 | 0.176527 | 0.177931 | +1.32 / +0.45 / +0.61 | +0.80 | 차이 없음 |
+| query pop f-LIF | ETTm2 H720 | 0.401944 | 0.401347 | +0.20 / −0.06 / −0.59 | −0.15 | 차이 없음 |
+
+| model | 12쌍 평균 r | 음수 | 판정 |
+|---|---|---|---|
+| query pop LIF | −0.25 % | 7/12 | 차이 없음 |
+| query pop f-LIF | −0.05 % | 5/12 | 차이 없음 |
+
+**결론 (사전 고정 규칙):**
+
+| head | pop LIF | pop f-LIF | 결론 |
+|---|---|---|---|
+| H2 (MIT-BIH) | 차이 없음 | 차이 없음 | 차이 없음 |
+| H6 (ETT) | 차이 없음 | 차이 없음 | 차이 없음 |
+
+**ETTh2 H96의 칸별 "좋음"을 어떻게 읽나:**
+- 사전 고정 결론은 12쌍 판정이다. 칸별 판정은 함께 적기로 한 보조 정보다.
+- 이 칸에서도 seed 42는 차이가 없다(−0.01 / +0.09 %). 차이는 seed 7·2026에서 나왔고, 그 두 seed는 기준선 값이 높았다(LIF 0.2956 / 0.2913, f-LIF 0.2936 / 0.2897).
+- 같은 데이터의 H720은 반대 방향이다(+0.88 / +0.42 %).
+- 그래서 이 한 칸으로 결론을 바꾸지 않는다.
+
+**사전 예상과 비교:**
+
+| 예상 | 결과 | 맞음? |
+|---|---|---|
+| H2 두 모델 모두 차이 없음(\|Δ\| < 0.5 %p) | −0.09 / −0.03 %p | 맞음 |
+| H2에서 S·F F1 변화 1 %p 안 | S −0.62 / +0.01, F +0.35 / −0.03 %p | 맞음 |
+| q는 0에서 벗어남 | ‖q‖ 19.7–21.7 (smoke 1 epoch 7.7) | 맞음 |
+| H6 12쌍 판정 차이 없음 | −0.25 / −0.05 % | 맞음 |
+| H6 / 선형 기준선: ETTh2 H96 ±1 % 안 | −1.86 / −2.10 % | 틀림 (H6이 이 칸에서 지금 head보다 낮아서; 지금 head는 −0.10 / −0.85 %로 예상 범위였다) |
+| H6 / 선형 기준선: ETTm2 두 칸 2 % 이상 낮음 | H96 −3.69 / −2.69 %, H720 −1.39 / −1.59 % | H96 맞음, H720 틀림 |
+| 전체 energy가 재계산 기준선보다 H96 약 +0.7, H720 약 +4.9 µJ | H96 +0.50–0.70, H720 +4.75–4.78 µJ | 맞음 |
+
+**보고 전용 1 — H2 model의 발화율과 energy (MIT-BIH, seed 3개 평균):**
+
+| model | head | Hippocampus 발화율 | Neocortex 발화율 | 기록 energy µJ |
+|---|---|---|---|---|
+| query pop LIF | mean | 0.1476 | 0.0424 | 11.10 |
+| query pop LIF | H2 | 0.1064 (−27.9 %) | 0.0379 | 9.86 (−11.2 %) |
+| query pop f-LIF | mean | 0.1398 | 0.0623 | 12.26 |
+| query pop f-LIF | H2 | 0.1132 (−19.0 %) | 0.0479 | 11.17 (−8.9 %) |
+
+- Hippocampus 발화율은 6개 seed 모두 기준선보다 낮다(LIF 0.102–0.110 vs 0.144–0.151, f-LIF 0.107–0.117 vs 0.137–0.144).
+- energy 감소는 몸통 synapse 몫에서 나온다(LIF 8.38–8.57 → 7.21–7.44 µJ). head 쪽 셈은 두 head가 같다. pooling 결과가 실수라 head는 둘 다 곱셈으로 세고, `head_score`는 0/1 입력이라 덧셈이다.
+- 원인은 알 수 없다. attention 가중치를 저장하지 않았고, 기준선은 다른 날(11-01) 학습됐다. 사전 고정한 판정 대상이 아니다.
+
+**보고 전용 2 — H6이 몸통 항에 얼마나 기대나, 선형 기준선과의 차이 (seed 3개 평균, %):**
+
+| model | 칸 | H6 / 지름길만 − 1 | H6 / 선형 기준선 − 1 | (참고) 지금 head / 선형 기준선 − 1 |
+|---|---|---|---|---|
+| query pop LIF | ETTh2 H96 | −3.60 | −1.86 | −0.10 |
+| query pop LIF | ETTh2 H720 | −1.08 | −0.86 | −1.73 |
+| query pop LIF | ETTm2 H96 | −8.21 | −3.69 | −3.73 |
+| query pop LIF | ETTm2 H720 | −1.95 | −1.39 | −1.23 |
+| query pop f-LIF | ETTh2 H96 | −3.87 | −2.10 | −0.85 |
+| query pop f-LIF | ETTh2 H720 | −1.45 | −1.31 | −1.73 |
+| query pop f-LIF | ETTm2 H96 | −6.60 | −2.69 | −3.46 |
+| query pop f-LIF | ETTm2 H720 | −1.90 | −1.59 | −1.44 |
+
+- 선형 기준선은 10-18에 다른 학습 스크립트로 학습한 창 정규화 + Linear(96 → H)다(0.2915 / 0.4208 / 0.1829 / 0.4078).
+- H720 두 칸에서 몸통 항을 빼도 MSE가 1–2 %만 나빠진다. 학습된 H6은 긴 예측에서 대부분 지름길로 예측한다.
+- 두 항의 나눔은 유일하지 않다. 그래서 첫 열은 몸통의 가치가 아니라 학습된 H6이 몸통 항을 얼마나 쓰는가다.
+
+**보고 전용 3 — energy와 parameter (ETT, seed 3개 평균, µJ):**
+
+| model | 칸 | 지금 head, spike 덧셈 재계산 | 지금 head, 기록값 | H6, 기록값 | H6 − 재계산 | parameter 지금 → H6 |
+|---|---|---|---|---|---|---|
+| query pop LIF | ETTh2 H96 | 11.27 | 15.73 | 11.97 | +0.70 | 175,544 → 56,248 |
+| query pop LIF | ETTh2 H720 | 12.92 | 46.61 | 17.69 | +4.77 | 1,134,008 → 235,960 |
+| query pop LIF | ETTm2 H96 | 13.23 | 17.72 | 13.73 | +0.50 | 184,560 → 65,264 |
+| query pop LIF | ETTm2 H720 | 14.36 | 48.18 | 19.11 | +4.75 | 1,143,024 → 244,976 |
+| query pop f-LIF | ETTh2 H96 | 13.54 | 18.02 | 14.19 | +0.65 | 175,544 → 56,248 |
+| query pop f-LIF | ETTh2 H720 | 15.16 | 48.85 | 19.93 | +4.77 | 1,134,008 → 235,960 |
+| query pop f-LIF | ETTm2 H96 | 16.53 | 21.02 | 17.07 | +0.54 | 184,560 → 65,264 |
+| query pop f-LIF | ETTm2 H720 | 17.74 | 51.58 | 22.52 | +4.78 | 1,143,024 → 244,976 |
+
+- H6 기록값은 spike를 읽는 층(`proj`)을 이미 덧셈으로 센다. 그래서 표준(spike 덧셈 재계산)과 같은 기준으로 비교할 수 있다. T_h 평균에 드는 덧셈(창당 약 0.004 µJ)은 빠져 있다.
+- H6 − 재계산 값에는 몸통 발화율 차이도 섞여 있다. H6 model의 Hippocampus 발화율은 8칸 중 6칸에서 조금 낮고, Neocortex 발화율은 8칸 중 6칸에서 조금 높다(예: ETTm2 H96 LIF 0.0732 → 0.0687, 0.0269 → 0.0323).
+
+**보고 전용 4 — Spikformer식(원래 head)과의 차이 (결정 3에 따라 Spikformer식에는 새 head를 붙이지 않음; 몸통과 head가 함께 다름):**
+- MIT-BIH: Spikformer식 92.22. H2 − Spikformer식은 −0.14 / −0.23 %p다.
+- ETT: Spikformer식 0.2903 / 0.4223 / 0.1775 / 0.4034(ETTh2 H96 / H720 / ETTm2 H96 / H720).
+  - H6 / Spikformer식 − 1: LIF −1.45 / −1.21 / −0.79 / −0.30 %, f-LIF −1.69 / −1.66 / +0.24 / −0.51 %
+  - (참고) 지금 head / Spikformer식 − 1: LIF +0.31 / −2.07 / −0.82 / −0.15 %, f-LIF −0.43 / −2.07 / −0.55 / −0.36 %
+
+**보고 전용 5 — 부류별 F1 (MIT-BIH %, seed 3개 평균; N / S / V / F / Q):**
+- query pop LIF: mean 99.26 / 86.18 / 96.08 / 80.36 / 98.98, H2 99.24 / 85.56 / 95.81 / 80.71 / 99.08
+- query pop f-LIF: mean 99.23 / 85.70 / 96.14 / 79.97 / 99.04, H2 99.23 / 85.71 / 96.12 / 79.94 / 98.95
+
+**읽는 법 적용 (사전 고정 표):**
+- **H2 차이 없음:** 입력에 따라 token 가중치를 바꿔도 MIT-BIH의 head 읽기는 병목이 아니다. 11-03 진단(고정 가중치 읽기 R1 +0.15 / +0.11 %p)과 같은 방향이다. 표의 다음 후보는 "MIT-BIH에서 H2·H3 정리"다. H3(Neocortex가 고르는 pooling)는 시험하지 않았다.
+- **H6 차이 없음:** 정확도는 같고 head parameter는 81 % 적다. 대신 표준 energy는 H96에서 +0.5–0.7 µJ(+3–6 %), H720에서 +4.8 µJ(+27–37 %) 늘어난다. 표의 다음 후보는 "parameter와 energy 중 무엇을 우선할지 사용자 결정"이다.
+
+**한계:**
+- 기준선은 다른 날(10-30·11-01·11-03) 학습됐다. 같은 seed라도 같은 학습 궤적이 아니다(GPU 연산이 비트 단위로 재현되지 않음).
+- H6은 지름길과 작은 head를 함께 바꾼다. 두 효과를 가를 수 없다. d = 8은 탐색하지 않았다.
+- ETTh2 두 칸과 ETTm2 H720에서는 validation 최고 epoch가 0–4다(두 head 모두). 짧은 학습 안에서 비교한 것이다.
+- H2는 MIT-BIH 한 과제, 단일 query, key 변환 없음의 가장 단순한 형태다. attention 가중치를 저장하지 않았다.
+- seed 3개, query population 두 모델만 봤다. 탐색 수준의 결과다.
+
+**파일 (git):**
+- `classification/results/flif-v1-mitbih-h2/{raw.txt, pool_runs.txt}`
+- `forecasting/results/flif-v1-ett-h6/{raw.txt, pool_runs.txt}`
+- `classification/results/flif-v1-head-h2h6-summary.md`
+- smoke 결과 `classification/results/smoke-h2-mitbih-20261104/raw.txt`, `forecasting/results/smoke-h6-ett-20261104/raw.txt`
+- 로컬에만 둔다: `classification/log/flif-v1-mitbih-h2/`, `forecasting/log/flif-v1-ett-h6/`, smoke log 폴더(checkpoint·TensorBoard·`logargs.txt`), pool 기록 원본 `classification/log/head-h2h6-pool-20261104.log`
+
+**점검:** 결과 줄 수(6 / 24), SKIP 0, 요약 스크립트의 기준선 재현(사전 고정 항목)을 확인했다. 새 점검은 없다.
+
+**commit / tag:** 이 항목과 위 결과 파일을 commit 하고, annotated tag `exp/nsmt-flif-neo-20261104-h2h6`를 붙인다. `exp/nsmt-flif-neo`와 이 tag만 push 한다.
+
+**다음 (사용자 결정 대기):** H6의 parameter와 energy 중 무엇을 우선할지, head 쪽 시험을 여기서 정리할지. 이전부터 남은 결정(P1 / P2 run, 제안 P7–P9, MIT-BIH 환자 간 분할 과제, 보고서 두 개 commit 여부)도 그대로다.
+
+---
