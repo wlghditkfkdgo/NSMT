@@ -11068,3 +11068,92 @@ run별 macro-F1(seed 42 / 7 / 2026): muxlin 92.12 / 92.02 / 91.56, sdlin 92.07 /
 - 이 항목 시점에 학습은 시작하지 않았다. 코드 복사 commit `56a88d13c`까지 했고, `neo_mux.py`와 옵션 연결은 작업 중(미commit)이다. 점검·smoke·사전등록 뒤 시작한다.
 
 **commit:** `compare_nsmt.py`, `results/compare-nsmt-20261105/summary.md`, 이 기록.
+
+## 2026-11-05 11:05 KST — 사전등록 + 구현 + 점검: [query pop LIF NSMT T=4]의 Neocortex를 양방향 muxlin으로 교체(ETT → MIT-BIH, 258 run); 점검 q0–q4 통과(복사본 32행 일치, 원본 checkpoint 7개 재현, 모델 32조합, 처음 침묵 층 없음, 원본 run 2개를 다시 학습해 모든 기록 필드 일치), smoke 36/36
+
+**직전 commit:** `c37af4782`(구현 + 점검 q0–q3). 브랜치 `exp/f-lif-pop-v3`. 코드 출처: `exp/nsmt-flif-neo` commit `90d9371e6`을 `git show`로 그대로 복사(`56a88d13c`), 바꾼 파일은 `NSMT/qmux_v1/QUERY_PROVENANCE.md`에 적음.
+
+### 정정(앞 기록의 머리 시각)
+- "2026-11-05 10:40"(병목 진단 결과) 항목의 실제 commit 시각은 10:28:06이다.
+- "2026-11-05 10:55"(결과표) 항목의 실제 commit 시각은 10:36:29다.
+- 내용은 그대로다.
+
+### 사용자 지시(11-04 ~ 11-05, 앞 항목에 원문)
+- [query pop LIF NSMT T=4]의 Neocortex path를 양방향 Neo-mixer로 바꾼다. 방향별 1층, muxlin 합치기, 2번 쌓기(총 2-layer).
+- 블록 연결: OR 잔차와 IAND 잔차를 둘 다 시험.
+- neuron: LIF, f-LIF, population LIF, population f-LIF. Neocortex 모든 층에 같은 neuron, 해마는 spikingjelly LIF 그대로.
+- 대조: 양방향 OR 합치기(문 없음).
+- 과제: CinC는 main result가 아니므로 ETT → MIT-BIH 먼저. AD는 끝단 수정 여부를 정한 뒤 따로.
+
+### 구조(`NSMT/qmux_v1/neo_mux.py`, `--neo_mux {muxlin,or} --neo_mux_cf {OR,IAND} --neo_mux_blocks 2`)
+```
+e [N, B, 1, D] = encoding_neo(tokens)                  Linear -> BN -> neuron, token 축 (기존 그대로, 두 방향이 공유)
+x = e
+블록 2번:
+  F, H_f = NeoLayer_f(x)                               Linear -> BN -> neuron, token 축
+  R, H_r = NeoLayer_r(x 뒤집음), 다시 뒤집음            자기 가중치
+  muxlin: s_d = neuron_d(BN_d(|H_f - H_r|))
+          L   = neuron(BN(W [F v R; s_d])), W: 2D -> D, 입력 0/1
+          m   = s_d ? L : F ^ R                        학습 산술 s L + (1 - s) min(F, R), SpkMixer와 같음
+  or:     m   = F v R                                  대조
+  x = max(x, m) (OR 잔차) 또는 x (1 - m) (IAND 잔차)
+출력 x -> 해마 attention의 query (T_h 4번 복사, 기존 그대로)
+```
+- 조건 이름: `qmx_<neuron>_<muxlin|or>_<or|iand>`. 기본(`--neo_mux none`) 경로는 원본과 비트 단위로 같다(q1, q4).
+- `time_block`을 global init 뒤에 forked RNG 안에서 바꾼다. 같은 seed에서 나머지 모든 가중치와 이후 난수열이 plain query 모델과 같다(q2a). 그래서 기존 query run이 짝지은 대조다.
+- 코드 변경(복사본 기준): `config.py`(옵션, 폴더 접미사), `load_model.py`(옵션 전달), `model.py`(time_block 교체), `energy_recount_ett.py`(`qmx_` 조건, 결과 경로), 러너 2개(경로, 조건, RESULT exp). 새 파일: `neo_mux.py`, `check_qmx.py`, `summarize_qmx.py`, `scripts/make_queue_qmx.sh`, `scripts/qmx_driver.sh`.
+
+### 실험(seed 42 / 7 / 2026)
+| 과제 | 새 조건 | 새 대조 | 재사용 대조 | 설정 |
+|---|---|---|---|---|
+| ETT(ETTh2, ETTm2 × H96, H720) | 4 neuron × 2 합치기 × 2 잔차 × 4칸 × seed 3 = 192 | `nsmt4q_lif`, `nsmt4q_flif` ETTm2 2칸 = 12 | ETTh2 4 neuron, ETTm2 population 2종(`flif-v1-ett-query`, `-m2`) | 표 13 값(ETTh2 D 64, MLP 0.5; ETTm2 D 64, MLP 1; lr 5e-4; batch 64; patience 10; 최고 검증 가중치로 test) |
+| MIT-BIH | 4 neuron × 2 × 2 × seed 3 = 48 | `nsmt4q_lif`, `nsmt4q_flif` = 6 | population 2종(`flif-v1-mitbih-query`) | 30 epoch, lr 0.01, batch 512, cosine, 마지막 epoch 가중치로 test |
+
+- 튜닝하지 않는다. 기존 query run과 같은 설정으로 짝을 맞춘다.
+
+### 비교와 판정(사전 고정; `summarize_qmx.py`; 규칙은 과제별 기존 규칙)
+- ETT: r = 100 (MSE_A − MSE_B) / MSE_B, R = 4칸 평균, 좋음 = R ≤ −1 %이고 12쌍 중 8쌍 이상 낮음, 나쁨은 반대. 기준 (2) = 좋음, 또는 R ≤ +1 %이면서 에너지 ≤ 0.5배.
+- MIT-BIH: macro-F1 차이, 좋음 = 평균 ≥ +0.5 %p이고 seed 2/3, 나쁨은 반대. 기준 (2) = 좋음, 또는 평균 ≥ −0.5이면서 에너지 ≤ 0.5배.
+
+| 비교 | 내용 |
+|---|---|
+| **V1(주)** | `qmx_n_muxlin_r` vs `nsmt4q_n`: 새 Neocortex vs 기존 한 방향 query(neuron·잔차별) |
+| V2 | `qmx_n_muxlin_r` vs `qmx_n_or_r`: 막전위 차이 문의 몫 |
+| V3 | `qmx_n_or_r` vs `nsmt4q_n`: 양방향 자체의 몫 |
+| V4 | `qmx_n_muxlin_r` vs Spikformer식: ETT는 튜닝값, MIT-BIH는 기본값(lr 0.01, query run과 같은 lr), 기준 (2) |
+| 보고 | vs Spikformer식 다른 쪽, vs NSMT 재현, IAND vs OR, plain query vs Spikformer식 |
+
+- **잔차 선택(ETT, 검증만):** neuron별로 네 칸 평균 [IAND 최고 검증 L1 / OR 최고 검증 L1]. 1 미만이면 IAND. MIT-BIH는 검증 분할이 없어 두 잔차를 모두 보고한다.
+- **채택(사전 고정, `--task mitbih`가 씀):** ETT V1 '좋음'이고 MIT-BIH V1이 '나쁨'이 아닌 neuron·잔차.
+
+### 미리 적는 예상
+- ETT V1: 모두 '차이 없음', 일부 '나쁨' 가능. 근거: 11-05 진단에서 SpkMixer의 token mixer를 꺼도 ETT MSE는 +1.61 %뿐이었다. 다만 이번 모델은 Neocortex 경로가 query로 들어가는 다른 구조라, 그 진단이 그대로 옮겨진다는 보장은 없다.
+- MIT-BIH V1: 모두 '차이 없음'(macro-F1 약 92 부근, 지금까지 어떤 모델도 Spikformer식과 갈라지지 않음).
+- population + IAND 잔차가 가장 나쁠 것이다. 처음 Neocortex 출력이 ETT에서 0.3–0.7 %로 매우 성기다(q3).
+- 에너지: neuron 층이 ETTh2 2→8개, ETTm2·MIT-BIH 3→9개(임베딩 포함)로 늘어 plain query보다 올라간다. smoke(1 epoch) 기준 ETTh2 H96 보정 에너지는 아래 '점검'에 있다.
+
+### 위험과 한계(미리 적음)
+- ETTh2 표 13의 plain query는 Neocortex가 1층이다(M = 1). 새 구조는 두 데이터 모두 2블록이다. 그래서 ETTh2 V1에는 깊이 차이가 섞인다. ETTm2는 2층 대 2블록이다.
+- 양방향이면 Neocortex가 미래 token도 본다. 입력 창 안이라 누수는 아니지만, "과거 상태 기억"보다 "양방향 문맥"에 가까워져 memory 해석이 달라진다.
+- 후보가 많다(neuron 4 × 잔차 2 × 과제 2). 우연히 '좋음'이 나올 수 있다. 채택 기준이 두 과제를 요구하고, 그 뒤 fold·seed 확인이 필요하다.
+- lr·patience는 plain query에 맞춘 값이다. SpkMixer는 ETT 기본 lr에서 첫 epoch 뒤로 나아지지 않았고(10-31), 튜닝이 이를 풀었다. 새 모델에서도 같은 일이 생기면 '최고 검증 epoch'로 드러난다(보고).
+- seed 3개. ETT test는 여러 번 열었다.
+- soma 없는 population(popg)은 넣지 않는다(사용자 10-22 결정, 질문 답 "4종 모두").
+
+### 점검 `check_qmx.py`(fail closed; `results/checks/qmx_initial_firing.md`)
+- **q0 복사:** `QUERY_PROVENANCE.md` 32행. "no" 표시 파일은 원본 blob과 같고, "yes" 표시 파일은 다르다.
+- **q1 기본 경로:** 이 폴더 코드(`--neo_mux none`)가 원본 query checkpoint 7개의 기록값을 1e-6 안에서 재현했다(ETT 5개: 4 neuron ETTh2 H96, population LIF ETTm2 H96; MIT-BIH 2개).
+- **q2 새 모델:** ETT·MIT-BIH × 4 neuron × 2 합치기 × 2 잔차 = 32조합 모두 통과. 짝(가중치·난수), neuron 층 수와 클래스, 식, q_linear 입력 = Neocortex 출력, 양방향 도달(가운데 token 변경이 앞뒤 모두에 닿음; plain은 뒤로만), 기울기(유한, 방향·합치기 가중치 0 아님).
+- **q3 처음 발화율:** 0.1 % 미만인 F, R, s_d, L 없음. 예: ETT population LIF muxlin OR 잔차는 임베딩 0.45 %, 1블록 F / R / s_d / L / m 1.38 / 1.26 / 10.15 / 5.04 / 2.61 %.
+- **q4 재학습 재현(`check-qmx-repro-20261105`):** `nsmt4q_lif` ETTh2 H96 seed 42(27개 필드, 217 s)와 `nsmt4q_pop_lif` MIT-BIH seed 42(35개 필드, 657 s)가 원본 run과 시간·sha·폴더·exp를 뺀 모든 필드에서 같다.
+- **smoke(`smoke-qmx-20261105`, 1 epoch, seed 42):** 36/36, SKIP 0. ETT 20 run의 에너지 재계산 통과(`smoke-qmx-20261105-ett`, 다시 잰 MSE = 기록값, head 입력 0/1). neuron 층 수 muxlin 17, OR 13(해마 8 + Neocortex 9 / 5). 1 epoch 시간: ETTh2 H96 43–144 s, ETTm2 H720 181–320 s, MIT-BIH 33–103 s.
+- **요약기 dry run(`dry-*`, 커밋 안 함):** 대조 행을 새 조건 이름으로 넣어 V1 = 0을 확인했고, V4가 앞서 계산한 값(ETT pop LIF −0.63 %, pop f-LIF −0.81 %; MIT-BIH −0.05, −0.20)을 재현했다. 빠진 칸은 incomplete, exit 2.
+
+### 실행
+- `SLOTS=0,1,2,3,0,1,2,3 nohup bash qmux_v1/scripts/qmx_driver.sh`(NSMT/에서). qmx_ett(204) → `energy_recount_ett.py --suite qmx-ett` → `summarize_qmx.py --task ett` → qmx_mitbih(54) → `summarize_qmx.py --task mitbih`(채택 표). RESULT 수 부족, SKIP, 재계산·요약 실패면 멈춘다. 다른 세션의 GPU 사용은 시작 시점에 0 %다.
+- run 하나: `SUITE=qmx-ett COND=<cond> bash qmux_v1/scripts/run_ett_qmx.sh <DS> <PL> <seed> <gpu>`, `SUITE=qmx-mitbih COND=<cond> bash qmux_v1/scripts/run_mitbih_qmx.sh <seed> <gpu>`.
+- 점검: `LD_LIBRARY_PATH=<env>/lib python -B check_qmx.py --only q0,q1,q2,q3 -nd <gpu>`, `python -B check_qmx.py --after check-qmx-repro-20261105 smoke-qmx-20261105`.
+- 예상 시간(8칸, 추정): ETT 약 10–15시간(ETTm2 population이 대부분), MIT-BIH 약 3시간.
+- 산출물: `qmux_v1/results/qmx-{ett,mitbih}/{raw.txt,pool_log.txt,summary.md}`, ETT `energy_recount.csv`(Git), checkpoint·TensorBoard·콘솔은 `qmux_v1/log/`(로컬).
+
+**commit:** 코드, `results/{checks,check-qmx-repro-20261105,smoke-qmx-20261105,smoke-qmx-20261105-ett}`, 이 기록. 결과는 단계마다 다음 기록에 남긴다.

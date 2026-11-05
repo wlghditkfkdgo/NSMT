@@ -1,5 +1,5 @@
 """Checks of the bidirectional Neocortex for the query form (2026-11-05, exp/f-lif-pop-v3; PROJECT_LOG; neo_mux.py). Fail closed: any failed
-check -> exit 1. No training here; q4 (the rerun of a source run) and the smoke runs are checked by --after_smoke.
+check -> exit 1. No training here; q4 (the rerun of source runs, the smoke runs) reads finished runs: --after <repro suite> <smoke suite>.
     q0  copy: every file marked "no" in QUERY_PROVENANCE.md has its source blob; the changed files are only the ones marked "yes".
     q1  default path: this folder's code with --neo_mux none loads the source's query checkpoints and reproduces their logged metrics
         (ETT: 4 neurons on ETTh2 H96 seed 42, population LIF on ETTm2 H96 seed 42; MIT-BIH: population LIF / f-LIF seed 42; 1e-6).
@@ -14,7 +14,7 @@ check -> exit 1. No training here; q4 (the rerun of a source run) and the smoke 
           e  gradients: finite, and non-zero on both direction weights (and the fusion weights for muxlin)
     q3  initial firing, reported per layer on a real batch (training-mode BN). A layer below 0.1 % fails here: a silent gate cannot train.
 usage: python check_qmx.py [--only q0,q1,q2,q3] [-nd gpu]
-       python check_qmx.py --after_smoke --smoke_suite <suite> --repro_suite <suite>
+       python check_qmx.py --after <repro suite> <smoke suite>
 """
 import argparse
 import os
@@ -354,10 +354,39 @@ def q3(dev):
     print('q3 ok: no silent layer', flush=True)
 
 
+def after(repro_suite, smoke_suite):
+    """q4: the rerun of source runs equals their RESULT lines in every field but time, sha, dir, exp, and the smoke has every run with the expected neuron layers."""
+    skip = ('time_s', 'sha', 'dir', 'exp', 'tag', 'val')
+    p = os.path.join(HERE, 'results', repro_suite, 'raw.txt')
+    rr = parse(p)
+    if len(rr) != 2 or any(line.startswith('SKIP') for line in open(p)):
+        fail(f'q4: {len(rr)} repro rows in {p}')
+    for r in rr:
+        src = row(ETT_RES, cond=r['cond'], ds=r['ds'], pl=r['pl'], seed=r['seed']) if 'ds' in r else row([MIT_RES], cond=r['cond'], seed=r['seed'])
+        diff = {k: (r.get(k), src.get(k)) for k in set(r) | set(src) if k not in skip and r.get(k) != src.get(k)}
+        if diff:
+            fail(f"q4 {r['cond']}: differs from the source run: {sorted(diff.items())[:8]}")
+        print(f"q4 ok: {r['cond']} {r.get('ds', 'MIT-BIH')} seed {int(r['seed'])} equals the source run in {len(set(r) - set(skip))} fields ({int(r['time_s'])} s)", flush=True)
+    p = os.path.join(HERE, 'results', smoke_suite, 'raw.txt')
+    sm = parse(p)
+    if len(sm) != 36 or any(line.startswith('SKIP') for line in open(p)):
+        fail(f'q4: {len(sm)} smoke rows in {p}')
+    for r in sm:
+        want = 8 + (9 if '_muxlin_' in r['cond'] else 5)                 # 8 hippocampus neuron layers + the Neocortex (embedding + 2 blocks)
+        if 'n_spiking_layers' in r and int(r['n_spiking_layers']) != want:
+            fail(f"q4 {r['cond']}: {r['n_spiking_layers']} neuron layers in the energy record, expected {want}")
+    print(f'q4 ok: smoke {len(sm)} runs, no SKIP, neuron layers as expected', flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--only', default='q0,q1,q2,q3'); ap.add_argument('-nd', type=int, default=0)
+    ap.add_argument('--after', nargs=2, metavar=('REPRO_SUITE', 'SMOKE_SUITE'), default=None)
     a = ap.parse_args()
+    if a.after:
+        after(*a.after)
+        print('all requested checks passed', flush=True)
+        return
     dev = torch.device(f'cuda:{a.nd}')
     for q in a.only.split(','):
         {'q0': q0, 'q1': lambda: q1(dev), 'q2': lambda: q2(dev), 'q3': lambda: q3(dev)}[q]()
