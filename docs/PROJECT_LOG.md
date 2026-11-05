@@ -10895,3 +10895,66 @@ run별 macro-F1(seed 42 / 7 / 2026): muxlin 92.12 / 92.02 / 91.56, sdlin 92.07 /
 - 명령(cinc_mixer_v1/에서): `LD_LIBRARY_PATH=<env>/lib OMP_NUM_THREADS=4 python -B bottleneck_probe.py --task <cinc|ett|mitbih> --cond <cond> -nd <gpu>`. 끝나면 `--summarize` → `results/bottleneck-probe-20261104/summary.md`.
 
 **commit:** `compare_candidates.py`, `results/candidates-20261104/summary.md`, `bottleneck_probe.py`, `results/bottleneck-probe-20261104/energy.md`, 이 기록. 결과는 다음 항목에 쓴다.
+
+## 2026-11-05 10:40 KST — 병목 진단 결과(학습 없음, 보고만, 15 + 12 + 3 = 30 checkpoint, 점검 모두 통과): mixer를 끄면 CinC −34.77 %p·MIT-BIH −68.85 %p로 무너지지만 ETT는 MSE +1.61 %뿐; LIF mixer가 실제로 쓰는 문맥은 방향당 4–16 token(CinC 1–4초, ETT·MIT-BIH는 4 token이면 충분)이고 긴 기억은 쓰이지 않음; f-LIF·population은 더 긴 문맥을 쓰지만 점수는 더 낮음; 사용자 지시(11-04): CinC는 main result가 아니라 memory·T = N을 뒷받침하는 작은 실험 → 앞 항목의 선택 정정: CinC를 빼면 query pop LIF가 muxlin보다 나은 후보; 새 실험 결정(ETT → MIT-BIH)
+
+**직전 commit:** `849b890cd`(후보 비교 + 진단 설계). 브랜치 `exp/f-lif-pop-v3`.
+
+### 사용자 지시와 결정(11-04 ~ 11-05, 원문)
+- "최종 논문에는 `CinC 과제를 main result`를 넣지 않을 예정이야. 추가적인 `memory 기능` 혹은 `T=N` 근거를 뒷받침할 작은 실험으로만 넣을 예정이니, 다른 테스크 먼저 진행해줘."
+- 새 실험 제안: "[NSMT 해마만 T=4] + [Neo는 query population LIF] 모델(이 모델을 [query pop LIF NSMT T=4] 모델로 명명하자.)에 대해서 muxlin을 적용해보는 실험 ... Neocortex path에서는 우리가 지금까지 실험하던 양방향 neo-mixer를 각각 1층씩 2번 합치기(muxlin)을 반복하는 모델 ... 총 neo-mixer는 2-layer 구조인거고 각 방향은 1개의 레이어만 갖고 2번 stack되는거지."
+- 질문 답: 블록 연결 = "OR 잔차와 IAND 잔차를 둘 다 테스트", neuron = 4종 모두, 대조 = 양방향 OR 합치기 추가, 과제 순서 = ETT → MIT-BIH(AD는 끝단 수정 여부를 정한 뒤 따로).
+- 사전등록은 구현·점검 뒤 다음 항목에 쓴다.
+
+### 진단 실행
+- 11-04 17:10 시작(`849b890cd`의 스크립트, 모든 part의 `script_sha256` `0f233a17cc…` = commit된 파일), GPU 4장, 19:02 끝. 체크포인트당 시간: CinC LIF 조건 1,000–1,501 s, population LIF 941–995 s, f-LIF 625–642 s(둘 다 validation만), ETT 75–230 s, MIT-BIH 124–129 s.
+- 세션이 끊겨 기록이 11-05로 늦었다. 결과 파일 시각은 위와 같고 다시 돌리지 않았다.
+- 점검(fail closed): 모든 기본 값이 기록값을 재현했고, kN·ctxN·두 번째 기본·s_d 재구현이 비트 단위로 같았고, 앞방향 mixer의 앞 절반 재실행은 전체 실행과 스파이크가 전혀 다르지 않았다(30 checkpoint 모두 0).
+- 산출물: `cinc_mixer_v1/results/bottleneck-probe-20261104/{summary.md,energy.md,parts/*.json}`(Git), 콘솔 로그 `cinc_mixer_v1/log/bottleneck-probe-20261104/`(로컬). 표의 ETT·MIT-BIH sd0·sd1은 part JSON에서 직접 읽은 값이다(`summary.md` 표에는 없음).
+
+### 결과
+**CinC fold 0**(CinC 점수, Δ %p, seed 3개 평균; 앞 숫자 validation, 뒤 숫자 test. population LIF·f-LIF는 validation만)
+
+| 모델 | 기본 | mixer 끔 | 순서 섞기 | 뒤집기 | k4 | k16 | ctx4 | ctx16 | ctx64 | 문 닫음 sd0 | 문 염 sd1 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| muxlin | 72.46 / 68.52 | −37.21 / −34.77 | −35.07 / −30.16 | −27.73 / −21.69 | −20.88 / −18.67 | −2.84 / −1.94 | −1.18 / +0.28 | +0.11 / +0.17 | −0.05 / −0.01 | −32.64 / −29.88 | −9.50 / −6.94 |
+| sdlin | 72.02 / 66.96 | −39.80 / −34.60 | −31.16 / −26.74 | −24.24 / −17.57 | −22.91 / −19.06 | −3.56 / −1.83 | −0.58 / −1.12 | −0.12 / +0.03 | 0.00 / 0.00 | — | — |
+| or | 67.41 / 61.78 | −42.08 / −36.21 | −16.85 / −12.46 | −8.03 / −3.74 | −5.06 / −2.35 | −1.96 / −0.16 | −0.59 / −0.18 | −0.09 / −0.02 | +0.14 / 0.00 | — | — |
+| population LIF(sdlin) | 66.61 | −41.48 | −8.87 | −1.46 | — | −64.37 | −66.25 | −21.53 | −0.82 | — | — |
+| f-LIF(sdlin) | 69.95 | −31.70 | −33.48 | −46.97 | — | −5.32 | −4.48 | −1.32 | −0.39 | — | — |
+
+- population LIF·f-LIF의 '순서 섞기'는 고정 순열 한 개, 나머지는 세 개의 평균이다.
+- population LIF의 k16·ctx4 약 0점은 Noisy 하나로 무너진 값이다(시험 실행 k4 등은 전부 Normal, 약 25점). population의 긴 시간상수가 시작 직후에 입력을 거의 쌓지 못해 그렇게 된 것으로 보이지만 확인하지 않았다.
+
+**ETT, muxlin 튜닝**(test MSE, 100 × (개입 − 기본) / 기본, seed 평균; 양수 = 나빠짐)
+
+| 칸 | 기본 MSE | mixer 끔 | 섞기 | 뒤집기 | k4 | ctx4 | ctx16 | 문 닫음 sd0 | 문 염 sd1 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| ETTh2 H96 | 0.2952 | −0.56 (−1.13, +1.64, −2.20) | −0.67 | −0.84 | +0.15 | +0.08 | 0.00 | +0.46 | **−2.12 (−3.46, −1.10, −1.81)** |
+| ETTh2 H720 | 0.4218 | +2.40 | +1.75 | +0.43 | +0.43 | 0.00 | 0.00 | +2.03 | −0.52 |
+| ETTm2 H96 | 0.1775 | +3.46 | +2.78 | +3.29 | +0.43 | −0.03 | 0.00 | +2.98 | +0.35 |
+| ETTm2 H720 | 0.4034 | +1.13 | +0.62 | +0.10 | −0.07 | −0.04 | 0.00 | +1.12 | +0.31 |
+| 네 칸 평균 | | +1.61 (10/12 나빠짐) | | | | 0.00 | | +1.65 | −0.50 (6/12 낮아짐) |
+
+**MIT-BIH, muxlin 튜닝**(test macro-F1 91.99, Δ %p): 끔 −68.85, 섞기 −19.68, 뒤집기 −54.91, k1 −65.69, k4 −6.42, ctx4 +0.05, sd0 −50.89, sd1 −33.45.
+
+### 읽는 법과 병목(내 해석, 보고만)
+- off·섞기·뒤집기의 하락은 "학습된 모델이 그 부분에 기대는가"다. 뒤 층이 그런 입력을 본 적이 없으므로 "과제가 순서를 요구한다"는 뜻이 아니다. 필요성은 재학습 대조로만 잰다.
+1. **T = N mixer는 짧은 구간의 국소 특징 추출기로 일한다. 긴 기억은 쓰이지 않는다.** LIF(τ 2)에서는 ctx4–16이면 기본과 같다(CinC 앞뒤 1–4초, MIT-BIH·ETT는 4 token). kK의 큰 하락(k4 −18.67)은 대부분 덩어리 시작의 충전 효과이지 긴 기억 때문이 아니다(같은 4 token이어도 문맥을 붙이면 0). 이것이 contribution 3(memory)과 가장 크게 어긋나는 지점이다.
+2. **기억이 긴 neuron은 긴 문맥을 실제로 쓰지만 점수로 이어지지 않는다.** 기본 값 기준 ctx16 하락이 LIF sdlin −0.12, f-LIF −1.32, population LIF −21.53이고, 그런데도 validation은 72.02 / 69.95 / 66.61로 낮아진다. population은 뒤집기에 거의 둔감하다(−1.46, f-LIF −46.97). 길고 단조로운 kernel이 순서보다 누적을 보게 한다는 다른 세션의 판단과 맞는 방향이다(원인을 재지는 않았다). 다만 이 비교는 SpkMixer 몸통(population이 반복 축에도 들어감)이고, query 모델의 Neocortex(T = N만)와는 다르다.
+3. **ETT에서는 T = N 부분의 몫 자체가 작다.** mixer를 꺼도 MSE +1.61 %다(CinC −34.77 %p, MIT-BIH −68.85 %p와 대비). ETTh2 H96은 끄면 오히려 평균 −0.56 %다. 그래서 ETT 개선의 병목은 mixer 합치기보다 앞단·head·짧은 입력(token 24개) 쪽일 가능성이 크다. 이 판단은 앞으로 ETT에서 새 Neocortex의 이득이 작을 수 있다는 위험이기도 하다.
+4. **ETTh2 H96에서 MUX 문이 손해일 수 있다.** 학습된 가중치 그대로 문을 항상 열면(sd1) −2.12 %(3/3 낮아짐)다. muxlin이 Spikformer식에 가장 뒤진 칸(+1.67 %)이고, 그 차이를 넘는 크기다. 다른 칸은 ±0.5 % 안이다. 사후 관찰 하나이므로 재학습으로 확인해야 한다.
+5. **CinC·MIT-BIH에서 문은 필수 경로다.** 닫으면 −29.88 / −50.89 %p, 항상 열어도 −6.94 / −33.45 %p다.
+6. **head는 병목이 아니다.** H1과 head 입력 형태 세 가지 모두 개선이 없었다(11-03 항목들). **에너지 병목은 앞단이다.** 임베딩 + BN이 53 %이고 두 모델 공통이다(앞 항목).
+
+### 정정: 앞 항목(11-04 17:15)의 선택
+- 앞 항목에서 SpkMixer muxlin을 "가장 채택 가능성이 높다"고 골랐다. 근거의 중심이 CinC fold 0이었다. 사용자 지시로 CinC가 main result가 아니게 되어 이 선택을 그대로 둘 수 없다.
+- CinC를 뺀 과제 기준(같은 표의 값):
+  - ETT: query pop LIF 튜닝 Spikformer식 대비 R −0.63 %(8/12), muxlin 대비 −1.07 %(10/12, '좋음'). muxlin은 튜닝 Spikformer식 대비 +0.45 %(3/12).
+  - MIT-BIH: 둘 다 차이 없음(기본 설정 query pop LIF −0.05 %p, muxlin −0.32 %p).
+  - AD: muxlin만 있고 차이 없음(학습 없는 점수 수준).
+  - 에너지: muxlin 0.98배, query pop LIF 1.16–1.25배.
+- **정정한 결론: 본 과제 기준 후보는 [query pop LIF NSMT T=4]다. 다만 어느 모델도 ETT·MIT-BIH·AD에서 Spikformer식을 규칙상 '좋음'으로 넘지 못했다.** CinC는 T = N·memory를 뒷받침하는 쪽으로만 쓴다. 그 용도로는 query 모델의 순서 몫(+1.65 %p, 5 fold)이 가장 강한 근거이고, muxlin의 fold 0 +2.16 %p는 대조 실험과 다른 fold가 없다.
+- 앞 항목의 비교 수치는 그대로 유효하다.
+
+**commit:** `results/bottleneck-probe-20261104/{summary.md,parts/*.json}`, 이 기록. tag는 붙이지 않는다(학습 없는 분석).
