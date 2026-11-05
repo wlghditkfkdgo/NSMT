@@ -11377,3 +11377,107 @@ leak만 계산한 기준(상수 input, state 0에서 시작, 측정 아님):
 - qmx 드라이버: 이 기록 시점 ETT 93/204, SKIP 0.
 
 **commit:** 이 기록과 위 코드·결과. 해시는 다음 기록에 남긴다. 직전 기록의 commit은 `c3898a06e`다.
+
+## 2026-11-05 19:52 KST — qmx ETT 결과(204 run, SKIP 0, energy recount 통과, 사전등록 32행을 별도 코드로 재현): V1–V4 32행 모두 no clear difference. V1 R −0.34 – +0.26 %, energy 1.16–1.86배. 채택 기준이 ETT V1 better를 요구하므로 MIT-BIH 결과와 관계없이 채택 후보 없음. V4 기준 (2)도 모두 미충족. 예상 중 population + IAND 최악은 틀림. MIT-BIH 단계는 사전등록대로 진행 중
+
+**직전 commit:** `433e2bee7`(neuron warm-up 측정). 브랜치 `exp/f-lif-pop-v3`. 학습 코드 sha `776123632`(11:05 사전등록의 commit, 모든 RESULT 줄의 sha). 사전등록 항목은 위 "2026-11-05 11:05 KST"다.
+
+### 목적
+[query pop LIF NSMT T=4]의 Neocortex path를 양방향 Neo-mixer(방향별 1층, fusion, 2번 쌓기)로 바꾸면 ETT에서 plain query보다 좋아지는지 본다(사용자 11-04 ~ 11-05 지시).
+
+### 실행
+- 데이터·설정: ETTh2, ETTm2 × H96, H720. 표 13 값(ETTh2 D 64, MLP 0.5; ETTm2 D 64, MLP 1; lr 5e-4; batch 64; patience 10; best validation 가중치로 test). seed 42 / 7 / 2026. 튜닝 없음.
+- run: 새 조건 192 + plain 대조 12 = 204. RESULT 204, SKIP 0.
+- env `snn_recall`, GPU 0–3에 슬롯 8개. 11:02:57 시작, 19:21:36 pool 끝(8시간 19분, 예상 10–15시간보다 짧음), 19:47:15 recount·summary 끝.
+- 명령(NSMT/에서): `SLOTS=0,1,2,3,0,1,2,3 nohup bash qmux_v1/scripts/qmx_driver.sh`. 추가 집계: `cd qmux_v1 && LD_LIBRARY_PATH=<env>/lib python -B report_qmx_ett.py`.
+- 코드 변경: 학습 코드는 그대로다. 새 파일은 `qmux_v1/report_qmx_ett.py`(sha256 앞 16자리 `e9ad95142f2c2243`, 학습 없음, checkpoint 안 읽음)뿐이다.
+
+### 점검(fail closed)
+- `energy_recount_ett.py`: all checks passed. 204행 모두 다시 잰 MSE = 기록값(최대 차이 0), head 입력 0/1.
+- `report_qmx_ett.py`: `summarize_qmx.py`를 import하지 않고 RESULT를 따로 읽어 V1–V4 32행의 R, lower pairs, verdict, energy를 다시 계산했다. 모두 일치.
+- 첫 실행은 `flif-v1-s2p10/raw.txt`의 SKIP 줄에서 멈췄다. 그 2줄은 `neo_flif_both` ETTm2 H720 seed 2026으로, 여기서 읽지 않는 조건이다. 쓰는 NSMT `base` 12 run은 모두 있다. 그래서 점검을 "쓰는 조건의 SKIP이면 멈춤"으로 좁혔다. 값은 바뀌지 않았다.
+- 대조 파일 SHA256 앞 16자리: `flif-v1-ett-query-m2` 74158938b772ddfd, `flif-v1-ett-query` 1d68020615f0db5e, `flif-v1-s2p10` 85f9eb38238ea9fd, `baseline_spk_ssa_raw` 3e0c5936ec3a5656.
+
+### ETT test MSE(seed 평균)와 energy
+| 조건 | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 | 평균 MSE | energy µJ | rho_neo |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Spikformer식(튜닝) | 0.2903 | 0.4223 | 0.1767 | 0.4044 | 0.3234 | 10.48 | – |
+| NSMT 재현(같은 학습 규칙) | 0.2896 | 0.4153 | 0.1744 | 0.4014 | 0.3202 | 65.42 | – |
+| LIF plain query | 0.2925 | 0.4177 | 0.1773 | 0.4039 | 0.3229 | 11.40 | 0.0535 |
+| LIF muxlin, residual OR | 0.2913 | 0.4178 | 0.1771 | 0.4050 | 0.3228 | 13.33 | 0.0538 |
+| LIF muxlin, residual IAND | 0.2890 | 0.4176 | 0.1773 | 0.4044 | 0.3221 | 13.18 | 0.0579 |
+| LIF 양방향 OR, residual OR | 0.2891 | 0.4136 | 0.1761 | 0.4047 | 0.3209 | 12.30 | 0.0421 |
+| LIF 양방향 OR, residual IAND | 0.2885 | 0.4194 | 0.1771 | 0.4037 | 0.3222 | 12.00 | 0.0515 |
+| f-LIF plain query | 0.2930 | 0.4165 | 0.1770 | 0.4042 | 0.3227 | 11.76 | 0.0472 |
+| f-LIF muxlin, residual OR | 0.2886 | 0.4173 | 0.1772 | 0.4037 | 0.3217 | 14.68 | 0.0476 |
+| f-LIF muxlin, residual IAND | 0.2912 | 0.4183 | 0.1764 | 0.4043 | 0.3226 | 14.59 | 0.0506 |
+| f-LIF 양방향 OR, residual OR | 0.2887 | 0.4190 | 0.1771 | 0.4046 | 0.3223 | 13.06 | 0.0359 |
+| f-LIF 양방향 OR, residual IAND | 0.2924 | 0.4179 | 0.1771 | 0.4046 | 0.3230 | 12.78 | 0.0464 |
+| population LIF plain query | 0.2912 | 0.4135 | 0.1760 | 0.4028 | 0.3209 | 12.94 | 0.0190 |
+| population LIF muxlin, residual OR | 0.2922 | 0.4157 | 0.1764 | 0.4018 | 0.3215 | 18.96 | 0.0395 |
+| population LIF muxlin, residual IAND | 0.2913 | 0.4166 | 0.1762 | 0.4029 | 0.3217 | 18.91 | 0.0412 |
+| population LIF 양방향 OR, residual OR | 0.2907 | 0.4168 | 0.1768 | 0.4018 | 0.3215 | 15.31 | 0.0174 |
+| population LIF 양방향 OR, residual IAND | 0.2929 | 0.4188 | 0.1766 | 0.4015 | 0.3224 | 15.18 | 0.0209 |
+| population f-LIF plain query | 0.2890 | 0.4135 | 0.1765 | 0.4019 | 0.3203 | 15.74 | 0.0196 |
+| population f-LIF muxlin, residual OR | 0.2923 | 0.4112 | 0.1769 | 0.4023 | 0.3207 | 29.07 | 0.0345 |
+| population f-LIF muxlin, residual IAND | 0.2919 | 0.4139 | 0.1763 | 0.4024 | 0.3211 | 28.95 | 0.0322 |
+| population f-LIF 양방향 OR, residual OR | 0.2877 | 0.4123 | 0.1768 | 0.4017 | 0.3196 | 20.94 | 0.0167 |
+| population f-LIF 양방향 OR, residual IAND | 0.2900 | 0.4160 | 0.1761 | 0.4033 | 0.3214 | 20.77 | 0.0167 |
+
+### 사전등록 비교(칸 안: R %, 12쌍 중 낮아진 쌍, energy 배수; 32행 모두 no clear difference)
+| neuron | residual | V1 muxlin vs plain query | V2 muxlin vs 양방향 OR | V3 양방향 OR vs plain query | V4 muxlin vs Spikformer식(튜닝) |
+|---|---|---|---|---|---|
+| LIF | OR | −0.05, 7, 1.17 | +0.62, 3, 1.08 | −0.65, 9, 1.08 | −0.08, 4, 1.27 |
+| LIF | IAND | −0.27, 6, 1.16 | +0.01, 5, 1.10 | −0.28, 6, 1.05 | −0.31, 6, 1.26 |
+| f-LIF | OR | −0.34, 6, 1.25 | −0.15, 7, 1.12 | −0.19, 6, 1.11 | −0.42, 8, 1.40 |
+| f-LIF | IAND | −0.13, 5, 1.24 | −0.19, 9, 1.14 | +0.07, 5, 1.09 | −0.21, 6, 1.39 |
+| population LIF | OR | +0.21, 4, 1.47 | +0.02, 8, 1.24 | +0.20, 5, 1.19 | −0.43, 8, 1.81 |
+| population LIF | IAND | +0.22, 6, 1.47 | −0.23, 6, 1.25 | +0.45, 4, 1.18 | −0.42, 9, 1.81 |
+| population f-LIF | OR | +0.21, 5, 1.86 | +0.38, 5, 1.39 | −0.17, 7, 1.34 | −0.60, 7, 2.78 |
+| population f-LIF | IAND | +0.26, 4, 1.85 | +0.00, 7, 1.39 | +0.26, 3, 1.33 | −0.54, 9, 2.77 |
+
+- V4 기준 (2): 8행 모두 미충족(R −1 %에 못 미치고 energy가 Spikformer식보다 크다).
+- 칸별 값과 나머지 보고 행: `qmux_v1/results/qmx-ett/summary.md`.
+
+### 판정
+- **ETT V1 better가 없다. 사전 채택 기준(ETT V1 better + MIT-BIH V1 not worse)을 만족하는 후보는 MIT-BIH 결과와 관계없이 없다.**
+- 드라이버는 MIT-BIH 단계로 이미 넘어갔다(19:47:16, 54 run). 분류에서 token 축 정보가 다르게 쓰일 수 있으므로 사전등록대로 끝까지 돌리고 V1–V4를 보고한다.
+- 잔차 선택(validation만): neuron 4종 모두 IAND이지만 점수가 0.9983–1.0000이라 사실상 동률이다.
+
+### 미리 적은 예상과 대조
+| 예상 | 결과 |
+|---|---|
+| ETT V1 모두 no clear difference, 일부 worse 가능 | 맞음. worse도 없음 |
+| population + IAND가 가장 나쁘다 | **틀림.** 평균 MSE는 population이 오히려 낮다(muxlin 0.3207–0.3217, LIF·f-LIF 0.3217–0.3228). V1 R도 IAND +0.22 / +0.26, OR +0.21 / +0.21로 차이가 없다 |
+| energy가 plain query보다 오른다 | 맞음. V1 1.16–1.86배 |
+
+### 보고만(판정 없음, `results/qmx-ett/report_extra.md`)
+- **best validation epoch(0부터 셈, 중앙값; 괄호는 best epoch ≤ 1인 run 비율):**
+| Neocortex | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 |
+|---|---:|---:|---:|---:|
+| plain query | 3 (50 %) | 4 (0 %) | 7 (0 %) | 0 (100 %) |
+| 양방향 muxlin | 1 (54 %) | 3 (4 %) | 7 (0 %) | 0 (100 %) |
+| 양방향 OR | 1 (58 %) | 3 (4 %) | 7 (0 %) | 1 (100 %) |
+
+  ETTm2 H720은 plain을 포함해 모든 run이 첫 2 epoch 안에 best validation에 닿는다. 이 칸에서는 새 구조가 학습으로 차이를 낼 시간이 거의 없다(사전등록의 lr·patience 위험). lr을 바꾸면 달라지는지는 not run.
+- **seed 간 std(평균 MSE 대비 %):** plain·muxlin OR 8개 조건에서 ETTh2 H96 0.46–2.24, ETTh2 H720 0.34–1.14, ETTm2 H96 0.08–0.56, ETTm2 H720 0.14–0.72. V1 칸별 차이(−1.49 – +1.10)의 큰 값은 ETTh2 H96에 몰려 있고, 이 칸은 seed 간 std도 가장 크다.
+- **firing rate:** population LIF의 rho_neo는 plain 0.0190 → muxlin 0.0395 / 0.0412(약 2.1배)이고 양방향 OR은 0.0174 / 0.0209다. rho_hippo는 0.0531–0.0555로 거의 그대로다. population f-LIF도 같은 방향이다(0.0196 → 0.0345 / 0.0322, OR 0.0167 / 0.0167).
+- **validation만:** best validation L1의 plain 대비 변화 −0.29 – +0.13 %. test를 보지 않고 봐도 뚜렷한 조건이 없다.
+- **test 최저 조건(test를 본 뒤 고른 값이라 낙관적, 후보로 쓰지 않음):** population f-LIF 양방향 OR, residual OR 0.3196. Spikformer식(튜닝) 대비 R −0.98 %(9/12, energy 2.00배, 칸별 −0.91, −2.36, +0.04, −0.67), plain 대비 −0.17 %(7/12, 1.34배), NSMT 재현 대비 +0.02 %(5/12, 0.32배). 모두 규칙상 no clear difference다.
+- **plain query vs Spikformer식(튜닝):** LIF −0.03 %(4/12, 1.09배), f-LIF −0.07 %(6/12, 1.12배), population LIF −0.63 %(8/12, 1.23배), population f-LIF −0.81 %(8/12, 1.50배). 모두 no clear difference다.
+- **muxlin vs NSMT 재현:** R +0.40 – +0.92 %, energy 0.20–0.45배, 기준 (2) 충족. 다만 plain query와 Spikformer식도 NSMT보다 energy가 낮으므로(표 참고) muxlin의 몫이 아니다.
+
+### 해석(측정이 아닌 추론)
+- Neocortex를 한 방향 → 양방향으로, fusion을 OR → muxlin으로 바꿔도 ETT MSE가 움직이지 않았다. ETT에서 Neocortex 구조가 예측을 크게 좌우하지 않을 가능성이 있다. 이 모델에서 Neocortex path를 끈 ablation은 이번에 not run이므로 확정하지 않는다.
+- muxlin은 population에서 rho_neo를 약 2배 올리고 energy를 1.47–1.86배 올리는데 MSE 이득이 없다. ETT에서는 비용만 늘어난 셈이다.
+
+### 한계
+- ETTh2 plain query는 Neocortex 1층, 새 구조는 2블록이다. ETTh2 V1에는 깊이 차이가 섞인다.
+- seed 3개, 후보 많음, ETT test를 여러 번 열었다. lr·patience는 plain query에 맞춘 값이고, Spikformer식 대조만 튜닝값이다.
+- not run: lr 튜닝, Neocortex ablation, AD, CinC, qmx checkpoint의 token step별 측정.
+
+### 산출물과 다음
+- Git: `qmux_v1/results/qmx-ett/{raw.txt,pool_log.txt,energy_recount.csv,summary.md,report_extra.md}`, `qmux_v1/report_qmx_ett.py`. 로컬: `qmux_v1/log/qmx-ett/`(checkpoint, TensorBoard, 콘솔), `qmux_v1/results/qmx-driver/driver.log`.
+- 다음: MIT-BIH 54 run(예상 약 3시간) → V1–V4, 채택 표 기록 → annotated tag. 사용자 결정 대기: plain [query pop LIF NSMT T=4] Neocortex의 token step별 firing rate 측정(ETT·MIT-BIH).
+
+**commit:** 이 기록과 위 Git 산출물. 이 commit의 id는 다음 기록에 남긴다.
