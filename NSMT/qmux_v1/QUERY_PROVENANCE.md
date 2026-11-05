@@ -10,14 +10,14 @@ change is in later commits ("changed here" below lists them).
 | file here (NSMT/qmux_v1/) | source path | git blob | changed here |
 |---|---|---|---|
 | bix.py | NSMT/nsmt_flif_v1/classification/bix.py | e24d3d46fa8cdedfb77cf1528eed491369bbe66c | no |
-| config.py | NSMT/nsmt_flif_v1/classification/config.py | bd70fe5b572710cdd3f16eb80600b32dc47c4a51 | no |
+| config.py | NSMT/nsmt_flif_v1/classification/config.py | bd70fe5b572710cdd3f16eb80600b32dc47c4a51 | yes (--neo_mux options, run-folder suffix) |
 | dataloader.py | NSMT/nsmt_flif_v1/classification/dataloader.py | 2ef8f4215dc3b2059b4a90291668e45d8b1e6e4c | no |
 | energy.py | NSMT/nsmt_flif_v1/classification/energy.py | 3388f498fe675a9e13c7e5e95d2bcf285e872200 | no |
-| energy_recount_ett.py | NSMT/nsmt_flif_v1/classification/energy_recount_ett.py | 48ac885616e9f299c2f9def6fda037e60deb807b | no |
+| energy_recount_ett.py | NSMT/nsmt_flif_v1/classification/energy_recount_ett.py | 48ac885616e9f299c2f9def6fda037e60deb807b | yes (qmx_ conditions, results path) |
 | forecast_wrap.py | NSMT/nsmt_flif_v1/classification/forecast_wrap.py | 13795f87aa3b458619cbe151121bb59402080378 | no |
 | layers.py | NSMT/nsmt_flif_v1/classification/layers.py | d847e2d65890420be42f1186fa0fe5ec8c631e1c | no |
-| load_model.py | NSMT/nsmt_flif_v1/classification/load_model.py | 7698343073bc1f759dc4b384bd850fdddcf41a02 | no |
-| model.py | NSMT/nsmt_flif_v1/classification/model.py | aee3a1709375c0bf3a79110f9c2f32e43ea69195 | no |
+| load_model.py | NSMT/nsmt_flif_v1/classification/load_model.py | 7698343073bc1f759dc4b384bd850fdddcf41a02 | yes (passes the --neo_mux options) |
+| model.py | NSMT/nsmt_flif_v1/classification/model.py | aee3a1709375c0bf3a79110f9c2f32e43ea69195 | yes (time_block replaced when --neo_mux is on) |
 | neo_mixer.py | NSMT/nsmt_flif_v1/classification/neo_mixer.py | 2057b114c586f0f265dda12ceb81420c90baf501 | no |
 | neurons.py | NSMT/nsmt_flif_v1/classification/neurons.py | ae435608563874ea4b1da5025eddc726a644a12b | no |
 | positional.py | NSMT/nsmt_flif_v1/classification/positional.py | e217468e10a9e18be253ba87aafd1bf62dcb9d86 | no |
@@ -39,5 +39,7 @@ change is in later commits ("changed here" below lists them).
 | data_provider/m4.py | NSMT/nsmt_flif_v1/forecasting/data_provider/m4.py | 7a40d237ef6a9d3615558eda6dcf9a5c88b92990 | no |
 | data_provider/timefeatures.py | NSMT/nsmt_flif_v1/forecasting/data_provider/timefeatures.py | 913ff08859a7a2f626a76953b183e4da9dfcb10b | no |
 | data_provider/uea.py | NSMT/nsmt_flif_v1/forecasting/data_provider/uea.py | b43d26f81d0bbea0e8b3a1ec9fa2c267650195d7 | no |
-| scripts/run_ett_qmx.sh | NSMT/nsmt_flif_v1/forecasting/scripts/run_ett_dual.sh | 40b49b8ceab6a3ff43460c4311b8cdc383d6e08f | no |
-| scripts/run_mitbih_qmx.sh | NSMT/nsmt_flif_v1/classification/scripts/run_mitbih4.sh | 158d7b36cbdb9bfe109315dd4e3882dcdf5ba217 | no |
+| scripts/run_ett_qmx.sh | NSMT/nsmt_flif_v1/forecasting/scripts/run_ett_dual.sh | 40b49b8ceab6a3ff43460c4311b8cdc383d6e08f | yes (paths, qmx_ conditions, LR, RESULT exp) |
+| scripts/run_mitbih_qmx.sh | NSMT/nsmt_flif_v1/classification/scripts/run_mitbih4.sh | 158d7b36cbdb9bfe109315dd4e3882dcdf5ba217 | yes (data path, nsmt4q_lif / flif, qmx_ conditions, RESULT exp) |
+
+New here (not copied): `neo_mux.py`, `check_qmx.py`, `summarize_qmx.py`, `scripts/make_queue_qmx.sh`.

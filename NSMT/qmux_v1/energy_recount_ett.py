@@ -42,7 +42,7 @@ UNIT = {'': 1., 'K': 1e3, 'M': 1e6, 'G': 1e9}
 
 def recount(cond):
     """conditions whose forecast head reads the T_h-averaged hippocampus spikes (Spikformer-style and dual-path forecasters)."""
-    return cond == 'spk_ssa' or cond.startswith(('spkall_', 'spkneo_', 'nsmt4_', 'nsmt4q_'))   # MODI 2026-10-30: + nsmt4q_
+    return cond == 'spk_ssa' or cond.startswith(('spkall_', 'spkneo_', 'nsmt4_', 'nsmt4q_', 'qmx_'))   # MODI 2026-10-30: + nsmt4q_
 
 
 def head_line(run):
@@ -91,7 +91,7 @@ def main():
     ap.add_argument('--device', default='cuda')
     ap.add_argument('--missing_only', action='store_true')
     a = ap.parse_args()
-    res = os.path.join(HERE, '..', 'forecasting', 'results', a.suite)
+    res = os.path.join(HERE, 'results', a.suite)                        # 2026-11-05: this folder's results
     rows = parse(os.path.join(res, 'raw.txt'))
     out, bad = [], []
     if a.missing_only:                                                 # MODI 2026-10-30: e.g. one rerun after the full recount

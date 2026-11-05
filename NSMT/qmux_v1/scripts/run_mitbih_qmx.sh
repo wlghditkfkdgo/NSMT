@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# run_mitbih_qmx.sh (2026-11-05, exp/f-lif-pop-v3; QUERY_PROVENANCE.md): copy of exp/nsmt-flif-neo run_mitbih4.sh for this folder +
+# nsmt4q_<lif|flif> (the query controls the source did not run on MIT-BIH) and qmx_<lif|flif|pop_lif|pop_flif>_<muxlin|or>_<or|iand>
+# (flags of nsmt4q_<neuron> + --neo_mux <fusion> --neo_mux_cf <residual>; 2 blocks, 1 layer per direction). Data default = the same csv
+# files as cinc_mixer_v1/scripts/run_mitbih_spk.sh (read only). Training line unchanged. The remaining text below is the source's.
 # nsmt_flif_v1: one MIT-BIH run of the ECG model (nsmt_base/classification/ECG) with the neocortex-path neuron replaced.
 # run_mitbih4.sh (MODI 2026-11-01, query batch on MIT-BIH): copy of run_mitbih3.sh + the query form nsmt4q_<pop_lif|pop_flif>
 # (Neocortex as the attention query, hippocampus keys / values; same flags as scripts/run_rhythm_addneo.sh, AUX = 0) and two env
@@ -62,6 +66,19 @@ case $COND in
   nsmt4_flif)        AUX=0; CF="--model myModel --neo_neuron flif --neo_where both --neo_alpha $ALPHA --hippo_T 4 --hippo_xattn --neo_grad 1.0" ;;
   nsmt4_pop_lif)     AUX=0; CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --neo_grad 1.0" ;;
   nsmt4_pop_flif)    AUX=0; CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha $ALPHA --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --neo_grad 1.0" ;;
+  nsmt4q_lif)        AUX=0; CF="--model myModel --neo_neuron lif --neo_where both --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0" ;;   # 2026-11-05
+  nsmt4q_flif)       AUX=0; CF="--model myModel --neo_neuron flif --neo_where both --neo_alpha $ALPHA --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0" ;;
+  qmx_*)             AUX=0; B=${COND#qmx_}; CFR=${B##*_}; B=${B%_*}; FU=${B##*_}; NK=${B%_*}      # 2026-11-05: qmx_<neuron>_<fusion>_<residual>
+                     case $NK in
+                       lif)      CF="--model myModel --neo_neuron lif --neo_where both" ;;
+                       flif)     CF="--model myModel --neo_neuron flif --neo_where both --neo_alpha $ALPHA" ;;
+                       pop_lif)  CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5" ;;
+                       pop_flif) CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha $ALPHA --pop_soma_init 1.0" ;;
+                       *) echo "bad cond $COND"; exit 1 ;;
+                     esac
+                     case $FU in muxlin|or) ;; *) echo "bad cond $COND"; exit 1 ;; esac
+                     case $CFR in or) CU=OR ;; iand) CU=IAND ;; *) echo "bad cond $COND"; exit 1 ;; esac
+                     CF="$CF --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_mux $FU --neo_mux_cf $CU" ;;
   nsmt4q_pop_lif)    AUX=0; CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0" ;;   # MODI 2026-11-01
   nsmt4q_pop_flif)   AUX=0; CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha $ALPHA --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0" ;;
   nsmt4_lif_nomem)   AUX=0; CF="--model myModel --neo_neuron lif --neo_where both --hippo_T 4 --hippo_xattn --neo_grad 1.0 --neo_memoryless" ;;
@@ -82,7 +99,7 @@ EPOCHS=${EPOCHS:-30}
 LR=${LR:-0.01}; VAL=${VAL:-0}; VF=""; [ "$VAL" = 1 ] && VF="--mitbih_val"
 TG=${COND}_lr${LR}_v${VAL}
 RES=${RES:-$W/results/$SUITE}; LOG=${LOG:-$W/log/$SUITE}
-DATA=${DATA:-$R/nsmt_base/classification/ECG/data}          # 5class_mitbih_{train_7,test_3}_187.csv (local, not in Git)
+DATA=${DATA:-/home/yschoi/CLS_spiking_transformer/data}          # 5class_mitbih_{train_7,test_3}_187.csv (local, not in Git)
 mkdir -p "$RES" "$LOG"
 RES="$(cd "$RES" && pwd)"; LOG="$(cd "$LOG" && pwd)"
 SHA=$(cd "$R" && git rev-parse --short HEAD); TS=$(date +%Y%m%d)
@@ -125,4 +142,4 @@ fi
 LRS=$(grep -aoE '^epoch +[0-9]+ \(lr=[0-9.e-]+\)' "$OUT" | grep -oE 'lr=[0-9.e-]+' | cut -d= -f2)
 EP=$(echo "$LRS" | grep -c .); LR_FINAL=$(echo "$LRS" | tail -1)
 PAR=$(grep -a 'number of parameters' "$OUT" | grep -oE '[0-9]+' | tail -1); t1=$(date +%s)
-echo "RESULT exp=nsmt_flif_v1_cls cond=$COND dataset=MITBIH seed=$S lr=$LR val=$VAL $VV $VALS epochs=$EPOCHS epochs_run=$EP lr_final=$LR_FINAL params=$PAR time_s=$((t1-t0)) sha=$SHA alpha=$ALPHA aux=$AUX dir=$D" | tee -a "$RES/raw.txt"
+echo "RESULT exp=qmux_v1_mitbih cond=$COND dataset=MITBIH seed=$S lr=$LR val=$VAL $VV $VALS epochs=$EPOCHS epochs_run=$EP lr_final=$LR_FINAL params=$PAR time_s=$((t1-t0)) sha=$SHA alpha=$ALPHA aux=$AUX dir=$D" | tee -a "$RES/raw.txt"

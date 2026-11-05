@@ -713,6 +713,17 @@ class myModel(nn.Module):
             if left:
                 raise NotImplementedError(f'neuron_all: spikingjelly LIF left in {left}')
             self.n_swapped = nh
+        # 2026-11-05 (exp/f-lif-pop-v3, neo_mux.py): the bidirectional muxlin / OR Neocortex takes time_block's place after the global
+        # init, in a forked RNG: at one seed every other weight and the later random stream equal the plain query model's (paired runs)
+        self.neo_mux = str(kwargs.get('neo_mux', 'none'))
+        if self.neo_mux != 'none':
+            if (self.hippo_xattn_mode != 'query' or mlp_fn is None or neo_where != 'both' or self.neo_memoryless or self.neo_bidir
+                    or self.neo_shuffle is not None or self.token_shuffle is not None or self.neo_recurrent):
+                raise ValueError('neo_mux: query form with a spikeDE neocortex neuron in both places (no memoryless / bidir / shuffle / recurrent)')
+            from neo_mux import NeoMuxStack
+            with torch.random.fork_rng(devices=[]):
+                self.time_block = NeoMuxStack(embed_dim, mlp_fn, self.neo_mux, str(kwargs.get('neo_mux_cf', 'OR')),
+                                              int(kwargs.get('neo_mux_blocks', 2)), lif_bias)
         
         if ((self.train_mode != 'training') and (self.train_mode != 'pre_training')):
             for module in self.modules():

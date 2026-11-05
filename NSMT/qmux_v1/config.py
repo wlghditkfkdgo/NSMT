@@ -137,6 +137,10 @@ def parse_arguments():
     snn_arg.add_argument('--neo_shuffle', action='store_true', default=False,
                          help='MODI 2026-11-02 order control: the Neocortex runs the tokens in a shuffled order and its outputs go back to the '
                               'original positions (hippocampus order unchanged)')
+    snn_arg.add_argument('--neo_mux', choices=['none', 'muxlin', 'or'], default='none',
+                         help='2026-11-05 (neo_mux.py): query form only: the Neocortex stack becomes bidirectional blocks (1 layer per direction) fused by muxlin or OR')
+    snn_arg.add_argument('--neo_mux_cf', choices=['OR', 'IAND'], default='OR', help='residual around each --neo_mux block')
+    snn_arg.add_argument('--neo_mux_blocks', type=int, default=2, help='number of --neo_mux blocks')
     snn_arg.add_argument('--token_shuffle', action='store_true', default=False,
                          help='MODI 2026-10-28 shuffle-retrain: random token order per sample in training, one fixed order in evaluation')
     snn_arg.add_argument('--neuron_scope', choices=['mixer', 'all', 'lifbase'], default='mixer',
@@ -274,6 +278,8 @@ class Config():
             _iso += "_tshuf"
         if getattr(args, 'neo_shuffle', False):                           # MODI 2026-11-02
             _iso += "_nshuf"
+        if getattr(args, 'neo_mux', 'none') != 'none':                    # 2026-11-05
+            _iso += f"_nmx{args.neo_mux}{args.neo_mux_cf}{args.neo_mux_blocks}"
         if getattr(args, 'neuron_scope', 'mixer') != 'mixer':             # MODI 2026-10-29
             _iso += {'all': '_nall', 'lifbase': '_nlb'}[args.neuron_scope]
         if getattr(args, 'neuron_all', 'sj_lif') != 'sj_lif':             # MODI 2026-10-29 (myModel)
