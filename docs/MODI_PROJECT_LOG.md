@@ -6398,3 +6398,52 @@ energy(µJ)는 lr에 따라 거의 변하지 않는다. query population LIF는 
 **파일 (git):** `classification/compare_query_pop_lif_paper.py`, `classification/results/flif-v1-query-pop-lif-vs-paper.md`, 이 항목. 학습이 없으므로 tag는 붙이지 않는다. `exp/nsmt-flif-neo`만 push 한다.
 
 ---
+
+## 2026-11-05 11:12 KST — 분석(학습 없음): 원문 NSMT를 그대로 택하면 어디까지 주장할 수 있는가 — ETT 수치 재현과 "Neocortex를 붙여도 손해가 없다"까지는 말할 수 있다. "Neocortex가 장기 기억을 준다"는 우리 측정이 지지하지 않고(hippo-only 대비 ETT 차이 없음·MIT-BIH 차이 없음, 다른 창의 Neocortex 출력으로 바꿔도 ±0.3 %), AD 수치는 재현할 수 없으며, Table 7의 본문·"Improvement" 열은 표의 energy와 맞지 않는다(실제 감소 30–35 %)
+
+**직전 commit:** `d33567956` (결과표).
+
+**사용자 질문 (11-05):** "만약 그냥 기존 NSMT 원문 논문을 선택하면 어디까지 주장할 수 있어?"
+
+**방법:** 새 학습 없이 `papers/NSMT.pdf`의 주장과 기존 측정을 대조했다. 새로 계산한 값은 classification 폴더의 `python check_nsmt_claims.py` → `results/flif-v1-nsmt-claims-check.md`다. 나머지는 이 기록의 앞 항목을 인용한다. 환경은 `snn_recall`이다.
+
+**새로 계산한 값 (seed 42 / 7 / 2026):**
+
+| A − B | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 | R % | A가 낮은 쌍 | 판정 | energy A/B |
+|---|---|---|---|---|---|---|---|---|
+| NSMT − Spikformer식 (같은 방식) | −0.27 | −1.66 | −1.73 | −0.50 | −1.04 | 10/12 | 좋음 | 6.25 |
+| NSMT − hippo-only T = 24 (같은 방식) | +1.42 | +1.00 | +0.26 | +0.07 | +0.69 | 2/12 | 차이 없음 | 0.99 |
+| hippo-only T = 24 − Spikformer식 (같은 방식) | −1.66 | −2.63 | −1.99 | −0.57 | −1.71 | 11/12 | 좋음 | 6.33 |
+| NSMT − hippo-only T = 24 (논문 방식) | −0.09 | −1.05 | −0.09 | +0.02 | −0.30 | 7/12 | 차이 없음 | 0.97 |
+
+- NSMT / 선형 기준선 − 1 (ETTh2 H96·H720, ETTm2 H96·H720): 같은 방식 −0.67 / −1.31 / −4.63 / −1.57 %, 논문 방식 −2.77 / −2.63 / −4.28 / −1.87 %. 선형 기준선은 다른 학습 스크립트다(10-18).
+- MIT-BIH NSMT 재현 − Spikformer식 −0.64 %p(나쁨, energy 2.50배), − hippo-only −0.25 %p(차이 없음, 0.92배), − no_neo +1.18 %p(좋음, 1.83배).
+- 논문 Table 7(w/ 정렬 / w/o 정렬 energy): ETTh2 0.701, ETTm1 0.655, ETTm2 0.662. 실제 감소는 29.9 / 34.5 / 33.8 %다. 본문은 "40–55 % 수준으로 준다"고 적었고, "Improvement" 열 42.74 / 52.79 / 51.10 %는 (w/o − w/) / w/, 즉 작은 값을 분모로 쓴 값과 같다.
+
+**주장별 판단 (내 판단):**
+
+| 논문의 주장 | 판단 | 근거 |
+|---|---|---|
+| ETT 수치 (Table 13) | 말할 수 있음 | 재현 16/16(10-14), seed 42 energy도 같음 |
+| MIT-BIH energy·accuracy (Table 5) | 말할 수 있음 | 19.06 대 19.05 µJ, 98.41 대 98.45 |
+| MIT-BIH F1 91.91 | 고쳐야 함 | 재현 91.58 ± 0.06, seed 42 91.64 |
+| 같은 코드의 Spikformer식보다 ETT MSE가 낮음 | 조건부 | −1.04 %, 그러나 energy 6.25배이고 이 이득은 Neocortex 없는 hippo-only에도 있음(−1.71 %) |
+| DNN에 필적 | 조건부 | NSMT 쪽만 재현. DNN은 돌리지 않음. 선형 기준선과 차이가 0.7–4.6 % |
+| SpikF보다 유의하게 낫고 energy 23배 적음 | 조건부 | 논문 자체 검정(ETTm1·ETTm2), SpikF는 돌리지 않음 |
+| T = N 정렬이 energy를 줄임 (Table 7) | 숫자 고친 뒤 조건부 | 실제 감소 30–35 %. 예측 이득 없음(4단계 R1 4/4 불통과). 해마 24 step 반복이 energy의 약 95 %이고 재학습 없이 4 step으로 줄여도 +0.5 % 이내(Phase A) |
+| IAND가 energy를 줄임 (Table 1) | 확인 안 함 | ADD 대조를 돌리지 않음 |
+| MIT-BIH에서 기존 SNN 대비 F1 +2.82 %p | 인용으로만 | 다른 논문 값과의 비교. 같은 코드의 Spikformer식이 NSMT보다 +0.64 %p, energy 0.40배 |
+| Neocortex가 장기 기억·전역 문맥을 줌 | 지지 안 됨 | hippo-only 대비 차이 없음(두 학습 방식, MIT-BIH). 다른 창의 출력으로 바꿔도 ±0.3 %(Phase A). 상태는 batch마다 초기화. 보조 목표는 현재 patch만으로 R² 0.96 |
+| Table 8: Neocortex 제거·보조 손실 제거 시 성능 하락 | 지지 안 됨 | ETTm1·SMD·Handwriting을 재현하지 않음. 공개 코드 `--gating ablation`은 실행되지 않음. 재구현 hippo-only는 ETTh2·ETTm2에서 차이 없음. 보조 손실은 CinC에서 차이 없음(12개 비교 중 좋음 0), ETT는 not run |
+| 과제 일반성: AD (Table 9) | 말할 수 없음 | 저장 run 122개 중 일치 없음(10-14). 이 저장소 계산의 무작위 점수가 point-adjusted F1에서 원문보다 높음(MSL 84.60 대 76.51, SMAP 93.75 대 75.75, PSM 95.89 대 95.46; `exp/f-lif-pop-v3` 기록, 문턱 규칙이 같은지는 미확인) |
+| 과제 일반성: UEA (Table 10) | 조건부 | 정확도가 맞는 run이 있지만 5개 중 3개는 공개 스크립트 설정과 같은 run이 없음 |
+
+**한계:**
+- Neocortex 판단의 근거는 ETTh2·ETTm2·MIT-BIH, seed 3개다. 논문 Table 8의 ETTm1·SMD·Handwriting에서 도움이 된다는 가능성은 재지 않았다.
+- hippo-only는 우리 재구현이다(`ours_ablation2.py` 방식).
+- Table 13 설정을 저장 run 1,096개에서 어떤 기준으로 골랐는지는 기록에 없다.
+- SpikF, SpikeRNN, iSpikformer와 DNN 기준선은 돌리지 않았다.
+
+**파일 (git):** `classification/check_nsmt_claims.py`, `classification/results/flif-v1-nsmt-claims-check.md`, 이 항목. 학습이 없으므로 tag는 붙이지 않는다. `exp/nsmt-flif-neo`만 push 한다.
+
+---
