@@ -11287,3 +11287,93 @@ R의 절반 도달 step은 마지막 token에서 거꾸로 센 값이다.
 - qmx 드라이버: 이 기록 시점에 ETT 72/204, SKIP 0, 영향 없음.
 
 **commit:** 이 기록과 위 코드·결과. 해시는 다음 기록에 남긴다.
+
+## 2026-11-05 14:36 KST — neuron warm-up 측정(학습 없음, 보고만, checkpoint 9개, 점검 통과): population LIF의 warm-up은 state filling(τ = 32 half 12–13 token), threshold(H std half 3 token, firing rate half 9–10), layer stacking(2 layer에서 firing rate half 20–22)의 세 단계로 커진다. 직전 기록의 'F·R half-rate 16–26 token'은 single neuron이 아니라 2-layer stack 값으로 정정
+
+### 목적
+- 사용자 요청(11-05): "'neuron의 warm-up'에 대해서 더 자세하게 설명해줘." 설명의 근거로 학습된 checkpoint의 member별 state를 token step마다 쟀다. 판정이 아니라 설명용 진단이고, 모델을 고르지 않는다.
+- 같은 메시지 앞에 사용자가 "1."을 입력한 뒤 중단했다. 11-05 제안의 (1)번 측정인지 확인이 필요해 아직 시작하지 않았다.
+
+### 브랜치, 코드, 환경
+- 브랜치 `exp/f-lif-pop-v3`, 기준 commit `c3898a06e`(직전 기록의 commit). qmx 드라이버, 러너, 큐 파일은 건드리지 않았다.
+- 새 파일 `NSMT/cinc_mixer_v1/member_state_probe.py`(part와 현재 파일 모두 sha `39898e96088a5ccc`). `layers.spikes_and_charge`와 같은 `rhs` / `integrate` / `emit` 호출로 forward direction의 두 layer를 다시 돈다.
+- env `snn_recall`, GPU 3, 한 번에 한 작업. 14:10:05–14:12:52(LIF), 14:23 무렵–14:34:01(population). 이 시간에 qmx 학습과 GPU 3을 같이 썼다.
+- 명령(NSMT/에서): `LD_LIBRARY_PATH=<env>/lib python -B cinc_mixer_v1/member_state_probe.py --cond {muxlin,pop_lif,pop_flif} -nd 3`, 이어서 `--summarize`.
+- 산출물: `NSMT/cinc_mixer_v1/results/member-state-20261105/{summary.md,run_log.txt,parts/*.json}`.
+
+### 데이터와 측정
+- CinC fold 0, validation split, best-validation weights, seed 42 / 7 / 2026. muxlin LIF, sdlin population LIF, sdlin population f-LIF.
+- mixer 안에서 token을 배치마다 새 순열로 shuffle했다(생성기 seed 0). 그래서 step = 지금까지 본 token 수이고, content는 위치와 무관하다.
+- step마다 batch, repeat, channel을 pool해 잰 값: input current I, member state u_k, w_k u_k, soma drive a, H(threshold와 비교하는 값), output firing rate.
+
+### 점검(fail closed)
+- logged validation score를 1e-6 안에서 재현했다(9개 모두). 다시 계산한 spike가 forward mixer의 spike와 비트 단위로 같다. 모든 step에서 firing rate = H >= θ 비율이다.
+- 교차 확인: LIF와 population LIF의 layer 2 firing rate가 `sd-step-probe-20261105`의 F와 같다(1.40 / 3.31 / 5.22, 0.00 / 0.09 / 2.04 등).
+
+### 실행 중 실패(기록)
+1. Python 3.10이 받지 않는 f-string으로 SyntaxError, 고쳐서 재실행.
+2. "mixer 1 layer"라고 잘못 가정했고 fail-closed check가 "2 mixer layers, expected 1"로 멈췄다. 이 CinC checkpoint는 방향당 2 layer(`time_num_layers 2`)다. 두 layer를 모두 재도록 고쳤다.
+3. population part 2개가 내가 건 280 s timeout에 걸렸다(rc 124, part 파일 없음). 측정 오류가 아니어서 timeout 없이 재실행했다. `run_log.txt`에 모두 남아 있다.
+
+### 결과: population LIF(3 seed 평균, firing rate는 %)
+| 값 \ token step | 0 | 2 | 4 | 8 | 16 | 32 | 58 | 116 | half at step(seed별) |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| layer 1 I std | 1.318 | 1.338 | 1.356 | 1.329 | 1.380 | 1.334 | 1.345 | 1.348 | 0, 0, 0 |
+| layer 1 u std, τ = 4 | 0.330 | 0.498 | 0.565 | 0.607 | 0.638 | 0.633 | 0.633 | 0.635 | 0, 0, 0 |
+| layer 1 u std, τ = 8 | 0.165 | 0.280 | 0.346 | 0.422 | 0.492 | 0.523 | 0.524 | 0.525 | 2, 2, 2 |
+| layer 1 u std, τ = 16 | 0.082 | 0.149 | 0.194 | 0.261 | 0.346 | 0.427 | 0.458 | 0.466 | 7, 6, 6 |
+| layer 1 u std, τ = 32 | 0.041 | 0.077 | 0.103 | 0.146 | 0.213 | 0.305 | 0.378 | 0.427 | 13, 12, 13 |
+| layer 1 H std | 0.158 | 0.369 | 0.489 | 0.615 | 0.721 | 0.807 | 0.846 | 0.870 | 3, 3, 3 |
+| layer 1 firing rate | 0.00 | 0.83 | 1.68 | 2.84 | 4.53 | 5.83 | 6.46 | 6.86 | 9, 10, 9 |
+| layer 2 I std | 0.524 | 0.555 | 0.589 | 0.627 | 0.704 | 0.788 | 0.834 | 0.869 | 0, 0, 0 |
+| layer 2 I mean | +0.202 | +0.176 | +0.151 | +0.112 | +0.059 | +0.016 | −0.004 | −0.015 | |
+| layer 2 u std, τ = 32 | 0.016 | 0.047 | 0.075 | 0.125 | 0.204 | 0.341 | 0.501 | 0.654 | 22, 20, 21 |
+| layer 2 H std | 0.061 | 0.221 | 0.360 | 0.531 | 0.678 | 0.903 | 1.080 | 1.216 | 9, 8, 9 |
+| layer 2 firing rate(= F) | 0.00 | 0.00 | 0.09 | 2.04 | 4.70 | 9.09 | 12.33 | 14.02 | 21, 22, 20 |
+
+"half at step"은 중앙 절반 평균의 절반에 처음 닿는 token step이다.
+
+| 다른 neuron, firing rate | 0 | 2 | 4 | 8 | 16 | 32 | 58 | 116 | half at step |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| LIF(τ = 2) layer 1 | 3.66 | 5.31 | 5.41 | 5.31 | 5.71 | 5.47 | 5.43 | 5.40 | 0, 0, 0 |
+| LIF(τ = 2) layer 2 | 1.40 | 5.22 | 5.75 | 5.86 | 6.15 | 6.02 | 6.01 | 5.87 | 1, 1, 2 |
+| population f-LIF layer 1 | 1.04 | 1.94 | 2.38 | 2.65 | 3.56 | 4.09 | 4.97 | 5.98 | 5, 3, 7 |
+| population f-LIF layer 2 | 0.03 | 0.26 | 0.67 | 2.10 | 3.67 | 6.20 | 9.63 | 14.15 | 20, 20, 26 |
+
+leak만 계산한 기준(상수 input, state 0에서 시작, 측정 아님):
+| τ | half(token) | 11 token 뒤 % | 24 token 뒤 % | 117 token 뒤 % |
+|--:|--:|--:|--:|--:|
+| 2 | 1.0 | 100.0 | 100.0 | 100.0 |
+| 4 | 2.4 | 95.8 | 99.9 | 100.0 |
+| 8 | 5.2 | 77.0 | 95.9 | 100.0 |
+| 16 | 10.7 | 50.8 | 78.8 | 99.9 |
+| 32 | 21.8 | 29.5 | 53.3 | 97.6 |
+
+### interpretation
+1. **State filling:** 모든 sequence는 u = 0에서 시작하고(`neurons.py` forward `x.new_zeros`), u_k는 한 step에 (I − u_k) / τ_k만큼만 움직인다. 그래서 τ가 클수록 늦다. I std는 처음부터 평평한데 u std는 τ 순서대로 늦게 오른다.
+2. **Threshold:** spike는 H >= θ(= 1)일 때만 나온다. layer 1의 step 0에서 H std는 0.158이라 θ가 분포의 꼬리 끝(약 6 std)에 있다. firing rate는 이 꼬리의 비율이라 H std보다 늦게 오른다(half 3 token 대 9–10 token).
+3. **Layer stacking:** layer 2의 input은 layer 1의 spike이므로 layer 1이 warm-up을 마칠 때까지 layer 2의 input도 작다. firing rate half가 9–10에서 20–22 token으로 늦어진다.
+4. **LIF:** τ = 2라 1–2 token이면 끝난다.
+5. **Population f-LIF:** plateau가 없다. firing rate가 token 116까지 계속 오른다(layer 1 5.98 %, layer 2 14.15 %).
+6. **두 값은 추론이며 따로 재지 않았다:**
+   - layer 1 u std의 plateau(τ = 32에서 0.427)는 I가 white noise일 때의 기대값(1.35 / √(2τ − 1) = 0.170)보다 훨씬 크다. shuffle해도 남으므로 long-τ member의 state 대부분은 token을 가로질러 지속되는 성분(channel 또는 record 수준의 평균)일 가능성이 높다. pool한 std라 channel 간과 record 간을 나누지 못했다.
+   - layer 1이 거의 silent인 layer 2의 step 0에서도 I std가 0.524, I mean이 +0.202다. 이 current는 spike가 아니라 BN의 channel별 offset에서 온다. 그래서 layer 2의 첫 spike들은 layer 1 정보가 아니라 이 offset에 일부 기인할 수 있다.
+7. **Warm-up과 memory는 같은 τ에서 나온다.** τ가 크면 memory가 길고 warm-up도 길다. 그래서 ctx16 같은 context 제한만으로는 둘을 가를 수 없다.
+
+### 정정(append-only)
+1. **12:55 기록의 'F·R half-rate 16–26 token':** 이 값은 CinC mixer의 2-layer stack 값이다. single population LIF layer는 9–10 token이다(population f-LIF layer 1은 3–7). 당시 layer 수를 확인하지 않고 neuron 자체의 값처럼 적었다.
+2. **12:55 기록의 가설 '수열 대부분이 warm-up':** 그대로 쓰면 안 된다. 근거 수치가 2-layer 값이기 때문이다. 다만 query 모델 Neocortex는 `--neo_where both`라 embedding neuron도 token 축으로 도는 population neuron이다. 그래서 새 Neocortex도 token 축 기준 embedding + direction layer의 2단이다(SpkMixer의 embedding은 T_h 축이라 token 축 warm-up에 들어가지 않는다). R도 같은 forward embedding 출력을 뒤집어 받는다. 실제 값은 측정 전이다.
+3. **용어:** 12:55 기록의 "깨어남 / 깨어나는"은 내가 만든 말이고 warm-up을 뜻한다. "절반 발화"는 half-rate, "수열"은 sequence, "끝 효과"는 edge effect, "판독"은 interpretation이다. 사용자 지시로 이후 기록은 영어 용어를 쓴다.
+
+### 한계
+- CinC checkpoint만이다. ETT와 MIT-BIH는 sequence가 짧고 BN gain이 학습으로 달라질 수 있어 이 값을 옮겨 쓸 수 없다.
+- forward direction만 쟀다. s_d neuron과 fusion neuron의 state는 재지 않았다(firing rate만 12:55 기록에 있다).
+- pool한 평균과 std다. 학습 없는 관찰이라 warm-up을 줄이면 성능이 오르는지는 모른다.
+- not run: plain query Neocortex 측정, warm-up과 memory를 가르는 test, soma 없는 population의 member state.
+
+### 결론과 다음
+- Warm-up은 state filling, threshold, layer stacking의 세 단계로 설명된다(측정은 population LIF, CinC). long-τ memory와 분리되지 않는 같은 원인이다.
+- 다음(사용자 결정): plain [query pop LIF NSMT T=4] Neocortex 측정, warm-up과 memory 분리 test.
+- qmx 드라이버: 이 기록 시점 ETT 93/204, SKIP 0.
+
+**commit:** 이 기록과 위 코드·결과. 해시는 다음 기록에 남긴다. 직전 기록의 commit은 `c3898a06e`다.
