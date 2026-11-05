@@ -6309,3 +6309,92 @@ energy(µJ)는 lr에 따라 거의 변하지 않는다. query population LIF는 
 **다음 (사용자 결정 대기):** H6의 parameter와 energy 중 무엇을 우선할지, head 쪽 시험을 여기서 정리할지. 이전부터 남은 결정(P1 / P2 run, 제안 P7–P9, MIT-BIH 환자 간 분할 과제, 보고서 두 개 commit 여부)도 그대로다.
 
 ---
+
+## 2026-11-05 10:36 KST — 분석(학습 없음): [query pop LIF NSMT T=4] 결과표와 NSMT 논문·Spikformer식 비교 — ETT에서 원 NSMT와 같은 학습 방식으로 비교하면 MSE 차이 없음(R +0.36 %, 4/12), energy 0.20배. 논문 인쇄값보다는 네 칸 모두 높다(3 seed 평균 +0.60 ~ +1.11 %). MIT-BIH는 재현한 NSMT보다 좋음(+0.59 %p, 3/3), energy 0.47배. Spikformer식과는 두 과제 모두 차이 없음(ETT R −0.68 %, 9/12; MIT-BIH −0.05 %p)이고 energy는 1.24배·1.16배다
+
+**직전 commit:** `412f8ed0e` (head 시험 H2·H6 결과, tag `exp/nsmt-flif-neo-20261104-h2h6`).
+
+**사용자 요청 (11-05):** "query population LIF neuron으로 NSMT T=4 모델을 실험한 결과 중 가장 효과적이었던 버전으로 결과표를 정리해줘. 그리고 NSMT 원문의 모델 결과랑 Spikformer와 비교해줘."
+
+**방법:** 새 학습·새 평가 없이 기존 RESULT 줄에서 다시 계산했다. 명령은 classification 폴더에서 `python compare_query_pop_lif_paper.py`이고, 결과는 `results/flif-v1-query-pop-lif-vs-paper.md`다. 환경은 `snn_recall`이다.
+
+**점검 (fail-closed, 어긋나면 스크립트가 멈춘다):**
+- NSMT 재현 seed 42가 논문 Table 13 네 칸(MSE·MAE)과 Table 6 두 칸(H720 energy)을 반올림 범위에서 재현한다.
+- 앞선 판정을 재현한다: query − Spikformer식 R −0.68 %(9/12), H6 − 기본 R −0.25 %(7/12), MIT-BIH 평균 92.17·92.22.
+- 값이 빠지거나 중복되거나 유한하지 않으면 멈춘다.
+- 논문 수치는 `papers/NSMT.pdf`의 Table 5·6·13·14에서 옮겼다.
+
+**버전 선택 (내 판단):** 보고 버전은 **기본 버전**(ETT flat head, lr 5e-4, soma reset subtract; MIT-BIH mean head, lr 0.01)이다.
+
+| 버전 | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 | validation L1 (기본 대비) | 판단 |
+|---|---|---|---|---|---|---|
+| 기본 | 0.2912 | 0.4135 | 0.1760 | 0.4028 | 1.0000 | 보고 버전 |
+| H6 head | 0.2861 | 0.4172 | 0.1761 | 0.4022 | 1.0000 | 12쌍 차이 없음, energy 1.20배, 전체 parameter −68 ~ −79 % |
+| lr 2.5e-4 | 0.2883 | 0.4160 | not run | not run | 1.0006 | validation이 고르지 않음 |
+| lr 1e-3 | 0.2925 | 0.4179 | not run | not run | 1.0014 | 〃 |
+| lr 2e-3 | 0.2987 | 0.4221 | not run | not run | 1.0049 | 〃 |
+| reset zero | 0.2931 | 0.4159 | not run | not run | 0.9993 | validation이 골랐지만 test +0.61 %, 차이 없음 |
+
+- MIT-BIH: 기본 92.17, H2 92.08(차이 없음, energy 9.86 대 11.10 µJ). lr 0.02는 80 / 20 분할에서 validation이 골랐다(test 91.66 대 같은 분할의 lr 0.01 91.50, 차이 없음). 학습 파일 전체로는 돌리지 않았다.
+- 고른 이유:
+  - 어떤 변경도 사전 고정 판정을 통과하지 못했다.
+  - 네 칸 모두 돌린 대안은 H6뿐인데, H6과 기본의 validation 평균이 같다.
+  - energy를 함께 보면 기본이 낮다.
+  - 칸마다 validation으로 고르는 방법은 쓰지 않았다. ETTh2 H720에서 가장 낮은 validation(lr 2e-3, 차이 0.06 %)의 test가 가장 나빠(0.4221), 이 크기의 validation 차이는 잡음이다.
+
+**ETT test MSE / MAE (seed 42, 7, 2026 평균; 논문 행은 seed 42 인쇄값):**
+
+| 행 | 학습 방식 | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 |
+|---|---|---|---|---|---|
+| query pop LIF 기본 | patience 10, 최고 validation weight | 0.2912 / 0.3347 | 0.4135 / 0.4322 | 0.1760 / 0.2529 | 0.4028 / 0.3956 |
+| NSMT 재현, 같은 방식 | patience 10, 최고 validation weight | 0.2896 / 0.3345 | 0.4153 / 0.4358 | 0.1744 / 0.2503 | 0.4014 / 0.3931 |
+| NSMT 재현, 논문 방식 | patience 2, 마지막 weight | 0.2835 / 0.3312 | 0.4097 / 0.4299 | 0.1750 / 0.2514 | 0.4002 / 0.3932 |
+| NSMT 논문 Table 13 | seed 42, 인쇄값 | 0.288 / 0.334 | 0.409 / 0.429 | 0.175 / 0.251 | 0.399 / 0.393 |
+| Spikformer식 (우리) | patience 10, 최고 validation weight | 0.2903 / 0.3350 | 0.4223 / 0.4366 | 0.1775 / 0.2536 | 0.4034 / 0.3959 |
+| iSpikformer, 논문 Table 14 | seed 42, 인쇄값 | 0.308 / 0.349 | 0.438 / 0.439 | 0.178 / 0.256 | 0.406 / 0.398 |
+
+**판정 (ETT 12쌍, r = query / 상대 − 1, %):**
+
+| 상대 | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 | R | 낮은 쌍 | 판정 | energy 배 |
+|---|---|---|---|---|---|---|---|---|
+| NSMT 재현, 같은 방식 | +0.58 | −0.42 | +0.95 | +0.34 | +0.36 | 4/12 | 차이 없음 | 0.20 |
+| NSMT 재현, 논문 방식 (방식이 다름) | +2.76 | +0.93 | +0.58 | +0.65 | +1.23 | 1/12 | 나쁨 | 0.20 |
+| Spikformer식 | +0.30 | −2.07 (좋음) | −0.80 | −0.16 | −0.68 | 9/12 | 차이 없음 | 1.24 |
+| (보고) H6 − Spikformer식 | −1.47 | −1.21 | −0.77 | −0.31 | −0.94 | 11/12 | 차이 없음 | 1.48 |
+
+- 논문 인쇄값 대비: 3 seed 평균 +1.11 / +1.11 / +0.60 / +0.95 %, seed 42끼리 −0.45 / +1.36 / +0.59 / +0.39 %.
+
+**energy (µJ, 시냅스 + neuron; flat head는 spike 덧셈으로 재계산, 10-28 이후 표준):**
+
+| 행 | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 |
+|---|---|---|---|---|
+| query pop LIF 기본 | 11.27 | 12.92 | 13.23 | 14.36 |
+| NSMT 재현, 같은 방식 | 56.78 | 68.57 | 64.93 | 71.40 |
+| Spikformer식 | 9.30 | 10.79 | 10.28 | 11.48 |
+
+- 시냅스만(논문 Table 6과 같은 양): query 5.99 / 7.63 / 6.81 / 8.03, NSMT 재현 33.77 / 45.59 / 38.94 / 46.63, 논문 Table 6 H720 44.90 / 46.72.
+- 차이의 큰 부분은 Hippocampus 반복 수다. 원 NSMT는 T = token 수(ETT 24, `ours.py`의 `self.T = self.num_patches`), 이 모델은 T_h = 4다. 몫을 나눠 재지는 않았다.
+
+**MIT-BIH test (30 epoch, lr 0.01, 마지막 epoch weight, seed 3개):**
+
+| 행 | accuracy % | macro-F1 % | 시냅스 µJ | 시냅스 + neuron µJ | parameter |
+|---|---|---|---|---|---|
+| query pop LIF 기본 | 98.57 ± 0.04 | 92.17 ± 0.16 | 8.47 | 11.10 | 1,230,888 |
+| NSMT 재현 | 98.41 ± 0.03 | 91.58 ± 0.06 | 19.06 | 23.86 | 1,226,112 |
+| NSMT 논문 Table 5 | 98.45 | 91.91 | 19.05 | 인쇄 안 됨 | 인쇄 안 됨 |
+| Spikformer식 | 98.55 ± 0.02 | 92.22 ± 0.21 | 7.87 | 9.55 | 904,488 |
+
+- query − NSMT 재현: +0.55 / +0.43 / +0.79 %p, 평균 +0.59, 좋음, energy 0.47배.
+- query − 논문 인쇄값: +0.26 %p(인쇄값 하나라 판정하지 않음). 재현 F1은 논문보다 0.33 %p 낮다.
+- query − Spikformer식: −0.23 / −0.24 / +0.32 %p, 평균 −0.05, 차이 없음, energy 1.16배.
+
+**읽을 때 주의:**
+- **논문에는 Spikformer 행이 없다.** Table 14의 SpikF는 Spiking Fourier Network [43]이고, Spikformer 계열은 iSpikformer [24]다. Table 6의 1,050 µJ도 SpikF 값이므로 Spikformer의 energy로 인용하면 안 된다. "Spikformer식"은 우리 코드의 모델(T_h 4, Neocortex 없음)이다.
+- 논문 수치의 조기 종료는 patience 2 + 마지막 weight이고, query는 patience 10 + 최고 validation weight다. 같은 NSMT도 방식에 따라 ETTh2 H96이 0.2835 ↔ 0.2896으로 달라진다. query를 논문 방식으로 돌린 run은 없다(not run).
+- query와 비교 상대는 다른 날 학습됐고, 짝은 seed로만 맞췄다.
+- ETT test를 여러 번 열었다. 버전 표는 탐색 기록이다.
+- not run: ETTh1, ETTm1, 다른 예측 데이터셋, 이상 탐지, UEA 분류. CinC는 논문에 없고, 사용자 결정(11-04)으로 main result가 아니다.
+
+**파일 (git):** `classification/compare_query_pop_lif_paper.py`, `classification/results/flif-v1-query-pop-lif-vs-paper.md`, 이 항목. 학습이 없으므로 tag는 붙이지 않는다. `exp/nsmt-flif-neo`만 push 한다.
+
+---
