@@ -66,6 +66,24 @@ Everything below is report only. Best epoch counts from 0.
 | vs Spikformer-style (tuned) | -0.98 | 9/12 | no clear difference | 2.00 | -0.91, -2.36, +0.04, -0.67 |
 | vs NSMT rerun | +0.02 | 5/12 | no clear difference | 0.32 | -0.64, -0.71, +1.37, +0.06 |
 
+## Reference: Hippocampus-only NSMT, T = 24 (no Neocortex path, same training rule; mean test MSE 0.3179; NOT an ablation of the query model, which has T = 4; its energy is the logged value)
+
+| comparison | R % | lower pairs | verdict | energy A/B | per cell r % |
+|---|---:|---:|---|---:|---|
+| NSMT rerun vs hippo-only | +0.69 | 2/12 | no clear difference | 0.99 | +1.42, +1.00, +0.26, +0.07 |
+| nsmt4q_lif vs hippo-only | +1.67 | 1/12 | worse | 0.17 | +2.46, +1.59, +1.94, +0.68 |
+| nsmt4q_flif vs hippo-only | +1.62 | 1/12 | worse | 0.18 | +2.63, +1.30, +1.79, +0.76 |
+| nsmt4q_pop_lif vs hippo-only | +1.05 | 1/12 | worse | 0.20 | +1.99, +0.58, +1.21, +0.41 |
+| nsmt4q_pop_flif vs hippo-only | +0.88 | 2/12 | no clear difference | 0.24 | +1.24, +0.57, +1.49, +0.20 |
+| qmx_lif_muxlin_or vs hippo-only | +1.61 | 0/12 | worse | 0.20 | +2.04, +1.60, +1.84, +0.97 |
+| qmx_lif_muxlin_iand vs hippo-only | +1.38 | 1/12 | worse | 0.20 | +1.20, +1.56, +1.95, +0.80 |
+| qmx_flif_muxlin_or vs hippo-only | +1.27 | 1/12 | worse | 0.22 | +1.09, +1.47, +1.87, +0.64 |
+| qmx_flif_muxlin_iand vs hippo-only | +1.48 | 2/12 | worse | 0.22 | +1.98, +1.72, +1.44, +0.79 |
+| qmx_pop_lif_muxlin_or vs hippo-only | +1.26 | 2/12 | worse | 0.29 | +2.35, +1.09, +1.44, +0.17 |
+| qmx_pop_lif_muxlin_iand vs hippo-only | +1.27 | 1/12 | worse | 0.29 | +2.01, +1.31, +1.32, +0.44 |
+| qmx_pop_flif_muxlin_or vs hippo-only | +1.09 | 3/12 | worse | 0.44 | +2.36, +0.00, +1.69, +0.30 |
+| qmx_pop_flif_muxlin_iand vs hippo-only | +1.14 | 1/12 | worse | 0.44 | +2.22, +0.66, +1.38, +0.31 |
+
 ## How close the V1 rows came to the rule (better needs R <= -1 % and at least 8 of 12 pairs lower)
 
 | neuron | residual | R % | lower pairs | verdict |

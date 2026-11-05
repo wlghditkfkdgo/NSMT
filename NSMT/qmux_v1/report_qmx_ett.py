@@ -241,6 +241,30 @@ for name, fb in ((f'vs nsmt4q_{n_best}', q(f'nsmt4q_{n_best}')), ('vs Spikformer
     c = compare(q(best), fb)
     L.append(f"| {name} | {c['R']:+.2f} | {c['lo']}/12 | {c['verdict']} | {c['energy']:.2f} | " + ', '.join(f'{z:+.2f}' for z in c['cells']) + ' |')
 
+# Hippocampus-only NSMT (same training rule, separately trained, no Neocortex path). A reference, not an ablation of the query model: its attention and energy are NSMT's.
+HIPPO = {}
+for r in read_result(os.path.join(MAIN, 'flif-v1-s2p10', 'raw.txt'), lambda c: c == 'hippo_only'):
+    if r['cond'] != 'hippo_only':
+        continue
+    ds, pl = r['dataset'].split('_p')
+    k = (ds, int(pl), int(r['seed']))
+    if k in HIPPO:
+        stop(f'duplicate hippo_only row {k}')
+    HIPPO[k] = dict(mse=r['mse_best'], E=float(r['total_fft_uJ_best']))
+for ds, pl in CELLS:
+    for s in SEEDS:
+        if (ds, pl, s) not in HIPPO:
+            stop(f'missing hippo_only {ds} H{pl} seed {s}')
+check = compare(ref(NSMT), ref(HIPPO))
+if abs(check['R'] - 0.69) > 0.0051:      # value logged by commit 07986f989 (NSMT vs hippo-only, same rule)
+    stop(f'NSMT vs hippo_only R {check["R"]:.3f}, expected +0.69 from commit 07986f989')
+mse_h = mean([mean([float(HIPPO[(ds, pl, s)]['mse']) for s in SEEDS]) for ds, pl in CELLS])
+L += ['', f'## Reference: Hippocampus-only NSMT, T = 24 (no Neocortex path, same training rule; mean test MSE {mse_h:.4f}; NOT an ablation of the query model, which has T = 4; its energy is the logged value)', '',
+      '| comparison | R % | lower pairs | verdict | energy A/B | per cell r % |', '|---|---:|---:|---|---:|---|']
+for name, fa in [('NSMT rerun', ref(NSMT))] + [(f'nsmt4q_{n}', q(f'nsmt4q_{n}')) for n in NEURONS] + [(f'qmx_{n}_muxlin_{r}', q(f'qmx_{n}_muxlin_{r}')) for n in NEURONS for r in RES]:
+    c = compare(fa, ref(HIPPO))
+    L.append(f"| {name} vs hippo-only | {c['R']:+.2f} | {c['lo']}/12 | {c['verdict']} | {c['energy']:.2f} | " + ', '.join(f'{z:+.2f}' for z in c['cells']) + ' |')
+
 L += ['', '## How close the V1 rows came to the rule (better needs R <= -1 % and at least 8 of 12 pairs lower)', '', '| neuron | residual | R % | lower pairs | verdict |', '|---|---|---:|---:|---|']
 for n in NEURONS:
     for r in RES:

@@ -11481,3 +11481,123 @@ leak만 계산한 기준(상수 input, state 0에서 시작, 측정 아님):
 - 다음: MIT-BIH 54 run(예상 약 3시간) → V1–V4, 채택 표 기록 → annotated tag. 사용자 결정 대기: plain [query pop LIF NSMT T=4] Neocortex의 token step별 firing rate 측정(ETT·MIT-BIH).
 
 **commit:** 이 기록과 위 Git 산출물. 이 commit의 id는 다음 기록에 남긴다.
+
+## 2026-11-05 22:20 KST — qmx MIT-BIH 결과(54 run, SKIP 0, 사전등록 32행과 채택 표를 별도 코드로 재현) + qmx 실험 완료: V1–V4 32행 모두 no clear difference. V1 −0.06 – +0.09 %p, energy 1.08–1.36배. 채택 0/8. ETT와 합쳐 사전등록 64행 모두 no clear difference이므로 양방향 Neocortex(muxlin, OR)는 채택하지 않고 plain [query pop LIF NSMT T=4]를 유지. 앞 기록의 RESULT sha 서술 정정. tag `exp/f-lif-pop-v3-qmx-20261105`
+
+**직전 commit:** `24e6a7098`(qmx ETT 결과). 브랜치 `exp/f-lif-pop-v3`. 사전등록은 "2026-11-05 11:05 KST" 항목이다. 이 항목이 qmx 실험의 마지막 기록이다.
+
+### 정정(앞 기록 "qmx ETT 결과")
+- "학습 코드 sha `776123632`(… 모든 RESULT 줄의 sha)"는 **틀렸다.** raw.txt 앞 3줄만 보고 적었다.
+- RESULT의 `sha`는 run 시점의 git HEAD다. 드라이버가 도는 동안 진단 commit이 들어가 값이 섞여 있다: ETT `776123632` 82개, `c3898a06e` 20개, `433e2bee7` 102개; MIT-BIH `433e2bee7` 8개, `24e6a7098` 46개.
+- 학습 코드는 그대로다. `git diff --name-only 776123632 HEAD`에서 바뀐 파일은 `cinc_mixer_v1`의 진단 스크립트(`sd_axis_check.py`, `sd_step_probe.py`, `member_state_probe.py`)와 그 결과, `qmux_v1/report_qmx_ett.py`, 로그뿐이다. `qmux_v1`의 학습 코드와 `NSMT/scripts`는 바뀌지 않았고, `qmux_v1` 학습 코드는 이 진단 스크립트를 import하지 않는다. 결과값은 영향이 없다.
+
+### 실행
+- 설정: MIT-BIH, 30 epoch, lr 0.01, batch 512, cosine, 마지막 epoch 가중치로 test(validation split 없음, n_test 32833). seed 42 / 7 / 2026. 튜닝 없음.
+- run: 새 조건 48 + plain control 6(LIF, f-LIF) = 54. RESULT 54, SKIP 0. plain population은 `flif-v1-mitbih-query`를 재사용(같은 설정, 11:05 q4에서 population LIF seed 42를 재학습해 모든 필드 일치).
+- env `snn_recall`, GPU 0–3에 슬롯 8개. 19:47:16 – 22:13:48(2시간 27분, 예상 약 3시간).
+- 명령(NSMT/에서): `SLOTS=0,1,2,3,0,1,2,3 nohup bash qmux_v1/scripts/qmx_driver.sh`(ETT와 같은 드라이버 한 번 실행). 추가 집계: `cd qmux_v1 && LD_LIBRARY_PATH=<env>/lib python -B report_qmx_mitbih.py`, `python -B report_qmx_ett.py`.
+- 코드: 학습 코드 변경 없음. 새 파일 `qmux_v1/report_qmx_mitbih.py`(sha256 앞 16자리 `6107d14eb2c4dd20`). `report_qmx_ett.py`에 hippo-only 표를 추가(앞 기록의 `e9ad95142f2c2243` → `b78fd60524a9bc5f`; 앞 기록에 적은 ETT 표의 값은 그대로이고 `report_extra.md`에 절이 하나 늘었다).
+
+### 점검(fail closed)
+- `report_qmx_mitbih.py`: `summarize_qmx.py`를 import하지 않고 따로 계산해 V1–V4 32행의 평균, seed별 값, verdict, energy와 채택 표가 일치했다. 54 run 모두 30 epoch, lr 0.01, n_test 32833.
+- hippo-only 교차 확인: NSMT vs hippo-only가 다른 세션 commit `07986f989`의 기록값과 일치(ETT R +0.69 %, MIT-BIH −0.25 %p). 다르면 멈추도록 넣었다.
+- 작성 중 ETT 스크립트가 duplicate로 한 번 멈췄다. 새 hippo-only loop에 조건 필터를 빠뜨린 내 버그였고, 고친 뒤 통과했다. 보고값에 영향 없음.
+- pool_log에 Traceback·error 없음.
+- not run: MIT-BIH energy recount. `qmux_v1`에 MIT-BIH용 recount가 없고 사전등록도 기록값(`total_fft_uJ`)을 쓴다.
+
+### MIT-BIH test macro-F1(seed 평균 ± std, std는 3개 값의 np.std)
+| 조건 | macro-F1 % | accuracy % | F1 N / S / V / F / Q % | energy µJ | rho_neo |
+|---|---:|---:|---|---:|---:|
+| Spikformer식(기본, lr 0.01) | 92.22 ± 0.17 | 98.55 | 99.24 / 85.28 / 96.04 / 81.38 / 99.17 | 9.55 | – |
+| Spikformer식(튜닝, lr 0.005) | 91.78 ± 0.25 | 98.48 | 99.20 / 84.38 / 96.12 / 80.17 / 99.03 | 9.61 | – |
+| NSMT 재현 | 91.58 ± 0.05 | 98.41 | 99.16 / 84.31 / 95.65 / 79.89 / 98.89 | 23.86 | 0.0931 |
+| LIF plain query | 91.84 ± 0.24 | 98.51 | 99.22 / 84.96 / 96.16 / 79.83 / 99.00 | 10.38 | 0.0733 |
+| LIF muxlin, residual OR | 91.83 ± 0.09 | 98.54 | 99.23 / 85.49 / 96.20 / 79.10 / 99.12 | 11.58 | 0.0687 |
+| LIF muxlin, residual IAND | 91.92 ± 0.07 | 98.54 | 99.23 / 85.45 / 96.28 / 79.63 / 99.04 | 11.21 | 0.0698 |
+| LIF 양방향 OR, residual OR | 92.31 ± 0.38 | 98.59 | 99.27 / 85.53 / 96.30 / 81.36 / 99.07 | 11.68 | 0.0604 |
+| LIF 양방향 OR, residual IAND | 92.23 ± 0.20 | 98.56 | 99.24 / 85.53 / 96.17 / 81.13 / 99.07 | 10.11 | 0.0663 |
+| f-LIF plain query | 92.21 ± 0.28 | 98.56 | 99.25 / 85.39 / 96.26 / 81.16 / 98.98 | 10.48 | 0.0673 |
+| f-LIF muxlin, residual OR | 92.15 ± 0.14 | 98.57 | 99.25 / 85.75 / 96.15 / 80.49 / 99.09 | 11.60 | 0.0532 |
+| f-LIF muxlin, residual IAND | 92.20 ± 0.25 | 98.53 | 99.23 / 85.24 / 95.98 / 81.42 / 99.11 | 11.40 | 0.0570 |
+| f-LIF 양방향 OR, residual OR | 92.03 ± 0.15 | 98.53 | 99.23 / 85.33 / 96.11 / 80.42 / 99.05 | 11.43 | 0.0457 |
+| f-LIF 양방향 OR, residual IAND | 92.11 ± 0.25 | 98.55 | 99.24 / 85.44 / 96.09 / 80.71 / 99.07 | 10.35 | 0.0499 |
+| population LIF plain query | 92.17 ± 0.13 | 98.57 | 99.26 / 86.18 / 96.08 / 80.36 / 98.98 | 11.10 | 0.0424 |
+| population LIF muxlin, residual OR | 92.22 ± 0.20 | 98.58 | 99.27 / 86.17 / 96.13 / 80.51 / 99.02 | 13.65 | 0.0643 |
+| population LIF muxlin, residual IAND | 92.16 ± 0.10 | 98.58 | 99.26 / 85.85 / 96.16 / 80.42 / 99.11 | 13.35 | 0.0485 |
+| population LIF 양방향 OR, residual OR | 92.30 ± 0.16 | 98.53 | 99.23 / 85.74 / 96.14 / 81.66 / 98.72 | 12.63 | 0.0428 |
+| population LIF 양방향 OR, residual IAND | 92.08 ± 0.15 | 98.54 | 99.23 / 85.34 / 96.13 / 80.67 / 99.03 | 11.46 | 0.0423 |
+| population f-LIF plain query | 92.02 ± 0.14 | 98.54 | 99.23 / 85.70 / 96.14 / 79.97 / 99.04 | 12.26 | 0.0623 |
+| population f-LIF muxlin, residual OR | 92.11 ± 0.20 | 98.56 | 99.25 / 85.82 / 96.05 / 80.29 / 99.13 | 16.62 | 0.0569 |
+| population f-LIF muxlin, residual IAND | 92.00 ± 0.13 | 98.56 | 99.25 / 85.57 / 96.09 / 80.00 / 99.10 | 16.27 | 0.0453 |
+| population f-LIF 양방향 OR, residual OR | 92.26 ± 0.19 | 98.55 | 99.24 / 85.42 / 96.15 / 81.45 / 99.05 | 14.58 | 0.0510 |
+| population f-LIF 양방향 OR, residual IAND | 91.98 ± 0.15 | 98.56 | 99.25 / 85.42 / 96.18 / 80.00 / 99.07 | 13.10 | 0.0424 |
+
+### 사전등록 비교(칸 안: 평균 %p, energy 배수; 32행 모두 no clear difference; V4는 Spikformer식 기본값 lr 0.01, query run과 같은 lr)
+| neuron | residual | V1 muxlin vs plain query | V2 muxlin vs 양방향 OR | V3 양방향 OR vs plain query | V4 muxlin vs Spikformer식 |
+|---|---|---|---|---|---|
+| LIF | OR | −0.01, 1.12 | −0.48, 0.99 | +0.47, 1.13 | −0.39, 1.21 |
+| LIF | IAND | +0.09, 1.08 | −0.30, 1.11 | +0.39, 0.97 | −0.30, 1.17 |
+| f-LIF | OR | −0.06, 1.11 | +0.12, 1.01 | −0.18, 1.09 | −0.08, 1.21 |
+| f-LIF | IAND | −0.01, 1.09 | +0.08, 1.10 | −0.10, 0.99 | −0.03, 1.19 |
+| population LIF | OR | +0.05, 1.23 | −0.08, 1.08 | +0.13, 1.14 | −0.00, 1.43 |
+| population LIF | IAND | −0.01, 1.20 | +0.08, 1.17 | −0.09, 1.03 | −0.06, 1.40 |
+| population f-LIF | OR | +0.09, 1.36 | −0.16, 1.14 | +0.25, 1.19 | −0.11, 1.74 |
+| population f-LIF | IAND | −0.01, 1.33 | +0.02, 1.24 | −0.03, 1.07 | −0.22, 1.70 |
+
+- V4 기준 (2): 8행 모두 미충족. seed별 값은 `qmux_v1/results/qmx-mitbih/summary.md`.
+- 기준에 가장 가까운 V3 LIF OR +0.47 %p는 seed +1.24, +0.20, −0.02로, plain LIF seed 42(91.53)가 낮았던 영향이 크다.
+
+### 판정
+- **채택 0/8.** 사전 기준은 ETT V1 better + MIT-BIH V1 not worse인데, ETT V1 better가 없다. MIT-BIH V1도 모두 no clear difference다.
+- **ETT와 MIT-BIH를 합친 사전등록 64행(V1–V4)에 better도 worse도 없다.**
+
+### 미리 적은 예상과 대조
+| 예상 | 결과 |
+|---|---|
+| MIT-BIH V1 모두 no clear difference, macro-F1 약 92 | 맞음. query 20개 조건의 평균이 91.83–92.31 |
+| 지금까지 어떤 모델도 Spikformer식과 갈라지지 않음 | 맞음. V4 −0.39 – −0.00 %p |
+| population + IAND가 가장 나쁘다 | ETT와 마찬가지로 틀림. population IAND 92.16 / 92.00, LIF muxlin 91.83 / 91.92 |
+| energy가 plain query보다 오른다 | 맞음. V1 1.08–1.36배 |
+
+### 보고만(판정 없음, `results/qmx-mitbih/report_extra.md`)
+- **class별 F1(V1):** S −0.33 – +0.53, F −0.73 – +0.32 %p. neuron과 residual에 따라 방향이 달라 일관된 경향이 없다.
+- **firing rate:** rho_neo가 muxlin에서 population LIF 0.0424 → 0.0643 / 0.0485, population f-LIF 0.0623 → 0.0569 / 0.0453, LIF 0.0733 → 0.0687 / 0.0698, f-LIF 0.0673 → 0.0532 / 0.0570. ETT와 달리 늘 오르지는 않는다. rho_hippo는 0.1346–0.1476. energy는 층이 늘어 모두 오른다.
+- **muxlin vs NSMT 재현:** +0.25 – +0.64 %p, better 5/8, energy 0.47–0.70배, 기준 (2) 7/8(population f-LIF IAND만 미충족). plain query도 NSMT보다 낫고 energy가 낮으므로(표) muxlin의 몫이 아니다.
+- **plain query vs Spikformer식 기본값:** LIF −0.39, f-LIF −0.01, population LIF −0.05, population f-LIF −0.20 %p, 모두 no clear difference, energy 1.09–1.28배.
+- **test 최고 조건(test를 본 뒤 고른 값, 후보로 쓰지 않음):** LIF 양방향 OR, residual OR 92.31. Spikformer식 기본값 대비 +0.08 %p(no clear difference, 1.22배). 튜닝값 대비 +0.52(better)이지만, 튜닝값(91.78)의 test가 기본값(92.22)보다 낮아서 나온 것이다.
+- **ETT 최저 조건을 MIT-BIH에서 보면(역시 test를 본 뒤):** population f-LIF 양방향 OR, residual OR 92.26. Spikformer식 기본값 대비 +0.04 %p(1.53배). ETT에서는 튜닝값 대비 R −0.98 %(9/12, 2.00배)였다. 두 과제 모두 규칙상 no clear difference다.
+
+### Neocortex 없는 기존 run과의 비교(학습 없음, 보고만; ablation이 아님)
+다른 세션의 hippo-only(NSMT 설정 그대로, Neocortex path 없음, 같은 학습 규칙; ETT `flif-v1-s2p10`, MIT-BIH `flif-v1-cls`)를 읽어 비교했다. ETT hippo-only는 T = 24이고 query 모델은 T = 4이므로 Neocortex만의 차이가 아니다.
+
+| A vs hippo-only | ETT R %, 낮아진 쌍, 판정, energy | MIT-BIH %p, 판정, energy |
+|---|---|---|
+| NSMT 재현 | +0.69, 2/12, no clear difference, 0.99 | −0.25, no clear difference, 0.92 |
+| LIF plain query | +1.67, 1/12, worse, 0.17 | +0.01, no clear difference, 0.40 |
+| f-LIF plain query | +1.62, 1/12, worse, 0.18 | +0.38, no clear difference, 0.40 |
+| population LIF plain query | +1.05, 1/12, worse, 0.20 | +0.35, no clear difference, 0.43 |
+| population f-LIF plain query | +0.88, 2/12, no clear difference, 0.24 | +0.19, no clear difference, 0.47 |
+| muxlin 8개 | +1.09 – +1.61, 모두 worse, 0.20–0.44 | +0.00 – +0.39, 모두 no clear difference, 0.43–0.64 |
+
+- ETT 평균 MSE는 hippo-only T = 24가 0.3179로, 이번 표의 어느 조건보다 낮다. MIT-BIH hippo-only는 91.83이다.
+
+### 해석(측정이 아닌 추론)
+- 이 실험의 질문("양방향 Neocortex가 query 모델을 개선하는가")의 답은 ETT와 MIT-BIH에서 **아니오**다. s_d(V2)와 양방향(V3) 어느 쪽도 규칙상 차이를 만들지 못했고, energy만 늘었다.
+- ETT에서는 Neocortex 구조를 바꿔도 MSE가 움직이지 않는데, Neocortex가 없는 T = 24 Hippocampus의 MSE가 가장 낮다. MSE를 움직이는 것은 Neocortex 구조보다 Hippocampus의 T나 attention 쪽일 수 있다. T와 attention 형태가 같이 달라 어느 쪽인지는 가를 수 없다. query 모델의 이점은 MSE보다 energy(hippo-only의 0.17–0.24배)에 있다.
+- T = 4에서 Neocortex가 없는 가장 가까운 기준은 Spikformer식이다. plain query는 여기서도 두 과제 모두 no clear difference다(ETT −0.03 – −0.81 %, MIT-BIH −0.39 – −0.01 %p). 다만 ETT population 2종은 −0.63 / −0.81 %(8/12)로 기준에 가깝고 ETTh2 H720(−2.07 / −2.08 %)이 대부분을 만든다. lr은 Spikformer식 ETT만 튜닝값이다.
+
+### 한계
+- seed 3개, 후보 많음, test를 여러 번 열었다. 튜닝 없음(lr·patience는 plain query에 맞춘 값).
+- 부정 결과의 범위: 이 lr, 이 neuron 설정, 2블록 구조에서의 결과다. warm-up이 ETT(N = 24)·MIT-BIH(N = 11)의 population에 주는 영향은 qmx checkpoint에서 재지 않았다.
+- MIT-BIH는 validation split이 없다. energy는 재계산 없이 기록값이고, Spikformer식 튜닝값 행만 recount 값이라 그 행의 energy 배수에는 두 방식이 섞인다.
+- not run: 같은 query 모델에서 Neocortex 출력을 끈 ablation, Hippocampus T 변경, lr 튜닝, AD, CinC.
+
+### 결론
+- **양방향 Neocortex(muxlin, OR)는 채택하지 않는다. 후보는 plain [query pop LIF NSMT T=4]로 유지한다**(ETT 12.94 µJ, MIT-BIH 11.10 µJ).
+
+### 산출물과 다음
+- Git: `qmux_v1/results/qmx-mitbih/{raw.txt,pool_log.txt,summary.md,report_extra.md}`, `qmux_v1/results/qmx-ett/report_extra.md`, `qmux_v1/report_qmx_{ett,mitbih}.py`. 로컬: `qmux_v1/log/qmx-{ett,mitbih}/`, `qmux_v1/results/qmx-driver/driver.log`, 큐 파일.
+- 드라이버는 22:13:49에 끝났고 GPU는 비어 있다.
+- 사용자 결정 대기: (1) plain [query pop LIF NSMT T=4] Neocortex의 token step별 firing rate 측정(ETT·MIT-BIH), (2) 그 밖의 11-05 미결정 항목(AD front-end 수정과 NSMT AD 재실행, 논문 값의 학습 규칙 통일, muxlin·튜닝 Spikformer식 CinC fold 1–4, memoryless·shuffle 재학습 control).
+
+**commit:** 이 기록과 위 Git 산출물. 이 commit은 annotated tag `exp/f-lif-pop-v3-qmx-20261105`로 식별한다(완료된 학습 실험의 tag이고 snapshot이 아니다).
