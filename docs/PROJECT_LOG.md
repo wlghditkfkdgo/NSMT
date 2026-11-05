@@ -11157,3 +11157,133 @@ x = e
 - 산출물: `qmux_v1/results/qmx-{ett,mitbih}/{raw.txt,pool_log.txt,summary.md}`, ETT `energy_recount.csv`(Git), checkpoint·TensorBoard·콘솔은 `qmux_v1/log/`(로컬).
 
 **commit:** 코드, `results/{checks,check-qmx-repro-20261105,smoke-qmx-20261105,smoke-qmx-20261105-ett}`, 이 기록. 결과는 단계마다 다음 기록에 남긴다.
+
+## 2026-11-05 12:55 KST — s_d를 token step별로 측정(학습 없음, 보고만, checkpoint 36개, 점검 모두 통과): LIF는 양 끝 1–3 token만 낮고 작은 효과. population은 neuron이 천천히 깨어나 처음 8 token의 s_d가 중앙의 0.22–0.46배, F·R이 절반 발화에 이르기까지 16–26 token. 사전 예상 '양 끝에서 차이가 더 크다'는 틀림(대부분 더 작음). 11-04 진단의 'population이 긴 문맥을 쓴다'는 판독 철회. 11:05 기록 정정 3건
+
+### 목적
+- 사용자 질문: "막전위 간의 차이를 모든 (spiking) time step에 대해서 계산하고 있는거야?" 답을 코드와 실행으로 확인한 뒤, 내가 "양 끝에서 두 방향이 본 token 양이 다르다"는 우려를 냈고 사용자가 "진행"이라고 답했다. 그래서 학습된 checkpoint에서 token step별 차이와 s_d 발화율을 쟀다.
+- 판정이 아니라 설계 진단이다. 모델을 고르지 않는다.
+
+### 브랜치, 코드
+- 브랜치 `exp/f-lif-pop-v3`, 기준 commit `776123632`(직전 기록의 commit). 지금 도는 qmx 드라이버와 러너, 큐 파일은 건드리지 않았다.
+- 새 파일:
+  - `NSMT/cinc_mixer_v1/sd_axis_check.py`: 차이가 어느 축에서 계산되는지 실제 `mix()`에 hook을 걸어 확인한다(학습 안 한 가중치).
+  - `NSMT/cinc_mixer_v1/sd_step_probe.py`: step별 측정과 요약. part 파일은 측정 당시 sha `dd9fc9a3ea950b5e`를 담는다. 그 뒤 `summarize()`에만 절 3개(절반 도달 step, 위치 상관, 문맥 제한 재수록)를 더해 파일 sha는 `e0f6c5be4b70df5b`다. 측정 경로는 바꾸지 않았다.
+
+### 답: 차이는 모든 step에서 계산한다
+- 계산 축은 token 축 N step 전부이고 channel별이다. T_h 축이 아니다. SpkMixer는 [N, B, T_h 4, D]로 반복마다 따로 계산하고(`spk_mixer.py:127-135`), query 모델의 새 Neocortex는 [N, B, 1, D]로 block 2개가 각자 계산한다(`qmux_v1/neo_mux.py:77-84`).
+- step t에서 H_f는 token 1..t, H_r는 token N..t를 본 값이다. token 6을 바꾸면 H_f는 step 6–11, H_r는 step 0–6에서만 움직였다(N 12). 반복 0만 바꾸면 반복 0만 움직였다.
+- H는 리셋 뒤 막전위가 아니라 그 step에서 threshold와 비교하는 값(H − θ)이다(`layers.py:478-489`). 이전 step들의 리셋은 들어 있다. soma가 있는 population은 soma 값이다.
+- s_d(t)는 step t의 차이만 보지 않는다. 차이는 BN(channel마다 평균·분산 하나, step 구분 없음)을 거쳐 s_d neuron으로 들어가고, 이 neuron이 앞→뒤로 막전위를 쌓는다.
+- mixer가 2층이면 마지막 층의 H만 비교한다(`neo_mixer.py:60-64`). query 모델의 새 Neocortex는 방향당 1층이라 해당 없다.
+
+### 측정 방법
+- **데이터와 입력:** `bottleneck_probe.py`와 같은 선택·분할을 쓴다. CinC fold 0 val, ETT test, MIT-BIH test. 측정값 자체는 입력만 쓰고, label은 기록값 재현 확인에만 쓴다.
+- **checkpoint 36개(seed 42 / 7 / 2026):**
+  - CinC 21개: muxlin LIF, sdlin LIF, sdlin f-LIF, sdlin population LIF, sdlin population f-LIF, sdlin soma 없는 population LIF, 같은 조건의 f-LIF. CinC에서 population은 muxlin으로 학습한 적이 없어 sdlin을 썼다. 차이와 s_d neuron은 같은 구조다.
+  - ETT 12개: muxlin LIF 튜닝(IAND, mixer 1층), ETTh2 / ETTm2 × H96 / H720.
+  - MIT-BIH 3개: muxlin LIF 튜닝(ADD, mixer 2층).
+- **조건 2개:**
+  - `orig`: 실제 token 순서. 이 경로의 출력이 모델 출력이다.
+  - `shuf`: 배치마다 새 순열로 mixer 안에서 token을 섞고 출력은 버린다(생성기 seed 0). 위치별 token 내용이 평평해져 '순서상 위치'의 효과만 남는다. 확인: 입력 발화율이 위치와 무관하게 평평했다(예: CinC muxlin LIF는 살펴본 step들에서 7.04–7.78 %, 위치에 따른 경향 없음).
+- **step별 값:** 입력, F, R, F∨R, F∧R, H_f, H_r, |H_f − H_r|, BN 출력 z, s_d, 출력 발화율(배치·반복·channel 평균).
+- **요약 값:** 중앙 절반 [N//4, N − N//4) 평균에 대한 비율, 끝 길이(중앙 평균의 10 % 안에 처음 들어오는 step, N//4에서 자름), 절반 도달 step(중앙 평균의 절반에 처음 이르는 step).
+
+### 환경과 명령
+- env `snn_recall`, GPU 3, 12:25:40–12:50:53(25분), 한 번에 한 작업. 그 시간 동안 qmx 학습과 GPU 3을 같이 썼다. 학습 시간은 결과가 아니지만 해당 run은 조금 느려졌을 수 있다.
+- **계획 변경:** 사용자에게 "CPU로 돌릴 수 있다"고 말했으나 CPU로는 돌리지 못했다. 다중 thread는 임베딩 Linear에서 segfault(exit 139, GPU 경로에는 없는 문제이며 원인은 찾지 않았다)가 났고, 1 thread는 checkpoint 하나가 200 s 안에 끝나지 않았다.
+- `LD_LIBRARY_PATH=<env>/lib python -B cinc_mixer_v1/sd_step_probe.py --task {mitbih,ett,cinc} --cond <cond> -nd 3`(NSMT/에서), 이어서 `--summarize`.
+- `cd cinc_mixer_v1 && CUDA_VISIBLE_DEVICES="" python -B sd_axis_check.py $PWD lif`(같은 방식으로 `cd qmux_v1`, `lif`, `pop_lif`).
+- 산출물: `NSMT/cinc_mixer_v1/results/sd-step-probe-20261105/{summary.md,run_log.txt,parts/*.json}`.
+
+### 점검(fail closed)
+- 측정 경로로 기록된 지표를 1e-6 안에서 재현했다(36개 모두; 예: MIT-BIH F1 0.918862, ETTh2 H96 MSE 0.298527, CinC 검증 점수 0.728381). 섞은 경로가 같은 배치에서 먼저 돌았으므로, 그것이 상태를 남겼다면 재현이 깨졌을 것이다.
+- 첫 배치 출력이 모델의 `mix()`와 비트 단위로 같다. step별 집계 값이 모두 유한하다.
+
+### 결과 1: 섞은 token, CinC(N = 117, 3 seed 평균; 비율은 중앙 절반 대비)
+| 모델 | 중앙 s_d % | s_d 첫 1 | s_d 첫 8 | s_d 마지막 8 | 차이 첫 1 / 마지막 1 | 절반 도달 step F | R | s_d | 출력 |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| muxlin LIF | 10.98 | 0.45 | 0.84 | 0.95 | 0.85 / 0.87 | 1, 1, 2 | 1, 1, 1 | 1, 1, 1 | 1, 1, 1 |
+| sdlin LIF | 9.36 | 0.43 | 0.83 | 0.95 | 0.85 / 0.87 | 1, 1, 1 | 1, 1, 1 | 1, 1, 1 | 1, 1, 1 |
+| sdlin f-LIF | 10.32 | 0.50 | 0.86 | 0.95 | 0.85 / 0.85 | 1, 1, 1 | 1, 1, 1 | 1, 0, 1 | 1, 1, 1 |
+| sdlin population LIF | 9.03 | 0.00 | 0.22 | 0.75 | 0.92 / 0.80 | 21, 22, 20 | 19, 16, 18 | 8, 7, 8 | 10, 9, 11 |
+| sdlin population f-LIF | 9.80 | 0.01 | 0.40 | 0.84 | 1.05 / 0.86 | 20, 20, 26 | 23, 23, 24 | 5, 4, 4 | 12, 10, 10 |
+| sdlin soma 없는 population LIF | 8.58 | 0.01 | 0.25 | 0.78 | 0.85 / 0.83 | 20, 17, 21 | 18, 17, 19 | 8, 8, 8 | 12, 10, 11 |
+| sdlin soma 없는 population f-LIF | 8.83 | 0.03 | 0.46 | 0.90 | 1.00 / 0.86 | 25, 26, 20 | 25, 25, 22 | 3, 4, 5 | 10, 10, 8 |
+
+R의 절반 도달 step은 마지막 token에서 거꾸로 센 값이다.
+
+### 결과 2: 섞은 token, CinC, step별 값(발화율은 %, 차이(|H_f − H_r|)와 z는 그대로; LIF = muxlin LIF, population LIF = sdlin; 3 seed 평균)
+| 모델 / 값 | 0 | 2 | 4 | 8 | 16 | 32 | 58 | 100 | 112 | 116 |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| LIF F | 1.40 | 5.22 | 5.75 | 5.86 | 6.15 | 6.02 | 6.01 | 5.92 | 6.21 | 5.87 |
+| LIF R | 5.02 | 4.97 | 4.80 | 5.17 | 5.26 | 5.07 | 4.93 | 5.13 | 5.08 | 1.47 |
+| LIF s_d | 4.96 | 9.46 | 10.23 | 10.53 | 11.43 | 10.88 | 10.84 | 11.06 | 10.91 | 8.22 |
+| LIF 출력 | 1.26 | 3.31 | 3.72 | 3.91 | 4.27 | 4.10 | 4.04 | 4.06 | 4.03 | 2.86 |
+| population LIF F | 0.00 | 0.00 | 0.09 | 2.04 | 4.70 | 9.09 | 12.33 | 13.86 | 13.93 | 14.02 |
+| population LIF R | 17.17 | 17.13 | 17.10 | 17.05 | 17.02 | 16.70 | 15.54 | 7.15 | 0.29 | 0.00 |
+| population LIF F∧R | 0.00 | 0.00 | 0.02 | 0.35 | 0.78 | 1.55 | 1.97 | 0.91 | 0.05 | 0.00 |
+| population LIF 차이 | 1.13 | 1.15 | 1.17 | 1.20 | 1.22 | 1.24 | 1.23 | 1.11 | 1.04 | 0.98 |
+| population LIF z | −0.06 | −0.05 | −0.04 | −0.02 | −0.01 | −0.01 | −0.02 | −0.09 | −0.12 | −0.16 |
+| population LIF s_d | 0.00 | 0.54 | 2.31 | 5.02 | 7.45 | 8.66 | 9.43 | 7.17 | 6.87 | 6.26 |
+| population LIF 출력 | 0.00 | 0.15 | 2.83 | 7.56 | 12.96 | 16.90 | 18.09 | 17.34 | 15.51 | 14.87 |
+
+### 결과 3: LIF, ETT와 MIT-BIH의 s_d(중앙 절반 대비)
+| 과제 | N | 섞음 첫 1 / 마지막 1 | 실제 순서 첫 1 / 마지막 1 | 실제 순서 위치 상관(입력 발화율, s_d) |
+|---|--:|--:|--:|--:|
+| ETTh2 H96 | 24 | 0.65 / 0.91 | 0.96 / 1.68 | +0.77 |
+| ETTh2 H720 | 24 | 0.72 / 0.98 | 0.94 / 1.56 | +0.73 |
+| ETTm2 H96 | 24 | 0.48 / 0.78 | 0.58 / 1.10 | +0.17 |
+| ETTm2 H720 | 24 | 0.58 / 0.85 | 0.69 / 1.16 | +0.34 |
+| MIT-BIH | 11 | 0.51 / 0.77 | 1.34 / 0.27 | +0.72 |
+
+- s_d spike가 양 끝에 몰린 비율(섞음, 끝마다 k token): CinC muxlin LIF k = 4는 5.7 %(고르게 퍼지면 6.8 %), CinC population LIF k = 8은 7.7 %(고르게 퍼지면 13.7 %).
+- 입력 발화율(실제 순서): ETTh2 H96은 첫 11.82, 가운데 9.00, 마지막 11.22 %로 U자, MIT-BIH는 첫 7.16, 마지막 1.12 %.
+
+### 사전 예상과 비교(결과 전에 사용자 메시지와 스크립트 docstring에 적음)
+- **틀림:** "차이는 양 끝에서 더 크다." 대부분 더 작다(모든 과제에서 첫 step 0.85–0.93배, 마지막 step 0.80–0.94배). 예외는 CinC 첫 step의 population f-LIF 1.05배와 soma 없는 population f-LIF 1.00배.
+- **맞음:** LIF의 끝 효과는 3 token 이내다(차이의 끝 길이 1, s_d 1–3).
+- **차이에서는 틀림, s_d에서는 맞음:** population에서 끝 효과가 8 token 이상이라는 예상. 차이의 끝 길이는 0–4(첫 쪽), 1–11(마지막 쪽)이다. s_d의 끝 길이는 14–29(첫 쪽, 29는 상한), 3–29(마지막 쪽)다.
+- **절반만 맞음:** "s_d는 첫 step에서 차이가 커도 낮다." 낮은 것은 맞고 차이가 큰 것은 틀리다.
+
+### 판독(재학습 없는 진단이고, 성능과의 인과는 재지 않았다)
+1. **LIF(f-LIF도):** 양 끝 1–3 token만 낮다. s_d spike의 양 끝 비율도 고르게 퍼진 경우와 가깝다. 고칠 만한 설계 문제라는 근거가 없다.
+2. **population:** s_d 낮음의 주된 원인은 차이가 아니라 **neuron 자체가 천천히 깨어나는 것**이다.
+   - population LIF에서 차이와 z는 거의 평평한데(z −0.06 → −0.01) s_d가 0 %에서 약 30 token에 걸쳐 오른다. soma 없는 population LIF는 z도 처음에 더 낮아(−0.22 → −0.07) z의 몫이 일부 섞인다.
+   - F와 R도 같아서, 수열 앞쪽에서는 F가 거의 0 %이고 R만 17 %이며, 뒤쪽에서는 R이 0 %다. 그래서 F∧R은 양 끝에서 거의 0이고, 두 방향이 실제로 함께 일하는 구간은 가운데다.
+   - 첫 token들의 출력은 거의 비어 있다(population LIF는 step 0–2에서 0.15 % 이하; population 4종 모두 절반 도달 8–12 token).
+3. **"두 방향이 본 token 양의 차이"는 population에서 부호 있는 차이에 나타난다.** H_f − H_r 평균이 위치만으로 +0.37(step 8)에서 −0.32(step 108)까지 움직인다(population LIF; |차이| 약 1.2 대비). CinC LIF는 ±0.05 이내다. 절댓값을 취해 s_d에 넣으므로 이 치우침은 |차이|에서 대부분 가려지고, population LIF 기준 양 끝에서 −8…−20 % 정도로 남는다.
+4. **실제 순서의 끝 효과는 대부분 입력 내용이다.** 섞은 대조와 달리 ETTh2 마지막 token의 s_d는 1.56–1.68배, MIT-BIH 마지막 token은 0.27배다. 위치별 입력 발화율과 같이 움직인다(상관 +0.72…+0.77, ETTm2는 +0.17…+0.34). 이 상관은 위치 평균 값 11–24개에서 나온 것이고 표본별 관계는 재지 않았다.
+
+### 철회: 11-04 측정(`bottleneck-probe-20261104`, 11-05 10:40 기록) 진단의 population 판독
+- 나는 population LIF의 ctx16 −21.53 %p를 근거로 "더 긴 문맥을 쓴다"고 적었고 브리핑에서도 그렇게 말했다.
+- ctxW는 재시작 과도 구간이 버리는 W token 안에서 끝난다고 가정한다. population LIF는 F·R의 절반 도달이 16–22 token이므로 W = 16에서 그 가정이 깨진다.
+- 따라서 −21.53은 "긴 정보를 쓴다"와 "neuron이 아직 깨어나지 않았다"를 가르지 못한다. W = 64에서는 −0.82로 거의 사라진다. 이 판독을 철회한다. 어느 쪽인지는 아직 모른다.
+- LIF(ctx4 −0.58…−1.18, ctx16 약 0)와 f-LIF(ctx16 −1.32)는 절반 도달이 0–2 token이라 이 문제가 없다.
+
+### 지금 도는 실험과의 관련(측정 아님, 가설)
+- query 모델의 새 Neocortex는 population neuron으로 ETT N = 24, MIT-BIH N = 11을 돈다. CinC에서 F·R의 절반 도달이 16–26 token이므로, 같은 동역학이면 수열 대부분이 깨어나는 구간에 들어간다.
+- 다만 CinC 값은 다른 데이터와 다른 BN gain에서 나왔다. 학습 전 q3 점검에는 침묵 층이 없었다. ETT·MIT-BIH의 population checkpoint로 재야 한다. 후보 모델인 plain [query pop LIF NSMT T=4]의 Neocortex에도 같은 질문이 걸린다.
+
+### 한계
+- ETT·MIT-BIH의 SpkMixer는 LIF만 학습돼 population 값이 없다. CinC는 본 과제가 아니다(사용자 11-04).
+- 평균 발화율이다. channel별 분포와 표본별 관계는 재지 않았다.
+- 학습 없는 관찰이라, 깨어나는 구간을 줄이면 성능이 오르는지는 모른다.
+- not run: AD, qmx checkpoint(학습 중), plain query Neocortex, 깨어남과 기억을 가르는 시험.
+
+### 11:05 기록 정정(append-only)
+1. **머리 시각:** "11:05"는 실제보다 늦다. 그 기록의 commit `776123632`는 11:02:42, 드라이버 시작은 11:02:57이다.
+2. **neuron 층 수:** "ETTh2 2→8개, ETTm2·MIT-BIH 3→9개"는 틀렸다. Neocortex(임베딩 포함)는 ETTh2 2→9(muxlin) / 2→5(OR 합치기), ETTm2·MIT-BIH 3→9 / 3→5다. q4에서 확인한 전체 17 / 13층(해마 8 + Neocortex 9 / 5)과 일치한다.
+3. **빠진 수치:** "smoke 보정 에너지는 아래 '점검'에 있다"고 적었으나 없었다. 값(µJ, 1 epoch, seed 42, residual OR):
+   | ETTh2 H96 | LIF | f-LIF | population LIF | population f-LIF |
+   |---|--:|--:|--:|--:|
+   | muxlin | 12.105 | 13.503 | 17.762 | 27.877 |
+   | OR 합치기 | 11.161 | 11.929 | 14.094 | 19.654 |
+   ETTm2 H720 muxlin: LIF 14.351, f-LIF 15.674, population LIF 19.922, population f-LIF 30.066.
+
+### 결론과 다음
+- 차이는 모든 token step에서 계산한다. LIF의 양 끝 효과는 작다. population은 neuron이 깨어나는 데 약 20 token이 걸려 양방향 비교가 수열 가운데에서만 제대로 일어난다(CinC).
+- 다음(사용자 결정): (1) plain [query pop LIF NSMT T=4]의 Neocortex step별 발화율을 ETT·MIT-BIH에서 측정, (2) 깨어남과 기억을 가르는 시험(무관한 token으로 neuron을 미리 깨운 뒤 재평가), (3) qmx population checkpoint는 ETT 단계 뒤 같은 측정.
+- qmx 드라이버: 이 기록 시점에 ETT 72/204, SKIP 0, 영향 없음.
+
+**commit:** 이 기록과 위 코드·결과. 해시는 다음 기록에 남긴다.
