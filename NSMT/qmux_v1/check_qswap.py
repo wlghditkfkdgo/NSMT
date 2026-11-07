@@ -98,6 +98,13 @@ def main():
         print('FAIL rules:', bad[:3])
         sys.exit(1)
     print('rules ok: known verdicts reproduced for 4 neurons x 4 conditions x 2 tasks')
+    for task, cnt in (('ett', 12), ('mitbih', 3)):
+        for n in sq.NEURONS:
+            rr = sq.of(run, task, n)
+            if len(rr) != cnt or any(('_pop_' in r['name']) != n.startswith('pop') for r in rr):
+                print(f'FAIL row selection: {task} {n}', [r['name'] for r in rr])
+                sys.exit(1)
+    print('row selection ok: LIF / f-LIF rows hold no population run')
     one = 'ett_ETTh2_H96_pop_lif_s42'
 
     def nan_replaced(t):

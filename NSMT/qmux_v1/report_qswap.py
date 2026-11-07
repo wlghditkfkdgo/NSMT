@@ -1,0 +1,126 @@
+"""Independent recomputation and report-only tables of the test-time query replacement (2026-11-07, exp/f-lif-pop-v3; PROJECT_LOG query-swap pre-registration). No model, no checkpoint, no verdict changes.
+Own arithmetic and own JSON reading (no import from summarize_qswap.py), so a summarizer bug shows up as a mismatch. Fail closed: any value or verdict of results/qswap/summary.md that differs stops with exit 2 and writes nothing.
+Report only: per-cell firing rates (why zero and attn_off coincide on some cells), per-seed changes of the candidate, per-seed ETTh2 H720, clean seed spread, how far a replaced ETT result sits from the clean seed spread.
+usage: python -B report_qswap.py   ->   results/qswap/report_extra.md
+"""
+import json
+import math
+import os
+import re
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+D = os.path.join(HERE, 'results', 'qswap')
+NEURONS = ('pop_lif', 'pop_flif', 'lif', 'flif')
+LONG = {'pop_lif': 'population LIF', 'pop_flif': 'population f-LIF', 'lif': 'LIF', 'flif': 'f-LIF'}
+SEEDS = (42, 7, 2026)
+CELLS = (('ETTh2', 96), ('ETTh2', 720), ('ETTm2', 96), ('ETTm2', 720))
+SW = ('other', 'perm', 'zero', 'attn_off')
+
+
+def stop(msg):
+    print('STOP:', msg)
+    sys.exit(2)
+
+
+def avg(v):
+    v = list(v)
+    if not v or not all(math.isfinite(x) for x in v):
+        stop(f'bad values {v}')
+    return sum(v) / len(v)
+
+
+def get(r, c, k):
+    m = r['metrics'][c]
+    return avg(x[k] for x in m) if isinstance(m, list) else m[k]
+
+
+def run(name):
+    return json.load(open(os.path.join(D, 'runs', name + '.json')))
+
+
+ETT = {(d, p, n, s): run(f'ett_{d}_H{p}_{n}_s{s}') for d, p in CELLS for n in NEURONS for s in SEEDS}
+MIT = {(n, s): run(f'mitbih_{n}_s{s}') for n in NEURONS for s in SEEDS}
+
+
+def r_pct(rr, c, key='mse'):
+    return 100 * (get(rr, c, key) / rr['metrics']['clean'][key] - 1)
+
+
+# ---------------------------------------------------------------- recompute every row of the summary
+rows = {}
+for line in open(os.path.join(D, 'summary.md')):
+    m = re.match(r'\| (population LIF|population f-LIF|LIF|f-LIF) \| (other|perm|zero|attn_off) \(.*?\) \| ([+-][\d.]+) \| (\d+)/(\d+) \| ([a-z ]+) \|', line)
+    if m:
+        rows.setdefault((m[1], m[2]), []).append((float(m[3]), int(m[4]), int(m[5]), m[6].strip()))
+if len(rows) != 16 or any(len(v) != 2 for v in rows.values()):
+    stop(f'summary rows: {len(rows)}')
+for n in NEURONS:
+    for c in SW:
+        pairs = [r_pct(ETT[d, p, n, s], c) for d, p in CELLS for s in SEEDS]
+        R = avg(pairs)                                                 # equal cell sizes: the mean of the pairs is the mean of the cell means
+        up = sum(x > 0 for x in pairs); dn = sum(x < 0 for x in pairs)
+        vE = 'used' if (R >= 1 and up >= 8) else ('lower' if (R <= -1 and dn >= 8) else 'no clear effect')
+        ds = [100 * (get(MIT[n, s], c, 'f1') - MIT[n, s]['metrics']['clean']['f1']) for s in SEEDS]
+        d = avg(ds)
+        lo = sum(x < 0 for x in ds); hi = sum(x > 0 for x in ds)
+        vM = 'used' if (d <= -.5 and lo >= 2) else ('higher' if (d >= .5 and hi >= 2) else 'no clear effect')
+        (Rs, ups, tE, vs), (ds_, los, tM, vs2) = rows[LONG[n], c]
+        if abs(Rs - R) > .0051 or ups != up or tE != 12 or vs != vE or abs(ds_ - d) > .0051 or los != lo or tM != 3 or vs2 != vM:
+            stop(f'{n} {c}: summary {rows[LONG[n], c]} vs own R {R:.3f} {up} {vE} d {d:.3f} {lo} {vM}')
+text = open(os.path.join(D, 'summary.md')).read()
+checked = 0
+for task, tag, group in (('ett', 'ETT', ETT), ('mitbih', 'MIT-BIH', MIT)):
+    for n in NEURONS:
+        rr = [v for k, v in group.items() if (k[2] if task == 'ett' else k[0]) == n]
+        if len(rr) != (12 if task == 'ett' else 3):
+            stop(f'{len(rr)} runs of {n}')
+        head = f"| {tag} | {LONG[n]} | {avg(x['neo']['rate'] for x in rr):.4f} | {avg(x['neo']['agree_other'] for x in rr):.4f} / {avg(x['neo']['agree_chance'] for x in rr):.4f} | "
+        head += ' / '.join(f"{avg(get(x, c, 'rate_query') for x in rr):.4f}" for c in ('clean', 'other', 'perm', 'zero')) + ' | '
+        head += ' / '.join(f"{avg(get(x, c, 'rate_attn') for x in rr):.4f}" for c in ('clean', 'other', 'perm', 'zero')) + ' | '
+        head += ' / '.join(f"{avg(get(x, c, 'rate_hippo') for x in rr):.4f}" for c in ('clean', 'attn_off')) + ' |'
+        if head not in text:
+            stop(f'firing-rate row differs: {head}')
+        N = rr[0]['N']
+        v = [avg(x['neo']['rate_by_token'][i] for x in rr) for i in range(N)]
+        steps = list(range(N)) if N <= 12 else [0, 1, 2, 3, 4, 6, 8, 12, 16, 20, N - 1]
+        last = avg(v[-max(1, N // 3):])
+        half = next((i for i in range(N) if v[i] >= last / 2), None)
+        row = f'| {LONG[n]} | ' + ' | '.join(f'{v[i]:.3f}' for i in steps) + f' | {half} |'
+        if row not in text:
+            stop(f'token-step row differs: {row}')
+        checked += 2
+L = ['# Report-only tables of the test-time query replacement', '', f'Generated by report_qswap.py. All 32 verdict rows (value, count, verdict) and all {checked} rows of the firing-rate and token-step tables of summary.md were recomputed independently from the JSON files and match.', '']
+
+# ---------------------------------------------------------------- per-cell rates
+L += ['## Firing rates per cell (mean of 3 seeds)', '', 'Query neuron and attention term firing rate; |zero - attn_off| = the largest difference of test MSE between the two conditions over the 3 seeds, % of clean.', '',
+      '| neuron | cell | query clean | query zero | attention clean | attention zero | Hippocampus clean / attn_off | max abs(zero - attn_off) % |', '|---|---|--:|--:|--:|--:|--:|--:|']
+for n in NEURONS:
+    for d, p in CELLS:
+        rr = [ETT[d, p, n, s] for s in SEEDS]
+        gap = max(abs(r_pct(r, 'zero') - r_pct(r, 'attn_off')) for r in rr)
+        L.append(f"| {LONG[n]} | {d} H{p} | {avg(get(r, 'clean', 'rate_query') for r in rr):.4f} | {avg(get(r, 'zero', 'rate_query') for r in rr):.4f} | {avg(get(r, 'clean', 'rate_attn') for r in rr):.4f} | "
+                 f"{avg(get(r, 'zero', 'rate_attn') for r in rr):.5f} | {avg(get(r, 'clean', 'rate_hippo') for r in rr):.4f} / {avg(get(r, 'attn_off', 'rate_hippo') for r in rr):.4f} | {gap:.4f} |")
+L += ['', '## MIT-BIH firing rates (mean of 3 seeds)', '', '| neuron | Neocortex output | query clean | query zero | zero / clean | attention clean | attention zero | Hippocampus clean / attn_off |', '|---|--:|--:|--:|--:|--:|--:|--:|']
+for n in NEURONS:
+    rr = [MIT[n, s] for s in SEEDS]
+    qc, qz = avg(get(r, 'clean', 'rate_query') for r in rr), avg(get(r, 'zero', 'rate_query') for r in rr)
+    L.append(f"| {LONG[n]} | {avg(r['neo']['rate'] for r in rr):.4f} | {qc:.4f} | {qz:.4f} | {qz / qc:.2f} | {avg(get(r, 'clean', 'rate_attn') for r in rr):.4f} | {avg(get(r, 'zero', 'rate_attn') for r in rr):.4f} | "
+             f"{avg(get(r, 'clean', 'rate_hippo') for r in rr):.4f} / {avg(get(r, 'attn_off', 'rate_hippo') for r in rr):.4f} |")
+
+# ---------------------------------------------------------------- per seed
+L += ['', '## ETT per seed (42 / 7 / 2026), r %', '', '| neuron | cell | other | perm | zero | attn_off |', '|---|---|---|---|---|---|']
+for n in NEURONS:
+    for d, p in CELLS:
+        L.append(f'| {LONG[n]} | {d} H{p} | ' + ' | '.join(' / '.join(f'{r_pct(ETT[d, p, n, s], c):+.2f}' for s in SEEDS) for c in SW) + ' |')
+
+# ---------------------------------------------------------------- scale
+L += ['', '## ETT scale: clean test MSE of the 3 seeds (max - min, % of mean), next to the largest |cell mean r| of any condition', '', '| neuron | cell | clean MSE seed 42 / 7 / 2026 | seed range % | largest abs(cell r) % |', '|---|---|---|--:|--:|']
+for n in NEURONS:
+    for d, p in CELLS:
+        v = [ETT[d, p, n, s]['metrics']['clean']['mse'] for s in SEEDS]
+        big = max(abs(avg(r_pct(ETT[d, p, n, s], c) for s in SEEDS)) for c in SW)
+        L.append(f"| {LONG[n]} | {d} H{p} | {' / '.join(f'{x:.4f}' for x in v)} | {100 * (max(v) - min(v)) / avg(v):.2f} | {big:.2f} |")
+with open(os.path.join(D, 'report_extra.md'), 'w') as f:
+    f.write('\n'.join(L) + '\n')
+print('recomputation matches; written report_extra.md')

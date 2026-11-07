@@ -11822,3 +11822,93 @@ python -B qmux_v1/summarize_qswap.py
 - 다른 channel의 output으로 바꾸기, energy 측정, validation split 측정은 not run.
 
 **commit:** 이 기록과 위 코드, smoke·재현 JSON을 `exp/f-lif-pop-v3`에 push. 해시는 다음 기록에 적는다.
+
+---
+
+## 2026-11-07 21:22 KST — 결과 + 실험 완료(학습 없음, 60 checkpoint): plain query 모델의 Neocortex query를 test 때 바꿔 보기 — **ETT 후보 population LIF는 네 조건 모두 no clear effect(window 내용 R −0.22 %, 6/12). MIT-BIH는 window 내용을 쓴다(4 neuron 모두 used, −1.40 – −4.41 %p). retraining 비교까지 합치면 두 main task 모두 Neocortex가 "필요하다"는 근거가 없다**
+
+**직전 commit:** `9c5a20bc1` (사전 등록). **branch:** `exp/f-lif-pop-v3`. 측정 코드 `query_swap.py`는 사전 등록과 같다(sha256 `c27babc80e102817`).
+
+### 실행
+- 21:09:38–21:18:38, GPU 0–3에 job 1개씩, 60/60 rc=0. checkpoint당 5.3–60.1 s, 합계 1,630 s. run마다 clean이 기록값을 재현했고(fail closed) 나머지 run 내부 점검도 모두 통과했다.
+- 명령: `python -B qmux_v1/scripts/make_queue_qswap.py all`, `bash scripts/gpu_pool2.sh qmux_v1/scripts/queues/qswap-all-20261107.txt 0,1,2,3`, `python -B qmux_v1/summarize_qswap.py`, `python -B qmux_v1/report_qswap.py`(모두 NSMT/ 또는 qmux_v1/에서, env `snn_recall`).
+
+### 사전 등록 뒤의 수정(제 버그)
+- `summarize_qswap.py`의 보고 전용 표 2개(firing rate, token step)에서 LIF·f-LIF 행의 run 선택 정규식이 population run도 함께 골랐다(`_lif_s`가 `_pop_lif_s`에 맞음). 독립 재계산을 준비하다가 수치가 달라 발견했다.
+- 판정 표는 정확한 이름으로 고르므로 영향이 없다. 고친 뒤 달라진 행은 보고 전용 8행뿐이다(diff 확인).
+- 고친 내용: `fullmatch`로 고르고 run 수를 확인한다. `summarize_qswap.py` sha256 `adb07af62bd68228` → `c451b87cea5f74f5`, `check_qswap.py` `e56a29c9a8fd8a4c` → `a138a442fb7a280f`(행 선택 점검 추가). 판정 규칙은 바꾸지 않았다.
+- 새 `report_qswap.py`(sha256 `234c6b30d5841b55`)는 summarizer를 import하지 않고 JSON에서 다시 계산한다. 판정 32행과 보고 전용 16행이 모두 일치한다. 고치기 전 summary에는 이 스크립트가 exit 2로 멈추는 것을 확인했다.
+
+### 판정(바꾼 조건 − clean; ETT는 test MSE R %, 괄호는 12쌍 중 높아진 쌍; MIT-BIH는 macro-F1 %p, 괄호는 3 seed 중 낮아진 seed)
+| neuron | 과제 | other(window 내용) | perm(token order) | zero(Neocortex 0) | attn_off(attention term 제거) |
+|---|---|---|---|---|---|
+| **population LIF(후보)** | ETT | −0.22 (6) | −0.19 (4) | −0.38 (5) | +0.40 (5) |
+| population f-LIF | ETT | +0.79 (11) | +0.62 (9) | +0.83 (10) | **+1.35 (11) used** |
+| LIF | ETT | +0.73 (8) | +0.43 (8) | **+1.11 (9) used** | **+2.27 (12) used** |
+| f-LIF | ETT | +0.79 (7) | +0.54 (6) | **+1.20 (9) used** | **+2.34 (12) used** |
+| **population LIF(후보)** | MIT-BIH | **−2.50 (3) used** | −0.33 (3) | **−2.21 (3) used** | **−50.88 (3) used** |
+| population f-LIF | MIT-BIH | **−4.41 (3) used** | −0.35 (3) | **−5.80 (3) used** | **−46.08 (3) used** |
+| LIF | MIT-BIH | **−1.40 (3) used** | **−1.40 (3) used** | **−2.13 (3) used** | **−42.84 (3) used** |
+| f-LIF | MIT-BIH | **−3.90 (3) used** | **−2.69 (3) used** | **−5.84 (3) used** | **−53.34 (3) used** |
+
+굵게 쓰지 않은 칸은 no clear effect이다. lower·higher 판정은 없다.
+
+### ETT cell별 r %(ETTh2 H96 / ETTh2 H720 / ETTm2 H96 / ETTm2 H720)
+| neuron | other | perm | zero | attn_off |
+|---|---|---|---|---|
+| population LIF | −1.31 / +0.10 / +0.22 / +0.09 | −0.51 / −0.26 / +0.06 / −0.06 | −1.43 / −0.46 / +0.22 / +0.15 | −1.43 / −0.46 / +3.46 / +0.03 |
+| population f-LIF | +0.49 / +2.18 / +0.20 / +0.29 | +0.94 / +1.35 / +0.22 / −0.03 | +0.62 / +2.23 / +0.20 / +0.27 | +0.62 / +2.23 / +1.79 / +0.77 |
+| LIF | +0.58 / +2.22 / −0.36 / +0.49 | +0.12 / +1.67 / −0.50 / +0.42 | +1.40 / +2.59 / −0.25 / +0.70 | +1.40 / +2.59 / +4.38 / +0.70 |
+| f-LIF | +0.02 / +3.44 / −0.27 / −0.01 | −0.11 / +2.59 / −0.29 / −0.04 | +0.55 / +4.28 / −0.10 / +0.06 | +0.55 / +4.28 / +3.97 / +0.58 |
+
+clean test MSE(population LIF / population f-LIF / LIF / f-LIF): ETTh2 H96 0.2912 / 0.2890 / 0.2925 / 0.2930, ETTh2 H720 0.4135 / 0.4135 / 0.4177 / 0.4165, ETTm2 H96 0.1760 / 0.1765 / 0.1773 / 0.1770, ETTm2 H720 0.4028 / 0.4019 / 0.4039 / 0.4042. MIT-BIH macro-F1 92.17 / 92.02 / 91.84 / 92.21.
+
+### 예상과 비교
+| 예상 | 결과 |
+|---|---|
+| other: ETT 4 neuron no clear effect | 맞음. 다만 population f-LIF는 11/12쌍 높고 R +0.79로 기준에 가깝다 |
+| other: MIT-BIH used, −5 %p 이하 | used는 맞고 크기는 틀림(−1.40 – −4.41). 원본 NSMT의 −18 – −33 %p보다 훨씬 작다 |
+| perm: ETT population LIF used | **틀림**(−0.19). 네 neuron 모두 no clear effect |
+| perm: MIT-BIH 모두 used, other보다 크게 떨어짐 | **틀림.** population 두 종은 no clear effect이고, 어느 neuron도 other보다 크게 떨어지지 않음 |
+| zero: ETT used | LIF·f-LIF만 맞음. population 두 종은 틀림 |
+| zero: MIT-BIH 모두 used, other보다 크게 떨어짐 | used는 맞음. 크기는 3/4 맞음(population LIF −2.21은 other −2.50보다 작다) |
+| attn_off: ETT R < +3 %, MIT-BIH used | 맞음. MIT-BIH 크기(−43 – −53 %p)는 예상하지 못했다 |
+
+### 보고만(판정 없음, `results/qswap/summary.md`, `report_extra.md`)
+- **ETTh2에서 zero와 attn_off가 정확히 같다**(4 neuron × 2 cell × 3 seed, 차이 0.0000 %). query가 0이면 ETTh2에서는 attention term이 전혀 발화하지 않기 때문이다(firing rate 0.00000). 이상값이 아니라 같은 계산이 된 것이다.
+- **ETTm2 H96에서는 다르다.** query가 0이어도 attention term이 clean 0.0765 → 0.0637로 남는다(population LIF). `q = 0`이면 `attn_scores`에 relative position bias만 남으므로, 이 발화는 Neocortex와 무관하다. 이 cell에서 zero는 +0.22 %인데 attn_off는 +3.46 %(+4.02, +3.16, +3.19)이다. 네 neuron 모두 같은 양상이다(zero −0.25 – +0.22, attn_off +1.79 – +4.38).
+- **후보의 ETTh2 H96은 바꾸면 오히려 MSE가 낮다.** other −0.58, −2.34, −1.00, attn_off −0.69, −2.67, −0.93. 다만 clean의 seed 범위(3.06 %)보다 작다.
+- **ETTh2 H720은 다른 neuron에서 예외다.** other가 population f-LIF +2.68, +2.06, +1.80, f-LIF +4.53, +3.11, +2.66, LIF +3.61, +2.69, +0.35이다. 후보 population LIF는 −0.10, +0.08, +0.33이다.
+- **MIT-BIH query neuron은 Neocortex spike가 없어도 발화한다.** clean → zero: population LIF 0.2722 → 0.2491(0.92배), population f-LIF 0.2478 → 0.1372(0.55배), LIF 0.2510 → 0.1638(0.65배), f-LIF 0.2544 → 0.1608(0.63배). ETT는 네 neuron 모두 0.0000으로 떨어진다. 같은 bit가 발화하는지는 재지 않았다.
+- **MIT-BIH attn_off는 Hippocampus output을 20–27 % 늘린다**(0.0928 → 0.1175, 0.0919 → 0.1121, 0.0872 → 0.1086, 0.0866 → 0.1075). ETT는 1–10 %이다. class별로 population LIF는 N −8.04, S −45.15, V −59.31, F −64.18, Q −77.71 %p이다.
+- **MIT-BIH other의 class별 변화(population LIF):** N −0.46, S −4.80, V −3.25, F −3.16, Q −0.84 %p.
+- **다른 window와의 bit 일치율은 우연 수준과 거의 같다**(ETT 0.9492 / 0.9470 등, MIT-BIH 0.9145 / 0.9145 등). 여기서 우연 수준은 (token, embedding 차원)별 firing rate로 계산했다. 즉 두 window가 같은 위치에서 겹치는 정도는 위치별 firing rate로 거의 설명된다. 10-17 Phase A의 값과는 우연 수준의 정의가 달라 직접 비교하지 않는다.
+- **draw 간 차이:** |draw − 평균|의 최대값은 ETT other 0.25 %, perm 0.19 %, MIT-BIH other 0.53 %p, perm 0.33 %p이다.
+- **Neocortex output의 token step별 firing rate(이 항목에서 함께 얻은 값).** last-third 평균의 절반에 처음 닿는 step: ETT(24 token) population LIF 7, population f-LIF 2, LIF 1, f-LIF 1. MIT-BIH(11 token) population LIF 4, population f-LIF 1, LIF 0, f-LIF 0. population LIF는 ETT step 0–1에서 0.000, MIT-BIH step 0에서 0.000이다.
+
+### 해석(측정이 아닌 추론)
+사전 고정한 해석 표를 따른다.
+- **ETT:** other가 네 neuron 모두 no clear effect이므로, 학습된 모델이 window별 Neocortex 내용을 쓴다는 근거가 없다. 후보 population LIF는 zero, attn_off까지 no clear effect이다. ETT에서 Neocortex를 memory로 주장하기 어렵다.
+- **MIT-BIH:** other가 used이므로 학습된 모델은 내용에 의존한다. retraining 비교(population LIF query vs Spikformer식 −0.05 %p, no clear difference)와 합치면 "의존"이지 "필수"가 아니다. 다른 세션의 10-19 분석이 원본 NSMT에 대해 내린 결론과 같은 방향이다.
+- **MIT-BIH attn_off −43 – −53 %p를 attention의 contribution으로 읽으면 안 된다.** head와 MLP는 attention이 spike를 지운 입력으로 학습됐고, 없애면 입력 firing rate가 20–27 % 달라진다. 분포 불일치가 대부분일 수 있다. 다른 세션 10-19 항목에서 원본 NSMT를 no_neo로 다시 학습한 차이는 1.18 %p였다(구조가 달라 참고만 한다).
+- **MIT-BIH zero가 −2 – −6 %p에 그친 것**은 query neuron이 입력 없이도 0.55–0.92배 발화하기 때문일 수 있다(q_bn running statistics의 상수 입력). 이 경우 attention의 큰 부분은 Neocortex와 무관하게 돈다. 같은 bit인지 재지 않아 확정하지 않는다.
+- **attention 경로와 Neocortex는 구분해야 한다.** ETTm2 H96에서 attention term은 쓰이지만(attn_off +1.79 – +4.38 %) Neocortex query는 필요하지 않다(zero −0.25 – +0.22 %).
+- **ETT 효과가 작은 이유를 이 측정이 설명하지는 않는다.** attention term이 드물게 발화(0.018–0.079)해 Hippocampus output을 1–10 %만 바꾼다는 점과 맞지만, 원인으로 확인하지는 않았다.
+
+### 한계
+- 학습된 가중치의 의존도만 쟀다. Neocortex 없이 학습해도 되는지는 재지 않았다(Spikformer식 비교가 가장 가까우나, ETT는 Spikformer식만 lr 튜닝값이고 MIT-BIH는 기본값이다).
+- 후보의 R이 작은 데에는 cell 간 상쇄도 있다(ETTh2 H96 −1.31, ETTm2 H96 +0.22). 다만 12쌍 중 6쌍만 높고 어느 cell도 +0.3 %를 넘지 않는다.
+- 판정선 근처의 값이 있다(population f-LIF other R +0.79, 11/12). 규칙상 no clear effect이지만 "전혀 안 쓰인다"는 뜻은 아니다.
+- zero와 attn_off에는 분포 불일치가 섞인다. seed 3개이고 test를 다시 열었다(고른 것은 없다).
+- MIT-BIH other는 무작위 beat라 다수 class 내용이 주로 들어간다.
+- not run: 같은 class·다른 class beat 분리, 다른 channel의 output, validation split 측정, query bit가 clean과 zero에서 같은지, energy, Neocortex를 뺀 T = 4 모델의 retraining(Spikformer식 말고는 없음), AD, CinC.
+
+### 결론
+- **두 main task(ETT, MIT-BIH)에서 Neocortex가 필요하다는 근거가 없다.** ETT 후보는 쓰지도 않고, MIT-BIH는 의존하지만 없이 학습한 모델과 차이가 없다. CinC에서만 이득이 보이고(tune하지 않은 Spikformer식 대비 5 fold +1.99 %p, tuned 대비 fold 0 +0.24 %p), CinC는 main result가 아니다.
+- **제안(결정은 사용자):** ETT와 MIT-BIH에서 Neocortex 구조 탐색을 멈춘다. 이 결과는 "Neocortex를 main task의 contribution으로 쓸 수 있는가"에 부정적이다.
+
+### 산출물과 다음
+- Git: `qmux_v1/{query_swap.py,summarize_qswap.py,check_qswap.py,report_qswap.py,scripts/run_qswap.sh,scripts/make_queue_qswap.py}`, `qmux_v1/results/qswap/{runs/*.json(60),pool_log.txt,summary.md,report_extra.md}`. 로컬: `qmux_v1/log/qswap/*.stdout`, 큐 파일.
+- 사용자 결정 대기: Neocortex 구조 탐색 중단 여부와 그 뒤 방향, 그 밖의 미결정 항목(AD front-end, 논문 값의 학습 규칙 통일, muxlin·tuned Spikformer CinC fold 1–4, memoryless·shuffled retraining control).
+
+**commit:** 이 기록과 위 Git 산출물. 이 commit은 annotated tag `exp/f-lif-pop-v3-qswap-20261107`로 식별한다(학습 없는 분석 실험의 완료 tag이고 snapshot이 아니다). 사전 등록 commit은 `9c5a20bc1`이다.

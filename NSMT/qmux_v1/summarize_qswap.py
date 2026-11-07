@@ -130,6 +130,14 @@ def mit_table(run):
     return out
 
 
+def of(run, task, n):
+    """The runs of exactly one neuron (fullmatch: 'lif' must not pick up pop_lif)."""
+    rr = [r for k, r in run.items() if r['task'] == task and re.fullmatch(rf'(mitbih|ett_ETT[hm]2_H\d+)_{n}_s\d+', k)]
+    if len(rr) != (12 if task == 'ett' else 3):
+        stop(f'{len(rr)} runs of {n} on {task}')
+    return rr
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--dry')
@@ -171,7 +179,7 @@ def main():
           '|---|---|--:|--:|--:|--:|--:|']
     for task in ('ett', 'mitbih'):
         for n in NEURONS:
-            rr = [r for k, r in run.items() if r['task'] == task and re.search(rf'_{n}_s\d+$', k)]
+            rr = of(run, task, n)
             ag = lambda f: mean([f(r) for r in rr])
             q = ' / '.join(f"{ag(lambda r: val(r, c, 'rate_query')):.4f}" for c in ('clean', 'other', 'perm', 'zero'))
             at = ' / '.join(f"{ag(lambda r: val(r, c, 'rate_attn')):.4f}" for c in ('clean', 'other', 'perm', 'zero'))
@@ -184,7 +192,7 @@ def main():
         steps = list(range(N)) if N <= 12 else [0, 1, 2, 3, 4, 6, 8, 12, 16, 20, N - 1]
         L += [f"### {'ETT' if task == 'ett' else 'MIT-BIH'} ({N} token steps)", '', '| neuron | ' + ' | '.join(str(s) for s in steps) + ' | first step at half of the last-third mean |', '|---|' + '--:|' * (len(steps) + 1)]
         for n in NEURONS:
-            rr = [r for k, r in run.items() if r['task'] == task and re.search(rf'_{n}_s\d+$', k)]
+            rr = of(run, task, n)
             if {len(r['neo']['rate_by_token']) for r in rr} != {N}:
                 stop('token count differs')
             v = [mean([r['neo']['rate_by_token'][i] for r in rr]) for i in range(N)]
