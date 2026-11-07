@@ -11601,3 +11601,61 @@ leak만 계산한 기준(상수 input, state 0에서 시작, 측정 아님):
 - 사용자 결정 대기: (1) plain [query pop LIF NSMT T=4] Neocortex의 token step별 firing rate 측정(ETT·MIT-BIH), (2) 그 밖의 11-05 미결정 항목(AD front-end 수정과 NSMT AD 재실행, 논문 값의 학습 규칙 통일, muxlin·튜닝 Spikformer식 CinC fold 1–4, memoryless·shuffle 재학습 control).
 
 **commit:** 이 기록과 위 Git 산출물. 이 commit은 annotated tag `exp/f-lif-pop-v3-qmx-20261105`로 식별한다(완료된 학습 실험의 tag이고 snapshot이 아니다).
+
+## 2026-11-07 14:24 KST — 사전등록 + 구현 + 점검: 튜닝된 SpkMixer(muxlin LIF, IAND residual)를 ETT에서 L1 loss 대신 MSE(L2) loss로 학습(12 run, 기존 L1 run과 seed별 짝); 점검 k1–k3 통과(L1 run 재학습이 튜닝 결과와 31개 필드 일치), smoke 4/4; 본 실험 시작
+
+**직전 commit:** `a4c1a1321`(tag `exp/f-lif-pop-v3-qmx-20261105`). 브랜치 `exp/f-lif-pop-v3`(기존 실험 브랜치에서 계속).
+
+### 사용자 지시(11-07, 원문)
+- "지금 예측 손실함수를 MAE로 쓰고 있는 상태야?" → 확인 결과 맞다. `cinc_mixer_v1/train_forecast.py`와 `qmux_v1/train_forecast.py`는 `nn.L1Loss()` 고정이고 validation loss도 L1이다. NSMT 재현(`nsmt_flif_v1/forecasting/train.py`)도 예측 항은 L1이다. 반면 결과표와 verdict 규칙은 test MSE다.
+- "L2로 바꾸게 되면 어떤 효과가 있을지 간단하게 실험해줄 수 있어? SpikMixer에 대해서."
+
+### 설계(사전 고정)
+| 항목 | 내용 |
+|---|---|
+| A(새 run) | `--train_loss mse`: 학습 손실 MSE, ReduceLROnPlateau·early stopping·best checkpoint 모두 validation MSE |
+| B(재사용) | 같은 모델의 L1 run: `flif-v1-ett-spkmux-tune`의 tag `spkmx_lif_muxlin_iand_lr0.0005_L1`(ETTh2), `..._lr0.0001_L1`(ETTm2) |
+| 모델 | SpkMixer, `--mixer lif --mixer_comb muxlin --connect_f IAND`, 방향별 1층, T_h 4; 튜닝값 lr ETTh2 5e-4, ETTm2 1e-4 |
+| 데이터 | ETTh2, ETTm2 × H96, H720(사용자 결정 12), 입력 96, `--features M`, 기존 split·scaling |
+| 나머지 | batch 64, patience 10, weight decay 0.06, ETTh2 최대 100 epoch, ETTm2 최대 50 epoch; best validation 가중치로 test |
+| seed | 42 / 7 / 2026, 4 cell × 3 = 12 run |
+
+- 초기 가중치와 data 순서는 B와 같다. 손실 계산은 난수를 쓰지 않으므로, 차이는 손실과 그에 따른 선택에서만 생긴다.
+- **neuron 축을 넣지 않는 이유:** 이번 비교 축은 neuron 구조가 아니라 손실이고, ETT 튜닝 suite에는 LIF SpkMixer만 있다. population은 비교할 튜닝 L1 run이 없다. 사용자 요청도 간단한 시험이다.
+- **Spikformer식 MSE run은 넣지 않는다**(사용자 범위가 SpkMixer). 그래서 Spikformer식과의 비교는 손실이 섞인 보고 행일 뿐이다.
+
+### 판정(사전 고정; `cinc_mixer_v1/summarize_l2.py`; ETT 기존 규칙)
+- test MSE: r = 100 (A − B) / B, R = 4 cell 평균. better = R ≤ −1 %이고 12쌍 중 8쌍 이상 낮음, worse는 반대.
+- test MAE에 같은 규칙을 적용해 보고한다. energy는 `total_fft_uJ_corr`(recount).
+- 보고만: best epoch와 epoch 수, validation MSE(A checkpoint, B checkpoint, B의 전 epoch 최저), firing rate, 마지막 epoch 가중치, Spikformer식(튜닝, L1) 대비.
+
+### 미리 적는 예상(본 실험 전; smoke 2 epoch 값은 봤다)
+- test MSE는 대부분 cell에서 조금 낮아진다. R은 −2 – 0 %이고, verdict는 better와 no clear difference 어느 쪽도 가능하다. 근거: 평가 지표와 학습 손실이 같아진다.
+- test MAE는 올라간다(R 0 – +2 %). MSE loss는 큰 오차에 무게를 둔다.
+- energy는 ±5 % 안이다. 손실만 바뀌므로 구조는 같고 firing rate만 달라질 수 있다.
+- best epoch: ETTh2 H720은 계속 작다(0–3).
+- smoke 참고(seed 42, 2 epoch, 본 결과 아님): ETTh2 H96 MSE 0.2915 → 0.3000, MAE 0.3356 → 0.3470; ETTm2 H720 MSE 0.4036 → 0.4020, MAE 0.3949 → 0.4007.
+
+### 점검(fail closed; `cinc_mixer_v1/check_l2.py`)
+- **k1:** 작은 Linear에 lr 0으로 `train_epoch`를 돌려, 기본값·`l1`은 절댓값 오차, `mse`는 제곱 오차의 batch 평균을 돌려준다. 기울기는 0이 아니고 서로 다르다.
+- **k2(`check-ett-l2-repro-20261107`):** 고친 코드의 기본 경로로 B의 ETTh2 H96 seed 42를 재학습했다. RESULT의 시간·sha·폴더를 뺀 31개 필드가 튜닝 값과 모두 같다(mse 0.298527, best 3:0.312341:14). 그래서 B 12 run을 그대로 쓴다.
+- **k3(`smoke-ett-l2-20261107`, 2 epoch, L1·MSE × ETTh2 H96·ETTm2 H720, 4/4, SKIP 0):** 각 run의 best epoch가 L1이면 `val_loss`, MSE면 `val_mse`의 최소다. 요약기는 본 실험 12 run과 B 12 run에도 같은 점검을 다시 한다.
+- **energy recount(smoke):** all checks passed. 다시 잰 MSE = 기록값, head 입력 0/1.
+- **요약기 dry run(scratchpad, commit 안 함):** A에 B를 복사해 넣으면 R +0.00(0/12), energy 1.00. 빠진 run이면 exit 2, L1 run을 A로 넣으면 선택 점검에서 exit 2. SpkMixer vs Spikformer식 행이 11-02 T1 값(+0.45 %, 3/12, 0.98배)을 재현한다.
+
+### 코드 변경(기본값은 지금까지와 같은 경로)
+- `cinc_mixer_v1/train_forecast.py`: `--train_loss {l1,mse}`, `train_epoch(..., train_loss='l1')`, validation 기준 선택. `scripts/run_ett_spk.sh`: `LOSS=mse` → `--train_loss mse`, tag 접미사 `_mse`. `qmux_v1`은 바꾸지 않았다.
+- 새 파일: `check_l2.py`, `summarize_l2.py`, `scripts/make_queue_l2.sh`, `scripts/l2_driver.sh`.
+
+### 한계(미리 적음)
+- lr·층 수·residual은 L1 loss로 고른 값이다. MSE loss용으로 다시 튜닝하지 않는다. AdamW라 기울기 크기 차이의 영향은 작을 것으로 보지만 확인하지 않는다.
+- validation 기준까지 함께 바뀐다. 손실 자체의 몫과 선택 기준의 몫을 test에서 나누지 않는다(validation 표로만 본다).
+- seed 3개, LIF·IAND 한 조합, ETT만. 원문 NSMT와 다른 모델들은 L1으로 학습되어 있어 MSE 값을 직접 나란히 놓으면 손실이 섞인다.
+
+### 실행
+- `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/l2_driver.sh`(NSMT/에서). 시작 시점 GPU 0–3 사용률은 위 확인에서 0 %다. 예상 약 30–60분(ETTm2 run이 대부분).
+- run 하나: `SUITE=flif-v1-ett-spkmux-l2 COND=spkmx_lif_muxlin_iand LOSS=mse LR=<lr> LAYERS=1 bash cinc_mixer_v1/scripts/run_ett_spk.sh <DS> <PL> <seed> <gpu>`.
+- 점검: `python -B check_l2.py`, `python -B check_l2.py --repro check-ett-l2-repro-20261107 --smoke smoke-ett-l2-20261107`.
+- 산출물: `cinc_mixer_v1/results/flif-v1-ett-spkmux-l2/{raw.txt,pool_log.txt,energy_recount.csv,summary.md}`(Git), checkpoint·TensorBoard·콘솔은 `cinc_mixer_v1/log/flif-v1-ett-spkmux-l2/`(로컬).
+
+**commit:** 코드, `results/{check-ett-l2-repro-20261107,smoke-ett-l2-20261107}`, 이 기록. 결과는 다음 기록에 남긴다.

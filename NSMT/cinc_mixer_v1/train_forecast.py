@@ -7,6 +7,8 @@ Training follows nsmt_flif_v1/forecasting/train.py for models without the auxili
 steps, AdamW, ReduceLROnPlateau on the validation L1 (patience 2, factor 0.1, cooldown 1), early stopping on the validation
 L1 (--patience), the best-validation weights (checkpoint.pth) and the last-epoch weights (best+model.pt, framework name) are
 both tested. Test metrics are MSE / MAE over all test windows, steps and channels on the scaled data (as test.py).
+2026-11-07 (user: "what does L2 change"): --train_loss mse trains with the MSE loss and uses the validation MSE for the scheduler, early
+stopping and the best checkpoint; the default --train_loss l1 is the path above, unchanged.
 Outputs follow train_rhythm.py: log/ = best-validation weights, log/last/ = last epoch; best_log_0.csv, train_0 / val_0
 TensorBoard events, logargs.txt, model_state/{config.pt, checkpoint.pth, best+model.pt}.
 usage: python train_forecast.py --data ETTh2 --data_path ETTh2.csv --root_path <ETT-small> --seq_len 96 --pred_len 96
@@ -48,6 +50,7 @@ def split_args():
     ap.add_argument('--embed', default='timeF')
     ap.add_argument('--patience', type=int, default=10)
     ap.add_argument('--num_workers', type=int, default=2)
+    ap.add_argument('--train_loss', choices=['l1', 'mse'], default='l1')
     fc, rest = ap.parse_known_args()
     sys.argv = sys.argv[:1] + rest
     return fc
@@ -60,9 +63,9 @@ def data_args(args, fc):
                                  num_workers=fc.num_workers, augmentation_ratio=0)
 
 
-def train_epoch(model, dl, opt, H, device):
+def train_epoch(model, dl, opt, H, device, train_loss='l1'):
     model.train(); model.train_mode = 'training'
-    crit = nn.L1Loss()
+    crit = nn.MSELoss() if train_loss == 'mse' else nn.L1Loss()
     tot = 0.; n = 0
     for x, y, _, _ in dl:
         x = x.float().to(device); y = y.float().to(device)[:, -H:, :]
@@ -146,11 +149,12 @@ def main():
     best, best_epoch, wait = float('inf'), -1, 0
     ckpt = os.path.join(args.save_model_state_path, 'checkpoint.pth')
     epochs_run = 0
+    sel_key, loss_name = ('mse', 'MSE') if fc.train_loss == 'mse' else ('loss', 'L1')   # validation value that drives the scheduler, stopping and checkpoint
     for epoch in range(args.epoch):
-        tr = train_epoch(model, train_dl, opt, fc.pred_len, args.device)
+        tr = train_epoch(model, train_dl, opt, fc.pred_len, args.device, fc.train_loss)
         va = evaluate(model, val_dl, fc.pred_len, args.device)
         if args.scheduler == 'reduce':
-            sched.step(va['loss'])
+            sched.step(va[sel_key])
         elif args.scheduler == 'cosine':
             sched.step(epoch + 1)
         else:
@@ -158,12 +162,12 @@ def main():
         logger.write(epoch=epoch, lr=opt.param_groups[0]['lr'], train_result=tr,
                      val_result={'loss': va['loss'], 'mse': va['mse'], 'mae': va['mae']})
         epochs_run = epoch + 1
-        if va['loss'] < best:                                          # forecasting/utils.EarlyStopping with delta 0
-            best, best_epoch, wait = va['loss'], epoch, 0
+        if va[sel_key] < best:                                         # forecasting/utils.EarlyStopping with delta 0
+            best, best_epoch, wait = va[sel_key], epoch, 0
             torch.save(model.state_dict(), ckpt)
         else:
             wait += 1
-        print(f"epoch {epoch} (lr={opt.param_groups[0]['lr']:.3e}) train L1 {tr['loss']:.5f} val L1 {va['loss']:.5f} "
+        print(f"epoch {epoch} (lr={opt.param_groups[0]['lr']:.3e}) train {loss_name} {tr['loss']:.5f} val {loss_name} {va[sel_key]:.5f} "
               f"(best {best:.5f} @ {best_epoch}) {time.time() - t0:.0f}s", flush=True)
         if wait >= fc.patience:
             print('Early stopping', flush=True)
