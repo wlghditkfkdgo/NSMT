@@ -43,7 +43,7 @@ __all__ = ['SpkMixer', 'apply_gain_table', 'COMBS', 'CONNECTS', 'NEURONS']
 
 NEURONS = ('lif', 'flif', 'pop_lif', 'pop_flif', 'popg_lif', 'popg_flif')
 COMBS = ('or', 'sdor', 'sdlin', 'linmx', 'muxor', 'muxlin')                 # muxor / muxlin: 10-30 fusion MUX
-CONNECTS = ('IAND', 'OR', 'ADD')
+CONNECTS = ('IAND', 'OR', 'ADD', 'MS')                                       # MS: 2026-11-08 membrane shortcut (SpkBlock.forward_ms)
 CALIBRATED = ('pop_lif', 'pop_flif', 'popg_lif', 'popg_flif')
 
 
@@ -108,13 +108,30 @@ class SpkBlock(nn.Module):
         hidden = int(dim * mlp_ratio)
         self.fc1 = SpikLinearLayer(dim, hidden, lif_bias=bias, neuron=make_neuron(hidden, T_h, 'ND'))   # repetition axis, T_h steps
         self.fc2 = SpikLinearLayer(hidden, dim, lif_bias=bias, neuron=make_neuron(dim, T_h, 'ND'))
+        if connect == 'MS':                                                   # 2026-11-08 membrane shortcut; same fork as the fusion Linear
+            with torch.random.fork_rng(devices=[]):
+                self.ms_mix = SpikLinearLayer(dim, dim, lif_bias=bias, neuron=make_neuron(dim, T_h, 'ND'))
+                trunc_normal_(self.ms_mix.linear.weight, std=.02)
+                if self.ms_mix.linear.bias is not None:
+                    nn.init.constant_(self.ms_mix.linear.bias, 0)
+            self.ms_mix.linear._skip_global_init = True
 
     def connect(self, x, m):
         if self.connect_f == 'IAND':
             return x * (1. - m)
         if self.connect_f == 'OR':
             return torch.maximum(x, m)
+        if self.connect_f == 'MS':                                            # 2026-11-08: a spike residual would silently be ADD
+            raise RuntimeError('connect_f MS runs through forward_ms')
         return x + m
+
+    def forward_ms(self, u, m):
+        """2026-11-08 membrane shortcut: real-valued sums stay in u, only spikes reach a Linear; m = the mixer output spikes.
+        u1 = u + BN(W m), s1 = LIF(u1), u2 = u1 + BN(fc2(fc1(s1))), output LIF(u2); returns (spikes, u2)."""
+        u = u + self.ms_mix.current(m)
+        s1 = self.ms_mix.lif(u.contiguous())
+        u = u + self.fc2.current(self.fc1(s1))
+        return self.fc2.lif(u.contiguous()), u
 
     def mix(self, x):
         """x [T_h, B, N, D] -> m [T_h, B, N, D]."""
@@ -224,18 +241,29 @@ class SpkMixer(nn.Module):
         tok = self.tokens(x)
         if tok_fn is not None:
             tok = tok_fn(tok)
-        e = self.encoding(tok)                                                # [T_h, B, N, D]
-        h, m0 = e, None
-        for i, blk in enumerate(self.blocks):
-            fn = mix_fns[i] if mix_fns is not None else None
-            if i == 0:
-                m0 = blk.mix(h)
-                if fn is not None:
-                    m0 = fn(m0)
-                h = blk.connect(h, m0)
-                h = blk.connect(h, blk.fc2(blk.fc1(h)))
-            else:
-                h = blk(h, fn)
+        if self.connect_f == 'MS':                                            # 2026-11-08 membrane shortcut
+            u, e = self.encoding.forward_ms(tok)
+            h, m0 = e, None
+            for i, blk in enumerate(self.blocks):
+                m = blk.mix(h)
+                if mix_fns is not None and mix_fns[i] is not None:
+                    m = mix_fns[i](m)
+                if i == 0:
+                    m0 = m
+                h, u = blk.forward_ms(u, m)
+        else:
+            e = self.encoding(tok)                                            # [T_h, B, N, D]
+            h, m0 = e, None
+            for i, blk in enumerate(self.blocks):
+                fn = mix_fns[i] if mix_fns is not None else None
+                if i == 0:
+                    m0 = blk.mix(h)
+                    if fn is not None:
+                        m0 = fn(m0)
+                    h = blk.connect(h, m0)
+                    h = blk.connect(h, blk.fc2(blk.fc1(h)))
+                else:
+                    h = blk(h, fn)
         feat = h.mean(2)                                                      # token mean [T_h, B, D]
         z = self.head(feat).mean(0)                                           # Spikformer-style readout
         return z, e, m0, feat.mean(0), h

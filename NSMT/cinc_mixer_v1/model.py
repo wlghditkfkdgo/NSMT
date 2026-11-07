@@ -199,9 +199,19 @@ class Embedding(nn.Module):
 
         
         x = self.emb_lif(x.reshape(T, B, self.embed_dim, -1).contiguous())
-        x = x.transpose(-1, -2).contiguous()  # [T B N D] 
-        
+        x = x.transpose(-1, -2).contiguous()  # [T B N D]
+
         return x
+
+    def forward_ms(self, x):
+        """2026-11-08 membrane shortcut (PROJECT_LOG): (u, s), both [T, B, N, D]; u = the BN output before the neuron, s = its spikes."""
+        if self.pos is not None:
+            raise NotImplementedError('membrane shortcut: pos_emb is not implemented')
+        T, B, _, _ = x.shape
+        x = self.emb_linear(x.flatten(0, 1))                      # [T*B, N, D]
+        u = self.emb_bn(x.transpose(-1, -2).contiguous()).reshape(T, B, self.embed_dim, -1).contiguous()   # [T, B, D, N]
+        s = self.emb_lif(u)
+        return u.transpose(-1, -2).contiguous(), s.transpose(-1, -2).contiguous()
 
 
 class HighFreqAmp(nn.Module):
@@ -235,9 +245,9 @@ class HighFreqAmp(nn.Module):
 class Block(nn.Module):
     def __init__(self, T, dim, seq_len, num_heads, mlp_ratios=2., max_ratio=2, qkv_bias=False, qk_scale=None, drop=0., attn_drop=0.1,
                 drop_path=0.1, norm_layer=nn.LayerNorm, sr_ratio=1, lif_bias=False, tau=2.0, attn=False,
-                time_num_layers=1, patch_size=16, ssa=False, xattn=False, ssa_pe=True, attn_bn=False):
+                time_num_layers=1, patch_size=16, ssa=False, xattn=False, ssa_pe=True, attn_bn=False, ms=False):
         super().__init__()
-        
+
         topk_ratio = None
         self.use_ssa = bool(ssa)                         # stage 9 Hippo-only: Spikformer-style token self-attention (N x N)
         self.use_xattn = bool(xattn)                     # MODI 2026-10-21 (1-C): token cross-attention, q = hippocampus, k/v = neocortex
@@ -254,9 +264,30 @@ class Block(nn.Module):
         self.dropout2 = nn.Dropout(0.1)
         self.dropout3 = nn.Dropout(0.1)
         self.shuffle_replay = False
+        self.ms = bool(ms)                               # 2026-11-08 membrane shortcut (forward_ms); False: no module, forward unchanged
+        if self.ms:
+            if not self.use_ssa:
+                raise ValueError('the membrane shortcut is implemented for hippo_ssa only')
+            with torch.random.fork_rng(devices=[]):      # as SpkBlock.fuse: every other weight stays the one of the run without it
+                self.ms_mix = SpikLinearLayer(dim, dim, tau=tau, lif_bias=lif_bias)
+                trunc_normal_(self.ms_mix.linear.weight, std=.02)
+                if self.ms_mix.linear.bias is not None:
+                    nn.init.constant_(self.ms_mix.linear.bias, 0)
+            self.ms_mix.linear._skip_global_init = True
+
+    def forward_ms(self, s, u):
+        """2026-11-08 membrane shortcut: real-valued sums stay in u, only spikes reach a Linear.
+        u1 = u + BN(W SSA(s)), s1 = LIF(u1), u2 = u1 + BN(fc2(fc1(s1))), output LIF(u2); returns (spikes, u2)."""
+        u = u + self.ms_mix.current(self.ssa(s))
+        s1 = self.ms_mix.lif(u.contiguous())
+        u = u + self.mlp.fc2.current(self.mlp.fc1(s1))
+        return self.mlp.fc2.lif(u.contiguous()), u
 
     def forward(self, x: torch.Tensor, mx=None, self_kv=False):
         T, B, N, D = x.shape
+
+        if self.ms:                                     # 2026-11-08: fail closed for a caller that does not carry the membrane
+            raise RuntimeError('a block with the membrane shortcut runs through forward_ms')
 
         if self.use_ssa:                                # stage 9: x = x (1 - SSA(x)); same IAND structure as the other blocks
             x = x * (1. - self.ssa(x))
@@ -504,6 +535,9 @@ class myModel(nn.Module):
         self.attn_bn = bool(kwargs.get('attn_bn', False))
         if self.hippo_xattn and self.hippo_ssa:
             raise ValueError('choose one of hippo_ssa and hippo_xattn')
+        self.ms_shortcut = bool(kwargs.get('ms_shortcut', False))      # 2026-11-08 membrane shortcut (Block.forward_ms)
+        if self.ms_shortcut and not self.hippo_ssa:
+            raise ValueError('--ms_shortcut needs --hippo_ssa')
         self.T_h = int(kwargs.get('hippo_T', 0) or 0) or self.T
         if self.T_h != self.T and not (self.hippo_ssa or self.hippo_xattn):
             raise ValueError('hippo_T != number of tokens is only allowed with hippo_ssa / hippo_xattn (the memory-replay cross-attention needs T = N)')
@@ -614,7 +648,7 @@ class myModel(nn.Module):
                     dim=embed_dim, seq_len=self.num_patches, num_heads=num_heads, mlp_ratios=mlp_ratios, qkv_bias=qkv_bias,
                     qk_scale=qk_scale, drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[j],
                     norm_layer=norm_layer, sr_ratio=sr_ratios, lif_bias=lif_bias, tau=tau, attn=(gating=='original'),
-                    ssa=self.hippo_ssa, xattn=self.hippo_xattn, ssa_pe=self.ssa_pe, attn_bn=self.attn_bn)
+                    ssa=self.hippo_ssa, xattn=self.hippo_xattn, ssa_pe=self.ssa_pe, attn_bn=self.attn_bn, ms=self.ms_shortcut)
                     for j in range(depths)])
 
         if self.neo_streams:
@@ -762,7 +796,9 @@ class myModel(nn.Module):
             patched_low_freq_x = low_freq_x.unfold(dimension=-1, size=self.patch_size, step=self.stride)
             self.org_x = patched_low_freq_x.clone().detach().transpose(0, 2).contiguous().mean(2, keepdim=True)
             
-        if self.roll_mode in ('sine', 'rand'):
+        if self.ms_shortcut:                                 # 2026-11-08 membrane shortcut: embedding and blocks together
+            x_hippo = self.ms_body(patched_x)
+        elif self.roll_mode in ('sine', 'rand'):
             base = patched_x[0]                              # [BC, N, P] (all T identical after repeat)
             x_hippo = self._unroll(self.encoding(self._roll_T(base)))  # sine/rand roll, encode, realign
         else:
@@ -774,10 +810,11 @@ class myModel(nn.Module):
             if neo_in is None:
                 neo_in = patched_x.transpose(0, 2).contiguous().mean(2, keepdim=True)
             _, x_neo = self.neo_forward(neo_in, org_seq)   # [N B 1 D]
-        
-        for dblk in self.data_block:
-            x_hippo = dblk(x_hippo, x_neo, self_kv=self.hippo_only)
-        
+
+        if not self.ms_shortcut:
+            for dblk in self.data_block:
+                x_hippo = dblk(x_hippo, x_neo, self_kv=self.hippo_only)
+
         if self.train_mode == 'training':
             
             return self._training(x_hippo, x_neo) 
@@ -794,6 +831,13 @@ class myModel(nn.Module):
             raise ValueError
         
         
+    def ms_body(self, patched):
+        """2026-11-08 membrane shortcut: tokens [T_h, B, N, P] -> last block's spikes [T_h, B, N, D] (myModel.forward, Forecaster)."""
+        u, s = self.encoding.forward_ms(patched)
+        for blk in self.data_block:
+            s, u = blk.forward_ms(s, u)
+        return s
+
     def _tokens_mc(self, x):
         """stage 9: x [B, C, L] -> hippocampus input [T_h, B, N, P*C] (exact repeats), neocortex input [N, B, 1, P*C] and the
         auxiliary target self.org_x [N, B, 1, P*C] (low-pass of each channel, patched the same way)."""

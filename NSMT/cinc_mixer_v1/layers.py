@@ -44,9 +44,16 @@ class SpikLinearLayer(nn.Module):
         x = self.linear(x.flatten(0, 1))
         x = self.bn(x.transpose(-1, -2).contiguous()).transpose(-1, -2).contiguous()
         x = self.lif(x.reshape(x_shape[0], x_shape[1], x_shape[2], -1).contiguous())
-        
+
         return x
-    
+
+    def current(self, x):
+        """2026-11-08 membrane shortcut (PROJECT_LOG): Linear -> BN without the neuron, [T, B, N, out_dim]; self.lif fires on the sum."""
+        x_shape = x.shape
+        x = self.linear(x.flatten(0, 1))
+        x = self.bn(x.transpose(-1, -2).contiguous()).transpose(-1, -2).contiguous()
+        return x.reshape(x_shape[0], x_shape[1], x_shape[2], -1).contiguous()
+
 class SpikLinearMaxLayer(nn.Module):
     def __init__(self, in_dim, out_dim=None, kernel_size=2, spk='lif', tau=2.0, lif_bias=False):
         super().__init__()

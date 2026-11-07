@@ -20,10 +20,23 @@ def _neo_kwargs(args):
                 ssa_pe=int(getattr(args, 'ssa_pe', 1)), attn_bn=getattr(args, 'attn_bn', False),
                 pop_taus=tuple(float(t) for t in str(getattr(args, 'pop_taus', '4,8,16,32')).split(',')),
                 tau_calib=getattr(args, 'tau_calib', True),                                         # MODI 2026-10-23 (popk streams)
-                stream_rev=getattr(args, 'stream_rev', False), neo_stream_fuse=getattr(args, 'neo_stream_fuse', 'none'))   # MODI 2026-10-24
+                stream_rev=getattr(args, 'stream_rev', False), neo_stream_fuse=getattr(args, 'neo_stream_fuse', 'none'),   # MODI 2026-10-24
+                ms_shortcut=getattr(args, 'ms_shortcut', False))                                    # 2026-11-08 membrane shortcut
+
+
+def _check_ms(args):
+    """2026-11-08 membrane shortcut, fail closed: --ms_shortcut is for myModel, --connect_f MS for spkMixer, neither with the head tests."""
+    ms, cf = getattr(args, 'ms_shortcut', False), str(getattr(args, 'connect_f', 'IAND')).upper() == 'MS'
+    if ms and args.model != 'myModel':
+        raise ValueError('--ms_shortcut is for myModel --hippo_ssa; spkMixer uses --connect_f MS')
+    if cf and args.model != 'spkMixer':
+        raise ValueError('--connect_f MS is for spkMixer; myModel --hippo_ssa uses --ms_shortcut')
+    if (ms or cf) and (getattr(args, 'head_mem', False) or getattr(args, 'head_pool', 'none') != 'none'):
+        raise NotImplementedError('the membrane shortcut is not combined with --head_mem / --head_pool')
 
 
 def load_mymodel(args, train=True):
+    _check_ms(args)
     if train:
         model = create_model(
                 'mymodel',
@@ -174,6 +187,7 @@ def load_spk_mixer(args, train=True):
     """2026-10-29 (PROJECT_LOG, exp/f-lif-pop-v3): Spikformer-style model with the SSA replaced by the Neo-mixer and the chosen
     neuron in every layer (spk_mixer.SpkMixer). --hippo_T = repetition steps (0 -> 4, the Spikformer-style baseline's value)."""
     from spk_mixer import SpkMixer
+    _check_ms(args)
     T_h = int(getattr(args, 'hippo_T', 0) or 0) or 4
     model = SpkMixer(seq_len=args.seq_len, data_patch_size=args.patch_size, embed_dim=args.embed_dim, num_classes=args.num_classes,
                      depths=args.num_layers, mlp_ratios=args.mlp_ratios, mixer=getattr(args, 'mixer', 'lif'),

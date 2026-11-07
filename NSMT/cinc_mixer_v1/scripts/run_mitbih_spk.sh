@@ -22,7 +22,7 @@ case $COND in
   spkmx_lif_*)
     CFX=${COND##*_}; REST=${COND%_*}; COMB=${REST##*_}
     case $COMB in or|sdor|sdlin|muxor|muxlin) ;; *) echo "bad comb in $COND"; exit 1 ;; esac
-    case $CFX in iand) CFA=IAND ;; or) CFA=OR ;; add) CFA=ADD ;; *) echo "bad connect in $COND"; exit 1 ;; esac
+    case $CFX in iand) CFA=IAND ;; or) CFA=OR ;; add) CFA=ADD ;; ms) CFA=MS ;; *) echo "bad connect in $COND"; exit 1 ;; esac
     [ "$REST" = "spkmx_lif_$COMB" ] || { echo "bad cond $COND"; exit 1; }
     CF="--model spkMixer --mixer lif --mixer_comb $COMB --connect_f $CFA --hippo_T 4" ;;
   *) echo "bad cond $COND"; exit 1 ;;
@@ -40,6 +40,7 @@ VF=${VAL_FOLD:-}; VFA=""; TAGC="${COND}_lr${LR}_L${ML}"
 [ -n "$VF" ] && { VFA="--val_fold $VF"; TAGC="${TAGC}_v${VF}"; }
 HM=""; [ "${HEADMEM:-0}" = 1 ] && { HM="--head_mem"; TAGC="${TAGC}_hm"; }   # 2026-11-03 H1 (head_mem.py): HEADMEM=1 -> --head_mem, tag _hm
 [ -n "${HEADPOOL:-}" ] && [ "$HEADPOOL" != none ] && { HM="$HM --head_pool $HEADPOOL"; TAGC="${TAGC}_hp${HEADPOOL}"; }   # 2026-11-03 head input forms (head_pool.py)
+[ "${MS:-0}" = 1 ] && { [ "$COND" = spk_ssa ] || { echo "MS=1 is for spk_ssa (the SpkMixer uses cond spkmx_lif_<comb>_ms)"; exit 1; }; HM="$HM --ms_shortcut"; TAGC="${TAGC}_ms"; }   # 2026-11-08 membrane shortcut
 OUT=$LOG/mitbih_${TAGC}_seed${S}_${TS}_${SHA}.stdout; t0=$(date +%s)
 (cd "$W" && CUDA_VISIBLE_DEVICES=$GPU OMP_NUM_THREADS=${THREADS:-4} $PY ./train.py \
   --model myModel --seed $S --log_dir "$LOG/MITBIH" --gating attn --attn SSA -s --test --print_epoch 1 -nd 0 \

@@ -74,6 +74,8 @@ class Forecaster(nn.Module):
             return self.inner.forward_parts(z)[4]
         m = self.inner
         patched, neo_in = m._tokens_mc(z)                                  # [T_h, B', N, P], [N, B', 1, P]
+        if getattr(m, 'ms_shortcut', False):                               # 2026-11-08 membrane shortcut
+            return m.ms_body(patched)
         xh = m.encoding(patched)
         x_neo = m.neo_forward(neo_in, z.clone().detach())[1] if self.kind == 'dual' else None   # [N, B', 1, D]
         for blk in m.data_block:

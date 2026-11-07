@@ -12050,3 +12050,85 @@ clean test MSE(population LIF / population f-LIF / LIF / f-LIF): ETTh2 H96 0.291
 - population 행: 구조 비교 규칙(10-21)상 필요하다. SpkMixer의 ETT, MIT-BIH population baseline이 없어 f-LIF, population LIF, population f-LIF를 넣으면 MS 유무 포함 90 run이 추가된다. LIF로 먼저 볼지는 사용자 결정 대기다.
 
 **commit:** 이 기록만 `exp/f-lif-pop-v3`에 push. tag 없음. 해시는 다음 기록에 적는다.
+
+## 2026-11-08 01:56 KST — 사전등록 + 구현 + 점검(본 학습 전): membrane shortcut을 SpkMixer와 Spikformer식에 적용, LIF만, ETT 4 cell → MIT-BIH, 30 run
+
+**직전 commit:** `61ff5ba8d`(membrane shortcut 판단). 브랜치 `exp/f-lif-pop-v3`, 이 실험의 base commit도 `61ff5ba8d`.
+
+### 사용자 결정(원문)
+- "LIF만으로 먼저 돌리자."
+- 구조 비교에 population을 항상 넣는 규칙(10-21)의 예외를 이 1차 실험에 한해 사용자가 승인했다. population 행은 not run이다.
+
+### 구조
+`u0` = embedding BN 출력, `s0` = LIF(u0), `m` = mixing 경로 출력 spike(SpkMixer는 MUX 그대로, Spikformer식은 SSA 그대로).
+
+```
+u1 = u0 + BN(W m)                  W: 새 Linear(D→D), neuron 축 T_h
+s1 = LIF(u1)                       새 neuron layer
+u2 = u1 + BN(fc2(fc1(s1)))         fc1은 그대로, fc2는 Linear + BN까지
+s2 = LIF(u2)                       fc2의 neuron을 합 뒤로 옮김
+head = s2                          H1(head가 membrane을 읽으면 CinC, ETT worse)에 따라 spike 유지
+```
+
+- Linear는 모두 spike만 읽는다(embedding 제외). `|H_f − H_r|`, `min`, `sd * a`는 mixer 안에 그대로 남는다.
+- 새 W와 BN은 RNG를 fork해서 만들어, 같은 seed에서 나머지 weight가 control과 같다(m1). W는 다른 Linear처럼 trunc_normal std .02이고 0 초기화가 아니므로, 학습 시작 출력은 control과 다르다.
+
+### 코드
+- `cinc_mixer_v1/layers.py`: `SpikLinearLayer.current`.
+- `model.py`: `Embedding.forward_ms`, `Block(ms=)`, `Block.forward_ms`, `myModel.ms_body`, `ms_shortcut`. shortcut block에 spike 경로로 들어오면 오류를 낸다.
+- `spk_mixer.py`: `connect_f MS`, `SpkBlock.forward_ms`. `connect()`는 MS를 거부한다(그냥 두면 ADD로 동작하기 때문).
+- `config.py`: `--connect_f MS`, `--ms_shortcut`. `load_model.py`: 잘못된 flag 조합 차단. `forecast_wrap.py`: `step_features` 분기.
+- `scripts/run_ett_spk.sh`, `run_mitbih_spk.sh`: cond `spkmx_lif_<comb>_ms`, env `MS=1`(spk_ssa). 새 파일: `scripts/make_queue_ms.sh`, `scripts/ms_driver.sh`, `check_ms.py`, `check_ms_dry.py`, `summarize_ms.py`.
+
+### 실험(설정은 튜닝값 그대로, shortcut용으로 다시 튜닝하지 않음; seed 42 / 7 / 2026)
+| 과제 | SpkMixer + MS | Spikformer식 + MS | control |
+|---|---|---|---|
+| ETT 4 cell(ETTh2, ETTm2 × H96, H720; seq_len 96, patience 10, best-validation weights, L1 loss) | muxlin, 방향당 1층, lr ETTh2 5e-4 / ETTm2 1e-4 | lr ETTh2 5e-4 / ETTm2 2.5e-4 | `flif-v1-ett-spkmux-tune`의 IAND 행, 기존 Spikformer식 튜닝 행 |
+| MIT-BIH(train 파일 전체, 30 epoch, 마지막 epoch weights, test 30 %) | muxlin, 방향당 2층, lr 0.02 | lr 0.005 | `flif-v1-mitbih-spkmux-tune`의 ADD 행, Spikformer식 lr 0.005 행 |
+
+- 24 + 6 = 30 run, suite `flif-v1-ett-spkmux-ms`, `flif-v1-mitbih-spkmux-ms`. 예상 약 1–2시간(GPU 4장, 8 slot).
+- 데이터와 전처리는 control과 같다. 환경: conda `snn_recall`, `LD_LIBRARY_PATH=<env>/lib`.
+
+### 판정(각 과제의 기존 규칙)
+- 비교: M1 SpkMixer + MS vs SpkMixer, M2 Spikformer식 + MS vs Spikformer식, M3 SpkMixer + MS vs Spikformer식 + MS. M4 SpkMixer + MS vs Spikformer식은 보고만 한다.
+- ETT: test MSE, R ≤ −1 %이고 12쌍 중 8쌍 이상 낮으면 better, 반대면 worse. MIT-BIH: macro-F1 평균 ≥ +0.5 %p이고 seed 2/3 이상 높으면 better, 반대면 worse.
+- energy: `total_fft_uJ_corr` + shortcut 덧셈. 덧셈은 hook이 세지 않으므로 2 × T_h × N × D × C × E_AC(0.9 pJ)로 더한다(ETT 약 0.077 µJ, MIT-BIH 약 0.030 µJ).
+- 다음 단계(결과 전에 고정, 최종 결정은 사용자):
+  - M1이 한 과제 이상 better이고 다른 과제가 worse가 아니면: population 행 확장을 제안한다.
+  - M1이 둘 다 no clear difference면: 확장하지 않는다. residual 통일 목적으로만 쓸지 사용자에게 묻는다.
+  - M1이 한 과제라도 worse면: 채택하지 않는다. lr을 다시 튜닝하지 않은 한계는 함께 적는다.
+
+### 예상(결과 전에 고정; smoke는 seed 42, 1–2 epoch만 봤다)
+- ETT: M1, M2 no clear difference, ETTh2 H96에서 낮은 쪽. MIT-BIH: M1, M2 no clear difference, ±0.5 %p 안.
+- M3는 두 과제 모두 no clear difference. MS가 SpkMixer의 상대 위치를 바꾸지 않는다.
+- rho_hippo는 control의 1.2–2배, energy A/B는 1.05–1.30배. best epoch는 control보다 늦지 않다.
+
+### 점검
+- **m1–m5 통과(`check_ms.py`):**
+  - m1: 2과제 × 2모델에서 생성 뒤 RNG 상태와 공유 weight가 같고 새 key는 `ms_mix`뿐이다.
+  - m2: forward가 submodule 재계산과 비트 단위로 같고 출력이 0/1이다. 학습 전 출력 firing rate는 MIT-BIH SpkMixer 0.141(control 0.073), Spikformer식 0.100(0.065), ETT 0.128(0.070), 0.091(0.062)다.
+  - m3: 새 parameter에 gradient가 들어오고, mixing 경로를 0으로 해도 shortcut으로 embedding에 gradient가 간다.
+  - m4: real 값을 읽는 Linear는 embedding과 head뿐이고, recorder MAC이 직접 계산과 같으며, neuron layer가 하나 늘어난다.
+  - m5: 잘못된 조합을 거부한다.
+- **점검 code 수정 3번(모델 문제 아님, 모두 fail closed로 드러남):**
+  - m2: 학습 전 model을 eval하면 BN running 통계 때문에 발화가 없어 "silent output"으로 멈췄다. train 모드 비교로 바꿨고, eval 경로는 smoke 재계산이 확인한다.
+  - m3: Spikformer식은 학습 시작 때 attention 경로 firing rate가 0이라 W gradient가 0이다. q_linear에는 첫 step부터 gradient가 있고, 실제로 MIT-BIH 조건 2 step, ETT 조건 10 step 안에 발화한다. "40 step 안에 W gradient"로 바꿨다.
+  - m4: 처음의 "MAC 차이 = 새 BN"은 입력이 전부 0인 BN을 recorder가 AC로 세어 맞지 않았다. layer별 직접 계산과 맞추는 방식으로 바꿨다.
+- **기본 경로 재현(`check-ms-repro-20261108`, `-ett`):** flag를 끈 4 run(MIT-BIH SpkMixer ADD, Spikformer식, ETTh2 H96 SpkMixer IAND, Spikformer식, seed 42)이 control 행과 공유 필드 122개에서 같다(time, sha, dir 등 제외). control을 그대로 쓸 수 있다.
+- **smoke:** 6 run, SKIP 0, ETT·MIT-BIH energy 재계산 통과(재계산 metric = 기록값, 0/1 head 입력, recorder = syops), `ms_mix.linear` MAC 0.
+- **요약기 dry run(`check_ms_dry.py`):** A에 control을 복사하면 M1, M2 R +0.00이고, M3가 기존 값(ETT R +0.45 %, 3/12, MIT-BIH +0.20 %p)을 재현하며, energy A/B는 덧셈만큼 1.00–1.01이다. 빠진 run, SKIP, NaN, 재계산 불일치, non-binary, 중복, 잘못된 rule은 exit 2로 멈춘다.
+
+### 정정
+- 직전 항목의 energy 추정 +3.9 %(CinC)는 새 neuron layer를 빠뜨렸다. 구현에 LIF가 한 층 늘어나므로 추정이 낮다. 또 학습 전 firing rate가 1.5–2배 높아, 실제 증가폭은 더 클 수 있다. ETT, MIT-BIH 값은 본 실행에서 잰다.
+
+### 한계(미리 적음)
+- LIF만, seed 3개. lr, 층 수, patience는 shortcut 없는 model로 고른 값이다. CinC, AD는 not run이다.
+- 비교하는 control의 residual이 과제마다 다르다(ETT IAND, MIT-BIH ADD).
+- W를 0으로 초기화하지 않아 학습 시작점이 control과 같지 않다. 차이에는 초기 firing rate 차이도 섞인다.
+- energy는 연산 수 추정이고 attention 곱, `abs`, `min`은 세지 않는다.
+
+### 실행
+- 명령(`NSMT/`에서): `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/ms_driver.sh`.
+- 재현: `bash cinc_mixer_v1/scripts/make_queue_ms.sh repro|smoke|ett|mitbih` 후 `scripts/gpu_pool2.sh <queue> <slots>`, 판정은 `python -B summarize_ms.py --task ett|mitbih`.
+
+**commit:** 코드, 점검, repro·smoke 결과, 이 기록을 `exp/f-lif-pop-v3`에 push(학습 시작 전). 해시는 다음 기록에 적는다.

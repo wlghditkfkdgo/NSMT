@@ -82,7 +82,7 @@ def parse_arguments():
     model_arg.add_argument('--patch_size', dest='patch_size', type=int, default=16, help='patch size in data stream')
     model_arg.add_argument('--mlp_ratios', dest='mlp_ratios', type=float, default=4)
     model_arg.add_argument('--patch_stride', dest='stride', type=int, default=9)
-    model_arg.add_argument('--connect_f', dest='connect_f', nargs='?', choices=['ADD', 'AND', 'IAND', 'OR'], default='IAND', help='the types of residual connection in SNN (OR: spkMixer, 2026-10-29)')
+    model_arg.add_argument('--connect_f', dest='connect_f', nargs='?', choices=['ADD', 'AND', 'IAND', 'OR', 'MS'], default='IAND', help='the types of residual connection in SNN (OR: spkMixer, 2026-10-29; MS: spkMixer membrane shortcut, 2026-11-08)')
     model_arg.add_argument('--gating', dest='gating', default='original', help='gating type')
     model_arg.add_argument('--attn', dest='attn', nargs='?', default='MSSA', choices=['SSA'],)
     model_arg.add_argument('--keep_ratio', nargs='?', type=float, default=0.15)
@@ -131,6 +131,7 @@ def parse_arguments():
     snn_arg.add_argument('--mixer_comb', choices=['or', 'xattn', 'xattn_ch', 'lin', 'linmem', 'linmx', 'xattnmem', 'linxor', 'linsd', 'sdor', 'sdlin', 'muxor', 'muxlin'], default='or',   # sdor / sdlin: spkMixer (2026-10-29); muxor / muxlin: fusion MUX (10-30)
                          help='MODI 2026-10-21 BiX: how the two mixer directions are combined (OR, or token-axis cross-attention q = forward, k/v = reverse)')
     snn_arg.add_argument('--attn_bn', action='store_true', default=False, help='BN in front of the SSA attention neuron (spk_ssa_abn)')
+    snn_arg.add_argument('--ms_shortcut', action='store_true', default=False, help='2026-11-08: membrane shortcut in the Spikformer-style blocks (needs --hippo_ssa)')
     snn_arg.add_argument('--hippo_xattn', action='store_true', default=False, help='hippocampus T_h repeats with token cross-attention (q = hippocampus, k/v = neocortex tokens)')
     snn_arg.add_argument('--pop_soma_init', type=float, default=None, help='pop_flif soma mixing weight init (None = 1/K)')
     snn_arg.add_argument('--fold', type=int, default=0, help='CinC 2017: test fold 0..4 of the record-wise stratified 5-fold split')
@@ -251,6 +252,8 @@ class Config():
                      'sdor': '_sdor', 'sdlin': '_sdlin', 'muxor': '_muxor', 'muxlin': '_muxlin'}[args.mixer_comb]   # 10-23 / 24 / 27: membrane fusion, spike xor, spiking difference; 10-29 spkMixer
         if getattr(args, 'attn_bn', False):
             _iso += "_abn"
+        if getattr(args, 'ms_shortcut', False):                          # 2026-11-08 membrane shortcut
+            _iso += "_ms"
         if getattr(args, 'pop_soma_init', None) is not None:
             _iso += f"_psi{args.pop_soma_init:g}"
         if str(getattr(args, 'data', '')).upper() in ('CINC2017', 'SHD'):

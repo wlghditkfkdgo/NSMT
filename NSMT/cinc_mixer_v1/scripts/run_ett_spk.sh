@@ -22,7 +22,7 @@ case $COND in
   spkmx_lif_*)
     CFX=${COND##*_}; REST=${COND%_*}; COMB=${REST##*_}
     case $COMB in or|sdor|sdlin|muxor|muxlin) ;; *) echo "bad comb in $COND"; exit 1 ;; esac
-    case $CFX in iand) CFA=IAND ;; or) CFA=OR ;; add) CFA=ADD ;; *) echo "bad connect in $COND"; exit 1 ;; esac
+    case $CFX in iand) CFA=IAND ;; or) CFA=OR ;; add) CFA=ADD ;; ms) CFA=MS ;; *) echo "bad connect in $COND"; exit 1 ;; esac
     [ "$REST" = "spkmx_lif_$COMB" ] || { echo "bad cond $COND"; exit 1; }
     CF="--model spkMixer --mixer lif --mixer_comb $COMB --connect_f $CFA --hippo_T 4" ;;
   *) echo "bad cond $COND"; exit 1 ;;
@@ -39,7 +39,8 @@ case $DS in
 esac
 TAGC="${COND}_lr${LR}_L${LAYERS}"
 HM=""; [ "${HEADMEM:-0}" = 1 ] && { HM="--head_mem"; TAGC="${TAGC}_hm"; }   # 2026-11-03 H1 (head_mem.py): HEADMEM=1 -> --head_mem, tag _hm
-TL=""; [ "${LOSS:-l1}" = mse ] && { TL="--train_loss mse"; TAGC="${TAGC}_mse"; }   # 2026-11-07 L2 test: LOSS=mse -> --train_loss mse, tag _mse
+[ "${MS:-0}" = 1 ] && { [ "$COND" = spk_ssa ] || { echo "MS=1 is for spk_ssa (the SpkMixer uses cond spkmx_lif_<comb>_ms)"; exit 1; }; HM="$HM --ms_shortcut"; TAGC="${TAGC}_ms"; }   # 2026-11-08 membrane shortcut
+TL="";[ "${LOSS:-l1}" = mse ] && { TL="--train_loss mse"; TAGC="${TAGC}_mse"; }   # 2026-11-07 L2 test: LOSS=mse -> --train_loss mse, tag _mse
 E=${EPOCHS:-$E}; P=${PATIENCE:-10}
 SUITE=${SUITE:-flif-v1-ett-spkmux-$(date +%Y%m%d)}
 RES=${RES:-$W/results/$SUITE}; LOG=${LOG:-$W/log/$SUITE}
