@@ -12132,3 +12132,88 @@ head = s2                          H1(head가 membrane을 읽으면 CinC, ETT wo
 - 재현: `bash cinc_mixer_v1/scripts/make_queue_ms.sh repro|smoke|ett|mitbih` 후 `scripts/gpu_pool2.sh <queue> <slots>`, 판정은 `python -B summarize_ms.py --task ett|mitbih`.
 
 **commit:** 코드, 점검, repro·smoke 결과, 이 기록을 `exp/f-lif-pop-v3`에 push(학습 시작 전). 해시는 다음 기록에 적는다.
+
+## 2026-11-08 02:40 KST — 결과 + 실험 완료(30 run, SKIP 0): membrane shortcut, LIF만 — SpkMixer에서 ETT R −0.36 %(8/12), MIT-BIH −0.09 %p로 둘 다 no clear difference이고 energy는 1.21배, 1.05배다. Spikformer식은 ETT no clear difference, MIT-BIH −0.57 %p worse다. 사전등록 기준대로 population 확장은 하지 않는다.
+
+**직전 commit:** `264493526`(사전등록). 모든 run의 `sha`가 이 commit이다. 브랜치 `exp/f-lif-pop-v3`.
+
+### 실행
+- `ms_driver.sh`: 01:56:19 시작, ETT pool 02:19:39 끝(RESULT 24, SKIP 0), 재계산·요약 02:21:12, MIT-BIH pool 02:37:16 끝(RESULT 6, SKIP 0), 02:37:48 끝. run당 ETT 129–950 s, MIT-BIH 297–964 s. 예상(1–2시간)보다 빨랐다.
+- energy 재계산: 두 suite 모두 "all checks passed"(재계산 metric = 기록값, 0/1 head 입력, recorder = syops).
+- `report_ms.py`가 비교 8행(M1–M4 × 2과제)을 summarizer와 별도로 다시 계산해 값, 개수, 판정, energy 비가 일치함을 확인했다.
+
+### ETT(test MSE, 3 seed 평균)
+| cell | SpkMixer | SpkMixer + MS | Spikformer식 | Spikformer식 + MS |
+|---|--:|--:|--:|--:|
+| ETTh2 H96 | 0.2952 | 0.2934 | 0.2903 | 0.2903 |
+| ETTh2 H720 | 0.4218 | 0.4175 | 0.4223 | 0.4190 |
+| ETTm2 H96 | 0.1775 | 0.1771 | 0.1767 | 0.1761 |
+| ETTm2 H720 | 0.4034 | 0.4050 | 0.4044 | 0.4032 |
+| 4 cell 평균 | 0.3245 | 0.3233 | 0.3234 | 0.3222 |
+
+| 비교 | R % | 낮은 쌍 | 판정 | energy A/B | cell별 r % |
+|---|--:|--:|---|--:|---|
+| M1 SpkMixer + MS vs SpkMixer | −0.36 | 8/12 | no clear difference | 1.21 | −0.58, −1.01, −0.24, +0.39 |
+| M2 Spikformer식 + MS vs Spikformer식 | −0.35 | 10/12 | no clear difference | 1.14 | −0.01, −0.78, −0.33, −0.29 |
+| M3 SpkMixer + MS vs Spikformer식 + MS | +0.44 | 2/12 | no clear difference | 1.04 | +1.09, −0.36, +0.56, +0.45 |
+| M4(보고만) SpkMixer + MS vs Spikformer식 | +0.08 | 4/12 | no clear difference | 1.19 | +1.07, −1.13, +0.23, +0.16 |
+| 참고: SpkMixer vs Spikformer식 | +0.45 | 3/12 | no clear difference | 0.98 | +1.67, −0.12, +0.47, −0.23 |
+
+- test MAE R: M1 −0.34 %, M2 −0.26 %, M3 +0.36 %.
+- M1, M2는 방향이 일관되게 낮지만(8/12, 10/12) 문턱 −1 %에 크게 못 미친다.
+
+### MIT-BIH(macro-F1, 3 seed 평균)
+| model | macro-F1 % | accuracy % | F1 N / S / V / F / Q | rho_hippo | energy µJ |
+|---|--:|--:|---|--:|--:|
+| SpkMixer(ADD) | 91.99 | 98.56 | 99.24 / 85.94 / 96.31 / 79.49 / 98.95 | 0.1001 | 9.44 |
+| SpkMixer + MS | 91.89 | 98.55 | 99.24 / 85.57 / 96.44 / 79.24 / 98.98 | 0.0840 | 9.94 |
+| Spikformer식 | 91.78 | 98.48 | 99.20 / 84.38 / 96.12 / 80.17 / 99.03 | 0.1275 | 9.61 |
+| Spikformer식 + MS | 91.21 | 98.32 | 99.12 / 83.60 / 95.67 / 78.98 / 98.70 | 0.1050 | 8.06 |
+
+| 비교 | 평균 %p | seed별(42, 7, 2026) | 판정 | energy A/B |
+|---|--:|---|---|--:|
+| M1 SpkMixer + MS vs SpkMixer | −0.09 | +0.33, −0.13, −0.47 | no clear difference | 1.05 |
+| M2 Spikformer식 + MS vs Spikformer식 | −0.57 | −0.68, −0.36, −0.67 | worse | 0.84 |
+| M3 SpkMixer + MS vs Spikformer식 + MS | +0.68 | +0.78, +0.61, +0.65 | better | 1.23 |
+| M4(보고만) SpkMixer + MS vs Spikformer식 | +0.11 | +0.11, +0.26, −0.03 | no clear difference | 1.03 |
+| 참고: SpkMixer vs Spikformer식 | +0.20 | −0.22, +0.39, +0.44 | no clear difference | 0.98 |
+
+- **M3의 better는 SpkMixer의 우위로 읽으면 안 된다.** SpkMixer + MS는 control보다 나아지지 않았고(M1), 차이는 Spikformer식이 MS로 낮아진 몫이다(M2). control Spikformer식과 비교한 M4는 no clear difference다. energy도 M3 쪽이 1.23배 든다.
+
+### 보고만(결과를 본 뒤 고른 표, `report_extra.md`)
+- **선택 epoch가 앞당겨졌다.** ETT에서 epoch 0을 고른 run: SpkMixer 1/12 → + MS 7/12, Spikformer식 0/12 → + MS 7/12. 평균 선택 epoch 5.3 → 1.0, 4.2 → 1.1. 마지막 epoch weights의 test MSE는 best-validation weights 대비 1.003 → 1.045배, 1.004 → 1.020배다. 그래도 best-validation weights의 test MSE는 조금 낮다. lr을 shortcut 없는 model로 골랐으므로 lr이 높을 가능성이 있으나, 재지 않았다.
+- **firing rate:** rho_hippo(shortcut / control)는 ETT SpkMixer 1.11–1.35배, Spikformer식 0.88–1.11배, MIT-BIH는 오히려 0.84배, 0.82배다.
+- **MIT-BIH Spikformer식의 층별 변화:** embedding 0.1616 → 0.0443, attention 출력(`proj_linear.lif`) 0.1730 → 0.0492, `fc2.lif` 0.1288 → 0.1914. energy 0.84배는 이 감소와 방향이 맞는다. F1 변화는 N −0.08, S −0.79, V −0.45, F −1.19, Q −0.34 %p다. 이 하락의 원인은 재지 않았다.
+- **MIT-BIH SpkMixer의 층별 변화:** embedding 0.0315 → 0.0329, fusion 0.1235 → 0.0794, `fc2.lif` 0.1450 → 0.1597. F1 변화는 N −0.00, S −0.37, V +0.13, F −0.25, Q +0.03 %p다.
+
+### 예상 점검(사전등록)
+| 예상 | 결과 |
+|---|---|
+| ETT M1, M2 no clear difference | 맞음 |
+| ETTh2 H96에서 가장 낮은 쪽 | 틀림. 가장 큰 쪽은 ETTh2 H720(−1.01, −0.78 %), M2의 ETTh2 H96은 −0.01 % |
+| MIT-BIH M1 no clear difference, ±0.5 %p 안 | 맞음(−0.09) |
+| MIT-BIH M2 no clear difference | 틀림(−0.57 %p, worse) |
+| M3 두 과제 모두 no clear difference | ETT 맞음, MIT-BIH 틀림(+0.68 %p) |
+| rho_hippo 1.2–2배 | 대부분 틀림. ETT SpkMixer 4 cell 중 3개만 범위 안, MIT-BIH는 낮아짐 |
+| energy 1.05–1.30배 | ETT 두 model과 MIT-BIH SpkMixer 맞음, MIT-BIH Spikformer식 틀림(0.84) |
+| best epoch가 늦어지지 않음 | 맞음. 예상보다 크게 앞당겨짐 |
+
+### 해석(내 판단)
+- 얕은 model에서 큰 이득을 기대할 근거가 약하다는 11-08 판단과 맞는다. ETT는 작은 개선 방향이지만 규칙상 차이가 없고, energy가 14–21 % 늘어난다.
+- SpkMixer와 Spikformer식이 ETT에서 거의 같은 폭으로 움직여(R −0.36, −0.35 %) SpkMixer 고유의 이득이 아니다. M3 R +0.44 %로 상대 위치도 그대로다.
+- SpkMixer는 MS를 넣어도 ETT와 MIT-BIH에서 큰 손해가 없어(no clear difference) residual을 하나로 통일하는 것은 가능하다. 대가는 ETT energy 1.21배다.
+
+### 사전등록 기준 적용
+- M1이 두 과제 모두 no clear difference이므로 **population 행으로 확장하지 않는다.** residual 통일 목적으로만 쓸지는 사용자 결정 대기다. 내 추천은 채택하지 않는 것이다. 통일의 대가로 ETT energy가 21 % 늘고 정확도 이득이 규칙 안에 들지 않는다.
+
+### 한계
+- LIF만, seed 3개. lr, 층 수는 shortcut 없는 model로 고른 값이다. ETT에서 7/12 run이 epoch 0을 고른 점을 보면 재튜닝이 결과를 바꿀 수 있다(not run). M2의 MIT-BIH worse도 같은 한계가 있다.
+- control의 residual이 과제마다 다르다(ETT IAND, MIT-BIH ADD). W를 0으로 초기화하지 않았다.
+- energy는 연산 수 추정이다. attention 곱, `abs`, `min`은 세지 않는다.
+- CinC, AD, population 행은 not run이다. test 값으로 고른 것은 없다.
+
+### 산출물과 명령
+- `cinc_mixer_v1/results/flif-v1-ett-spkmux-ms/{raw.txt,pool_log.txt,energy_recount.csv,summary.md,report_extra.md}`, `results/flif-v1-mitbih-spkmux-ms/{raw.txt,pool_log.txt,energy_recount.csv,summary.md}`, `report_ms.py`. checkpoint, TensorBoard, stdout은 `cinc_mixer_v1/log/` 아래 로컬에 있다.
+- 재계산: `python -B summarize_ms.py --task ett|mitbih`, `python -B report_ms.py`(`cinc_mixer_v1/`에서).
+
+**commit:** 이 기록의 commit을 annotated tag `exp/f-lif-pop-v3-ms-20261108`로 식별한다(학습 완료, snapshot 아님). `exp/f-lif-pop-v3`와 이 tag만 push.
