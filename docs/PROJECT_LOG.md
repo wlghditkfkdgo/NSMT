@@ -11724,3 +11724,101 @@ leak만 계산한 기준(상수 input, state 0에서 시작, 측정 아님):
 - 사용자 결정 대기: 11-05 항목의 다음 실험(Neocortex ablation 또는 token step별 firing rate 측정)과 그 밖의 미결정 항목.
 
 **commit:** 이 기록과 위 Git 산출물. 이 commit은 annotated tag `exp/f-lif-pop-v3-l2-20261107`로 식별한다(완료된 학습 실험의 tag이고 snapshot이 아니다).
+
+---
+
+## 2026-11-07 21:09 KST — 사전 등록 + 점검(본 측정 전, 학습 없음): plain query 모델의 Neocortex query를 test 때 바꿔 보기
+
+**직전 commit:** `8bd684222` (tag `exp/f-lif-pop-v3-l2-20261107`). **branch / base:** `exp/f-lif-pop-v3`, base `8bd684222554087a231d3174e03aa743b630bf1d`.
+
+### 사용자 요청과 목적
+- 사용자가 "Neocortex ablation으로 무엇을 알아내려는 거야?"라고 물었고, 제 고친 추천(retraining 대신 기존 checkpoint에서 test 때만 query를 바꾸는 측정)에 "진행하자."라고 답했다.
+- 질문: ETT와 MIT-BIH의 plain query 모델에서 Neocortex output이 실제로 쓰이는가. qmx 64개 행이 모두 no clear difference였으므로, "쓰이지만 구조 변경이 도움이 안 됐다"와 "거의 안 쓰여서 바꿔도 안 움직인다"를 가른다.
+
+### 사용자에게 한 말의 정정과 범위 변경
+- 직전 답변의 표에서 원본 NSMT 값을 "±0.3 %, 최대 +4.3 %"로만 적었다. 이는 ETT 값이다(MODI_PROJECT_LOG 10-17 Phase A). MIT-BIH는 다른 세션의 10-19 A1 분석에서 다른 심박의 Neocortex output으로 바꾸면 −18.55 – −32.95 %p였다(전부 0은 −42.75 – −73.21 %p). 다만 같은 항목은 hippo-only가 같은 성능을 내므로 "의존"이지 "필수"가 아니라고 적었다.
+- 사용자에게 "ETT 24개와 MIT-BIH 6개"라고 말했지만, population만 보지 않도록 LIF와 f-LIF도 넣어 **60개**로 늘렸다(ETT 48, MIT-BIH 12). 비용이 작아서 늘렸다(clean 1회 3–9 s).
+- "0으로 바꾸면 attention 경로 자체의 효과"라는 설명은 부정확했다. query 입력이 0이어도 q_bn의 running statistics 때문에 q_lif가 발화할 수 있고, relative position bias(`ssa_pe` 1, 5개 checkpoint에서 확인)가 남아 attention이 꺼지지 않는다. 그래서 attention term 자체를 없애는 `attn_off`를 따로 넣는다.
+
+### 조건(학습 없음, 선택 없음; 바뀌는 것은 block의 query 입력뿐)
+| 이름 | query 입력 | 묻는 것 |
+|---|---|---|
+| clean | Neocortex output 그대로 | 기록값 재현 |
+| other | 다른 window의 Neocortex output, 같은 channel. ETT는 seq_len + pred_len 이상 떨어진 무작위 window(input·target 겹침 없음), MIT-BIH는 무작위 다른 beat. 3 draw | window별 내용을 쓰는가 |
+| perm | 자기 output의 token order를 row별로 무작위로 섞음(spike 수 유지). 3 draw | token order를 쓰는가 |
+| zero | Neocortex output을 0으로 | spike가 없는 query일 때 |
+| attn_off | query는 clean, attention term을 없앰 `x = x * (1 - 0)`; MLP 항은 유지 | attention 경로 자체의 효과 |
+
+draw의 난수는 checkpoint와 무관하게 고정한다(seed 20261107 + draw, perm은 + 100).
+
+### 대상
+plain query checkpoint 60개. 보고된 test 지표의 가중치를 그대로 쓴다(ETT `model_state/checkpoint.pth` best validation, MIT-BIH `model_state/best+model.pt` 마지막 epoch). 다른 세션 폴더는 읽기만 한다.
+
+| 과제 | neuron | 원본 suite |
+|---|---|---|
+| ETTh2 H96·H720 | LIF, f-LIF, population LIF, population f-LIF | `nsmt_flif_v1/forecasting/results/flif-v1-ett-query` |
+| ETTm2 H96·H720 | population LIF, population f-LIF | `nsmt_flif_v1/forecasting/results/flif-v1-ett-query-m2` |
+| ETTm2 H96·H720 | LIF, f-LIF | `qmux_v1/results/qmx-ett`(`nsmt4q_lif`, `nsmt4q_flif`) |
+| MIT-BIH | population LIF, population f-LIF | `nsmt_flif_v1/classification/results/flif-v1-mitbih-query` |
+| MIT-BIH | LIF, f-LIF | `qmux_v1/results/qmx-mitbih`(`nsmt4q_lif`, `nsmt4q_flif`) |
+
+seed 42, 7, 2026. test split 그대로이고, ETT는 channel 독립, window 정규화, seq_len 96이다. 이 모델의 Hippocampus T_h는 4, block 1개, token은 ETT 24개·MIT-BIH 11개다.
+
+### 판정 규칙(사전 고정; neuron·조건별; other·perm은 checkpoint별 3 draw 평균)
+- **ETT:** r = 100 (MSE_replaced − MSE_clean) / MSE_clean, R = 4 cell 평균. **used** = R ≥ +1 %이고 12쌍 중 8쌍 이상 높음. lower = R ≤ −1 %이고 8쌍 이상 낮음. 그 밖은 no clear effect.
+- **MIT-BIH:** d = macro-F1 replaced − clean(%p), seed 3개 평균. **used** = d ≤ −0.5 %p이고 2/3 seed 이상 낮음. higher = d ≥ +0.5 %p이고 2/3 seed 이상 높음. 그 밖은 no clear effect.
+- 주된 대상은 후보 population LIF이다. 나머지 neuron은 같은 표로 보고한다.
+- 보고만(판정 없음): cell별 값, MAE, class별 F1, draw 간 차이, query neuron·attention term·Hippocampus output의 firing rate, 다른 window와의 bit 일치율 대 우연 수준, Neocortex output의 token step별 firing rate.
+
+### 결과의 해석 방법(사전 고정)
+| 결과 | 해석 |
+|---|---|
+| other가 no clear effect | window별 Neocortex 내용이 쓰이지 않는다. 그 과제에서 Neocortex를 memory로 주장하기 어렵고, 구조 탐색을 멈추자고 제안할 근거가 된다 |
+| other는 no clear effect, perm이나 zero는 used | Neocortex가 window와 거의 무관한 고정 패턴으로 쓰인다 |
+| other가 used | 학습된 모델이 내용에 의존한다. 그러나 retraining 비교(Spikformer식 대비 no clear difference)와 합치면 "의존"이지 "필수"가 아니다 |
+
+이 측정만으로 Neocortex가 필요한지는 말할 수 없다. 구조 탐색 중단은 제안할 뿐이고 결정은 사용자에게 맡긴다.
+
+### 예상(결과를 보기 전)
+| 조건 | ETT | MIT-BIH | 근거 |
+|---|---|---|---|
+| other | 4 neuron 모두 no clear effect | 4 neuron 모두 used, −5 %p 이하 | 원본 NSMT ETT ±0.3 %, MIT-BIH −18 – −33 %p |
+| perm | population LIF used | 모두 used, other보다 크게 떨어짐 | 원본 NSMT ETT 최대 +4.3 % |
+| zero | used | 모두 used, other보다 크게 떨어짐 | 원본 NSMT MIT-BIH −43 – −73 %p |
+| attn_off | R < +3 %. attention term이 드물게 발화(clean 0.016–0.077, 5개 확인 run)해서 작을 것 | used. attention term이 자주 발화(0.19–0.24) | clean firing rate |
+
+위의 clean firing rate는 clean 재현 run에서 본 값이고, 바꾼 조건의 지표는 아직 보지 않았다.
+
+### 코드(`NSMT/qmux_v1/`, 기존 파일 변경 없음)
+| 파일 | sha256 앞 16자리 | 내용 |
+|---|---|---|
+| `query_swap.py` | `c27babc80e102817` | checkpoint 하나 측정 |
+| `summarize_qswap.py` | `adb07af62bd68228` | 판정 표(자기 parser, RESULT line 대조) |
+| `check_qswap.py` | `e56a29c9a8fd8a4c` | 정답을 아는 가짜 결과로 판정 코드 점검 |
+| `scripts/run_qswap.sh` | `73655a4351fea02d` | 실행 스크립트 |
+| `scripts/make_queue_qswap.py` | `65a2e0c3a2259b4f` | queue 생성(run 누락·중복·checkpoint 없음이면 중단) |
+
+### 점검
+- **`query_swap.py`의 fail closed(run마다, 실패하면 JSON 없이 exit 1):** plain query 모델이 아님; 쪼갠 forward와 모델 forward의 차이 > 1e-5(앞 2 batch); reset 뒤 Neocortex forward가 반복되지 않음(other가 쓰는 경로); Neocortex output이 binary가 아님; other의 거리 부족; perm이 spike 수를 바꾸거나 아무것도 바꾸지 않음; clean이 기록값과 다름(ETT MSE·MAE 상대 1e-5, MIT-BIH macro-F1 1e-6, 표본 수 일치); 지표가 유한하지 않음.
+- **smoke(21:05:50–21:06:06, 5개 원본 suite에서 1개씩, `--max_batches 2`):** 5/5 통과, 쪼갠 forward 차이 0, 지표는 JSON에 쓰지 않음. `results/smoke-qswap-20261107/`.
+- **clean 재현(21:06:58–21:07:18, 같은 5개, 전체 test split, clean만):** 5/5 통과. population LIF ETTh2 H96 seed 42 0.286700, MIT-BIH 92.19 등 기록값 재현. `results/check-qswap-repro-20261107/`.
+- **`check_qswap.py`:** 처음에는 FAIL이었다. 원인은 판정 코드가 아니라 가짜 데이터의 패턴이 neuron별 6/6쌍이 아니었던 것이고, 가짜 데이터만 고쳤다. 고친 뒤 알려진 판정이 4 neuron × 4 조건 × 2 과제에서 재현되고, run 누락·clean 불일치·check 실패·smoke run·NaN이 모두 exit 2로 멈춘다.
+- **not run:** 본 측정(이 항목 시점).
+
+### 환경과 명령
+conda env `snn_recall`, GPU 0–3에 job 1개씩, `python -B`. NSMT/에서:
+```
+python -B qmux_v1/scripts/make_queue_qswap.py all
+SLOTS=0,1,2,3 bash scripts/gpu_pool2.sh qmux_v1/scripts/queues/qswap-all-20261107.txt 0,1,2,3
+python -B qmux_v1/summarize_qswap.py
+```
+예상 시간은 15분 안쪽이다(checkpoint당 forward 9회).
+
+### 한계(미리 적음)
+- 학습된 가중치의 의존도만 잰다. Neocortex 없이 학습해도 되는지는 재지 않는다(Spikformer식 비교가 그 답에 가깝지만, ETT는 Spikformer식만 lr 튜닝값이다).
+- query 경로의 q_linear·q_bn은 Neocortex output 분포로 학습됐다. 분포가 크게 달라지는 zero의 효과에는 내용 손실 말고 분포 불일치가 섞일 수 있다. other와 perm은 분포를 대체로 유지한다.
+- seed 3개, test를 다시 연다. 다만 고르는 것이 없다.
+- MIT-BIH other는 무작위 beat라 다수 class(N)의 내용이 주로 들어간다. 같은 class·다른 class를 나눈 분석은 not run.
+- 다른 channel의 output으로 바꾸기, energy 측정, validation split 측정은 not run.
+
+**commit:** 이 기록과 위 코드, smoke·재현 JSON을 `exp/f-lif-pop-v3`에 push. 해시는 다음 기록에 적는다.
