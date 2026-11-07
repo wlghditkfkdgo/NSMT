@@ -11659,3 +11659,68 @@ leak만 계산한 기준(상수 input, state 0에서 시작, 측정 아님):
 - 산출물: `cinc_mixer_v1/results/flif-v1-ett-spkmux-l2/{raw.txt,pool_log.txt,energy_recount.csv,summary.md}`(Git), checkpoint·TensorBoard·콘솔은 `cinc_mixer_v1/log/flif-v1-ett-spkmux-l2/`(로컬).
 
 **commit:** 코드, `results/{check-ett-l2-repro-20261107,smoke-ett-l2-20261107}`, 이 기록. 결과는 다음 기록에 남긴다.
+
+## 2026-11-07 14:44 KST — MSE(L2) loss 시험 결과(SpkMixer, ETT, 12 run, SKIP 0, energy recount 통과): test MSE R +1.61 %(1/12) worse, test MAE R +2.78 %(0/12) worse, energy 0.98배. 예상 "MSE가 조금 낮아진다"는 틀림. 결론: SpkMixer ETT 학습은 L1 loss 유지. tag `exp/f-lif-pop-v3-l2-20261107`
+
+**직전 commit:** `bfe954dd8`(사전등록). 브랜치 `exp/f-lif-pop-v3`. 설계·규칙·한계는 바로 앞 사전등록 항목에 있다. 12 run 모두 sha `bfe954dd8`.
+
+### 정정(앞 사전등록 항목)
+- "시작 시점 GPU 0–3 사용률은 위 확인에서 0 %다"의 "위 확인"은 그 기록 안에 없다. commit 직전 `nvidia-smi`에서 네 장 모두 사용률 0 %, 메모리 12 MiB였다는 뜻이다.
+- "예상 약 30–60분"은 실제로 17분이었다(14:24:30 – 14:41:46, 다른 작업 없음). 내용은 그대로다.
+
+### 점검(fail closed)
+- RESULT 12, SKIP 0. energy recount: all checks passed(다시 잰 MSE = 기록값, head 입력 0/1).
+- 요약기의 선택 점검: A 12 run의 best epoch는 `val_mse`의 최소, B 12 run은 `val_loss`의 최소다.
+- 몇 쌍을 손으로 재계산해 일치 확인(ETTh2 H96 seed 42 / 7 / 2026: 0.299968 / 0.298527, 0.303170 / 0.291428, 0.298435 / 0.295632 → +0.48, +4.03, +0.95 %).
+
+### test 값(seed 평균)
+| cell | MSE, L1 loss | MSE, MSE loss | r % | MAE, L1 loss | MAE, MSE loss | r % | energy µJ, L1 / MSE |
+|---|---:|---:|---:|---:|---:|---:|---|
+| ETTh2 H96 | 0.2952 | 0.3005 | +1.82 | 0.3381 | 0.3472 | +2.69 | 9.06 / 8.98 |
+| ETTh2 H720 | 0.4218 | 0.4339 | +2.85 | 0.4384 | 0.4505 | +2.76 | 10.67 / 10.59 |
+| ETTm2 H96 | 0.1775 | 0.1803 | +1.53 | 0.2547 | 0.2649 | +3.98 | 9.89 / 9.61 |
+| ETTm2 H720 | 0.4034 | 0.4044 | +0.23 | 0.3955 | 0.4023 | +1.72 | 11.49 / 11.04 |
+
+### 판정(사전 규칙)
+| metric | R % | 낮아진 쌍 | verdict | energy A/B | seed 42, 7, 2026 r % |
+|---|---:|---:|---|---:|---|
+| test MSE(판정) | +1.61 | 1/12 | **worse** | 0.98 | ETTh2 H96 +0.48, +4.03, +0.95; H720 +3.51, +2.59, +2.46; ETTm2 H96 +1.44, +1.46, +1.70; H720 +0.03, +1.00, −0.35 |
+| test MAE(같은 규칙, 보고) | +2.78 | 0/12 | worse | 0.98 | cell별 +2.69, +2.76, +3.98, +1.72 |
+
+### 미리 적은 예상과 대조
+| 예상 | 결과 |
+|---|---|
+| test MSE가 조금 낮아진다(R −2 – 0 %) | **틀림.** R +1.61 %, 12쌍 중 11쌍이 높다 |
+| test MAE가 올라간다(R 0 – +2 %) | 방향은 맞고 크기는 더 크다(+2.78 %) |
+| energy ±5 % 안 | 맞음. cell별 0.96–0.99배 |
+| ETTh2 H720 best epoch 0–3 | 맞음. 1, 0, 2 |
+
+### 보고만(판정 없음, `results/flif-v1-ett-spkmux-l2/summary.md`)
+| cell | best epoch, L1(seed별) | best epoch, MSE(seed별) | validation MSE: L1 checkpoint | L1 전 epoch 최저 | MSE checkpoint | validation r % | 마지막 epoch test MSE, L1 / MSE |
+|---|---|---|---:|---:|---:|---:|---|
+| ETTh2 H96 | 3, 1, 6 | 0, 1, 0 | 0.2168 | 0.2161 | 0.2155 | −0.60 | 0.2960 / 0.2988 |
+| ETTh2 H720 | 1, 0, 2 | 1, 0, 2 | 0.6138 | 0.6138 | 0.5917 | −3.60 | 0.4191 / 0.4234 |
+| ETTm2 H96 | 25, 11, 7 | 4, 6, 7 | 0.1228 | 0.1226 | 0.1257 | +2.36 | 0.1773 / 0.1808 |
+| ETTm2 H720 | 2, 4, 2 | 2, 5, 2 | 0.2863 | 0.2863 | 0.2860 | −0.10 | 0.4096 / 0.4157 |
+
+- rho_hippo는 MSE loss에서 조금 낮다(L1 / MSE: 0.0704 / 0.0657, 0.0629 / 0.0624, 0.0832 / 0.0726, 0.0744 / 0.0688). rho_neo도 같은 방향이다. energy 0.98배는 이 차이에서 온 작은 값이다.
+- Spikformer식(튜닝, L1) 대비: SpkMixer L1 R +0.45 %(3/12, no clear difference), SpkMixer MSE R +2.06 %(2/12, worse), MAE +3.24 %(0/12). MSE 행은 손실이 섞인 비교다.
+
+### 해석(측정이 아닌 추론)
+- **checkpoint 선택 기준은 주된 원인이 아니다.** L1 run의 validation MSE 최저값은 L1 checkpoint 값과 0.32 % 이내로 같고, 마지막 epoch 가중치로 봐도 네 cell 모두 MSE loss가 높다. 다만 멈추는 epoch가 달라 완전히 분리되지는 않는다.
+- **ETTh2에서는 validation과 test가 반대로 움직인다.** MSE loss가 validation MSE는 낮추는데(H96 −0.60 %, H720 −3.60 %) test MSE는 높인다(+1.82, +2.85 %). MSE loss의 이득이 test 구간으로 옮겨 가지 않는다는 뜻이다. validation과 test 구간의 차이에 큰 오차를 강조하는 MSE loss가 더 민감할 수 있으나, 원인은 재지 않았다.
+- **ETTm2 H96은 validation부터 나빠지고** 학습도 더 일찍 멈춘다(best epoch 4, 6, 7 vs 25, 11, 7). 이 cell의 lr 1e-4가 L1 loss로 고른 값인 영향일 수 있으나 재지 않았다.
+- 학습 손실(MAE)과 평가 지표(MSE)가 달라도, 이 모델에서는 그 불일치가 MSE를 손해 보게 만들지 않았다. L1 loss가 test MSE에서도 낮다.
+
+### 한계
+- SpkMixer muxlin LIF, IAND residual 한 조합, ETT, seed 3개다. lr·층 수·residual은 L1 loss로 고른 값이고 MSE loss용으로 다시 튜닝하지 않았다. 따라서 결론은 "이 설정에서 MSE loss가 나쁘다"까지이고, MSE loss 일반에 대한 결론이 아니다.
+- not run: MSE loss용 lr 튜닝, Spikformer식·query 모델의 MSE loss, 큰 오차가 어느 구간에서 나는지의 분석, L1 학습 + validation MSE 선택의 test 값.
+
+### 결론
+- **SpkMixer의 ETT 학습은 L1 loss를 유지한다.** MSE loss로 바꿀 근거가 없다(test MSE worse, test MAE worse, energy 차이 2 %).
+
+### 산출물과 다음
+- Git: `cinc_mixer_v1/results/flif-v1-ett-spkmux-l2/{raw.txt,pool_log.txt,energy_recount.csv,summary.md}`. 로컬: `cinc_mixer_v1/log/flif-v1-ett-spkmux-l2/`, `driver.log`, 큐 파일.
+- 사용자 결정 대기: 11-05 항목의 다음 실험(Neocortex ablation 또는 token step별 firing rate 측정)과 그 밖의 미결정 항목.
+
+**commit:** 이 기록과 위 Git 산출물. 이 commit은 annotated tag `exp/f-lif-pop-v3-l2-20261107`로 식별한다(완료된 학습 실험의 tag이고 snapshot이 아니다).
