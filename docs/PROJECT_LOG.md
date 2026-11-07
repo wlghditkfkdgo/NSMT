@@ -11974,3 +11974,47 @@ clean test MSE(population LIF / population f-LIF / LIF / f-LIF): ETTh2 H96 0.291
 - CinC를 main result로 되돌릴지(되돌리지 않으면 SpkMixer 논문은 접기를 권함). 직전 항목의 Neocortex 구조 탐색 중단 여부도 함께 대기 중이다. 아무것도 시작하지 않았다.
 
 **commit:** 이 기록만 `exp/f-lif-pop-v3`에 push. tag 없음(학습 없는 분석). 해시는 다음 기록에 적는다.
+
+## 2026-11-08 00:50 KST — 선행 연구 상세 조사(학습 없음, 사용자 11-07 요청): PRF가 attention 없는 neuron token mixing, T = sequence length, forward + reversed 두 stream을 이미 공개했다. SpikMixer에서 이번 검색 범위 안에 선행을 찾지 못한 것은 |H_f − H_r| spiking gate로 fusion 경로를 고르는 조합 하나이고, 그 효과는 CinC에서만 보인다. SpikeVFuse 본문을 읽지 못해 이 판단은 잠정이다.
+
+**직전 commit:** `f339bb5c0`(SpikMixer 논문 판단 항목). 브랜치 `exp/f-lif-pop-v3`.
+
+### 사용자 요청(원문)
+- "PRF는 attention 없이 neuron과 Linear로 token을 섞고, 일부 과제에서 T = sequence length와 bidirectional 구성을 씁니다. => 이 선행연구들에 대해서 자세하게 조사해줘."
+
+### 방법
+- 갈래 5개(PRF와 spiking SSM, attention 없는 spiking mixer, 시계열 SNN, bidirectional과 fusion, ECG·biosignal SNN)를 따로 조사하고 하나의 보고서로 합쳤다. 웹 조회와 저장소 읽기만 했고, 학습과 GPU 작업은 없다. 이메일은 어떤 서비스에도 보내지 않았다(노트와 보고서에서 이메일 주소 0건 확인).
+- 산출물(Git): `NSMT/reports/SpikMixer 선행 연구 조사.md`, `NSMT/research_notes/SpikMixer 선행 연구 조사/{prf_and_spiking_ssm,attention_free_spiking_mixers,spiking_time_series,bidirectional_and_gating,ecg_biosignal_snn}.md`. 근거 등급([full text], [code], [abstract only], [secondary summary], [calculation], [inference], [local])은 파일 안에 있다.
+
+### 결과
+- **PRF(arXiv 2410.03530, Pattern Recognition vol. 183 게재, code 공개):** neuron state로 token을 섞고 Linear는 D 축이다. T = L이고 patch와 repeat 축이 없다. bidirectional은 Image, Pathfinder에만 쓴다. 같은 입력을 θ, Δ만 다른 두 neuron이 읽고 spike concat 뒤 Linear(2D→D)로 합친다. SpkMixer는 stream마다 Linear, BN, neuron이 따로이고 MUX gate로 합친다.
+- **고유점이 아닌 것:** T_h repeat 축(SpikF `SpikeRNN.py`, SmolMamba, LRF-Dyn), token-axis dynamics(SpikeMamba는 reset 있는 LIF가 state, 단방향), bidirectional(PRF, Yin 2021, SmolMamba), IAND·OR residual(SEW, DST, SynA-ResNet), ETT 평가(NSMT, SpikF, SpikeLite, SpikingTSF), spiking mixer forecaster(SMixer, 단 ETT 아님).
+- **이번 검색에서 선행을 찾지 못한 것:** forward·reversed membrane 차이로 만든 binary gate가 learned path와 AND를 고르는 조합. 가장 가까운 것은 XOResNet의 spike XOR이다. {0,1}에서 |a−b| = XOR이므로 주장 범위를 좁혀야 한다. 효과는 muxlin − sdlin CinC +1.56 %p, ETT R +0.57 %, MIT-BIH +0.00 %p로 기존 값 그대로다.
+- **SpikMixer의 T = N은 PRF의 T = L과 주장이 다르다:** PRF는 784–4,096 raw token을 긴 범위 task로 평가한다. SpkMixer는 11–117 patch token이고 test 시 측정한 context는 방향당 4–16 token이다.
+- **공개 ETT 수치(seq_len 96, 4 cell 평균, 계산값):** TimeMixer 0.3168, NSMT 공개값 0.3178, SpikF 0.3215, SpikeLite 0.3225, Spikformer식(우리) 0.3234, RLinear 0.3243, SpikMixer 0.3245, SpikeRNN(SPE) 0.3270, iTransformer 0.3290, iSpikformer(SPE) 0.3325. 같은 PatchTST가 표에 따라 최대 4.6 % 다르므로 공개 수치만으로 우열을 말할 수 없다. 같은 규칙의 비교는 우리 실행 3줄뿐이다.
+- **CinC, MIT-BIH:** 어느 외부 점수도 split과 metric이 같지 않아 비교 가능하지 않다. CinC SNN 공개값(F1 70.4, 70.7, 평균 방식 불명)보다 우리 값이 높다고 말할 수 없다.
+- 노트 사이 불일치 16건을 표로 정리했다(1건 미해결, 1건 부분 해결). reviewer 반론 15개 대부분은 답이 not run이다. 선택지 A–G는 합의가 아니며 시작하지 않았다.
+
+### 우리 쪽에서 새로 확인한 문제(보고서 "우리 쪽에서 고칠 것" 표)
+- MIT-BIH Q class: 우리 CSV는 8,039 beat(train 5,627, test 2,412)다. AAMI 절차의 15 beat와 다르고, paced beat가 남았다는 해석은 미확인이다. Q를 뺀 macro-F1은 약 90.25 %다(반올림된 class F1로 계산, 재평가 not run). 2026-11-05 이전 기록의 MIT-BIH macro-F1은 이 조건의 값이다.
+- MIT-BIH split은 beat-level 70/30이고 환자 ID가 없다. 문헌은 이 방식을 약하다고 본다. `data/denoise_patient_mitbih_*` 파일은 DS1/DS2 계열로 보이지만 출처와 split은 미확인이고, code 참조를 찾지 못했다.
+- CinC test는 hidden test가 아니라 공개 8,528의 fold 0이고, 3,750 sample은 300 Hz를 125 Hz로 resample한 30 s다. score는 N, AF, Other F1 평균으로 공식 최종 점수 공식과 같다.
+- CinC synapse energy의 61 %가 MAC이다(seed 42). `abs`, `min`, `max`, spike 곱은 energy hook에 잡히지 않고, Spikformer식의 q·kᵀ·v도 빠져 있다. 0.98배는 양쪽 다 불완전하다. 크기는 not run이다.
+- ETT, MIT-BIH, CinC의 선택 설정이 다르다(IAND 1 layer, ADD 2 layers, OR 2 layers). MIT-BIH, SMAP, PSM의 ADD는 binary가 아니어서 "spike-only"라고 쓸 수 없다.
+- 앞 항목(23:46) 정정: 내 답의 "남은 차별점은 시계열·ECG 적용과 MUX gate 정도"는 넓었다. ETT 평가는 고유점이 아니다. 또 PRF에 대한 "일부 과제에서 T = sequence length"는 틀린 문장이다. 일부 과제에 한정된 것은 bidirectional뿐이다.
+
+### 내가 직접 대조한 것
+- PRF 저장본 PDF(v2)에서 문구 확인: "aligning with the sequence length", "reduces to the standard LIF neuron without reset", "reverse it and pass it through an independent second PRF Neuron", Image·Pathfinder bidirectional.
+- `cinc_mixer_v1/model.py` `NeoLayer.w_in = nn.Linear(dim, dim)`, `qmux_v1/rhythm_data.py` 125 Hz resample, CSV label 개수 8,039, CinC 요약의 muxlin 행(68.52, 64.35, 129.4)과 X2 +1.56.
+- 보고서에서 금지한 번역어 grep 0건. 표 폭 경고는 `\|` escape 때문이고 표는 깨지지 않는다.
+- 대조하지 않은 것: 보고서의 나머지 외부 수치(ETT 공개값, CinC·MIT-BIH 외부 값)와 CinC accuracy 73.97은 조사 노트에 기대며, 내가 원문과 다시 맞춰 보지 않았다.
+
+### 한계
+- 체계적 문헌 조사가 아니다. OpenAlex 일부 질의와 Semantic Scholar는 429, DBLP와 OpenReview는 차단이었다. GitHub code와 특허는 체계적으로 검색하지 않았다. "찾지 못했다"는 이 범위의 결과다.
+- 본문을 읽지 못한 주요 출처: SpikeVFuse(IEEE TMM 2026, 초록의 "time-reversal-assisted bidirectional spike-modulation", 가장 급함), PRF Pattern Recognition 게재본(v2만 읽음), SpikeMixer(Neurocomputing 2026, 이름 충돌), ISCAS 2026 Bidirectional SNN, SpikeApneaNet.
+- not run: 보고서의 reviewer 반론 표에 적은 측정 전부.
+
+### 사용자 결정 대기
+- CinC를 main result로 되돌릴지, Neocortex 구조 탐색 중단 여부, 보고서의 선택지 A–G. MIT-BIH Q class와 split을 어떻게 처리할지도 새로 대기 항목이다. 아무것도 시작하지 않았다.
+
+**commit:** 보고서, 조사 노트 5개, 이 기록을 `exp/f-lif-pop-v3`에 push. tag 없음(학습 없는 분석). 해시는 다음 기록에 적는다.
