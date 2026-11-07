@@ -11923,3 +11923,54 @@ clean test MSE(population LIF / population f-LIF / LIF / f-LIF): ETTh2 H96 0.291
 - 한계의 "어느 cell도 +0.3 %를 넘지 않는다"는 **other 조건에 한한 말**이다. 후보 population LIF의 attn_off는 ETTm2 H96에서 +3.46 %이다(같은 항목의 보고 전용 내용).
 
 **commit:** 이 정정을 `exp/f-lif-pop-v3`에 push. 해시는 다음 기록에 적는다.
+
+## 2026-11-07 23:46 KST — 사용자 질문 "SpikMixer는 논문을 쓸법해?" 답(학습 없음, 새 측정 없음, 기록과 선행 연구 확인만): 지금 결과로는 쓰지 않기를 권함. Spikformer식(튜닝)보다 뚜렷이 나은 곳은 CinC fold 0(+2.16 %p)뿐이고 CinC는 main result가 아니다(사용자 11-04). energy는 0.98–1.03배로 이점이 없다. 남은 길은 CinC를 main으로 되돌린 좁은 범위뿐이며, 결정은 사용자 몫이다.
+
+**직전 commit:** `04c042d7a`(직전 정정 항목, 그 항목에서 "다음 기록에 적는다"고 한 해시). 브랜치 `exp/f-lif-pop-v3`.
+
+### 사용자 질문(11-07, 원문)
+- "그러면 SpikMixer는 논문을 쓸법해?"
+
+### 근거로 다시 읽은 기록(값은 모두 해당 항목 그대로, 새로 계산하지 않음)
+- 11-02 MIT-BIH 튜닝, ETT 튜닝, CinC 튜닝 항목, 11-03 AD 튜닝 항목 제목, 11-04 후보 비교, 11-05 병목 진단, 11-05 결과표, `cinc_mixer_v1/spk_mixer.py` docstring과 `mix()`.
+
+| 과제 | SpkMixer(muxlin LIF, 튜닝) vs Spikformer식(튜닝) | 판정 | energy 배율 |
+|---|---|---|---:|
+| ETT 4 cell | R +0.45 %(12쌍 중 3쌍 낮음); ETTh2 H96 +1.67 % | no clear difference | 0.98 |
+| MIT-BIH | +0.20 %p(기본 lr Spikformer식 대비 −0.24 %p) | no clear difference | 0.98 |
+| AD 3종 | AUC-PR R +1.05 %(6/9), 세 모델 모두 학습 없는 점수 수준 | no clear difference | 1.03 |
+| CinC fold 0 | +2.16 %p(+2.86, +2.54, +1.09) | better | 0.98 |
+
+### 판단(내 해석)
+1. **정확도 또는 energy 우위 논문은 안 된다.** main task 셋 모두 no clear difference이고 energy 이점이 없다.
+2. **새 fusion(MUX) 기여가 CinC에만 있다.** muxlin vs sdlin: CinC +1.56 %p, ETT R +0.57 %(나쁜 방향), MIT-BIH +0.00 %p. ETTh2 H96에서는 학습된 가중치 그대로 gate를 항상 열면 MSE가 −2.12 %다(사후 관찰).
+3. **T = N memory 주장을 하기 어렵다.** LIF mixer가 실제로 쓰는 문맥은 방향당 4–16 token이다(CinC ctx16 test +0.17 %p, ETT·MIT-BIH ctx4에서 사실상 변화 없음). f-LIF, population LIF의 CinC validation은 69.95 / 66.61로 Spikformer식 71.27보다 낮다(sdlin). 짧은 window의 spiking convolution으로 대체 가능하지 않느냐는 반론에 답할 측정이 없다(not run).
+4. **NSMT 대비 energy 이득(ETT 0.16배, MIT-BIH 0.40배)은 SpkMixer 몫이 아니다.** Spikformer식도 같은 수준이고(ETT NSMT 대비 1/6.24), ETT MSE는 NSMT 재현 b보다 나쁘다(R +1.46 %, 0/12).
+5. **ETT는 mixer를 가르는 과제로 약하다.** mixer를 꺼도 MSE +1.61 %다. 구조 차이가 드러나기 어렵다.
+6. **attention 곱을 energy에 넣어도 판단이 바뀌기 어렵다고 본다.** syops가 q·kᵀ·v를 세지 않아 Spikformer식이 낮게 잡혀 있지만, CinC에서 embedding + BN이 energy의 약 53 %를 공통으로 쓴다. 크기는 재지 않았다(not run).
+
+### 선행 연구 확인(웹 검색 4번, 페이지 확인 2편; 체계적 조사 아님. 초록·요약 수준이고 숫자는 저자 보고값이며 재현하지 않음)
+- attention 제거: Attention-free Spikformer (arXiv 2308.02557), STMixer (NeurIPS 2024, Q·K 곱을 학습 행렬로 대체, 비동기 칩에서 지원하는 연산만 사용, 낮은 time step에서 spiking transformer와 같은 수준), SMixer (ICLR 2026, STMixer 후속).
+- neuron dynamics로 token mixing: PRF (arXiv 2410.03530). attention 없이 neuron + Linear로 token mixing, LRA 과제에서 T = sequence length, 일부 과제에서 forward + reversed 출력을 이어 붙이는 bidirectional 구성. 평가 과제는 LRA, sMNIST, psMNIST이고 ETT, ECG는 확인되지 않음. 구조 세부는 HTML 요약으로 읽었고 원문 대조는 하지 않음. SpkMixer와 가장 가까움.
+- 시계열 SNN: Lv et al. (ICML 2024, SeqSNN, iSpikformer 등), SpikySpace (arXiv 2601.02411, iSpikformer 대비 energy 96.24 % 감소, 정확도 최대 3.0 % 향상을 보고, 추정치).
+- attention-free spiking mixer를 ETT와 ECG에 함께 적용한 논문은 이 검색에서 찾지 못했다. 없다는 뜻은 아니다.
+
+### 남은 길(제안, 실행 안 함)
+- 범위를 "attention 없는 spiking mixer의 긴 biosignal 분류"로 좁힌다. CinC를 main으로 되돌리는 사용자 결정이 먼저 필요하다.
+- 첫 관문(학습):
+  - Spikformer식 lr 격자 확장 4e-3, 8e-3(CinC fold 0, 6 run). 2e-3이 격자 끝이다.
+  - 그 lr로 Spikformer식 fold 1–4(12 run), muxlin fold 1–4(12 run). 약 3시간 추정(muxlin run 약 75분, 8 slot).
+  - 제안 통과 기준: 5 fold 합산 차이 ≥ +1 %p이고 95 % 구간이 0을 넘지 않을 것. 미달이면 SpkMixer 논문을 접는다.
+- 통과 뒤: spiking convolution baseline, 순서 shuffled·memoryless 재학습 대조, 두 번째 긴 sequence 과제, population 행(ETT·MIT-BIH SpkMixer는 LIF만 학습됨), 비스파이킹 baseline, attention 곱을 넣은 energy 재계산.
+
+### 정정
+- 11-04 17:15 항목의 "A의 CinC fold 1–4(24 run)": 4 fold × 3 seed면 12 run이다. 24의 근거를 기록에서 찾지 못했다. 이 항목은 12 run으로 적는다.
+
+### 한계
+- 새 측정이 없다. 판단은 seed 3개, CinC fold 0의 기존 결과에 기댄다. 논문 게재 가능성은 내 추정이고 근거 수치가 아니다.
+- not run: CinC fold 1–4(SpkMixer), spiking convolution 비교, SpkMixer 재학습 대조, 비스파이킹 baseline, attention 곱 energy.
+
+### 사용자 결정 대기
+- CinC를 main result로 되돌릴지(되돌리지 않으면 SpkMixer 논문은 접기를 권함). 직전 항목의 Neocortex 구조 탐색 중단 여부도 함께 대기 중이다. 아무것도 시작하지 않았다.
+
+**commit:** 이 기록만 `exp/f-lif-pop-v3`에 push. tag 없음(학습 없는 분석). 해시는 다음 기록에 적는다.
