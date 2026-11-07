@@ -12018,3 +12018,35 @@ clean test MSE(population LIF / population f-LIF / LIF / f-LIF): ETTh2 H96 0.291
 - CinC를 main result로 되돌릴지, Neocortex 구조 탐색 중단 여부, 보고서의 선택지 A–G. MIT-BIH Q class와 split을 어떻게 처리할지도 새로 대기 항목이다. 아무것도 시작하지 않았다.
 
 **commit:** 보고서, 조사 노트 5개, 이 기록을 `exp/f-lif-pop-v3`에 push. tag 없음(학습 없는 분석). 해시는 다음 기록에 적는다.
+
+## 2026-11-08 01:27 KST — 사용자 질문 "SpikMixer에 membrane shortcut을 적용하면 어떤가" 답(학습 없음, 문헌과 기존 기록만): 시험할 가치는 있으나 기대하는 이득은 residual 통일과 일부 reviewer 반론 완화이고, 얕은 model에서 큰 성능 향상을 기대할 근거는 약하다. 제안만 하고 실행하지 않았다.
+
+**직전 commit:** `de1bb93d4`(선행 연구 보고서, 조사 노트). 브랜치 `exp/f-lif-pop-v3`.
+
+### 사용자 질문(원문)
+- "우리 모델(SpikMixer)도 `membrane shortcut`을 적용하는 것은 어때? 최근 많은 SNN 논문이 membrane shortcut 방법을 채택하는 것으로 알아."
+
+### 문헌(원문 HTML 확인; 수치는 저자 보고값, 차이는 내 계산)
+- 채택 현황: MS-ResNet, Spike-driven Transformer, Spikingformer, PRF, STMixer(code의 real 값 덧셈) 등 읽은 범위에서 널리 쓰인다. 사용자 인식과 맞다. 전수 조사는 아니다.
+- MS-ResNet Table II(CIFAR-10, 분산 표기 없음): vanilla ResNet 대비 depth 8 / 14 / 20 / 32 / 44 / 56 = +0.5 / +1.5 / +1.7 / +4.3 / +5.4 / +18.0 %p. depth 8은 stage당 n = 1이다(논문의 depth 표기에서 내가 계산).
+- Spike-driven Transformer Table 6(2 block, CIFAR-10 / 100, seed 표기 없음): baseline 93.12 / 73.17, + MS 93.93 / 74.63, 차이 +0.81 / +1.46 %p. 읽은 범위에서 얕은 model의 MS 단독 비교로 가장 가깝다.
+- Spikingformer: residual 종류만 바꾼 비교가 없다. Spikformer 대비 energy −60.36 %는 전체 model 비교이고 PSSA, tokenizer 등이 함께 바뀌었다.
+- 세 논문 모두 shortcut 덧셈을 energy 표의 항으로 적지 않는다. 시계열이나 ECG에서 MS만 바꾼 비교는 이 세 논문에 없다. MS의 hardware 한계를 직접 비판한 논문은 이번 검색에서 찾지 못했다.
+
+### 우리 기록
+- SpkMixer, query 모델의 code와 log에 membrane shortcut 시험이 없다. 2026-09 `f_lif_pop_tcn_v1`의 current residual `I_l = I_(l-1) + 2 Conv(S_(l-1))`은 같은 계열이지만 residual 종류 비교가 아니다.
+- 관련 간접 근거: head가 membrane을 읽는 H1은 SpkMixer에서 CinC −1.33 %p, ETT R +2.81 %로 worse, MIT-BIH +0.01 %p, AD R +0.87 %는 no clear difference였다. 앞 층 rate를 읽는 P3 layers는 CinC −1.74 %p worse, MIT-BIH no clear difference였다. 위치가 head이므로 직접 근거는 아니다.
+- residual 선택은 ETT IAND, MIT-BIH ADD, CinC OR로 task마다 다르다.
+
+### 판단(내 해석)
+- 기대 이득: 하나의 residual로 task 통일, IAND의 spike 곱과 ADD의 정수 입력 제거. MUX의 `min`, `sd * a`와 `|H_f − H_r|`는 그대로 남는다.
+- 위험: block 1개라 depth 이득이 작을 수 있다. real 값 정보가 ETT overfitting을 늘릴 수 있다. 구조가 PRF에 더 가까워지므로 SpkMixer의 차별점은 되지 않는다.
+- 공정성: 일반 기법이므로 Spikformer식에도 같이 넣어 비교해야 한다.
+- energy 추정(CinC, 내 계산, firing rate 0.05 가정): 새 Linear(384→384) 3.10 µJ + BN 1.65 µJ + shortcut 덧셈 2개 0.32 µJ = 약 +5.1 µJ, 129.4 µJ의 약 +3.9 %. firing rate 변화는 not run.
+
+### 제안(실행 안 함)
+- 구조: U0 = embedding BN 출력, S0 = LIF(U0), U1 = U0 + BN(W · m(S0)), S1 = LIF(U1), U2 = U1 + BN(fc2(LIF(BN(fc1(S1))))), head는 LIF(U2)의 spike를 읽는다. H1 결과를 근거로 head 입력은 spike로 유지한다.
+- 1차: SpkMixer와 Spikformer식, LIF, ETT 4 cell, MIT-BIH, seed 3개, 튜닝 설정 그대로, 30 run, 약 2시간 이내 추정. 비교는 각 model의 MS 유무, MS끼리 비교. 판정은 기존 규칙(ETT R ≤ −1 %, 8/12; MIT-BIH ≥ +0.5 %p, 2/3 seed).
+- population 행: 구조 비교 규칙(10-21)상 필요하다. SpkMixer의 ETT, MIT-BIH population baseline이 없어 f-LIF, population LIF, population f-LIF를 넣으면 MS 유무 포함 90 run이 추가된다. LIF로 먼저 볼지는 사용자 결정 대기다.
+
+**commit:** 이 기록만 `exp/f-lif-pop-v3`에 push. tag 없음. 해시는 다음 기록에 적는다.
