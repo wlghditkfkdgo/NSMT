@@ -11912,3 +11912,14 @@ clean test MSE(population LIF / population f-LIF / LIF / f-LIF): ETTh2 H96 0.291
 - 사용자 결정 대기: Neocortex 구조 탐색 중단 여부와 그 뒤 방향, 그 밖의 미결정 항목(AD front-end, 논문 값의 학습 규칙 통일, muxlin·tuned Spikformer CinC fold 1–4, memoryless·shuffled retraining control).
 
 **commit:** 이 기록과 위 Git 산출물. 이 commit은 annotated tag `exp/f-lif-pop-v3-qswap-20261107`로 식별한다(학습 없는 분석 실험의 완료 tag이고 snapshot이 아니다). 사전 등록 commit은 `9c5a20bc1`이다.
+
+---
+
+## 2026-11-07 21:23 KST — 정정: 직전 query 교체 결과 항목의 문구 3곳 (새 측정 없음)
+
+**직전 commit:** `55935f603` (tag `exp/f-lif-pop-v3-qswap-20261107`). 수치 파일은 바뀌지 않았고, 아래는 그 항목의 문구를 `results/qswap/report_extra.md`와 대조해 찾은 것이다.
+- "ETT는 1–10 %"(attn_off에서 Hippocampus output 증가): 최대는 f-LIF ETTm2 H96 0.0669 → 0.0739, 10.5 %이므로 **1–11 %**가 맞다.
+- "attention term이 드물게 발화(0.018–0.079)": 최소는 LIF ETTm2 H720 0.0171이므로 **0.017–0.079**가 맞다.
+- 한계의 "어느 cell도 +0.3 %를 넘지 않는다"는 **other 조건에 한한 말**이다. 후보 population LIF의 attn_off는 ETTm2 H96에서 +3.46 %이다(같은 항목의 보고 전용 내용).
+
+**commit:** 이 정정을 `exp/f-lif-pop-v3`에 push. 해시는 다음 기록에 적는다.
