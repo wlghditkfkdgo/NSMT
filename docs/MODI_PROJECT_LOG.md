@@ -6554,3 +6554,167 @@ Neocortex가 침묵한 token의 query는 고정 벡터 q0 = q_lif(q_bn(0))다(`q
 **파일 (git):** `classification/neo_path_probe.py`, `classification/results/flif-v1-neo-path-probe.{md,json}`, 이 항목. 학습이 없으므로 tag는 붙이지 않는다. `exp/nsmt-flif-neo`만 push 한다.
 
 ---
+
+## 2026-11-08 22:25 KST — 사전 고정 + 구현: Membrane Shortcut 시험 ([query pop LIF NSMT T=4], 사용자 요청 11-08) — **요청 1(bias 제거)은 이미 적용돼 있었다.** 실행 스크립트가 `--no-bias`를 넘기므로, checkpoint로 확인한 Linear 11–12개가 모두 bias 없음이다. 그래서 바꾼 것이 없다. 요청 2·3은 새 neuron이나 parameter 없이 넣었다. 기존 neuron이 읽는 입력 전류에 앞 단계의 실수 값 흐름(막전위 쪽)을 더하는 형태다. 변형은 3개다: Hippocampus MS, Neocortex MS, 둘 다. 이것을 query pop LIF / f-LIF × (ETT 네 칸 + MIT-BIH) × seed 3으로 돌려 모두 90 run이다. 기존 경로는 비트 단위로 같고, 점검 c57a–f를 통과했고(c57b–f 187개), smoke 18/18이 끝났다
+
+**직전 commit:** `ebac2538e` (Neocortex path 측정, tag 없음).
+
+**사용자 요청 (11-08, 원문):**
+1. "SNN은 기본적으로 bias-free 구조를 갖고 있어. 만약 bias=True인 레이어가 있다면 전부 False로 변경해줘. (만약 bias=Ture의 성능이 좋다는 것이 확인되면 그때 다시 복원할 예정)"
+2. "현재 전체 모델에 대해서 적용되고 있는 Residual Connection으로 `Membrane Shortcut`으로 변경하여 실험해줘."
+3. "Neocortex의 각 레이어들끼리 residual connected되도록 해줘. 즉 자세하게 말하자면 현재는 2개의 MLP layer로 되어있는데 각 레이어의 입력과 출력이 연결되도록(membrane shortcut) 구성하고 실험해줘."
+
+**요청 1 — bias 점검 (학습 없음):**
+- query pop LIF seed 42 checkpoint 세 개(ETTh2 H96, ETTm2 H720, MIT-BIH)를 열어 nn.Linear와 Conv를 모두 셌다.
+  - Conv는 없다.
+  - Linear는 ETTh2 11개, ETTm2·MIT-BIH 12개이고 모두 bias=False다. 대상: 두 embedding, q·k·v, proj, MLP 두 층, Neocortex 층, `weak_decoder`, head.
+- 이유: 두 실행 스크립트(`run_ett_dual.sh`, `run_mitbih4.sh`)가 `--no-bias`를 넘긴다. 이 값이 모든 Linear의 `lif_bias`와 forecast head의 `bias`로 들어간다. `--bias`를 주지 않아도 기본값이 None이라 bias가 생기지 않는다.
+- 남은 덧셈 항은 아래 둘이다. 둘 다 Linear의 bias가 아니므로 바꾸지 않았다.
+  - BN의 shift β: 모든 Linear 뒤에 있다(Spikformer 계열의 표준 구성).
+  - attention의 relative position bias 표: (2N − 1) × heads.
+- 그래서 bias=True와 비교하는 run은 없다.
+
+**정의 — Membrane Shortcut (MS):**
+- MS-ResNet(Hu et al.)과 Spike-driven Transformer(Yao et al., NeurIPS 2023)의 구성이다.
+  - 블록 사이로 실수 값 흐름 u를 넘긴다. 블록 출력(BN 뒤, spike 함수 앞)을 u에 더한다. neuron은 u를 읽어 발화한다.
+  - 그래서 모든 Linear는 계속 0/1 spike를 읽는다.
+- **지금 Hippocampus 블록 (IAND):**
+  - U0 = BN(W_emb x), s0 = LIF_emb(U0)
+  - x1 = s0 · (1 − LIF_proj(BN(W_proj a))). a는 attention 출력이다(q는 Neocortex, k·v는 s0에서 나온다).
+  - x2 = x1 · (1 − LIF_fc2(BN(W_fc2 h))), h = LIF_fc1(BN(W_fc1 x1))
+  - head는 x2를 읽는다. IAND 출력은 언제나 s0의 부분집합이다.
+- **msh = Hippocampus MS** (`--res_mode ms`):
+  - u0 = U0, s0 = LIF_emb(u0)
+  - u1 = u0 + BN(W_proj a), s1 = LIF_proj(u1)
+  - u2 = u1 + BN(W_fc2 h), h = LIF_fc1(BN(W_fc1 s1)), s2 = LIF_fc2(u2)
+  - head는 s2를 읽는다.
+  - Spike-driven Transformer의 "블록 앞 neuron"과 같은 계산이다. 블록 시작 neuron이 앞 블록 끝 neuron이고, 마지막 neuron이 head 앞 neuron이다.
+- **msn = Neocortex MS** (`--neo_res ms`):
+  - 지금: s0 = n0(U0), s_i = n_i(BN_i(W_i s_{i−1})), i = 1..L. L은 ETTh2 1개, ETTm2·MIT-BIH 2개다.
+  - MS: u0 = U0, s0 = n0(u0); u_i = u_{i−1} + BN_i(W_i s_{i−1}), s_i = n_i(u_i).
+  - 각 층 neuron의 입력 전류에 앞 층 neuron의 입력 전류를 더한다. 요청 3의 "각 레이어의 입력과 출력이 연결"을 막전위 쪽에서 구현한 것이다.
+  - 지름길 수는 ETTh2 1개(embedding → 층 1), ETTm2·MIT-BIH 2개다. embedding 자신은 입력 크기(P)가 D와 달라 지름길이 없다.
+  - population LIF에서는 흐름이 가지 4개가 받는 입력 전류 I에 들어간다(v_k ← v_k + (I − v_k)/τ_k). MS-ResNet과 SDT도 같은 자리, 즉 spike 함수 앞의 실수 값에 더한다.
+- **mshn:** msh와 msn을 함께 켠다.
+- 지름길 덧셈은 실수 덧셈이고, syops는 이것을 세지 않는다. 기존 IAND의 곱도 세지 않았다. 요약에서 0.9 pJ로 따로 적는다.
+  - 행마다 Hippocampus 2·T_h·N·D, Neocortex L·N·D번이다.
+  - ETT 창 하나(7행): msh 86,016번 = 0.077 µJ. msn은 ETTh2 0.010 µJ, ETTm2 0.019 µJ다.
+  - MIT-BIH beat 하나: msh 0.030 µJ, msn 0.008 µJ.
+
+**범위 (내가 정함):**
+- 모델은 query pop LIF(요청 대상)와 query pop f-LIF다.
+  - population LIF·f-LIF를 항상 함께 넣는 원칙(10-21)에 따른다.
+  - 결론은 두 neuron을 함께 본다(H2·H6과 같은 규칙). 대기열은 pop LIF를 먼저 돌린다.
+- 변형은 msh, msn, mshn 3개다. 요청 2와 3을 따로 또 함께 보려고 2×2로 짰다. 기준선은 기존 run이다.
+- 과제는 ETT 네 칸(ETTh2·ETTm2 × H96·H720, 결정 12)과 MIT-BIH다. CinC는 넣지 않는다(11-04 결정: 주 결과가 아님).
+- seed는 42 / 7 / 2026이다. 하이퍼파라미터는 기준선과 같다(탐색 없음). 그래서 validation 선택도 없다.
+  - ETT: `run_ett_dual.sh` 설정, patience 10, validation 최고 weight를 시험한다.
+  - MIT-BIH: `run_mitbih4.sh` 기본값(학습 파일 전체, 30 epoch, lr 0.01, 마지막 epoch를 시험).
+- run 수: 3 변형 × 2 neuron × (ETT 12 + MIT-BIH 3) = 90.
+
+**코드 (기본값이면 기존과 같음):**
+- `classification/layers.py`: `SpikLinearLayer.forward_ms(x, u)`, `MLP.forward(x, ms_u=None)`, `SSA_rel_scl.forward(..., ms_u=None)`.
+- `classification/model.py`:
+  - `Embedding.forward(..., return_pre=False)`: neuron 입력 전류(BN 출력)도 돌려준다.
+  - `Block.forward(..., u=None)`: hippo_ssa·hippo_xattn 분기에서만 쓸 수 있다.
+  - `NeoLayer.forward_ms`, `TemporalBlock.forward(..., u0=None)`.
+  - `myModel`: `res_mode`·`neo_res` 인자와 검증을 넣었다. 지원하지 않는 조합에서는 멈춘다(roll, neuron_all, 양방향·stream·memoryless·shuffle Neocortex, spikingjelly Neocortex).
+  - `myModel.hippo_blocks()`: forward와 forecaster가 함께 쓴다. `neo_forward`에 MS 경로를 넣었다.
+- `classification/forecast_wrap.py`: `step_features`가 `hippo_blocks()`를 쓴다. energy 재계산(`energy_recount_ett.py`)도 이 함수를 쓴다.
+- `classification/config.py`: `--res_mode {iand, ms}`, `--neo_res {none, ms}`를 넣었다. 폴더 접미사는 `_resms`, `_nresms`다. `classification/load_model.py`는 두 인자를 전달한다.
+- 실행 스크립트: `run_ett_dual.sh`, `run_mitbih4.sh`에 조건 `nsmt4q_pop_<lif|flif>_<msh|msn|mshn>`을 넣었다. 수정 전에 돌고 있는 작업이 없음을 확인했다.
+- 새 파일:
+  - `classification/fw_identity_ms.py` (c57a)
+  - `classification/check_ms.py` (c57b–f)
+  - `classification/scripts/make_queue_ms.sh` (대기열 → `scripts/queues/ms-20261108.txt`, git 제외)
+  - `classification/summarize_ms.py` (판정표)
+
+**점검 (fail-closed):**
+- **c57a 기존 경로 비트 동일:** 고치기 전에 28개 항목을 저장했다. 같은 코드로 다시 돌려 결정적임을 확인했고, 고친 뒤 28개 모두 같았다.
+  - MIT-BIH 크기 query pop LIF / f-LIF 새 model: state_dict, 학습 모드 logit, 모든 기울기
+  - MIT-BIH query checkpoint의 시험 logit
+  - ETTh2 H96·H720, ETTm2 H96 query forecaster: state_dict, 학습 출력, 기울기, checkpoint 시험 출력, `step_features`
+  - ETTh2 H96 Spikformer식과 Neo-mixer(`mixall_pop_lif_bidir`) forecaster: 같은 Embedding·SpikLinearLayer·MLP를 쓰므로 넣었다.
+- **c57b 새 parameter 없음:** 세 변형 × 두 neuron × 세 크기(MIT-BIH, ETTm2 H96, ETTh2 H96)에서 state_dict 항목(73 / 73 / 64개), 모양, 같은 seed의 초기값이 기준선과 같다.
+- **c57c Hippocampus 연결:** 새 model 학습 모드와, 기준선 checkpoint를 넣은 시험 모드에서 본다(세 크기).
+  - proj neuron 입력 = U0 + BN_proj 출력, fc2 neuron 입력 = 그것 + BN_fc2 출력이다. 최대 차이 0이다.
+  - forecaster의 `step_features` = fc2 spike다.
+  - Hippocampus Linear 6개의 입력이 모두 0/1이다.
+  - IAND 경로에서는 각 neuron 입력이 자기 BN 출력이다.
+- **c57d Neocortex 연결:**
+  - 층 i neuron 입력 = U0 + Σ_{j≤i} BN_j 출력이다. 최대 차이 0이다.
+  - spike는 0/1이다.
+  - query Linear의 입력 = 마지막 Neocortex 층 spike다(T_h step마다 복사).
+- **c57e:** 흐름이 0이면 `forward_ms`가 기존 forward와 같은 spike를 낸다(SpikLinearLayer, pop LIF NeoLayer).
+- **c57f:**
+  - 기울기가 기준선과 같은 35개 parameter에 가고, 모두 유한하다.
+  - 변형이 실제로 작동한다: 기준선의 학습 weight를 넣으면 출력이 기준선과 다르다.
+  - 마지막 Neocortex 층 spike 수(msn·mshn, 같은 weight): ETTh2 H96 281 → 563, ETTm2 H96 679 → 2,581, MIT-BIH 7,719 → 12,430. msh에서는 Neocortex가 그대로다.
+  - **점검에서 잡은 것:** 첫 c57f는 새로 만든 model로 "출력이 다르다"를 봤고, msn에서 실패했다. 새 Neocortex는 spike를 하나도 내지 않아 query가 같아지기 때문이다(11-04 c55c와 같은 이유). 그래서 학습된 기준선 weight를 넣는 비교로 바꿨다. 점검을 느슨하게 한 것이 아니라, spike가 나는 model로 비교 대상을 바꾼 것이다.
+- **smoke** (1 epoch, seed 42; ETTh2 H96·ETTm2 H96·MIT-BIH × 6조건 = 18 run; RESULT 18, SKIP 0):
+  - `logargs.txt`를 기준선 run과 비교했다. 다른 것은 `res_mode`·`neo_res`·epoch 수뿐이다. 그 밖의 새 줄은 기준선 뒤에 생긴 인자들의 기본값이다.
+  - parameter는 기준선과 같다(175,544 / 184,560 / 1,230,888). `n_spiking_layers`도 기준선과 같다(ETTh2 10, ETTm2 11).
+  - syops는 Hippocampus·Neocortex의 Linear를 모두 덧셈(AC)으로 센다. 곱셈(MAC)은 기준선처럼 입력 embedding과 head뿐이다.
+  - `energy_recount_ett.py`가 smoke 12 run에서 MSE를 정확히 재현했고, 점검을 모두 통과했다.
+    - head 입력 발화율: msh·mshn 0.110–0.122, msn 0.067–0.070.
+  - run당 시간(1 epoch): ETTh2 31–39초, ETTm2 93–104초, MIT-BIH 33–35초.
+- `summarize_ms.py`가 기준선 수치를 재현한다: MIT-BIH 92.17 / 92.02, ETTh2 H96 MSE 0.291209 / 0.289049, parameter 175,544 / 1,230,888.
+
+**기준선 (이미 있는 run, 같은 실행 스크립트·설정, c57a로 기존 경로가 같음을 확인):**
+- ETT: `forecasting/results/flif-v1-ett-query`(ETTh2, 10-30), `flif-v1-ett-query-m2`(ETTm2, 11-03). energy는 각자의 `energy_recount.csv`를 쓴다.
+- MIT-BIH: `classification/results/flif-v1-mitbih-query`(11-01, lr 0.01, `val=0`).
+- 보고 전용 Spikformer식: `flif-v1-gen-ett`, `flif-v1-gen-mitbih`.
+
+**판정 (사전 고정; 값이 빠지거나 중복되거나 유한하지 않으면 멈춤):**
+- 비교 (neuron마다):
+  - **M1** msh − 기준선 (요청 2)
+  - **M2** msn − 기준선 (요청 3 단독)
+  - **M3** mshn − msh (요청 2 위에 요청 3)
+  - 보고 전용: mshn − 기준선
+- **ETT:** r = A / B − 1 (test MSE). 4칸 × 3 seed = 12쌍이다.
+  - 좋음: 평균 ≤ −1 %이고 8/12 낮음
+  - 나쁨: 그 거울
+  - 칸별 판정(±1 %, 2/3 seed)을 함께 적는다.
+- **MIT-BIH:** Δ = A − B의 test macro-F1(%p).
+  - 좋음: 평균 ≥ +0.5 %p이고 2/3 seed 양수
+  - 나쁨: 그 거울
+- **결론**(비교·과제마다): 두 neuron 모두 좋으면 "좋음", 한 neuron만이면 "neuron에 따라 다름(약함)", 둘 다 나쁘면 "나쁨", 나머지는 "차이 없음"이다.
+- **보고 전용:** MAE, validation L1, 발화율 rho_neo·rho_hippo, energy(ETT는 head 재계산 기준, MIT-BIH는 기록값)와 지름길 덧셈, parameter, 각 model과 Spikformer식의 비교.
+
+**읽는 법 (미리 적음):**
+
+| 결과 | 뜻 | 다음 후보 |
+|---|---|---|
+| M1 좋음 | Hippocampus를 MS로 바꾸면 이득이 있다 | MS를 새 기본값으로 둘지 사용자 결정, Spikformer식과 다시 비교 |
+| M1 차이 없음 | 블록 1개인 Hippocampus에서는 IAND와 MS가 같은 수준이다 | 블록을 늘릴 때 다시 본다 |
+| M1 나쁨 | 이 형태의 MS는 쓰지 않는다 | — |
+| M2 좋음 | Neocortex 층 사이 지름길이 query를 개선한다 | M3로 M1 위에서도 유지되는지 본다 |
+| M2 차이 없음 | 지름길로 발화는 늘지만 정확도는 그대로다 | — |
+| M3 | M1 위에서 Neocortex 지름길이 더하는 몫 | — |
+
+**사전 예상:**
+- 정확도: M1·M2·M3 모두 두 과제에서 차이 없음(ETT |R| < 1 %, MIT-BIH |Δ| < 0.5 %p).
+  - Hippocampus는 블록이 1개라, 깊은 망에서 기울기를 전하는 MS의 이점이 거의 없다.
+  - Neocortex 지름길은 발화를 늘린다. 그러나 11-08 측정에서 ETT의 앞쪽 token은 구조상 발화하지 못했다(첫 token에 전류 8.6 이상 필요). 흐름의 크기가 √2–√3배가 되어도 이 조건은 남는다.
+- 발화율:
+  - msn·mshn의 rho_neo는 기준선보다 높다(ETT 네 칸 평균 모두, MIT-BIH 3/3 seed). 같은 weight에서 Neocortex spike가 2–4배였다(c57f).
+  - msh의 rho_hippo는 기준선보다 높다(ETT 네 칸 평균, MIT-BIH 3/3 seed). proj·fc2 neuron이 embedding 전류까지 더한 흐름을 읽기 때문이다. 이 예상은 근거가 약하다.
+- energy(head 재계산 기준): msh·mshn은 기준선보다 높다. smoke에서 head 입력 발화율이 0.11–0.12로 기준선(0.06–0.08)보다 높았다.
+
+**실행:**
+- NSMT/에서 tmux `flif_ms`로 `bash scripts/gpu_pool2.sh nsmt_flif_v1/classification/scripts/queues/ms-20261108.txt 0,1,2,3`을 띄운다.
+- 순서: pop LIF(ETTm2 H720 → ETTm2 H96 → MIT-BIH → ETTh2), 이어서 pop f-LIF를 같은 순서로 돌린다.
+- 결과 줄: `forecasting/results/flif-v1-ett-ms/raw.txt`, `classification/results/flif-v1-mitbih-ms/raw.txt`.
+- 끝나면 `energy_recount_ett.py --suite flif-v1-ett-ms`와 `summarize_ms.py`를 돌린다.
+- GPU는 다른 대화와 나눠 쓴다. run 시간만 적고 끝나는 시각은 어림하지 않는다.
+
+**한계:**
+- 기준선은 다른 날 학습됐다. GPU 연산은 비트 단위로 재현되지 않으므로 짝은 seed로만 맞춘다.
+- Hippocampus 블록 1개, Neocortex 층 1–2개로 얕다. 깊은 망에서 MS가 주는 일반적 이점은 시험하지 못한다.
+- MS 형태는 하나만 본다(기존 neuron 그대로, 입력 전류에 더함).
+- lr 등은 기준선 값 그대로다. MS가 다른 값을 원할 수도 있다.
+- seed 3개, query population 두 모델만 본다. 탐색 수준의 결과다.
+
+**commit:** 이 항목과 위 코드·스크립트·점검 스크립트를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 pool을 시작한다.
+
+---

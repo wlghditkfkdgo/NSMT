@@ -25,6 +25,7 @@ def _neo_kwargs(args):
                 neo_memoryless=getattr(args, 'neo_memoryless', False),
                 neo_shuffle=getattr(args, 'neo_shuffle', False),                                   # MODI 2026-11-02
                 head_pool=getattr(args, 'head_pool', 'mean'),                                      # MODI 2026-11-04 (H2)
+                res_mode=getattr(args, 'res_mode', 'iand'), neo_res=getattr(args, 'neo_res', 'none'),   # MODI 2026-11-08 (membrane shortcut)
                 token_shuffle=getattr(args, 'token_shuffle', False), shuffle_seed=int(getattr(args, 'seed', 0)))   # MODI 2026-10-28
 
 

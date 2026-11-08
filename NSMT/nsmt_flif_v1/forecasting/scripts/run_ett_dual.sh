@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# MODI 2026-11-08 (membrane shortcut): + nsmt4q_pop_<lif|flif>_{msh,msn,mshn} = the query population with --res_mode ms (hippocampus),
+# --neo_res ms (Neocortex) or both; everything else unchanged.
 # MODI 2026-11-04 (head test H6): + nsmt4q_pop_<lif|flif>_h6 = the query population with the H6 head (linear shortcut + small head,
 # --fc_head h6 --fc_head_dim 8; final+result.csv adds mse_lin / mae_lin = the shortcut alone); everything else unchanged.
 # run_ett_dual.sh (MODI 2026-10-29, dual-path batch): copy of run_ett_mixer.sh with only the dual-path conditions -- B form
@@ -41,6 +43,12 @@ case $COND in                     # MODI 2026-10-29: dual-path models, B-form se
   nsmt4q_lif_nomem)  CF="--model myModel --neo_neuron lif --neo_where both --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_memoryless" ;;
   nsmt4q_pop_lif_h6)  CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --fc_head h6 --fc_head_dim 8" ;;   # MODI 2026-11-04 (H6)
   nsmt4q_pop_flif_h6) CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --fc_head h6 --fc_head_dim 8" ;;
+  nsmt4q_pop_lif_msh)   CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --res_mode ms" ;;   # MODI 2026-11-08: membrane
+  nsmt4q_pop_lif_msn)   CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms" ;;    # shortcut in the hippocampus
+  nsmt4q_pop_lif_mshn)  CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --res_mode ms --neo_res ms" ;;   # (h), Neocortex (n), both
+  nsmt4q_pop_flif_msh)  CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --res_mode ms" ;;
+  nsmt4q_pop_flif_msn)  CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms" ;;
+  nsmt4q_pop_flif_mshn) CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --res_mode ms --neo_res ms" ;;
   *) echo "bad cond $COND"; exit 1 ;;
 esac
 case $DS in                       # patch emb heads mlp M lr bs epochs   (run_ett.sh; keep_ratio / alpha unused: no aux decoder)

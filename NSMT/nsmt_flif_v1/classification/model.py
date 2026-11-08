@@ -182,7 +182,7 @@ class Embedding(nn.Module):
         # Residual dropout
         # self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x:torch.tensor, pe=True): 
+    def forward(self, x:torch.tensor, pe=True, return_pre=False):
         T, B, _,_ = x.shape
 
         x = self.emb_linear(x.flatten(0, 1))                      # [T*B, N', D]
@@ -196,13 +196,15 @@ class Embedding(nn.Module):
         x = self.emb_bn(x.transpose(-1, -2).contiguous())
         x = x.reshape(T, B, self.embed_dim, -1).contiguous() # [T B N D]
         x = x.flatten(3).contiguous() # [T B D N] 
-        self.org_x = x.clone().detach().transpose(-1, -2).contiguous() 
+        self.org_x = x.clone().detach().transpose(-1, -2).contiguous()
+        # MODI 2026-11-08 (membrane shortcut): return_pre also returns the neuron's input current (the BN output, graph kept), [T B N D]
+        pre = x.transpose(-1, -2).contiguous() if return_pre else None
 
-        
+
         x = self.emb_lif(x.reshape(T, B, self.embed_dim, -1).contiguous())
-        x = x.transpose(-1, -2).contiguous()  # [T B N D] 
-        
-        return x
+        x = x.transpose(-1, -2).contiguous()  # [T B N D]
+
+        return (x, pre) if return_pre else x
 
 
 class HighFreqAmp(nn.Module):
@@ -258,10 +260,18 @@ class Block(nn.Module):
         self.dropout3 = nn.Dropout(0.1)
         self.shuffle_replay = False
 
-    def forward(self, x: torch.Tensor, mx=None, self_kv=False):
+    def forward(self, x: torch.Tensor, mx=None, self_kv=False, u=None):
         T, B, N, D = x.shape
+        # MODI 2026-11-08 (membrane shortcut): with the stream u (real-valued, [T B N D]) the block returns (spikes, u) and replaces the
+        # IAND x (1 - f(x)) by u <- u + BN(W_proj a); s = LIF_proj(u); u <- u + BN(W_fc2 h); s = LIF_fc2(u) (same modules, no new ones)
+        if u is not None and not (self.use_ssa or self.use_xattn):
+            raise NotImplementedError('membrane shortcut: hippo_ssa / hippo_xattn blocks only')
 
         if self.use_ssa:                                # stage 9: x = x (1 - SSA(x)); same IAND structure as the other blocks
+            if u is not None:
+                u, x = self.ssa(x, ms_u=u)
+                u, x = self.mlp(x, ms_u=u)
+                return x, u
             x = x * (1. - self.ssa(x))
             x = x * (1. - self.mlp(x))
             return x
@@ -274,6 +284,10 @@ class Block(nn.Module):
             if getattr(self, 'stream_rev', False):      # MODI 2026-10-24: order control, stream K-1-t -> step t
                 mx = mx.flip(2)
             kv = mx.transpose(0, 2).expand(x.shape[0], -1, -1, -1).contiguous()   # [N, B, 1, D] -> [T_h, B, N, D]; [N, B, K, D] -> [K, B, N, D]
+            if u is not None:                           # MODI 2026-11-08 (membrane shortcut)
+                u, x = self.ssa(x, kv=kv, ms_u=u)
+                u, x = self.mlp(x, ms_u=u)
+                return x, u
             x = x * (1. - self.ssa(x, kv=kv))
             x = x * (1. - self.mlp(x))
             return x
@@ -363,6 +377,14 @@ class NeoLayer(nn.Module):
         u = self.bn(self.w_in(x).reshape(-1, D)).reshape(T, B, N, D)
         return self.lif.forward_charge(u)
 
+    def forward_ms(self, x, u):                              # MODI 2026-11-08 (Neocortex membrane shortcut)
+        """u <- u + BN(W x); this layer's neuron fires on the stream u instead of BN(W x) alone. Returns (u, spikes)."""
+        if not self.spikede or self.recurrent:
+            raise ValueError('the Neocortex membrane shortcut needs a spikeDE neuron in a passive NeoLayer')
+        T, B, N, D = x.shape
+        u = u + self.bn(self.w_in(x).reshape(-1, D)).reshape(T, B, N, D)
+        return u, self.lif(u)
+
     def forward(self, x):                                    # x: [T, B, N, D]
         T, B, N, D = x.shape
         u = self.bn(self.w_in(x).reshape(-1, D)).reshape(T, B, N, D)
@@ -432,8 +454,13 @@ class TemporalBlock(nn.Module):
         # self.out = MultiStepLIFNode(tau=2.0, backend='cupy', surrogate_function=surrogate.Sigmoid())
 
 
-    def forward(self, x, org_data=None):
+    def forward(self, x, org_data=None, u0=None):
         T, B, N, D = x.shape
+        if u0 is not None:                               # MODI 2026-11-08 (Neocortex membrane shortcut): the stream starts at the
+            u = u0                                       # embedding neuron's input current; layer i: u <- u + BN_i(W_i s), s = n_i(u)
+            for i in range(self.num_layers):
+                u, x = self.Mem[i].forward_ms(x, u)
+            return x
         # x_in = x
         # x = self.out_layer(x)
         # x = self.memory(x)
@@ -713,7 +740,22 @@ class myModel(nn.Module):
             if left:
                 raise NotImplementedError(f'neuron_all: spikingjelly LIF left in {left}')
             self.n_swapped = nh
-        
+
+        # MODI 2026-11-08 (membrane shortcut, user request 11-08). res_mode 'ms': the hippocampus keeps a real-valued stream u that
+        # starts at the embedding neuron's input current; each block adds BN(W_proj a) and BN(W_fc2 h) to it, and the proj / fc2
+        # neurons fire on u (no IAND). neo_res 'ms': the Neocortex stream starts at its embedding neuron's input current and layer i
+        # adds BN_i(W_i s) to it; layer i's neuron fires on u. Both reuse the existing modules (no new parameters or neurons);
+        # 'iand' / 'none' = unchanged.
+        self.res_mode, self.neo_res = str(kwargs.get('res_mode', 'iand')), str(kwargs.get('neo_res', 'none'))
+        if self.res_mode not in ('iand', 'ms') or self.neo_res not in ('none', 'ms'):
+            raise ValueError("res_mode in {iand, ms}, neo_res in {none, ms}")
+        if self.res_mode == 'ms' and (not (self.hippo_ssa or self.hippo_xattn) or self.roll_mode != 'none' or self.neuron_all != 'sj_lif'):
+            raise NotImplementedError('res_mode ms: hippo_ssa / hippo_xattn with roll_mode none and the spikingjelly hippocampus only')
+        if self.neo_res == 'ms' and (self.hippo_ssa or self.no_neo or self.hippo_only or self.neo_streams or self.neo_bidir
+                                     or self.neo_memoryless or self.neo_shuffle is not None or neo_neuron == 'sj_lif'
+                                     or not self.neo_exact or self.neo_recurrent):
+            raise NotImplementedError('neo_res ms: a unidirectional single-stream Neocortex of passive NeoLayers with a spikeDE neuron only')
+
         # MODI 2026-11-04 (H2, head test): attention pooling over the token axis in front of the head. A learned query q (score
         # layer Linear(D -> 1), no bias) scores every token of every T_h step, a = softmax_N(q . x_n / sqrt(D)), and the head
         # reads sum_n a_n x_n instead of the token mean. q starts at 0 (a = 1/N: exactly the mean head at init) and is built
@@ -833,7 +875,7 @@ class myModel(nn.Module):
             base = patched_x[0]                              # [BC, N, P] (all T identical after repeat)
             x_hippo = self._unroll(self.encoding(self._roll_T(base)))  # sine/rand roll, encode, realign
         else:
-            x_hippo = self.encoding(patched_x)
+            x_hippo = self.encoding(patched_x, return_pre=(self.res_mode == 'ms'))   # MODI 2026-11-08: (spikes, stream) with ms
 
         if self.no_neo or self.hippo_only or self.hippo_ssa:   # nsmt_flif_v1: hippo_only / hippo_ssa have no neocortex path
             x_neo = None                                # ablation: no Neocortex path
@@ -841,10 +883,9 @@ class myModel(nn.Module):
             if neo_in is None:
                 neo_in = patched_x.transpose(0, 2).contiguous().mean(2, keepdim=True)
             _, x_neo = self.neo_forward(neo_in, org_seq)   # [N B 1 D]
-        
-        for dblk in self.data_block:
-            x_hippo = dblk(x_hippo, x_neo, self_kv=self.hippo_only)
-        
+
+        x_hippo = self.hippo_blocks(x_hippo, x_neo)
+
         if self.train_mode == 'training':
             
             return self._training(x_hippo, x_neo) 
@@ -861,6 +902,18 @@ class myModel(nn.Module):
             raise ValueError
         
         
+    def hippo_blocks(self, x_hippo, x_neo):
+        """The hippocampus blocks on the embedding output; returns the last block's spikes [T_h, B, N, D].
+        MODI 2026-11-08: res_mode 'ms' takes x_hippo = (spikes, stream) from encoding(..., return_pre=True)."""
+        if getattr(self, 'res_mode', 'iand') == 'ms':
+            x, u = x_hippo
+            for dblk in self.data_block:
+                x, u = dblk(x, x_neo, self_kv=self.hippo_only, u=u)
+            return x
+        for dblk in self.data_block:
+            x_hippo = dblk(x_hippo, x_neo, self_kv=self.hippo_only)
+        return x_hippo
+
     def _tokens_mc(self, x):
         """stage 9: x [B, C, L] -> hippocampus input [T_h, B, N, P*C] (exact repeats), neocortex input [N, B, 1, P*C] and the
         auxiliary target self.org_x [N, B, 1, P*C] (low-pass of each channel, patched the same way)."""
@@ -898,6 +951,9 @@ class myModel(nn.Module):
             o = self.time_block(e, org_seq)
             inv = torch.argsort(perm, dim=1)                                 # back to the original token positions
             return permute_tokens_det(e, inv), permute_tokens_det(o, inv)
+        if getattr(self, 'neo_res', 'none') == 'ms':                        # MODI 2026-11-08: Neocortex membrane shortcut
+            e, u0 = self.encoding_neo(neo_in, return_pre=True)               # u0 = the embedding neuron's input current [N, B, 1, D]
+            return e, self.time_block(e, org_seq, u0=u0)
         e = self.encoding_neo(neo_in)
         if getattr(self, 'neo_streams', False):                        # MODI 2026-10-23: [N, B, K, D], stream k -> hippocampus step k
             if getattr(self, 'neo_stream_fuse', 'none') == 'mx':       # MODI 2026-10-24: both token directions, fused per stream

@@ -44,9 +44,17 @@ class SpikLinearLayer(nn.Module):
         x = self.linear(x.flatten(0, 1))
         x = self.bn(x.transpose(-1, -2).contiguous()).transpose(-1, -2).contiguous()
         x = self.lif(x.reshape(x_shape[0], x_shape[1], x_shape[2], -1).contiguous())
-        
+
         return x
-    
+
+    def forward_ms(self, x, u):
+        """MODI 2026-11-08 (membrane shortcut): the neuron reads the real-valued stream u + BN(W x) instead of BN(W x) alone.
+        x: input spikes [T, B, N, C_in]; u: stream [T, B, N, C_out]. Returns (new stream, spikes of this layer's neuron)."""
+        x = self.linear(x.flatten(0, 1))
+        x = self.bn(x.transpose(-1, -2).contiguous()).transpose(-1, -2).contiguous()
+        u = u + x.reshape(u.shape)
+        return u, self.lif(u.contiguous())
+
 class SpikLinearMaxLayer(nn.Module):
     def __init__(self, in_dim, out_dim=None, kernel_size=2, spk='lif', tau=2.0, lif_bias=False):
         super().__init__()
@@ -115,9 +123,11 @@ class MLP(nn.Module):
         
         
 
-    def forward(self, x):
+    def forward(self, x, ms_u=None):
         T, B, N, C = x.shape
         x = self.fc1(x)
+        if ms_u is not None:                            # MODI 2026-11-08 (membrane shortcut): (new stream, fc2 spikes on the stream)
+            return self.fc2.forward_ms(x, ms_u)
         x = self.fc2(x)
 
         return x
@@ -196,7 +206,7 @@ class SSA_rel_scl(nn.Module):
         d = d[:, None] - d[None, :]
         return ((d >= 0) & (d < (N if W < 0 else W))).to(ref.dtype)
 
-    def forward(self, x, mask=None, kv=None):
+    def forward(self, x, mask=None, kv=None, ms_u=None):
         T,B,N,C = x.shape
         
         # T, batch_size, seq_len, _ = x.shape 
@@ -279,7 +289,9 @@ class SSA_rel_scl(nn.Module):
         x = x.transpose(2, 3).reshape(T, B, N, C).contiguous()
         if self.attn_bn is not None:
             x = self.attn_bn(x.flatten(0, 1).transpose(-1, -2).contiguous()).transpose(-1, -2).reshape(T, B, N, C).contiguous()
-        x = self.attn_lif(x) 
+        x = self.attn_lif(x)
+        if ms_u is not None:                            # MODI 2026-11-08 (membrane shortcut): (new stream, proj spikes on the stream)
+            return self.proj_linear.forward_ms(x, ms_u)
         x = self.proj_linear(x)
         return x
     

@@ -73,11 +73,9 @@ class Forecaster(nn.Module):
         """'ssa' / 'dual': z [B', 1, L] -> per-step hippocampus spikes [T_h, B', N, D] (the head input before the T_h mean)."""
         m = self.inner
         patched, neo_in = m._tokens_mc(z)                                  # [T_h, B', N, P], [N, B', 1, P]
-        xh = m.encoding(patched)
+        xh = m.encoding(patched, return_pre=(getattr(m, 'res_mode', 'iand') == 'ms'))   # MODI 2026-11-08: (spikes, stream) with ms
         x_neo = m.neo_forward(neo_in, z.clone().detach())[1] if self.kind == 'dual' else None   # [N, B', 1, D]
-        for blk in m.data_block:
-            xh = blk(xh, x_neo, self_kv=m.hippo_only)
-        return xh
+        return m.hippo_blocks(xh, x_neo)
 
     def features(self, z):
         """z [B', 1, L] -> per-token spikes [B', N, D]."""

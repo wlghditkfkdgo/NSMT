@@ -143,6 +143,11 @@ def parse_arguments():
                          help='MODI 2026-11-04 (H6, ETT): flat = Linear(N*D -> H); h6 = linear shortcut Linear(L -> H) on the normalised input '
                               '+ small head (per-token Linear(D -> fc_head_dim), then Linear(N*fc_head_dim -> H))')
     snn_arg.add_argument('--fc_head_dim', type=int, default=8, help='MODI 2026-11-04 (H6): per-token width d of the small head')
+    snn_arg.add_argument('--res_mode', choices=['iand', 'ms'], default='iand',
+                         help='MODI 2026-11-08: hippocampus residual -- iand x (1 - f(x)) (default) or ms = membrane shortcut (real-valued '
+                              'stream u, u <- u + BN(W s), the block neurons fire on u)')
+    snn_arg.add_argument('--neo_res', choices=['none', 'ms'], default='none',
+                         help='MODI 2026-11-08: residual between Neocortex layers -- none (default) or ms = membrane shortcut')
     snn_arg.add_argument('--token_shuffle', action='store_true', default=False,
                          help='MODI 2026-10-28 shuffle-retrain: random token order per sample in training, one fixed order in evaluation')
     snn_arg.add_argument('--neuron_scope', choices=['mixer', 'all', 'lifbase'], default='mixer',
@@ -284,6 +289,10 @@ class Config():
             _iso += f"_hp{args.head_pool}"
         if getattr(args, 'fc_head', 'flat') != 'flat':                    # MODI 2026-11-04 (H6)
             _iso += f"_fh{args.fc_head}d{args.fc_head_dim}"
+        if getattr(args, 'res_mode', 'iand') != 'iand':                   # MODI 2026-11-08 (membrane shortcut)
+            _iso += f"_res{args.res_mode}"
+        if getattr(args, 'neo_res', 'none') != 'none':
+            _iso += f"_nres{args.neo_res}"
         if getattr(args, 'neuron_scope', 'mixer') != 'mixer':             # MODI 2026-10-29
             _iso += {'all': '_nall', 'lifbase': '_nlb'}[args.neuron_scope]
         if getattr(args, 'neuron_all', 'sj_lif') != 'sj_lif':             # MODI 2026-10-29 (myModel)
