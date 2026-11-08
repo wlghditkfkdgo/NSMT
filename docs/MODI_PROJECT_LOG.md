@@ -6718,3 +6718,233 @@ Neocortex가 침묵한 token의 query는 고정 벡터 q0 = q_lif(q_bn(0))다(`q
 **commit:** 이 항목과 위 코드·스크립트·점검 스크립트를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 pool을 시작한다.
 
 ---
+
+## 2026-11-09 01:37 KST — 결과: Membrane Shortcut 시험 (90 run) — 세 비교 어디에서도 개선이 없다. ETT는 M1·M2·M3 모두 "차이 없음"이고, neuron별 평균 R이 +0.17 ~ +0.77 %로 모두 기준선보다 조금 나쁜 쪽이다. MIT-BIH에서 M1(Hippocampus MS)은 pop LIF가 "나쁨"(−0.56 %p, seed 0/3 양수)이고 pop f-LIF는 차이 없음(−0.10 %p)이라, 결론은 "neuron에 따라 다름(약함)"이다. M2·M3는 MIT-BIH에서도 차이 없음이다. Neocortex MS는 Neocortex 발화를 늘리지만(ETTm2에서 약 2배) 정확도는 그대로다. validation L1도 MS 변형을 고르지 않는다. 기본 경로(IAND, Neocortex 지름길 없음)를 유지한다
+
+**사전 고정:** 2026-11-08 22:25 항목, commit `16052238e`. 규칙·예상·읽는 법은 그 항목을 그대로 적용했다(바꾼 것 없음).
+
+**목적:** 사용자 요청 11-08의 2(Hippocampus residual을 Membrane Shortcut으로)와 3(Neocortex 층 사이 membrane shortcut)을 [query pop LIF NSMT T=4]와 pop f-LIF 짝에서 시험한다. 요청 1(bias 제거)은 이미 적용돼 있어 run이 없다(앞 항목).
+
+**branch / base:** `exp/nsmt-flif-neo`, 학습 코드 = `16052238e`(90 run 모두 RESULT의 `sha=16052238e`). 이 항목 이후 코드 변경 없음.
+
+**환경:** `/home/yschoi/.conda/envs/snn_recall/bin/python`, `LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib`, GPU 0–3(A6000), GPU 하나에 run 하나.
+
+**실행:**
+- NSMT/에서 tmux `flif_ms`: `bash scripts/gpu_pool2.sh nsmt_flif_v1/classification/scripts/queues/ms-20261108.txt 0,1,2,3 2>&1 | tee -a nsmt_flif_v1/forecasting/results/flif-v1-ett-ms-pool.log`
+  - 대기열은 `classification/scripts/make_queue_ms.sh`가 만든다(git 제외).
+  - 11-08 22:27:28 시작, 11-09 01:29:30 마지막 run 끝.
+- 90/90 DONE, SKIP 0. RESULT는 ETT 72, MIT-BIH 18이다.
+- run당 시간:
+
+  | 과제 | 시간 (초) |
+  |---|---|
+  | ETTh2 H96 | 163–208 |
+  | ETTh2 H720 | 167–254 |
+  | ETTm2 H96 | 619–1,179 |
+  | ETTm2 H720 | 620–718 |
+  | MIT-BIH | 479–553 |
+
+- pool 기록:
+  - 원본은 `forecasting/results/flif-v1-ett-ms-pool.log`이다(`*.log`라 git 제외, 로컬에 둔다).
+  - 같은 내용을 두 suite의 `pool_runs.txt`로 복사했다.
+- energy: `cd nsmt_flif_v1/classification && python energy_recount_ett.py --suite flif-v1-ett-ms`
+  - 72 run, "all checks passed".
+  - 다시 계산한 test MSE가 72/72 기록값과 같다.
+  - step별 head 입력이 0/1이다.
+- 요약: `python summarize_ms.py` → `classification/results/flif-v1-ms-summary.md`
+- 중간 확인: pool 도중(11-08 23:41) 사용자 브리핑을 위해 끝난 25 run을 임시 스크립트(scratchpad, commit 안 함)로 읽어 보고했다. 규칙·코드·대기열은 바꾸지 않았다. 판정은 `summarize_ms.py`의 출력만 쓴다.
+
+**판정 전 점검 (fail-closed, 모두 통과):**
+- 키:
+  - ETT 72개 = 2 neuron × 3 변형 × 4칸 × 3 seed
+  - MIT-BIH 18개 = 2 × 3 × 3
+  - 빠짐과 중복이 없다.
+- 값:
+  - mse·mae·val_loss_best·f1·rho·energy가 모두 유한하다.
+  - sha는 90/90 `16052238e`이다.
+  - MIT-BIH는 18/18 `epochs_run=30`, `lr=0.01`, `aux=0`이다.
+- `logargs.txt` 90개가 모두 조건과 같다:
+  - msh: `res_mode ms`, `neo_res none`
+  - msn: `iand`, `ms`
+  - mshn: `ms`, `ms`
+- parameter는 칸마다 기준선과 같다. MS는 parameter를 더하지 않는다.
+
+  | 칸 | parameter |
+  |---|---|
+  | ETTh2 H96 | 175,544 |
+  | ETTh2 H720 | 1,134,008 |
+  | ETTm2 H96 | 184,560 |
+  | ETTm2 H720 | 1,143,024 |
+  | MIT-BIH | 1,230,888 |
+
+- `n_spiking_layers`는 ETTh2 10, ETTm2 11로 기준선과 같다.
+
+**결과 — ETT (test MSE, best-validation weight; r = A / B − 1, %; 칸 판정은 ±1 %·2/3 seed)**
+
+| 비교 | neuron | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 | R | A가 낮은 쌍 | 판정 | energy A/B |
+|---|---|---|---|---|---|---|---|---|---|
+| M1 msh − 기준선 | pop LIF | +0.26 | +0.92 | −0.08 | −0.42 | +0.17 | 8/12 | 차이 없음 | 1.04 |
+| M1 msh − 기준선 | pop f-LIF | +1.92 (칸: 나쁨) | +1.34 (칸: 나쁨) | −0.38 | +0.18 | +0.77 | 4/12 | 차이 없음 | 1.03 |
+| M2 msn − 기준선 | pop LIF | +0.66 | +0.52 | +0.89 | +0.20 | +0.57 | 2/12 | 차이 없음 | 1.01 |
+| M2 msn − 기준선 | pop f-LIF | +0.48 | +0.74 | +0.96 | +0.41 | +0.65 | 2/12 | 차이 없음 | 1.01 |
+| M3 mshn − msh | pop LIF | −0.08 | +1.11 | +0.91 | +0.51 | +0.61 | 4/12 | 차이 없음 | 1.01 |
+| M3 mshn − msh | pop f-LIF | +0.50 | −0.21 | +1.35 (칸: 나쁨) | +0.23 | +0.47 | 4/12 | 차이 없음 | 1.01 |
+| 보고 전용 mshn − 기준선 | pop LIF | +0.16 | +2.02 (칸: 나쁨) | +0.83 | +0.09 | +0.78 | 4/12 | 차이 없음 | 1.04 |
+| 보고 전용 mshn − 기준선 | pop f-LIF | +2.43 (칸: 나쁨) | +1.12 (칸: 나쁨) | +0.97 | +0.41 | +1.23 | 2/12 | 나쁨 (보고 전용) | 1.04 |
+
+- test MSE 평균 ± sd(seed 3개)는 요약 파일에 있다. 예: ETTh2 H96 pop LIF 기준선 0.2912 ± 0.0045, msh 0.2919 ± 0.0027, msn 0.2931 ± 0.0045, mshn 0.2916 ± 0.0023.
+- MAE도 같은 방향이다(요약 파일).
+- 네 칸 평균 validation L1(선택 기준)은 MS 변형이 모두 기준선 이상이다. validation으로 골라도 기준선이 남는다.
+
+  | neuron | 기준선 | msh | msn | mshn |
+  |---|---|---|---|---|
+  | pop LIF | 0.3618 | 0.3632 | 0.3624 | 0.3631 |
+  | pop f-LIF | 0.3616 | 0.3628 | 0.3618 | 0.3629 |
+
+**결과 — MIT-BIH (test macro-F1 %, 마지막 epoch weight, lr 0.01; Δ = A − B, %p)**
+
+| 비교 | neuron | seed 42 / 7 / 2026 | 평균 Δ | 양수 seed | 판정 | energy A/B |
+|---|---|---|---|---|---|---|
+| M1 msh − 기준선 | pop LIF | −0.40 / −0.46 / −0.83 | −0.56 | 0/3 | 나쁨 | 0.80 |
+| M1 msh − 기준선 | pop f-LIF | −0.33 / +0.05 / −0.01 | −0.10 | 1/3 | 차이 없음 | 0.82 |
+| M2 msn − 기준선 | pop LIF | −0.09 / +0.20 / −0.16 | −0.02 | 1/3 | 차이 없음 | 1.02 |
+| M2 msn − 기준선 | pop f-LIF | −0.00 / +0.17 / +0.58 | +0.25 | 2/3 | 차이 없음 | 1.03 |
+| M3 mshn − msh | pop LIF | +0.40 / +0.53 / +0.15 | +0.36 | 3/3 | 차이 없음 | 1.05 |
+| M3 mshn − msh | pop f-LIF | +0.41 / −0.42 / −0.17 | −0.06 | 1/3 | 차이 없음 | 1.04 |
+| 보고 전용 mshn − 기준선 | pop LIF | −0.00 / +0.07 / −0.68 | −0.20 | 1/3 | 차이 없음 | 0.84 |
+| 보고 전용 mshn − 기준선 | pop f-LIF | +0.07 / −0.37 / −0.18 | −0.16 | 1/3 | 차이 없음 | 0.86 |
+
+평균 F1(%)과 정확도:
+
+| 변형 | pop LIF F1 | pop f-LIF F1 | 정확도 (pop LIF / pop f-LIF) |
+|---|---|---|---|
+| 기준선 | 92.17 | 92.02 | 98.57 / 98.54 |
+| msh | 91.61 | 91.92 | 98.43 / 98.50 |
+| msn | 92.16 | 92.27 | 98.56 / 98.57 |
+| mshn | 91.97 | 91.86 | 98.45 / 98.47 |
+
+pop LIF msh에서 가장 많이 떨어진 class는 S(86.2 → 84.7)다.
+
+**결론 (사전 고정 규칙):**
+
+| 비교 | 과제 | pop LIF | pop f-LIF | 결론 |
+|---|---|---|---|---|
+| M1 msh − 기준선 (요청 2) | ETT | 차이 없음 | 차이 없음 | 차이 없음 |
+| M1 msh − 기준선 (요청 2) | MIT-BIH | 나쁨 | 차이 없음 | neuron에 따라 다름 (약함) |
+| M2 msn − 기준선 (요청 3 단독) | ETT | 차이 없음 | 차이 없음 | 차이 없음 |
+| M2 msn − 기준선 (요청 3 단독) | MIT-BIH | 차이 없음 | 차이 없음 | 차이 없음 |
+| M3 mshn − msh (요청 2 위에 요청 3) | ETT | 차이 없음 | 차이 없음 | 차이 없음 |
+| M3 mshn − msh (요청 2 위에 요청 3) | MIT-BIH | 차이 없음 | 차이 없음 | 차이 없음 |
+
+"좋음"은 어디에도 없다.
+
+**보고 전용 — 발화율(spike를 내는 비율)과 energy:**
+
+ETT 네 칸 평균 발화율과 energy(µJ, head를 step별 spike 덧셈으로 다시 센 값):
+
+| neuron | 변형 | rho_neo | rho_hippo | energy | MS 덧셈 (별도) |
+|---|---|---|---|---|---|
+| pop LIF | 기준선 | 0.0190 | 0.0531 | 12.94 | – |
+| pop LIF | msh | 0.0219 | 0.0635 | 13.41 | 0.077 |
+| pop LIF | msn | 0.0328 | 0.0574 | 13.04 | 0.015 |
+| pop LIF | mshn | 0.0363 | 0.0652 | 13.54 | 0.092 |
+| pop f-LIF | 기준선 | 0.0196 | 0.0541 | 15.74 | – |
+| pop f-LIF | msh | 0.0202 | 0.0619 | 16.15 | 0.077 |
+| pop f-LIF | msn | 0.0371 | 0.0581 | 15.86 | 0.015 |
+| pop f-LIF | mshn | 0.0402 | 0.0663 | 16.35 | 0.092 |
+
+- Neocortex 발화 증가는 ETTm2에서 크다(약 2배).
+  - pop LIF: H96 0.027 → 0.054, H720 0.020 → 0.042
+  - pop f-LIF: 0.023 → 0.058, 0.025 → 0.050
+  - ETTh2(Neocortex 층 1개)는 0.014–0.016 → 0.017–0.022로 작다.
+- head 입력 발화율(energy 재계산의 `rate`, 12 run 평균):
+  - 기준선 0.069 / 0.068, msh 0.107 / 0.104, mshn 0.109 / 0.106, msn 0.069 / 0.069
+  - msh·mshn의 energy가 높은 것은 이 차이 때문이다.
+  - ETTm2 H96은 예외다. msh·mshn에서 rho_hippo가 기준선보다 낮거나 같고(pop LIF 0.067 / 0.069 vs 0.073, pop f-LIF 0.063 / 0.071 vs 0.071), energy도 같거나 낮다(13.23 → 12.96 / 13.15, 16.53 → 16.22 / 16.50).
+
+MIT-BIH 발화율과 energy(seed 평균, µJ, 기록값):
+
+| neuron | 변형 | rho_neo | rho_hippo | energy | 그중 synapse | MS 덧셈 (별도) |
+|---|---|---|---|---|---|---|
+| pop LIF | 기준선 | 0.0424 | 0.1476 | 11.10 | 8.47 | – |
+| pop LIF | msh | 0.0462 | 0.0990 | 8.83 | 6.27 | 0.030 |
+| pop LIF | msn | 0.0587 | 0.1506 | 11.37 | 8.74 | 0.008 |
+| pop LIF | mshn | 0.0700 | 0.1057 | 9.28 | 6.71 | 0.038 |
+| pop f-LIF | 기준선 | 0.0623 | 0.1398 | 12.26 | 8.64 | – |
+| pop f-LIF | msh | 0.0628 | 0.0992 | 10.09 | 6.52 | 0.030 |
+| pop f-LIF | msn | 0.0757 | 0.1476 | 12.57 | 8.94 | 0.008 |
+| pop f-LIF | mshn | 0.0828 | 0.1036 | 10.51 | 6.93 | 0.038 |
+
+- MIT-BIH에서 Hippocampus MS는 Hippocampus 발화를 약 1/3 줄인다(seed 6/6 모두 감소). 그래서 energy가 18–20 % 내려간다.
+  - 같은 변화에서 pop LIF는 F1을 0.56 %p 잃고, pop f-LIF는 0.10 %p 잃는다.
+  - 어느 neuron의 발화가 줄었는지(per-layer 기록 `model+info+per+layer.txt`)는 아직 보지 않았다.
+- MS 덧셈(0.9 pJ로 따로 센 값)은 위 energy에 들어 있지 않다. 크기가 0.008–0.092 µJ라 비율을 바꾸지 않는다.
+
+**보고 전용 — Spikformer식(`flif-v1-gen-ett`, `flif-v1-gen-mitbih`) 대비:**
+
+| model | ETT R | A가 낮은 쌍 | ETT 판정 | ETT energy 비 | MIT-BIH Δ | MIT-BIH 판정 |
+|---|---|---|---|---|---|---|
+| pop LIF 기준선 | −0.68 % | 9/12 | 차이 없음 | 1.24 | −0.05 %p | 차이 없음 |
+| pop LIF msh | −0.53 % | 10/12 | 차이 없음 | 1.28 | −0.61 %p | 나쁨 |
+| pop LIF msn | −0.12 % | 6/12 | 차이 없음 | 1.25 | −0.07 %p | 차이 없음 |
+| pop LIF mshn | +0.08 % | 7/12 | 차이 없음 | 1.29 | −0.25 %p | 차이 없음 |
+| pop f-LIF 기준선 | −0.85 % | 9/12 | 차이 없음 | 1.50 | −0.20 %p | 차이 없음 |
+| pop f-LIF msh | −0.11 % | 9/12 | 차이 없음 | 1.54 | −0.30 %p | 차이 없음 |
+| pop f-LIF msn | −0.21 % | 6/12 | 차이 없음 | 1.51 | +0.04 %p | 차이 없음 |
+| pop f-LIF mshn | +0.36 % | 6/12 | 차이 없음 | 1.56 | −0.36 %p | 차이 없음 |
+
+Spikformer식보다 "좋음"이 된 model은 없다.
+
+**사전 예상 대조:**
+
+| 예상 | 결과 | 맞음 / 틀림 |
+|---|---|---|
+| 정확도: M1·M2·M3 모두 두 과제에서 차이 없음(ETT \|R\| < 1 %, MIT-BIH \|Δ\| < 0.5 %p) | ETT: neuron별 R 6개가 모두 \|R\| < 1 %이고 결론도 모두 차이 없음. MIT-BIH: M1 pop LIF가 −0.56 %p로 범위를 벗어났다. 나머지 5개는 \|Δ\| < 0.5 %p | 비교 × 과제 6칸 중 5칸 맞음. **M1 MIT-BIH 틀림** |
+| msn·mshn의 rho_neo가 기준선보다 높다(ETT 네 칸 모두, MIT-BIH 3/3 seed) | ETT 16/16(2 neuron × 2 변형 × 4칸), MIT-BIH 12/12 seed | 맞음 |
+| msh의 rho_hippo가 기준선보다 높다(ETT 네 칸 평균, MIT-BIH 3/3 seed; 근거 약함) | ETT 네 칸 평균은 두 neuron 모두 높다(ETTm2 H96만 낮음). MIT-BIH는 0/3 · 0/3으로 반대 방향, 약 −33 % / −29 % | ETT 맞음. **MIT-BIH 틀림** |
+| msh·mshn의 energy가 높다(head 재계산 기준) | ETT 네 칸 평균 1.03–1.04배(ETTm2 H96은 같거나 낮음) | 맞음 |
+
+- energy 예상은 ETT의 head 재계산만 말했다. MIT-BIH 기록값(0.80–0.86배)은 예상 범위 밖이지만, 예상의 근거와는 반대 방향이다.
+- head 입력 발화율은 smoke(0.11–0.12 vs 0.06–0.08)와 본 실행(0.104–0.109 vs 0.068–0.069)이 같은 쪽이다.
+
+**읽는 법 적용 (미리 적은 표):**
+- **M1:**
+  - ETT "차이 없음"이다. 블록 1개인 Hippocampus에서는 IAND와 MS가 같은 수준이다. 미리 적은 다음 후보는 "블록을 늘릴 때 다시 본다"이다.
+  - MIT-BIH는 "neuron에 따라 다름(약함)"이다. 미리 적은 표에 이 칸은 없었다.
+  - 이 model에서 MS는 이득이 없고 한 neuron에서는 손해다. 그래서 기본값으로 두지 않는다.
+- **M2 "차이 없음":** "지름길로 발화는 늘지만 정확도는 그대로다." 측정(rho_neo 증가, MSE·F1 그대로)과 맞다.
+- **M3 "차이 없음":** MS Hippocampus 위에서 Neocortex 지름길이 더하는 몫이 없다.
+- **결정:** 기본 경로(IAND Hippocampus, Neocortex 지름길 없음)를 유지한다. `--res_mode ms`·`--neo_res ms`는 선택지로 남긴다. 기본값이면 기존과 비트 단위로 같다(c57a).
+- **bias:** 바꾼 것이 없다. 요청 1의 "bias=True가 좋으면 복원"은 비교할 bias가 없어 run이 없다.
+
+**한계:**
+- 기준선은 다른 날 학습했다. GPU 연산은 비트 단위로 재현되지 않으므로 짝은 seed로만 맞춘다.
+- Hippocampus 블록 1개, Neocortex 층 1–2개로 얕다. 깊은 망에서 MS가 주는 일반적 이점은 시험하지 못했다.
+- MS 형태는 하나다(기존 neuron이 실수 흐름을 읽는 SDT식). spike끼리 더하는 SEW식 등은 보지 않았다.
+- lr 등 하이퍼파라미터는 기준선 값 그대로다. MS가 다른 값을 원할 수 있다.
+- MIT-BIH msh의 발화 감소가 어느 neuron에서 생겼는지, 왜 pop LIF만 F1을 잃는지는 재지 않았다.
+- seed 3개, query population 두 model만 봤다. 탐색 수준이다.
+
+**not run:**
+- bias=True 비교
+- MS 전용 lr 탐색
+- Hippocampus 블록 2개 이상
+- CinC (11-04 결정: 주 결과가 아님)
+- 원 논문 학습 방식(patience 2, 마지막 weight)
+
+**결과 파일 (Git):**
+- `nsmt_flif_v1/forecasting/results/flif-v1-ett-ms/{raw.txt, pool_runs.txt, energy_recount.csv}`
+- `nsmt_flif_v1/classification/results/flif-v1-mitbih-ms/{raw.txt, pool_runs.txt}`
+- `nsmt_flif_v1/classification/results/flif-v1-ms-summary.md`
+
+**로컬에만 둔 것:**
+- `nsmt_flif_v1/forecasting/log/flif-v1-ett-ms/`, `nsmt_flif_v1/classification/log/flif-v1-mitbih-ms/`: checkpoint, TensorBoard, `logargs.txt`, `best_log_0.csv`, `final+result.csv`, `model+info+per+layer.txt`, `neuron_energy.csv`. 이전 묶음과 같은 처리다.
+- pool 원본 `forecasting/results/flif-v1-ett-ms-pool.log`
+
+**다음 (사용자 결정):**
+- 미리 적은 다음 후보는 "Hippocampus 블록을 늘린 model에서 MS를 다시 본다"이다. 다만 시작하지 않는다.
+- 이전부터 열린 결정도 그대로 남아 있다: 원 논문 학습 방식 재실행, H6을 ETT 대표로 쓸지, head 실험 종료, Table 8 재확인.
+
+**commit / tag:** 이 항목과 결과 파일을 commit 하고 annotated tag `exp/nsmt-flif-neo-20261109-ms`(학습이 끝난 묶음, snapshot 아님)를 붙인다. `exp/nsmt-flif-neo`와 이 tag만 push 한다.
+
+---
