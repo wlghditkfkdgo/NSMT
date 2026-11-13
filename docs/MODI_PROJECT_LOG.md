@@ -6948,3 +6948,171 @@ Spikformer식보다 "좋음"이 된 model은 없다.
 **commit / tag:** 이 항목과 결과 파일을 commit 하고 annotated tag `exp/nsmt-flif-neo-20261109-ms`(학습이 끝난 묶음, snapshot 아님)를 붙인다. `exp/nsmt-flif-neo`와 이 tag만 push 한다.
 
 ---
+
+## 2026-11-13 18:29 KST — 사전 고정 + 구현: 주파수 4구간을 population Neocortex의 가지 4개에 따로 넣는 시험 (사용자 요청 11-13, A 묶음) — 기준 model을 **Neocortex MS**(`--neo_res ms`)로 바꿨다(사용자 결정 11-13). 입력을 DCT로 주파수 4구간으로 나누고, Neocortex embedding의 population neuron 가지 4개(τ 4 / 8 / 16 / 32)가 각자 자기 구간을 자기 Linear로 받는다(가장 낮은 구간 → 가장 느린 가지). 통제는 2개다: 같은 신호를 4번 넣기(same), 짝을 뒤집기(rev). query pop LIF / f-LIF × (ETT 네 칸 + MIT-BIH) × seed 3 = 90 run. 기존 경로와 기준선 경로는 비트 단위로 같고(28 + 38 항목), 점검 c58b–h 371개 통과, smoke 18/18
+
+**직전 commit:** `11d3b21c4` (Membrane Shortcut 결과, tag `exp/nsmt-flif-neo-20261109-ms`).
+
+**사용자 결정·요청 (11-13, 원문):**
+- "우선 MS는 Neocortex에만 추가하는 것으로 하자."
+- "1. 주파수 분석을 해서 4개의 요소를 갖도록 한 다음 이것을 population(k=4) LIF neocortex에 추가하는 것은 어때?(단방향이고, 각 요소 별로 다른 neuron에 들어가는 것임.)"
+- "2. auxiliary loss(원 시계열 입력 데이터 복원 손실함수)를 복원하는 것에 대해서는 어떻게 생각해?"
+- 내 제안(A = 주파수 4구간 + 통제 2개 90 run, B = auxiliary loss 30 run, C = 둘의 결합은 보류)에 대한 답: "A부터 하자."
+
+**기준 model 변경 (사용자 결정):**
+- 앞으로 기준은 [query pop LIF NSMT T=4] + Neocortex MS, 곧 `nsmt4q_pop_lif_msn`과 pop f-LIF 짝 `nsmt4q_pop_flif_msn`이다.
+- 이 조합은 11-08/09 묶음에서 seed 3개씩 학습돼 있다(`flif-v1-ett-ms`, `flif-v1-mitbih-ms`). 그 run을 기준선으로 쓴다.
+- 11-09 판정에서 Neocortex MS는 IAND만 쓰는 기준선과 "차이 없음"이었다(ETT R +0.57 / +0.65 %, MIT-BIH −0.02 / +0.25 %p). 이득이 확인된 선택은 아니고, 사용자가 정한 기준이다.
+- Hippocampus는 IAND 그대로다(`--res_mode iand`).
+
+**정의:**
+- **지금(msn):** Neocortex embedding은 Linear(P → D) → BN → population neuron이다. 각 unit의 가지 4개(τ = 4, 8, 16, 32)는 **같은 전류 I**를 받는다: v_k ← v_k + (I − v_k) / τ_k. soma가 가지를 가중 합해 발화한다.
+- **주파수 분해 (`model.band_split`):**
+  - 끝을 stride만큼 늘린 입력(ETT 100 sample, MIT-BIH 203 sample)을 DCT로 바꾼다.
+  - 계수를 주파수를 절반씩 나눈 4구간으로 자른다: [0, n/8), [n/8, n/4), [n/4, n/2), [n/2, n). 경계는 올림이다(ETT 0 / 13 / 25 / 50 / 100, MIT-BIH 0 / 26 / 51 / 102 / 203).
+  - 구간마다 역변환한다. 구간 0이 가장 낮은 주파수이고 평균을 포함한다. 네 구간을 더하면 원 신호다.
+  - 각 구간 신호를 원 신호와 같은 방식으로 patch로 자른다.
+- **가지별 embedding (`model.BandEmbedding`):**
+  - 가지 k는 자기 신호 x_k를 자기 Linear_k(P → D, bias 없음)로 받는다. Linear 4개는 weight를 나누지 않는다.
+  - BN은 (unit, 가지)마다 따로 정규화한다(D × 4 채널).
+  - 가지 k의 전류는 I_k = BN(Linear_k(x_k))이고, v_k ← v_k + (I_k − v_k) / τ_k다. soma는 그대로다.
+- **뒤 층 (Neocortex MS와의 결합):**
+  - 기준 model의 지름길 흐름은 embedding neuron의 입력 전류에서 시작한다. 이제 그 전류가 가지마다 다르므로 흐름도 가지마다 하나씩 둔다.
+  - 층 i의 가지 k가 읽는 전류: u_i[k] = u_{i−1}[k] + BN_i(W_i s_{i−1}). 층의 전류 BN_i(W_i s)는 네 가지에 똑같이 더한다.
+  - 그래서 구간 k의 embedding 전류가 지름길을 타고 모든 Neocortex 층의 가지 k에 들어간다. 뒤 층의 Linear·BN은 바꾸지 않았다.
+- **변형 (`--neo_band`):**
+
+  | 이름 | 가지가 받는 신호 | 뜻 |
+  |---|---|---|
+  | `freq` | 구간 0(가장 낮음) → τ 32, 구간 1 → τ 16, 구간 2 → τ 8, 구간 3 → τ 4 | 요청한 형태 |
+  | `same` | 네 가지 모두 나누지 않은 원 신호 | 통제: embedding 4개(parameter·구조)만 있고 주파수 분해는 없음 |
+  | `rev` | 구간 0 → τ 4, …, 구간 3 → τ 32 | 통제: 짝을 뒤집음 |
+
+- 세 변형은 구조·parameter 수·같은 seed의 초기값이 같다. 다른 것은 가지가 받는 신호뿐이다.
+- parameter는 기준선보다 늘어난다(Linear 3개 + BN 채널 3배분): ETT +1,920, MIT-BIH +39,168.
+
+**범위 (내가 정함):**
+- 분해는 window 전체 DCT다(11-13에 추천했고 사용자가 A를 승인했다). "단방향"은 Neocortex가 token을 앞에서 뒤로만 도는 것으로 이해했다. 분해 자체는 window 안의 뒤쪽 sample도 쓴다(한계 참조).
+- 가지별 입력은 Neocortex embedding neuron에만 따로 만든다. 뒤 층은 지름길로 받는다.
+- 모델은 query pop LIF와 pop f-LIF(population 둘을 항상 함께 넣는 원칙), 과제는 ETT 네 칸(ETTh2·ETTm2 × H96·H720)과 MIT-BIH, seed 42 / 7 / 2026이다. CinC는 넣지 않는다.
+- 하이퍼파라미터는 기준선과 같다(탐색 없음, 그래서 validation 선택도 없음).
+  - ETT: `run_ett_dual.sh` 설정, patience 10, validation 최고 weight를 시험한다.
+  - MIT-BIH: `run_mitbih4.sh` 기본값(30 epoch, lr 0.01, 마지막 epoch를 시험, auxiliary loss 0).
+- run 수: 3 변형 × 2 neuron × (ETT 12 + MIT-BIH 3) = 90.
+
+**코드 (기본값 `--neo_band none`이면 기존과 같음):**
+- `classification/neurons.py`: `rhs`가 [B, D, K] 전류(가지별)를 받으면 그대로 쓰고, [B, D]면 전처럼 모든 가지에 같은 값을 준다. `forward`가 [T, B, D, K] 입력을 받는다(soma가 있는 PopulationFLIF만).
+- `classification/layers.py`: `NeoNeuron.forward`가 5차원 입력 [T, B, N', D, K]를 `forward_branches`로 넘긴다(hook이 그대로 작동).
+- `classification/model.py`:
+  - `band_split(x, n_bands, time_dim)`: DCT 표를 float64로 만든 뒤 float32로 쓴다. 기존 float32 표는 왕복 오차가 3e-5 ~ 9e-5라 새 함수에서만 바꿨다(기존 `dct_matrix`·`lowpass_memory`는 그대로).
+  - `BandEmbedding`: 위 정의.
+  - `NeoLayer.forward_ms`: 흐름이 [T, B, N, D, K]면 층 전류를 네 가지에 더하고 가지별로 neuron에 넣는다.
+  - `myModel`: `neo_band` 인자와 검증(query·cross-attention model, 4-가지 population + soma, `neo_where both`, `--neo_res ms`만 허용), `_tokens_mc`가 Neocortex 입력을 [N, B, 1, P, K]로 만든다(가지 순서는 neuron의 τ buffer에서 읽는다).
+- `classification/config.py`: `--neo_band {none, freq, same, rev}`, 폴더 접미사 `_band<mode>`. `classification/load_model.py`가 인자를 전달한다.
+- 실행 스크립트: `run_ett_dual.sh`, `run_mitbih4.sh`에 조건 `nsmt4q_pop_<lif|flif>_msn_<freq|same|rev>`를 넣었다. 수정 전에 돌고 있는 작업이 없음을 확인했다.
+- 새 파일:
+  - `classification/fw_identity_band.py` (c58a, 기준선 경로)
+  - `classification/check_band.py` (c58b–h)
+  - `classification/band_energy.py` (구간별 에너지 비중, 설명용)
+  - `classification/scripts/make_queue_band.sh` (대기열 → `scripts/queues/band-20261113.txt`, git 제외)
+  - `classification/summarize_band.py` (판정표)
+
+**점검 (fail-closed):**
+- **c58a 기존 경로 비트 동일:**
+  - `fw_identity_ms.py`의 28개 항목(Neocortex MS가 없는 경로)이 고친 뒤에도 같다.
+  - `fw_identity_band.py`: 기준선(msn) 경로 38개 항목을 **고치기 전에** 저장했다. 같은 코드로 다시 돌려 결정적임을 확인했고, 고친 뒤 38개 모두 같다.
+    - 대상: pop LIF / pop f-LIF × (MIT-BIH, ETTh2 H96, ETTm2 H96·H720)
+    - 내용: 새 model의 state_dict·학습 출력·모든 기울기, 학습된 msn checkpoint의 시험 출력과 `step_features`
+- **c58b 주파수 분해:** n = 100, 203에서 네 구간의 합 = 원 신호(차이 7e-07 이하), 구간 밖 DCT 계수 3e-07 이하, 평균은 구간 0에 있다.
+- **c58c neuron:**
+  - 가지 4개에 같은 전류를 주면 기존(공유 전류)과 spike가 완전히 같다(pop LIF, pop f-LIF).
+  - 가지마다 다른 전류를 주면 pop LIF의 spike가 손으로 쓴 식과 같다(1,920개 중 불일치 0): v_k ← v_k + (I_k − v_k) / τ_k, a = Σ_k w_k v_k, V ← V + (a − V) / τ_s, 문턱 넘으면 발화 뒤 θ를 뺌.
+- **c58d 연결** (hook; 새 model 학습 모드, msn 학습 weight를 옮겨 넣은 시험 모드; 2 neuron × 3 크기 × 3 변형):
+  - 가지의 τ가 (4, 8, 16, 32)다.
+  - embedding Linear k의 입력이 의도한 신호다(freq: 구간 3 − k, rev: 구간 k, same: 원 token). 독립적으로 다시 계산한 값과 차이 0.
+  - embedding neuron이 받는 가지 전류 = BN(Linear_k(신호 k))다(시험 모드에서 running 통계로 다시 계산, 차이 1e-05 이하).
+  - 층 i neuron의 가지 전류 = embedding 가지 전류 + Σ_{j ≤ i} BN_j 출력이다(차이 0).
+  - Neocortex spike는 0/1이고, query Linear는 마지막 Neocortex 층 spike를 읽는다.
+- **c58e:** same 변형에 msn checkpoint를 옮겨 넣으면(Linear 4개 = msn의 embedding Linear, BN은 가지마다 복사) msn checkpoint와 출력이 완전히 같다(차이 0, 6개 조합). same은 "embedding 4개가 같아지면 기준선"인 구조다.
+- **c58f:** 세 변형의 state_dict 항목·모양·초기값이 같다. 기준선과는 Neocortex embedding 항목만 다르다. parameter: MIT-BIH 1,230,888 → 1,270,056, ETTm2 H96 184,560 → 186,480, ETTh2 H96 175,544 → 177,464.
+- **c58g:** 기울기가 모두 유한하고, embedding Linear 4개 모두에 0이 아닌 기울기가 간다.
+- **c58h 변형이 실제로 다른 결과를 낸다** (같은 weight, embedding BN은 배치 통계):
+  - Neocortex spike와 query spike가 세 변형 사이에서 모두 다르다. freq·rev의 출력은 same과 다르다.
+  - **점검에서 잡은 것 1:** 첫 실행은 msn의 running 통계로 출력을 비교했고 ETTh2에서 실패했다. 그 통계는 나누지 않은 신호에 맞춰져 있어 구간 전류가 너무 작다. Neocortex가 spike를 내지 않아(0개) freq와 rev가 같아졌다. embedding BN을 배치 통계로 돌리는 비교로 바꿨다.
+  - **점검에서 잡은 것 2:** 두 번째 실행에서도 ETTh2 pop LIF의 freq와 rev **출력**이 같았다. Neocortex spike(23곳)와 query spike(374곳)는 달랐다. 그런데 옮겨 넣은 weight에서는 attention neuron이 두 경우 모두 한 번도 발화하지 않아 출력까지 전달되지 않았다. 그래서 변형끼리의 기준을 "Neocortex와 query spike가 다르다"로 옮기고, freq-rev 출력 차이는 출력만 한다. 이것은 기준을 바꾼 것이다. 연결 자체는 c58d가 값으로 확인한다.
+- c58b–h 합계 371개 통과.
+- **smoke** (1 epoch, seed 42; ETTh2 H96·ETTm2 H96·MIT-BIH × 6조건 = 18 run; RESULT 18, SKIP 0):
+  - `logargs.txt`를 msn smoke run과 비교했다. 다른 것은 `neo_band`와 날짜·경로뿐이다(ETT 122개, MIT-BIH 115개 인자).
+  - `n_spiking_layers`는 기준선과 같다(ETTh2 10, ETTm2 11).
+  - syops가 새 embedding Linear 4개를 실수 곱셈(MAC)으로 센다(ETT 각 86.02 K).
+  - `energy_recount_ett.py`가 12 run에서 MSE를 정확히 재현했고 점검을 통과했다.
+  - energy(1 epoch, 참고): ETT head 재계산 기준 msn smoke보다 +7.3 ~ +12.3 %, MIT-BIH 기록값 9.91 → 11.99–12.09(pop LIF), 10.89 → 12.79–13.63(pop f-LIF).
+  - run당 시간(1 epoch): ETTh2 31–39초, ETTm2 94–111초, MIT-BIH 34–35초.
+- `summarize_band.py --base_only`가 msn 수치를 재현한다: ETT MSE 0.2931 / 0.4157 / 0.1776 / 0.4036(pop LIF), MIT-BIH F1 92.16 / 92.27, energy 13.04 / 11.37.
+
+**설명용 측정 — 구간별 에너지 비중** (`band_energy.py`, `classification/results/band-energy-20261113.md`; 학습 구간, model이 받는 입력 그대로):
+
+| 데이터 | 구간 0 (가장 낮음) | 구간 1 | 구간 2 | 구간 3 (가장 높음) |
+|---|---|---|---|---|
+| ETTh2 (window 정규화, 28,000행) | 65.11 % | 10.35 % | 10.30 % | 14.24 % |
+| ETTm2 (window 정규화, 28,000행) | 75.18 % | 9.22 % | 8.08 % | 7.51 % |
+| MIT-BIH (76,612 beat) | 91.64 % | 5.39 % | 2.49 % | 0.47 % |
+
+- 높은 구간은 크기가 작다. BN이 가지마다 따로 정규화하므로 model 안에서는 네 구간이 같은 크기의 전류가 된다. MIT-BIH 구간 3은 에너지 0.47 %짜리 신호가 다른 구간과 같은 크기로 커진다.
+
+**기준선 (이미 있는 run, c58a로 경로가 같음을 확인):**
+- ETT: `forecasting/results/flif-v1-ett-ms`의 `nsmt4q_pop_<lif|flif>_msn`. energy는 그 suite의 `energy_recount.csv`.
+- MIT-BIH: `classification/results/flif-v1-mitbih-ms`의 같은 조건(lr 0.01, `val=0`).
+- 보고 전용 Spikformer식: `flif-v1-gen-ett`, `flif-v1-gen-mitbih`.
+
+**판정 (사전 고정; 값이 빠지거나 중복되거나 유한하지 않으면 멈춤):**
+- 비교 (neuron마다):
+  - **F1** freq − msn: 제안이 기준 model보다 나은가
+  - **F2** freq − same: 이득이 주파수 분해에서 오는가(embedding 4개 때문이 아닌가)
+  - **F3** freq − rev: 낮은 주파수를 느린 가지에 맞춘 것이 중요한가
+  - 보고 전용: same − msn, rev − msn
+- 규칙은 11-08과 같다.
+  - **ETT:** r = A / B − 1 (test MSE), 4칸 × 3 seed = 12쌍. 좋음: 평균 ≤ −1 %이고 8/12 낮음. 나쁨: 그 거울. 칸별 판정(±1 %, 2/3 seed)을 함께 적는다.
+  - **MIT-BIH:** Δ = A − B의 test macro-F1(%p). 좋음: 평균 ≥ +0.5 %p이고 2/3 seed 양수. 나쁨: 그 거울.
+  - **결론**(비교·과제마다): 두 neuron 모두 좋으면 "좋음", 한 neuron만이면 "neuron에 따라 다름(약함)", 둘 다 나쁘면 "나쁨", 나머지는 "차이 없음".
+- **보고 전용:** MAE, validation L1, 발화율, energy(ETT는 head 재계산, MIT-BIH는 기록값), parameter, Spikformer식 대비, syops가 세지 않는 두 비용(지름길 덧셈, DCT 분해).
+
+**읽는 법 (미리 적음):**
+
+| 결과 | 뜻 | 다음 후보 |
+|---|---|---|
+| F1 좋음 + F2 좋음 | 주파수 분해가 이득을 준다 | F3로 짝이 중요한지 본다. 과거만 쓰는 필터로도 유지되는지 확인 |
+| F1 좋음 + F2 차이 없음 | 이득은 embedding 4개(parameter)에서 왔다. 주파수 분해의 이득이 아니다 | same을 따로 볼지 사용자 결정 |
+| F1 차이 없음 | 이 형태의 주파수 입력은 이득이 없다 | energy가 더 드므로 쓰지 않는다 |
+| F1 나쁨 | 쓰지 않는다 | — |
+| F3 좋음 | 낮은 주파수 ↔ 느린 가지 짝이 중요하다 | — |
+| F3 차이 없음 | 어느 가지에 어느 구간을 넣든 같다(가지의 τ가 역할을 가르지 않는다) | — |
+
+**사전 예상:**
+- 정확도: F1·F2·F3 모두 두 과제에서 차이 없음(ETT |R| < 1 %, MIT-BIH |Δ| < 0.5 %p).
+  - ETT: 지금까지 Neocortex 쪽 변경(T = N memory, Neocortex MS)이 ETT를 움직인 적이 없다. 구간 1–3은 각각 에너지의 7–14 %다.
+  - MIT-BIH: 구간 3은 에너지 0.47 %라 BN으로 키우면 잡음일 가능성이 크다. 기준선 F1이 92.2 근처에서 여러 변경에 움직이지 않았다.
+- energy: 세 변형 모두 기준선보다 높다. ETT(head 재계산) 네 칸 평균 +7 % 이상, MIT-BIH(기록값) +15 % 이상. 근거는 smoke와 embedding 곱셈 3개분이다.
+- 발화율: ETT 네 칸 평균 rho_neo는 same ≥ freq ≥ rev다. 근거가 약하다(smoke 1 epoch에서 본 순서일 뿐이다).
+
+**실행:**
+- NSMT/에서 tmux `flif_band`로 `bash scripts/gpu_pool2.sh nsmt_flif_v1/classification/scripts/queues/band-20261113.txt 0,1,2,3`을 띄운다. 출력은 `nsmt_flif_v1/forecasting/results/flif-v1-ett-band-pool.log`에 덧붙인다.
+- 순서: pop LIF(ETTm2 H720 → ETTm2 H96 → MIT-BIH → ETTh2), 이어서 pop f-LIF를 같은 순서로 돌린다.
+- 결과 줄: `forecasting/results/flif-v1-ett-band/raw.txt`, `classification/results/flif-v1-mitbih-band/raw.txt`.
+- 끝나면 pool 기록을 두 suite의 `pool_runs.txt`로 복사하고, `energy_recount_ett.py --suite flif-v1-ett-band`와 `summarize_band.py`를 돌린다.
+- 끝나는 시각은 어림하지 않는다.
+
+**한계:**
+- 주파수 분해는 window 전체를 쓴다. 앞쪽 token의 Neocortex 입력에 window 안 뒤쪽 sample의 정보가 섞인다. 예측 정답(window 밖)이 새는 것은 아니다. 다만 "Neocortex는 과거만 본다"는 주장은 이 형태로는 할 수 없다.
+- DCT 분해 비용은 syops가 세지 않는다. 요약에서 따로 적는다(행렬 곱으로 한 상한 어림: ETT window당 0.64 µJ, MIT-BIH beat당 0.38 µJ).
+- BN이 가지마다 정규화하므로 작은 구간이 크게 증폭된다. 구간 크기를 살리는 형태(BN 공유)는 보지 않았다.
+- 구간 경계는 한 가지(주파수 절반씩)다. 같은 에너지로 나누는 경계 등은 보지 않았다.
+- 기준선(msn)은 11-08/09에 학습했다. GPU 연산은 비트 단위로 재현되지 않으므로 짝은 seed로만 맞춘다.
+- parameter와 energy가 기준선보다 많다. F1의 이득은 same(F2)과 함께 읽어야 한다.
+- lr 등은 기준선 값 그대로다. seed 3개, 탐색 수준이다.
+
+**not run (보류):** B 묶음(auxiliary loss), C 묶음(둘의 결합), 과거만 쓰는 필터.
+
+**commit:** 이 항목과 위 코드·스크립트·점검 스크립트·smoke 결과를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 pool을 시작한다.
+
+---

@@ -207,6 +207,50 @@ class Embedding(nn.Module):
         return (x, pre) if return_pre else x
 
 
+def band_split(x, n_bands=4, time_dim=-1):
+    """MODI 2026-11-13 (frequency bands, user request 11-13): split x along time into n_bands signals by DCT coefficient
+    range, halving the frequency range each time (n_bands = 4, n coefficients: [0, n/8), [n/8, n/4), [n/4, n/2), [n/2, n);
+    ceil at the edges). Band 0 holds the lowest frequencies (and the mean). The bands add up to x (the DCT is orthonormal).
+    Returns [n_bands, *x.shape]."""
+    x = x.to(torch.float32)
+    time_dim = time_dim % x.dim()
+    n = x.shape[time_dim]
+    if n < 2 ** (n_bands - 1):
+        raise ValueError(f'band_split: {n} samples are too few for {n_bands} bands')
+    C = dct_matrix(n, device=x.device, dtype=torch.float64).to(x.dtype)   # built in float64: the float32 table is only orthonormal to ~1e-5
+    Xc = dct_time(x, C, time_dim=time_dim)
+    edges = [0] + [int(math.ceil(n / 2 ** (n_bands - 1 - i))) for i in range(n_bands - 1)] + [n]
+    out = []
+    for i in range(n_bands):
+        mask = torch.zeros(n, device=x.device, dtype=x.dtype)
+        mask[edges[i]:edges[i + 1]] = 1
+        shp = [1] * x.dim(); shp[time_dim] = n
+        out.append(idct_time(Xc * mask.view(*shp), C, time_dim=time_dim))
+    return torch.stack(out)
+
+
+class BandEmbedding(nn.Module):
+    """MODI 2026-11-13 (frequency bands): Neocortex embedding whose population neuron receives one current per member.
+    x [N, B, 1, P, K] (token axis first; slot k = the signal meant for member k) -> K Linear(P -> D) without sharing ->
+    BatchNorm over the D * K (unit, member) channels -> the population neuron with currents [N, B, 1, D, K].
+    Returns the soma spikes [N, B, 1, D] (and the member currents [N, B, 1, D, K] with return_pre, graph kept)."""
+    def __init__(self, patch_size, embed_dim, n_members, neuron, bias=False):
+        super().__init__()
+        self.embed_dim, self.n_members = embed_dim, n_members
+        self.emb_linear = nn.ModuleList([nn.Linear(patch_size, embed_dim, bias=bias) for _ in range(n_members)])
+        self.emb_bn = nn.BatchNorm1d(embed_dim * n_members)
+        self.emb_lif = neuron                                         # NeoNeuron around a PopulationFLIF with a soma
+
+    def forward(self, x, pe=True, return_pre=False):
+        T, B, N1, P, K = x.shape
+        if K != self.n_members:
+            raise ValueError(f'BandEmbedding built for {self.n_members} members, got {K} input slots')
+        cur = torch.stack([self.emb_linear[k](x[..., k]) for k in range(K)], dim=-1)        # [T, B, N', D, K]
+        cur = self.emb_bn(cur.reshape(T * B * N1, self.embed_dim * K)).reshape(T, B, N1, self.embed_dim, K)
+        s = self.emb_lif(cur)                                         # [T, B, N', D] (NeoNeuron.forward_branches)
+        return (s, cur) if return_pre else s
+
+
 class HighFreqAmp(nn.Module):
     def __init__(self, dim, tau=2.0, bias=False):
         super().__init__()
@@ -382,7 +426,11 @@ class NeoLayer(nn.Module):
         if not self.spikede or self.recurrent:
             raise ValueError('the Neocortex membrane shortcut needs a spikeDE neuron in a passive NeoLayer')
         T, B, N, D = x.shape
-        u = u + self.bn(self.w_in(x).reshape(-1, D)).reshape(T, B, N, D)
+        cur = self.bn(self.w_in(x).reshape(-1, D)).reshape(T, B, N, D)
+        if u.ndim == 5:                                      # MODI 2026-11-13 (frequency bands): one stream per member [T, B, N, D, K];
+            u = u + cur.unsqueeze(-1)                        # every member's stream receives this layer's current
+            return u, self.lif(u)                            # NeoNeuron.forward_branches
+        u = u + cur
         return u, self.lif(u)
 
     def forward(self, x):                                    # x: [T, B, N, D]
@@ -610,6 +658,19 @@ class myModel(nn.Module):
             raise ValueError('neo_shuffle: hippo_xattn with a unidirectional single-stream neocortex that keeps its memory '
                              '(not with neo_memoryless / neo_bidir / popk streams / token_shuffle)')
         self.neo_neuron, self.neo_where = neo_neuron, neo_where
+        # MODI 2026-11-13 (frequency bands, user request 11-13): the Neocortex input is split into K = 4 signals and member k of
+        # every population neuron of the Neocortex embedding receives its own signal through its own Linear(P -> D).
+        #   'freq': the DCT bands, lowest band -> slowest member (largest tau)      'rev': lowest band -> fastest member (control)
+        #   'same': the unsplit signal in all K slots (control: the K separate embeddings without the band split)
+        # The member currents are the start of the membrane shortcut stream, one stream per member (needs --neo_res ms).
+        self.neo_band = str(kwargs.get('neo_band', 'none'))
+        if self.neo_band not in ('none', 'freq', 'same', 'rev'):
+            raise ValueError("neo_band in {none, freq, same, rev}")
+        if self.neo_band != 'none' and (neo_neuron not in ('pop_lif', 'pop_flif') or neo_where != 'both' or not self.hippo_xattn
+                                        or str(kwargs.get('neo_res', 'none')) != 'ms' or self.token_shuffle is not None
+                                        or len(tuple(kwargs.get('pop_taus', (4., 8., 16., 32.)))) != 4):
+            raise NotImplementedError('neo_band: query / cross-attention model with a 4-member population Neocortex (soma), '
+                                      'neo_where both and --neo_res ms only')
         _neo = dict(tau=self.neo_tau, alpha=float(kwargs.get('neo_alpha', 0.5)), method=str(kwargs.get('fde_method', 'pred')),
                     step=float(kwargs.get('fde_step', 1.0)), memory=int(kwargs.get('fde_memory', 0)),
                     pop_taus=tuple(kwargs.get('pop_taus', (4., 8., 16., 32.))), pop_soma_init=kwargs.get('pop_soma_init', None),
@@ -651,6 +712,8 @@ class myModel(nn.Module):
           g = torch.cat([torch.full((embed_dim,), tau_gain(t, kind)) for t in taus])   # per-family table, then the layer-wise table below
           self.encoding_neo = _Embed(self.tok_dim, embed_dim, K, StreamNeurons(kind, taus, embed_dim, self.T, _neo['alpha']),
                                      bias=lif_bias, bn_layout='ncl', gamma=g)
+        elif self.neo_band != 'none':                                  # MODI 2026-11-13: one current per population member
+          self.encoding_neo = BandEmbedding(self.tok_dim, embed_dim, len(_neo['pop_taus']), emb_neuron, bias=lif_bias)
         elif not self.hippo_ssa:                                       # stage 9: Hippo-only (SSA) builds no neocortex
           self.encoding_neo = Embedding(num_patches=self.num_patches,
                                     patch_size=self.tok_dim,
@@ -931,6 +994,19 @@ class myModel(nn.Module):
             self.org_x = patch(low).detach().transpose(0, 1).unsqueeze(2).contiguous()
         hippo = tok.unsqueeze(0).expand(self.T_h, -1, -1, -1).contiguous()     # [T_h, B, N, C*P]
         neo = tok.transpose(0, 1).unsqueeze(2).contiguous()                    # [N, B, 1, C*P]
+        band = getattr(self, 'neo_band', 'none')
+        if band != 'none':                                                     # MODI 2026-11-13: [N, B, 1, C*P, K], slot k -> member k
+            taus = self.encoding_neo.emb_lif.neuron.tau                        # member time constants, in member order
+            K = taus.numel()
+            if band == 'same':
+                neo = neo.unsqueeze(-1).expand(*neo.shape, K).contiguous()
+            else:
+                bands = band_split(xp, K, time_dim=2)                          # [K, B, C, L + S], band 0 = lowest frequencies
+                sig = torch.stack([patch(bands[i]) for i in range(K)], dim=-1).transpose(0, 1).unsqueeze(2)   # [N, B, 1, C*P, K]
+                order = torch.argsort(taus, descending=(band == 'freq'))       # freq: band 0 -> largest tau; rev: band 0 -> smallest tau
+                neo = torch.empty_like(sig)
+                neo[..., order] = sig                                          # member order[i] receives band i
+                neo = neo.contiguous()
         if getattr(self, 'token_shuffle', None) is not None:                   # MODI 2026-10-28: same order for both paths
             perm = self.token_shuffle.perms(B, tok.device, self.training)
             hippo, neo = permute_tokens(hippo, 2, perm), permute_tokens(neo, 0, perm)

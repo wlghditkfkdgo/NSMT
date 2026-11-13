@@ -482,6 +482,8 @@ class NeoNeuron(nn.Module):
         if getattr(self, '_capture', False):                          # MODI 2026-10-24: forward_charge through __call__ (hooks fire)
             s, self._charge = self._spikes_and_charge(x)
             return s
+        if x.ndim == 5:                                               # MODI 2026-11-13: per-member currents [T, B, N', D, K]
+            return self.forward_branches(x)
         if x.ndim != 4:
             raise ValueError(f'NeoNeuron expects a 4-D tensor, got {tuple(x.shape)}')
         T, B = x.shape[0], x.shape[1]
@@ -493,6 +495,15 @@ class NeoNeuron(nn.Module):
         N1, D = x.shape[2], x.shape[3]
         s = self.neuron(x.reshape(T, B * N1, D))
         return s.reshape(T, B, N1, D)
+
+    def forward_branches(self, x):
+        """MODI 2026-11-13 (frequency bands): x [T, B, N', D, K] = one input current per member (branch) of a population
+        neuron with a soma; returns the soma spikes [T, B, N', D] (this layout for both 'DN' and 'ND'). Same neuron call as
+        forward(), only the current differs per member (neurons.LIFNeuron.rhs). Reached through forward() (hooks fire)."""
+        if x.ndim != 5:
+            raise ValueError(f'forward_branches expects [T, B, N, D, K], got {tuple(x.shape)}')
+        T, B, N1, D, K = x.shape
+        return self.neuron(x.reshape(T, B * N1, D, K)).reshape(T, B, N1, D)
 
     def forward_charge(self, x):
         """MODI 2026-10-23: (spikes, H - theta) in the layout of forward()'s output (layers.spikes_and_charge). Runs through

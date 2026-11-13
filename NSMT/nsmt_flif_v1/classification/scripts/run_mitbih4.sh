@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# MODI 2026-11-13 (frequency bands): + nsmt4q_pop_<lif|flif>_msn_{freq,same,rev} = the Neocortex-MS query population (msn) with
+# --neo_band freq / same / rev (one input per member of the population Neocortex embedding); everything else unchanged.
 # nsmt_flif_v1: one MIT-BIH run of the ECG model (nsmt_base/classification/ECG) with the neocortex-path neuron replaced.
 # MODI 2026-11-08 (membrane shortcut): + nsmt4q_pop_<lif|flif>_{msh,msn,mshn} = the query population with --res_mode ms (hippocampus),
 # --neo_res ms (Neocortex) or both; everything else unchanged.
@@ -76,6 +78,12 @@ case $COND in
   nsmt4q_pop_flif_msh)  AUX=0; CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha $ALPHA --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --res_mode ms" ;;
   nsmt4q_pop_flif_msn)  AUX=0; CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha $ALPHA --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms" ;;
   nsmt4q_pop_flif_mshn) AUX=0; CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha $ALPHA --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --res_mode ms --neo_res ms" ;;
+  nsmt4q_pop_lif_msn_freq)AUX=0; CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band freq" ;;   # MODI 2026-11-13 (frequency bands)
+  nsmt4q_pop_lif_msn_same)AUX=0; CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band same" ;;
+  nsmt4q_pop_lif_msn_rev) AUX=0; CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band rev" ;;
+  nsmt4q_pop_flif_msn_freq)AUX=0; CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha $ALPHA --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band freq" ;;
+  nsmt4q_pop_flif_msn_same)AUX=0; CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha $ALPHA --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band same" ;;
+  nsmt4q_pop_flif_msn_rev)AUX=0; CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha $ALPHA --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band rev" ;;
   nsmt4_lif_nomem)   AUX=0; CF="--model myModel --neo_neuron lif --neo_where both --hippo_T 4 --hippo_xattn --neo_grad 1.0 --neo_memoryless" ;;
   spkall_lif)        CF="--model myModel --hippo_ssa --hippo_T 4 --neuron_all lif" ;;
   spkall_flif)       CF="--model myModel --hippo_ssa --hippo_T 4 --neuron_all flif --neo_alpha $ALPHA" ;;

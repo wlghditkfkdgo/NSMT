@@ -148,6 +148,10 @@ def parse_arguments():
                               'stream u, u <- u + BN(W s), the block neurons fire on u)')
     snn_arg.add_argument('--neo_res', choices=['none', 'ms'], default='none',
                          help='MODI 2026-11-08: residual between Neocortex layers -- none (default) or ms = membrane shortcut')
+    snn_arg.add_argument('--neo_band', choices=['none', 'freq', 'same', 'rev'], default='none',
+                         help='MODI 2026-11-13: one input per member of the 4-member population Neocortex embedding -- none (default: '
+                              'one shared current), freq = DCT bands, lowest band -> slowest member, rev = lowest band -> fastest '
+                              'member (control), same = the unsplit signal through the 4 separate embeddings (control); needs --neo_res ms')
     snn_arg.add_argument('--token_shuffle', action='store_true', default=False,
                          help='MODI 2026-10-28 shuffle-retrain: random token order per sample in training, one fixed order in evaluation')
     snn_arg.add_argument('--neuron_scope', choices=['mixer', 'all', 'lifbase'], default='mixer',
@@ -293,6 +297,8 @@ class Config():
             _iso += f"_res{args.res_mode}"
         if getattr(args, 'neo_res', 'none') != 'none':
             _iso += f"_nres{args.neo_res}"
+        if getattr(args, 'neo_band', 'none') != 'none':                   # MODI 2026-11-13 (frequency bands)
+            _iso += f"_band{args.neo_band}"
         if getattr(args, 'neuron_scope', 'mixer') != 'mixer':             # MODI 2026-10-29
             _iso += {'all': '_nall', 'lifbase': '_nlb'}[args.neuron_scope]
         if getattr(args, 'neuron_all', 'sj_lif') != 'sj_lif':             # MODI 2026-10-29 (myModel)
