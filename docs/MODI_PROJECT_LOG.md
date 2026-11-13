@@ -7116,3 +7116,167 @@ Spikformer식보다 "좋음"이 된 model은 없다.
 **commit:** 이 항목과 위 코드·스크립트·점검 스크립트·smoke 결과를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 pool을 시작한다.
 
 ---
+
+## 2026-11-13 21:55 KST — 결과: 주파수 4구간(window 전체 DCT)을 population Neocortex의 가지에 넣는 시험 (90 run, A 묶음) — **MIT-BIH에서 나쁘다**: freq − 기준선이 pop LIF −0.86 %p(seed 0/3 양수), pop f-LIF −0.68 %p(0/3)로 두 neuron 모두 "나쁨"이다. ETT는 F1·F2·F3 모두 "차이 없음"이고(R +0.02 / +0.18 %) 칸마다 방향이 엇갈린다(ETTh2 H720은 두 neuron 모두 +2 % 이상 나쁨). 원 신호를 4번 넣은 통제(same)는 기준선과 차이가 없으므로 MIT-BIH의 손해는 embedding 4개가 아니라 주파수 분해 쪽에서 왔다(pop LIF에서 freq − same −0.73 %p "나쁨", pop f-LIF −0.43 %p). 짝을 뒤집어도 같다(F3 차이 없음). energy는 ETT +8 ~ +11 %, MIT-BIH +16 ~ +19 %다. 이 형태는 쓰지 않고 기준 model(Neocortex MS)을 유지한다
+
+**사전 고정:** 2026-11-13 18:29 항목, commit `3912f7ba9`. 규칙·예상·읽는 법은 그 항목을 그대로 적용했다(바꾼 것 없음).
+
+**목적:** 사용자 요청 11-13의 1(주파수 4개 요소를 population(k=4) Neocortex의 가지마다 넣기)을 Neocortex-MS query population(pop LIF / pop f-LIF)에서 시험한다.
+
+**branch / base:** `exp/nsmt-flif-neo`, 학습 코드 = `3912f7ba9`(90 run 모두 RESULT의 `sha=3912f7ba9`). 학습 중 저장소의 기존 파일은 고치지 않았다(다음 시험의 수정은 scratchpad 사본에서 했다).
+
+**환경:** `/home/yschoi/.conda/envs/snn_recall/bin/python`, `LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib`, GPU 0–3(A6000), GPU 하나에 run 하나.
+
+**실행:**
+- NSMT/에서 tmux `flif_band`: `bash scripts/gpu_pool2.sh nsmt_flif_v1/classification/scripts/queues/band-20261113.txt 0,1,2,3 2>&1 | tee -a nsmt_flif_v1/forecasting/results/flif-v1-ett-band-pool.log`
+  - 대기열은 `classification/scripts/make_queue_band.sh`가 만든다(git 제외).
+  - 11-13 18:31:34 시작, 21:48:22 마지막 run 끝.
+- 90/90 DONE, SKIP 0. RESULT는 ETT 72, MIT-BIH 18이다.
+- run당 시간:
+
+  | 과제 | 시간 (초) |
+  |---|---|
+  | ETTh2 H96 | 173–214 |
+  | ETTh2 H720 | 216–276 |
+  | ETTm2 H96 | 742–1,479 |
+  | ETTm2 H720 | 621–719 |
+  | MIT-BIH | 513–563 |
+
+  - 20:59–21:05에 다음 시험(STFT)의 점검을 같은 GPU에서 잠깐 돌렸다(각 1–2분). 그 시간대 run의 시간이 조금 늘었을 수 있다. 결과에는 영향이 없다(run마다 프로세스가 따로다).
+- pool 기록: 원본 `forecasting/results/flif-v1-ett-band-pool.log`(`*.log`라 git 제외, 로컬)를 두 suite의 `pool_runs.txt`로 복사했다.
+- energy: `cd nsmt_flif_v1/classification && python energy_recount_ett.py --suite flif-v1-ett-band` → 72 run, "all checks passed"(다시 계산한 test MSE = 기록값, head 입력 0/1).
+- 요약: `python summarize_band.py` → `classification/results/flif-v1-band-summary.md`
+- 중간 확인: pool 도중(18:59, 19:32, 19:50, 20:28, 21:40) 사용자 브리핑을 위해 끝난 run을 임시 스크립트로 읽어 보고했다. 규칙·코드·대기열은 바꾸지 않았다. 판정은 `summarize_band.py`의 출력만 쓴다.
+
+**판정 전 점검 (fail-closed, 모두 통과):**
+- 키: ETT 72개(2 neuron × 3 변형 × 4칸 × 3 seed), MIT-BIH 18개. 빠짐과 중복이 없다.
+- 값: 모든 지표가 유한하다. sha는 90/90 `3912f7ba9`다. MIT-BIH는 18/18 `epochs_run=30`, `lr=0.01`, `aux=0`이다.
+- `logargs.txt` 90개가 모두 조건과 같다(`neo_band` = freq / same / rev, `neo_res ms`, `res_mode iand`).
+- parameter는 세 변형이 같다: ETTh2 H96 177,464, H720 1,135,928, ETTm2 H96 186,480, H720 1,144,944, MIT-BIH 1,270,056. `n_spiking_layers`는 ETTh2 10, ETTm2 11이다.
+
+**결과 — ETT (test MSE, best-validation weight; r = A / B − 1, %; 칸 판정은 ±1 %·2/3 seed)**
+
+| 비교 | neuron | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 | R | A가 낮은 쌍 | 판정 | energy A/B |
+|---|---|---|---|---|---|---|---|---|---|
+| F1 freq − 기준선 | pop LIF | −1.47 (칸: 좋음) | +2.76 (칸: 나쁨) | −0.86 | −0.34 | +0.02 | 9/12 | 차이 없음 | 1.11 |
+| F1 freq − 기준선 | pop f-LIF | +0.28 | +2.05 (칸: 나쁨) | −1.33 (칸: 좋음) | −0.26 | +0.18 | 8/12 | 차이 없음 | 1.10 |
+| F2 freq − same | pop LIF | −1.78 (칸: 좋음) | +2.17 (칸: 나쁨) | −0.84 | −0.10 | −0.14 | 9/12 | 차이 없음 | 1.00 |
+| F2 freq − same | pop f-LIF | +1.34 (칸: 나쁨) | +1.38 (칸: 나쁨) | −1.24 (칸: 좋음) | −0.13 | +0.34 | 7/12 | 차이 없음 | 1.00 |
+| F3 freq − rev | pop LIF | −0.52 | +2.36 (칸: 나쁨) | −0.46 | −0.29 | +0.27 | 8/12 | 차이 없음 | 1.01 |
+| F3 freq − rev | pop f-LIF | +0.59 | +2.40 (칸: 나쁨) | −0.28 | −0.00 | +0.68 | 6/12 | 차이 없음 | 1.01 |
+| 보고 전용 same − 기준선 | pop LIF | +0.32 | +0.58 | −0.02 | −0.24 | +0.16 | 4/12 | 차이 없음 | 1.11 |
+| 보고 전용 same − 기준선 | pop f-LIF | −1.03 (칸: 좋음) | +0.64 | −0.09 | −0.13 | −0.15 | 8/12 | 차이 없음 | 1.09 |
+| 보고 전용 rev − 기준선 | pop LIF | −0.94 | +0.38 | −0.40 | −0.05 | −0.25 | 7/12 | 차이 없음 | 1.11 |
+| 보고 전용 rev − 기준선 | pop f-LIF | −0.31 | −0.36 | −1.06 (칸: 좋음) | −0.26 | −0.50 | 8/12 | 차이 없음 | 1.08 |
+
+- freq는 ETTh2 H720에서 두 neuron 모두 나쁘고 seed 사이 편차가 크다(MSE 0.4272 ± 0.0154, 0.4251 ± 0.0144; 기준선 0.4157 ± 0.0011, 0.4166 ± 0.0055).
+- 칸별 "좋음"은 neuron이 바뀌면 재현되지 않는다(pop LIF는 ETTh2 H96, pop f-LIF는 ETTm2 H96).
+- 네 칸 평균 validation L1은 freq·rev가 기준선보다 낮다(pop LIF 0.3602 / 0.3601 대 0.3624, pop f-LIF 0.3603 / 0.3605 대 0.3618). test 평균은 그렇지 않다. validation으로 골랐다면 freq나 rev를 골랐겠지만 test에서 이득이 없다.
+
+**결과 — MIT-BIH (test macro-F1 %, 마지막 epoch weight, lr 0.01; Δ = A − B, %p)**
+
+| 비교 | neuron | seed 42 / 7 / 2026 | 평균 Δ | 양수 seed | 판정 | energy A/B |
+|---|---|---|---|---|---|---|
+| F1 freq − 기준선 | pop LIF | −0.98 / −0.67 / −0.93 | −0.86 | 0/3 | 나쁨 | 1.19 |
+| F1 freq − 기준선 | pop f-LIF | −0.68 / −0.15 / −1.23 | −0.68 | 0/3 | 나쁨 | 1.18 |
+| F2 freq − same | pop LIF | −1.01 / −0.39 / −0.78 | −0.73 | 0/3 | 나쁨 | 1.02 |
+| F2 freq − same | pop f-LIF | −0.58 / −0.38 / −0.33 | −0.43 | 0/3 | 차이 없음 | 1.02 |
+| F3 freq − rev | pop LIF | −0.39 / −0.42 / −0.05 | −0.29 | 0/3 | 차이 없음 | 1.00 |
+| F3 freq − rev | pop f-LIF | −0.41 / −0.16 / −0.16 | −0.24 | 0/3 | 차이 없음 | 1.02 |
+| 보고 전용 same − 기준선 | pop LIF | +0.03 / −0.28 / −0.15 | −0.13 | 1/3 | 차이 없음 | 1.16 |
+| 보고 전용 same − 기준선 | pop f-LIF | −0.10 / +0.23 / −0.90 | −0.26 | 1/3 | 차이 없음 | 1.16 |
+| 보고 전용 rev − 기준선 | pop LIF | −0.60 / −0.25 / −0.88 | −0.57 | 0/3 | 나쁨 | 1.19 |
+| 보고 전용 rev − 기준선 | pop f-LIF | −0.27 / +0.01 / −1.07 | −0.44 | 1/3 | 차이 없음 | 1.16 |
+
+평균 F1(%)과 class별 F1(N / S / V / F / Q):
+
+| 변형 | pop LIF | pop f-LIF | pop LIF class별 |
+|---|---|---|---|
+| 기준선 (msn) | 92.16 | 92.27 | 99.2 / 85.8 / 96.0 / 80.7 / 99.0 |
+| freq | 91.29 | 91.58 | 99.1 / 83.3 / 95.6 / 79.6 / 98.8 |
+| same | 92.02 | 92.01 | 99.2 / 85.0 / 96.1 / 80.8 / 99.0 |
+| rev | 91.58 | 91.82 | 99.2 / 84.0 / 96.0 / 79.9 / 98.8 |
+
+가장 많이 떨어진 class는 S다(pop LIF 85.8 → 83.3).
+
+**결론 (사전 고정 규칙):**
+
+| 비교 | 과제 | pop LIF | pop f-LIF | 결론 |
+|---|---|---|---|---|
+| F1 freq − 기준선 | ETT | 차이 없음 | 차이 없음 | 차이 없음 |
+| F1 freq − 기준선 | MIT-BIH | 나쁨 | 나쁨 | **나쁨** |
+| F2 freq − same | ETT | 차이 없음 | 차이 없음 | 차이 없음 |
+| F2 freq − same | MIT-BIH | 나쁨 | 차이 없음 | neuron에 따라 다름 (약함) |
+| F3 freq − rev | ETT | 차이 없음 | 차이 없음 | 차이 없음 |
+| F3 freq − rev | MIT-BIH | 차이 없음 | 차이 없음 | 차이 없음 |
+
+"좋음"은 어디에도 없다.
+
+**보고 전용 — 발화율(spike를 내는 비율)과 energy:**
+
+| neuron | 변형 | ETT rho_neo | ETT rho_hippo | ETT energy µJ (head 재계산) | MIT-BIH rho_neo | MIT-BIH rho_hippo | MIT-BIH energy µJ (기록값) |
+|---|---|---|---|---|---|---|---|
+| pop LIF | 기준선 | 0.0328 | 0.0574 | 13.04 | 0.0587 | 0.1506 | 11.37 |
+| pop LIF | freq | 0.0186 | 0.0612 | 14.50 | 0.0594 | 0.1560 | 13.53 |
+| pop LIF | same | 0.0250 | 0.0556 | 14.49 | 0.0531 | 0.1461 | 13.24 |
+| pop LIF | rev | 0.0133 | 0.0562 | 14.44 | 0.0541 | 0.1517 | 13.49 |
+| pop f-LIF | 기준선 | 0.0371 | 0.0581 | 15.86 | 0.0757 | 0.1476 | 12.57 |
+| pop f-LIF | freq | 0.0233 | 0.0637 | 17.34 | 0.0886 | 0.1601 | 14.86 |
+| pop f-LIF | same | 0.0283 | 0.0558 | 17.33 | 0.0803 | 0.1463 | 14.53 |
+| pop f-LIF | rev | 0.0020 | 0.0519 | 17.16 | 0.0701 | 0.1488 | 14.60 |
+
+- ETT의 Neocortex 발화율은 세 변형 모두 기준선보다 낮다. pop f-LIF의 rev는 Neocortex가 거의 침묵한다(네 칸 0.001 / 0.001 / 0.002 / 0.004). 그런데도 ETT MSE는 기준선과 차이가 없다(R −0.50 %, 8/12). ETT에서는 Neocortex가 거의 발화하지 않아도 정확도가 유지된다는 뜻이다.
+- head 입력 발화율은 네 변형이 같다(0.069–0.070). ETT energy 증가는 embedding 곱셈 3개분에서 온다.
+- syops가 세지 않는 비용(따로 적음, 위 energy에 없음):
+  - 지름길 덧셈: ETT 0.058 µJ(기준선 0.015), MIT-BIH 0.030 µJ(기준선 0.008)
+  - DCT 분해(freq·rev, 행렬 곱 상한 어림): ETT window당 0.644 µJ, MIT-BIH beat당 0.379 µJ
+
+**보고 전용 — Spikformer식(`flif-v1-gen-ett`, `flif-v1-gen-mitbih`) 대비:**
+
+| model | ETT R | A가 낮은 쌍 | ETT 판정 | ETT energy 비 | MIT-BIH Δ | MIT-BIH 판정 |
+|---|---|---|---|---|---|---|
+| pop LIF 기준선 | −0.12 % | 6/12 | 차이 없음 | 1.25 | −0.07 %p | 차이 없음 |
+| pop LIF freq | −0.12 % | 9/12 | 차이 없음 | 1.39 | −0.93 %p | 나쁨 |
+| pop LIF same | +0.03 % | 7/12 | 차이 없음 | 1.39 | −0.20 %p | 차이 없음 |
+| pop LIF rev | −0.39 % | 10/12 | 차이 없음 | 1.38 | −0.64 %p | 나쁨 |
+| pop f-LIF 기준선 | −0.21 % | 6/12 | 차이 없음 | 1.51 | +0.04 %p | 차이 없음 |
+| pop f-LIF freq | −0.05 % | 8/12 | 차이 없음 | 1.66 | −0.64 %p | 나쁨 |
+| pop f-LIF same | −0.37 % | 8/12 | 차이 없음 | 1.66 | −0.21 %p | 차이 없음 |
+| pop f-LIF rev | −0.72 % | 10/12 | 차이 없음 | 1.64 | −0.40 %p | 차이 없음 |
+
+**사전 예상 대조:**
+
+| 예상 | 결과 | 맞음 / 틀림 |
+|---|---|---|
+| 정확도: F1·F2·F3 모두 두 과제에서 차이 없음(ETT \|R\| < 1 %, MIT-BIH \|Δ\| < 0.5 %p) | ETT: neuron별 R 6개가 모두 \|R\| < 1 %, 결론 모두 차이 없음. MIT-BIH: F1은 −0.86 / −0.68 %p로 "나쁨", F2는 pop LIF −0.73 %p로 범위를 벗어남, F3는 범위 안 | 비교 × 과제 6칸 중 4칸 맞음. **MIT-BIH의 F1·F2 틀림** |
+| energy: ETT(head 재계산) 네 칸 평균 +7 % 이상, MIT-BIH(기록값) +15 % 이상 | ETT +8 ~ +11 %, MIT-BIH +16 ~ +19 % | 맞음 |
+| ETT 네 칸 평균 rho_neo: same ≥ freq ≥ rev (근거 약함) | pop LIF 0.0250 ≥ 0.0186 ≥ 0.0133, pop f-LIF 0.0283 ≥ 0.0233 ≥ 0.0020 | 맞음 |
+
+- MIT-BIH의 손해는 예상하지 못했다. 사전 고정 때 "구간 3은 에너지 0.47 %라 BN으로 키우면 잡음일 가능성"을 적었지만 결론은 "차이 없음"으로 냈다.
+
+**읽는 법 적용 (미리 적은 표):**
+- **F1:** ETT "차이 없음", MIT-BIH "나쁨". 이 형태의 주파수 입력은 이득이 없고 MIT-BIH에서는 손해다. energy도 더 든다. 쓰지 않는다.
+- **F2:** MIT-BIH에서 freq가 same보다 낮다(pop LIF "나쁨", pop f-LIF −0.43 %p로 문턱 바로 아래). same은 기준선과 차이가 없다. 그래서 손해는 embedding 4개(parameter·구조)가 아니라 주파수 분해에서 왔다.
+- **F3 "차이 없음":** 어느 가지에 어느 구간을 넣든 같다. 가지의 τ와 주파수의 짝은 역할을 가르지 않았다. rev도 MIT-BIH에서 기준선보다 낮다(−0.57 / −0.44 %p).
+- **결정:** `--neo_band freq / same / rev`는 기본값으로 두지 않는다. 기준 model은 Neocortex MS(`msn`) 그대로다. 코드는 선택지로 남긴다(기본값이면 비트 단위로 같다, c58a).
+
+**이 결과가 말하지 않는 것:**
+- 손해의 원인이 "작은 고주파 구간을 BN이 키운 것"인지 "window 전체 DCT가 짧은 변화(QRS)를 모든 계수로 퍼뜨린 것"인지는 가리지 못했다. 다음 시험(STFT, frame = token)의 (나)가 같은 구조에 변환만 바꾸므로 일부를 가른다.
+- 주파수 정보 자체가 쓸모없다는 뜻은 아니다. 시험한 것은 한 가지 분해(전체 window DCT, 주파수 절반씩, 가지별 BN)다.
+
+**한계:** 사전 고정 항목의 한계가 그대로다(분해가 window 전체를 씀, DCT 비용 별도, 가지별 BN의 증폭, 구간 경계 한 가지, 기준선은 다른 날 학습, lr 그대로, seed 3개, 탐색 수준).
+
+**not run:** B 묶음(auxiliary loss), C 묶음(둘의 결합), 과거만 쓰는 필터, BN을 구간 사이에 공유하는 형태.
+
+**결과 파일 (Git):**
+- `nsmt_flif_v1/forecasting/results/flif-v1-ett-band/{raw.txt, pool_runs.txt, energy_recount.csv}`
+- `nsmt_flif_v1/classification/results/flif-v1-mitbih-band/{raw.txt, pool_runs.txt}`
+- `nsmt_flif_v1/classification/results/flif-v1-band-summary.md`
+
+**로컬에만 둔 것:** `nsmt_flif_v1/forecasting/log/flif-v1-ett-band/`, `nsmt_flif_v1/classification/log/flif-v1-mitbih-band/`(checkpoint, TensorBoard, `logargs.txt` 등), pool 원본 로그.
+
+**다음:** 사용자 요청 11-13(STFT, "(가) + soma 없는 pop과 (나)를 동시에 구현 및 실험하고 비교")을 이어서 사전 고정하고 시작한다.
+
+**commit / tag:** 이 항목과 결과 파일을 commit 하고 annotated tag `exp/nsmt-flif-neo-20261113-band`(학습이 끝난 묶음, snapshot 아님)를 붙인다. `exp/nsmt-flif-neo`와 이 tag만 push 한다.
+
+---
