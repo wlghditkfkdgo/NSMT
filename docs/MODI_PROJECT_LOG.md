@@ -7280,3 +7280,160 @@ Spikformer식보다 "좋음"이 된 model은 없다.
 **commit / tag:** 이 항목과 결과 파일을 commit 하고 annotated tag `exp/nsmt-flif-neo-20261113-band`(학습이 끝난 묶음, snapshot 아님)를 붙인다. `exp/nsmt-flif-neo`와 이 tag만 push 한다.
 
 ---
+
+## 2026-11-13 22:05 KST — 사전 고정 + 구현: STFT 입력 시험, (가) soma 없는 population(τ 2, 각자 발화) 대 (나) soma 있는 population(τ 4–32) (사용자 요청 11-13) — Neocortex 입력을 STFT로 바꾼다. STFT의 frame을 token과 같게 두고(창 = patch 길이, 이동 폭 = stride), 주파수 칸을 4묶음으로 나눠 population neuron의 member 4개가 하나씩 받는다. (나)는 지금의 population(soma 하나가 발화, τ 4 / 8 / 16 / 32)이고, (가)는 soma를 없애 unit마다 독립된 neuron 4개(τ 2)가 각자 발화하고 OR로 합친다. (가)의 통제로 같은 구조에 원 신호를 4번 넣는 변형을 둔다. query pop LIF / f-LIF × (ETT 네 칸 + MIT-BIH) × seed 3 = 90 run. 이전 경로 117개 항목이 비트 단위로 같고, 점검 c59b–g 232개 통과, smoke 18/18
+
+**직전 commit:** `555a373b1` (주파수 4구간 결과, tag `exp/nsmt-flif-neo-20261113-band`).
+
+**사용자 요청 (11-13, 원문):**
+- "주파수 변환 방법으로 STFT를 선택하고 1. Neocortex path에서 2. population 개수 k=4에 맞추어, [4개의 주파수 x 시간 frame x channel] 로 입력을 변환 3. 스파이킹 시간 축 T을 [시간 frame] 축에 일치시킴 - Neo 모듈에서만 - 단방향 Neo-Mixer(직전 실험 구조 유지) vs. 양방향 Neo-Mixer 둘 중 성능이 좋은 것으로 선택 4. population LIF의 tau는 전부 2로 통일(각기 다른 주파수를 입력받는 것) 5. 나머지는 그대로 유지 - hippo, cross-attn, residual connection, hippo에서의 뉴런은 LIF 뉴런으로 등. 유지 / 위 내용에 대해서 성능 개선 가능성 및 예상되는 문제점을 검토해줘."
+- 내 검토(τ를 통일한 채 soma를 두면 member 4개가 neuron 1개와 같아진다; 선택지 (가) member가 각자 발화, (나) τ를 다르게 유지, (다) 그대로 통일)에 대한 답: "[(가) + soma없는 pop]와 (나)를 동시에 구현 및 실험하고 비교해보자."
+
+**검토 때 확인한 것 (학습 없음, 11-13 20:43):**
+- soma가 있는 population에서 member의 τ가 모두 같으면, member마다 다른 전류 I_k를 넣는 것과 전류 하나(Σ w_k I_k / Σ w_k)를 넣는 것이 완전히 같은 spike를 낸다.
+  - τ 2 / 2 / 2 / 2: 4,608개 위치 중 다른 곳이 pop LIF 0, pop f-LIF 0이다.
+  - τ 4 / 8 / 16 / 32: pop LIF 238곳, pop f-LIF 78곳이 다르다.
+  - 이유: member는 발화하지 않는 선형 필터이고 soma가 가중 합을 읽는다. 필터가 같으면 합의 순서를 바꿀 수 있다.
+- 첫 token에서 발화하는 데 필요한 전류(soma 가중치 0.5, 문턱 1): τ 2면 2.0, τ 4–32면 8.53이다.
+
+**정의:**
+- **STFT (`model.stft_bands`):**
+  - 끝을 stride만큼 늘린 입력을 patch와 같은 방식으로 자른다(창 = patch 길이 P, 이동 폭 = stride). frame n은 token n과 같은 sample이다. ETT는 P 8·frame 24개, MIT-BIH는 P 32·frame 11개다.
+  - frame마다 Hann 창(주기형)을 곱하고 실수 FFT를 한다(정규화 orthonormal). 주파수 칸은 P/2 + 1개다(ETT 5, MIT-BIH 17).
+  - 칸을 4묶음으로 나눈다. 경계는 11-13 DCT 시험과 같은 규칙(칸 수의 1/8, 1/4, 1/2에서 올림)이다.
+
+    | 과제 | 묶음 0 (가장 낮음) | 묶음 1 | 묶음 2 | 묶음 3 (가장 높음) | 값 개수 |
+    |---|---|---|---|---|---|
+    | ETT (칸 0–4) | 칸 0 | 칸 1 | 칸 2 | 칸 3–4 | 1 / 2 / 2 / 3 = 8 |
+    | MIT-BIH (칸 0–16) | 칸 0–2 | 칸 3–4 | 칸 5–8 | 칸 9–16 | 5 / 4 / 8 / 15 = 32 |
+
+  - 묶음의 값은 그 칸들의 실수부와 허수부다. 크기만 쓰지 않는다(부호와 위치를 잃지 않기 위해). 칸 0과 마지막 칸의 허수부는 항상 0이라 뺀다. 그래서 네 묶음의 값 개수 합이 P와 같다.
+- **member별 embedding:** 11-13의 `BandEmbedding`을 그대로 쓴다. member k는 자기 묶음을 자기 Linear(묶음 크기 → D, bias 없음)와 자기 BN 채널로 받는다. Linear weight 합계는 P × D로 기준선의 Linear(P → D)와 같다.
+- **뒤 층:** 11-13과 같다. 지름길 흐름을 member마다 하나씩 두고, 층의 전류를 네 흐름에 똑같이 더한다.
+- **(나) `--neo_band stft`:** population neuron은 지금과 같다(member는 발화하지 않고 soma 하나가 가중 합해 발화, τ 4 / 8 / 16 / 32). 가장 낮은 묶음이 가장 느린 member(τ 32)로 간다. 11-13의 `freq`에서 입력 변환만 DCT → STFT로 바꾼 형태다.
+- **(가) `--neo_band stft --neo_pop fire --pop_taus 2,2,2,2`:**
+  - soma가 없다. unit마다 독립된 neuron 4개(pop LIF면 spikeDE LIF, pop f-LIF면 spikeDE f-LIF, 모두 τ 2)가 각자 자기 묶음의 전류로 발화하고 reset한다.
+  - unit의 출력은 OR다(넷 중 하나라도 발화하면 1). 출력이 0/1로 남고 parameter가 늘지 않는다.
+  - Neocortex의 embedding neuron과 층 neuron이 모두 이 구조다.
+  - τ가 같으므로 묶음 i가 member i로 간다.
+- **(가)의 통제 `--neo_band same --neo_pop fire --pop_taus 2,2,2,2` (fire_same):** (가)와 같은 구조에서 네 member가 모두 나누지 않은 token을 자기 Linear(P → D)로 받는다. (가)는 구조와 τ를 함께 바꾸므로, 이득이 주파수 입력에서 오는지 구조에서 오는지 가르려고 넣었다.
+- parameter(기준선 대비): (나) +384(ETT) / +2,304(MIT-BIH), (가) −384 / −2,304(soma 가중치가 없어짐), fire_same +1,152 / +34,560.
+
+**범위 (내가 정함):**
+- **단방향만 돌린다.** 요청 3의 "단방향 대 양방향 중 좋은 것"은 이번 묶음에 넣지 않았다. 이유는 둘이다.
+  - 지금 코드는 Neocortex MS와 양방향을 함께 쓰지 못한다. member별 흐름과 두 방향을 어떻게 합칠지 새로 정해야 한다.
+  - 둘 중 고르는 것은 validation으로 해야 한다. MIT-BIH는 지금 학습 파일 전체로 학습해 validation이 없다.
+  - 11-13 21:05에 사용자에게 알렸다. 이번 결과를 본 뒤 진행한다.
+- STFT 창은 Hann이다(STFT의 표준이고, 큰 저주파 성분이 다른 칸으로 새는 것을 줄인다). 직사각형 창은 보지 않는다.
+- (가)의 합치는 방식은 OR 하나다. 이어 붙이기(다음 층 입력 4D)는 parameter가 MIT-BIH에서 약 2배가 되어 넣지 않았다.
+- (다)(soma 유지 + τ 통일)는 돌리지 않는다. neuron 1개와 같음을 계산으로 확인했다.
+- 모델은 query pop LIF와 pop f-LIF, 과제는 ETT 네 칸(ETTh2·ETTm2 × H96·H720)과 MIT-BIH, seed 42 / 7 / 2026이다. 하이퍼파라미터는 기준선과 같다(탐색 없음, validation 선택 없음).
+- run 수: 3 변형 × 2 neuron × (ETT 12 + MIT-BIH 3) = 90.
+
+**코드 (기본값이면 기존과 같음):**
+- `classification/neurons.py`: member별 전류 입력을 soma 없는 PopulationFLIF에도 허용한다.
+- `classification/layers.py`:
+  - `build_neo_neuron(..., pop_soma='lif' | 'none')`
+  - `NeoNeuron.forward_branches`: neuron이 member spike D × K개를 내면 member 축으로 최댓값(OR)을 취한다.
+- `classification/model.py`:
+  - `band_edges`, `stft_member_order`, `stft_band_dims`, `stft_bands`
+  - `BandEmbedding(in_dims=)`: member마다 입력 크기가 다를 수 있고, 입력을 member별 tensor 목록으로도 받는다.
+  - `myModel`: `neo_band`에 `stft` 추가, `neo_pop {soma, fire}` 추가(`fire`는 `neo_band`가 있어야 함), `_tokens_mc`가 STFT 묶음을 member 순서로 만든다.
+- `classification/config.py`: `--neo_band stft`, `--neo_pop {soma, fire}`, 폴더 접미사 `_pop<mode>`. `--pop_taus`가 기본값이 아니면 붙는 접미사 `_pt…`를 pop_lif에도 붙인다(기본값이면 폴더 이름이 그대로다).
+- `classification/load_model.py`: `neo_pop` 전달.
+- 실행 스크립트: `run_ett_dual.sh`, `run_mitbih4.sh`에 조건 `nsmt4q_pop_<lif|flif>_msn_<stft|fire_stft|fire_same>`를 넣었다. A 묶음 pool이 끝난 뒤(21:48)에 고쳤다.
+- 새 파일: `classification/fw_identity_bandvar.py`(c59a), `classification/check_stft.py`(c59b–g), `classification/scripts/make_queue_stft.sh`(대기열 → `scripts/queues/stft-20261113.txt`, git 제외), `classification/summarize_stft.py`(판정표).
+- 작업 순서: A 묶음 pool이 도는 동안(20:59–21:05)에는 저장소의 기존 파일을 고치지 않았다. 대기 중인 run이 바뀐 코드를 읽기 때문이다. 수정은 scratchpad의 코드 사본에서 하고 점검한 뒤, pool이 끝나고 A 결과를 commit 한 다음 저장소에 넣었다.
+
+**점검 (fail-closed):**
+- **c59a 이전 경로 비트 동일** (고친 뒤 117개 항목 모두 같음):
+  - `fw_identity_ms.py` 28개(Neocortex MS가 없는 경로)
+  - `fw_identity_band.py` 38개(기준선 msn 경로)
+  - `fw_identity_bandvar.py` 51개: 11-13의 freq / same / rev 경로. **고치기 전 코드로** 저장했고 다시 돌려 결정적임을 확인했다. 내용은 pop LIF / pop f-LIF 새 model(MIT-BIH, ETTm2 H96)의 state_dict·학습 출력·기울기와 학습된 pop LIF checkpoint(MIT-BIH, ETTm2 H96, ETTh2 H96)의 시험 출력·`step_features`다.
+  - 11-13의 `check_band.py`(371개)도 다시 통과한다.
+- **c59b STFT:** `stft_bands`가 `torch.stft`(주기형 Hann, n_fft = P, hop = stride, 중심 맞춤 없음, orthonormal)와 차이 0이다(P 8, P 32). frame 수 = token 수, 묶음 크기 합 = P.
+- **c59c soma 없는 neuron:** member별 전류를 주면 member spike가 따로 만든 neuron 4개(`lif` / `flif`, τ 2)에 그 전류를 넣은 것과 완전히 같고, 출력은 그 OR다(pop LIF, pop f-LIF).
+- **c59d 연결** (hook; 새 model 학습 모드; 2 neuron × 3 크기 × 3 변형):
+  - member의 τ와 soma 유무가 조건과 같다.
+  - embedding Linear k의 입력이 의도한 묶음이다(`torch.stft`로 따로 계산한 값과 차이 1e-06 이하; (나)는 묶음 0 → member 3, (가)는 묶음 i → member i, fire_same은 원 token).
+  - member 전류 = embedding BN 출력, 층 member 전류 = embedding member 전류 + Σ BN_j(차이 0).
+  - (가)·fire_same: neuron이 D × 4개의 member spike를 내고 층 출력이 그 OR다. (나): neuron이 D개를 낸다.
+  - spike는 0/1이고, query Linear는 마지막 Neocortex 층의 출력을 읽는다.
+- **c59e parameter:** STFT 변형의 embedding Linear weight 수가 기준선과 같다(ETT 512, MIT-BIH 12,288). fire_same은 4배다.
+- **c59f 기울기:** 모두 유한하고 embedding Linear 4개 모두에 0이 아닌 기울기가 간다.
+- **c59g 모든 묶음이 쓰인다:** embedding BN의 gain을 4배로 올려 새 Neocortex가 발화하게 한 뒤, member 하나의 입력을 0으로 바꾸면 Neocortex spike가 바뀐다(18개 조합 모두, 네 member 모두). gain을 올린 것은 새로 만든 soma population이 침묵하기 때문이다(c55c·c57f·c58h에서 본 것).
+- c59b–g 합계 232개 통과. 사본에서 한 번, 저장소에 넣은 뒤 한 번 돌렸다.
+- **smoke** (1 epoch, seed 42; ETTh2 H96·ETTm2 H96·MIT-BIH × 6조건 = 18 run; RESULT 18, SKIP 0):
+  - `logargs.txt`를 msn smoke run과 비교했다. 다른 것은 `neo_band`·`neo_pop`·`pop_taus`와 날짜·경로뿐이다.
+  - run 폴더 이름은 가장 긴 것이 194자다(한도 255).
+  - syops가 STFT embedding Linear 4개를 실수 곱셈(MAC)으로 세고, 합계가 기준선의 Linear와 같다(ETT 86.02 K).
+  - (가)의 Neocortex neuron은 unit당 LIF 4개로 센다(`neuron_energy.csv`의 neuron 수가 D × 4).
+  - `energy_recount_ett.py`가 12 run에서 MSE를 정확히 재현했고 점검을 통과했다.
+  - energy(1 epoch, 참고; msn smoke 대비): ETT head 재계산 기준 (나) +0.7 ~ +1.7 %, (가) −10.1 ~ +1.2 %, fire_same −2.6 ~ +12.9 %. MIT-BIH 기록값 (나) +1.6 / +4.0 %, (가) +6.0 / −1.0 %, fire_same +25.8 / +15.5 %(pop LIF / pop f-LIF).
+  - Neocortex 발화율(1 epoch, 참고): (나) 0.006–0.017(ETT), (가) member 기준 0.061–0.074, fire_same 0.076–0.100. msn smoke는 0.020–0.059였다.
+  - run당 시간(1 epoch): ETTh2 33–38초, ETTm2 92–107초, MIT-BIH 35–36초.
+
+**기준선과 참고 run (이미 있음, c59a로 경로가 같음을 확인):**
+- 기준선: `flif-v1-ett-ms`·`flif-v1-mitbih-ms`의 `nsmt4q_pop_<lif|flif>_msn`.
+- 참고: `flif-v1-ett-band`·`flif-v1-mitbih-band`의 `freq`(DCT 구간)와 `same`(원 신호 4번, soma 구조).
+- 보고 전용 Spikformer식: `flif-v1-gen-ett`, `flif-v1-gen-mitbih`.
+
+**판정 (사전 고정; 값이 빠지거나 중복되거나 유한하지 않으면 멈춤):**
+- 비교 (neuron마다):
+  - **S1** (나) − 기준선
+  - **S2** (가) − 기준선
+  - **S3** (가) − (나): 사용자가 요청한 비교
+  - **S4** (가) − fire_same: (가) 구조 안에서 주파수 입력의 몫
+  - 보고 전용: (나) − freq(STFT 대 DCT, 같은 구조), (나) − same, fire_same − 기준선(soma 없는 τ 2 구조만의 몫)
+- 규칙은 11-08·11-13과 같다.
+  - **ETT:** r = A / B − 1 (test MSE), 12쌍. 좋음: 평균 ≤ −1 %이고 8/12 낮음. 나쁨: 그 거울. 칸별 판정(±1 %, 2/3 seed)을 함께 적는다.
+  - **MIT-BIH:** Δ = A − B의 test macro-F1(%p). 좋음: 평균 ≥ +0.5 %p이고 2/3 seed 양수. 나쁨: 그 거울.
+  - **결론:** 두 neuron 모두 좋으면 "좋음", 한 neuron만이면 "neuron에 따라 다름(약함)", 둘 다 나쁘면 "나쁨", 나머지는 "차이 없음".
+- **보고 전용:** MAE, validation L1, 발화율, energy(ETT는 head 재계산, MIT-BIH는 기록값), parameter, Spikformer식 대비, syops가 세지 않는 비용(지름길 덧셈, STFT 계산; OR는 논리 연산이라 값을 매기지 않음).
+
+**읽는 법 (미리 적음):**
+
+| 결과 | 뜻 | 다음 후보 |
+|---|---|---|
+| S2 좋음 + S4 좋음 | 주파수마다 다른 neuron을 두는 것이 이득이다 | 양방향 구현, validation으로 단방향과 비교 |
+| S2 좋음 + S4 차이 없음 | 이득은 soma 없는 τ 2 구조에서 왔다. 주파수 입력의 이득이 아니다 | fire_same을 기준으로 볼지 사용자 결정 |
+| S1 좋음 | STFT 묶음을 지금 구조에 넣는 것이 이득이다 | (나)를 기준으로 |
+| S1 나쁨 (MIT-BIH) | 변환을 바꿔도 주파수 분해는 손해다. 원인은 변환 방식이 아니다 | 묶음별 BN을 공유하는 형태를 볼지 사용자 결정 |
+| S1 차이 없음, (나) − freq 양수(MIT-BIH) | DCT 시험의 손해는 window 전체 변환 때문이었다 | — |
+| S3 | (가)와 (나) 중 어느 구조가 나은가. 차이 없으면 energy가 낮은 쪽 | — |
+| 모두 차이 없음 | 주파수 입력과 neuron 구조 변경은 이 과제들에서 이득이 없다 | 기준 model 유지 |
+
+**사전 예상:**
+- 정확도:
+  - ETT는 S1–S4 모두 차이 없음(|R| < 1 %). Neocortex 쪽 변경이 ETT를 움직인 적이 없다. 11-13 시험에서 Neocortex가 거의 침묵해도(rho_neo 0.002) MSE가 그대로였다.
+  - MIT-BIH S1 (나) − 기준선: 두 neuron 모두 음수이고 크기는 DCT 시험(−0.86 / −0.68 %p)보다 작다. 판정은 차이 없음(|Δ| < 0.5 %p). 확신이 낮다. 묶음별 BN이 작은 고주파 묶음을 키우는 것은 DCT 때와 같다.
+  - MIT-BIH S2 (가) − 기준선, S3 (가) − (나): 차이 없음.
+  - MIT-BIH S4 (가) − fire_same: 음수, 차이 없음.
+- energy:
+  - (나)는 기준선의 0.97–1.06배다(ETT head 재계산, MIT-BIH 기록값 모두). embedding 곱셈 수가 기준선과 같기 때문이다.
+  - (가)는 fire_same보다 낮다(두 과제, 두 neuron 모두).
+  - fire_same은 MIT-BIH에서 기준선보다 +10 % 이상이다.
+- 발화율(ETT 네 칸 평균 rho_neo): (나)는 기준선보다 낮고, (가)·fire_same은 기준선보다 높다. (가)의 값은 member 기준이다.
+
+**실행:**
+- NSMT/에서 tmux `flif_stft`로 `bash scripts/gpu_pool2.sh nsmt_flif_v1/classification/scripts/queues/stft-20261113.txt 0,1,2,3`을 띄운다. 출력은 `nsmt_flif_v1/forecasting/results/flif-v1-ett-stft-pool.log`에 덧붙인다.
+- 순서: pop LIF(ETTm2 H720 → ETTm2 H96 → MIT-BIH → ETTh2), 이어서 pop f-LIF를 같은 순서로 돌린다.
+- 결과 줄: `forecasting/results/flif-v1-ett-stft/raw.txt`, `classification/results/flif-v1-mitbih-stft/raw.txt`.
+- 끝나면 pool 기록을 두 suite의 `pool_runs.txt`로 복사하고, `energy_recount_ett.py --suite flif-v1-ett-stft`와 `summarize_stft.py`를 돌린다.
+- pool이 도는 동안 저장소의 기존 코드와 실행 스크립트를 고치지 않는다.
+- 끝나는 시각은 어림하지 않는다.
+
+**한계:**
+- (가)와 (나)는 두 가지가 함께 다르다(soma 유무, τ). 사용자가 정한 비교다. 둘을 따로 가르는 조합(soma 없음 + τ 4–32)은 돌리지 않는다.
+- (가)는 τ 2라 Neocortex가 token 1–2개만 기억한다. "Neocortex = 긴 memory" 설명과 맞지 않는다. CinC(memory가 도움이 된 과제)는 이번에 보지 않는다.
+- fire_same은 embedding parameter가 (가)의 4배다. S4의 차이에는 이 차이도 섞인다.
+- OR로 합치면 어느 주파수의 neuron이 발화했는지가 뒤 층에 전달되지 않는다.
+- STFT 계산 비용은 syops가 세지 않는다. 요약에서 따로 적는다(행렬 곱 상한 어림: ETT window당 0.056 µJ, MIT-BIH beat당 0.053 µJ).
+- 묶음별 BN이 작은 묶음을 키운다(11-13과 같은 한계).
+- 단방향만 본다. 기준선은 11-08/09에 학습했다(짝은 seed로만 맞춤). lr 등은 기준선 값 그대로다. seed 3개, 탐색 수준이다.
+
+**not run (보류):** 양방향, (다), B 묶음(auxiliary loss), 직사각형 창, 묶음별 BN 공유.
+
+**commit:** 이 항목과 위 코드·스크립트·점검 스크립트·smoke 결과를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 pool을 시작한다.
+
+---

@@ -148,10 +148,15 @@ def parse_arguments():
                               'stream u, u <- u + BN(W s), the block neurons fire on u)')
     snn_arg.add_argument('--neo_res', choices=['none', 'ms'], default='none',
                          help='MODI 2026-11-08: residual between Neocortex layers -- none (default) or ms = membrane shortcut')
-    snn_arg.add_argument('--neo_band', choices=['none', 'freq', 'same', 'rev'], default='none',
+    snn_arg.add_argument('--neo_pop', choices=['soma', 'fire'], default='soma',
+                         help='MODI 2026-11-13: population neurons of the Neocortex -- soma (default: members do not fire, one soma '
+                              'mixes them) or fire (no soma: the members are independent spiking neurons with time constants '
+                              '--pop_taus, a unit spikes if any member does); fire needs --neo_band')
+    snn_arg.add_argument('--neo_band', choices=['none', 'freq', 'same', 'rev', 'stft'], default='none',
                          help='MODI 2026-11-13: one input per member of the 4-member population Neocortex embedding -- none (default: '
                               'one shared current), freq = DCT bands, lowest band -> slowest member, rev = lowest band -> fastest '
-                              'member (control), same = the unsplit signal through the 4 separate embeddings (control); needs --neo_res ms')
+                              'member (control), same = the unsplit signal through the 4 separate embeddings (control), stft = bin groups of a '
+                              'short-time Fourier transform whose frames are the tokens (MODI 2026-11-13); needs --neo_res ms')
     snn_arg.add_argument('--token_shuffle', action='store_true', default=False,
                          help='MODI 2026-10-28 shuffle-retrain: random token order per sample in training, one fixed order in evaluation')
     snn_arg.add_argument('--neuron_scope', choices=['mixer', 'all', 'lifbase'], default='mixer',
@@ -263,7 +268,7 @@ class Config():
             _iso += f"_smix-{args.mixer}-K{len(str(args.pop_taus).split(','))}-L{args.num_layers}-a{args.neo_alpha}"
         if getattr(args, 'model', 'myModel') == 'neoMixer':
             _iso += f"_mix-{args.mixer}" + ("-bidir" if getattr(args, 'mixer_bidir', False) else "") + f"-L{args.num_layers}-a{args.neo_alpha}"
-        if (getattr(args, 'neo_neuron', 'sj_lif') == 'pop_flif' or getattr(args, 'mixer', '') == 'pop_flif') and getattr(args, 'pop_taus', '4,8,16,32') != '4,8,16,32':
+        if (getattr(args, 'neo_neuron', 'sj_lif') in ('pop_flif', 'pop_lif') or getattr(args, 'mixer', '') == 'pop_flif') and getattr(args, 'pop_taus', '4,8,16,32') != '4,8,16,32':   # pop_lif: MODI 2026-11-13
             _iso += "_pt" + args.pop_taus.replace(',', '-')
         # stage 9 suffixes (absent for every earlier configuration)
         if getattr(args, 'hippo_ssa', False):
@@ -299,6 +304,8 @@ class Config():
             _iso += f"_nres{args.neo_res}"
         if getattr(args, 'neo_band', 'none') != 'none':                   # MODI 2026-11-13 (frequency bands)
             _iso += f"_band{args.neo_band}"
+        if getattr(args, 'neo_pop', 'soma') != 'soma':                    # MODI 2026-11-13 (STFT test)
+            _iso += f"_pop{args.neo_pop}"
         if getattr(args, 'neuron_scope', 'mixer') != 'mixer':             # MODI 2026-10-29
             _iso += {'all': '_nall', 'lifbase': '_nlb'}[args.neuron_scope]
         if getattr(args, 'neuron_all', 'sj_lif') != 'sj_lif':             # MODI 2026-10-29 (myModel)

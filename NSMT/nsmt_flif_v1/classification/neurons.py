@@ -355,8 +355,9 @@ class LIFNeuron(nn.Module):
         of these classes is fixed at construction. `analog` ('analog' | 'drive') reads the soma
         membrane after reset or the soma input, with the graph attached (soma='lif' only)."""
         if x.ndim == 4:                                              # MODI 2026-11-13: [T, B, D, K] per-member currents
-            if x.shape[-1] != self.num_members or not self.has_soma or type(self).__name__ != 'PopulationFLIF' or return_aux:
-                raise ValueError('per-member currents [T, B, D, K] need a PopulationFLIF with a soma and K members (no aux)')
+            # MODI 2026-11-13 (STFT test): also without a soma (members fire themselves; output [T, B, D * K], unit-major)
+            if x.shape[-1] != self.num_members or type(self).__name__ != 'PopulationFLIF' or return_aux:
+                raise ValueError('per-member currents [T, B, D, K] need a PopulationFLIF with K members (no aux)')
         elif x.ndim != 3:
             raise ValueError('Expected nonempty [T, B, D] current')
         if x.shape[0] < 1:

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# MODI 2026-11-13 (STFT test): + nsmt4q_pop_<lif|flif>_msn_{stft,fire_stft,fire_same} = msn with the STFT bands as member inputs:
+# stft = (na) soma population, tau 4-32; fire_stft = (ga) no soma, 4 independent members with tau 2 (OR); fire_same = (ga) with the unsplit signal.
 # MODI 2026-11-13 (frequency bands): + nsmt4q_pop_<lif|flif>_msn_{freq,same,rev} = the Neocortex-MS query population (msn) with
 # --neo_band freq (DCT bands, lowest -> slowest member) / same (unsplit signal, 4 separate embeddings) / rev (lowest -> fastest).
 # MODI 2026-11-08 (membrane shortcut): + nsmt4q_pop_<lif|flif>_{msh,msn,mshn} = the query population with --res_mode ms (hippocampus),
@@ -57,6 +59,12 @@ case $COND in                     # MODI 2026-10-29: dual-path models, B-form se
   nsmt4q_pop_flif_msn_freq)CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band freq" ;;
   nsmt4q_pop_flif_msn_same)CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band same" ;;
   nsmt4q_pop_flif_msn_rev)CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band rev" ;;
+  nsmt4q_pop_lif_msn_stft)     CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band stft" ;;   # MODI 2026-11-13 (STFT test): (na) soma, tau 4-32 / (ga) no soma, tau 2 / (ga) control
+  nsmt4q_pop_lif_msn_fire_stft)CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band stft --neo_pop fire --pop_taus 2,2,2,2" ;;
+  nsmt4q_pop_lif_msn_fire_same)CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band same --neo_pop fire --pop_taus 2,2,2,2" ;;
+  nsmt4q_pop_flif_msn_stft)    CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band stft" ;;
+  nsmt4q_pop_flif_msn_fire_stft)CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band stft --neo_pop fire --pop_taus 2,2,2,2" ;;
+  nsmt4q_pop_flif_msn_fire_same)CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band same --neo_pop fire --pop_taus 2,2,2,2" ;;
   *) echo "bad cond $COND"; exit 1 ;;
 esac
 case $DS in                       # patch emb heads mlp M lr bs epochs   (run_ett.sh; keep_ratio / alpha unused: no aux decoder)

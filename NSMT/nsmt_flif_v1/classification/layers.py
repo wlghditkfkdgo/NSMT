@@ -503,7 +503,10 @@ class NeoNeuron(nn.Module):
         if x.ndim != 5:
             raise ValueError(f'forward_branches expects [T, B, N, D, K], got {tuple(x.shape)}')
         T, B, N1, D, K = x.shape
-        return self.neuron(x.reshape(T, B * N1, D, K)).reshape(T, B, N1, D)
+        s = self.neuron(x.reshape(T, B * N1, D, K))
+        if s.shape[-1] == D * K:                                      # MODI 2026-11-13 (STFT test): members fire themselves (no soma);
+            return s.reshape(T, B, N1, D, K).amax(-1)                 # unit d spikes if any of its K members does (OR, stays 0/1)
+        return s.reshape(T, B, N1, D)
 
     def forward_charge(self, x):
         """MODI 2026-10-23: (spikes, H - theta) in the layout of forward()'s output (layers.spikes_and_charge). Runs through
@@ -569,7 +572,7 @@ def spikes_and_charge(n, x):
 
 
 def build_neo_neuron(kind, size, T, layout, tau=2., alpha=.5, method='pred', step=1., memory=0, pop_taus=(4., 8., 16., 32.),
-                     pop_soma_init=None, reset='spikede'):
+                     pop_soma_init=None, reset='spikede', pop_soma='lif'):
     """'lif' / 'flif': neurons.py classes wrapped in NeoNeuron; `T` = spiking steps (sizes the kernel table).
     'sj_lif' is handled by the callers (they keep their own spikingjelly LIF, constructed exactly as in nsmt_base)."""
     common = dict(tau=tau, threshold=1., surrogate_scale=5., step=step, max_length=int(T), reset=reset)   # reset: MODI 2026-10-31
@@ -584,9 +587,13 @@ def build_neo_neuron(kind, size, T, layout, tau=2., alpha=.5, method='pred', ste
         # 'pop_rec' = population f-LIF with a gated recurrent current tanh(g) W_rec s_{t-1} on the soma spikes (g init 0)
         common.pop('tau')
         cls = RecurrentPopulationFLIF if kind == 'pop_rec' else PopulationFLIF
-        n = cls(size, tau=tuple(float(t) for t in pop_taus), soma='lif', tau_s=tau, heterogeneous=True,
+        # MODI 2026-11-13 (STFT test): pop_soma 'none' = no soma, the K members are independent spiking neurons (their own
+        # threshold and reset; pop_lif: spikeDE LIF, pop_flif: spikeDE f-LIF); only reached with per-member currents (NeoNeuron.forward_branches)
+        if pop_soma not in ('lif', 'none') or (pop_soma == 'none' and kind == 'pop_rec'):
+            raise ValueError("pop_soma must be 'lif' or 'none' (and 'none' is not defined for pop_rec)")
+        n = cls(size, tau=tuple(float(t) for t in pop_taus), soma=pop_soma, tau_s=tau, heterogeneous=True,
                 alpha=(1. if kind == 'pop_lif' else alpha), method=method, memory=(int(memory) if memory else None), **common)
-        if pop_soma_init is not None:                                 # stage 9 calibration: soma mix weights 1/K -> value
+        if pop_soma_init is not None and pop_soma == 'lif':            # stage 9 calibration: soma mix weights 1/K -> value
             with torch.no_grad():
                 n.soma.weight.fill_(float(pop_soma_init))
     else:

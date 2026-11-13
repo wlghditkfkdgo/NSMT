@@ -229,23 +229,74 @@ def band_split(x, n_bands=4, time_dim=-1):
     return torch.stack(out)
 
 
+def band_edges(n, n_bands=4):
+    """[0, ceil(n / 2^(n_bands-1)), ..., ceil(n / 2), n]: the edges band_split uses on n DCT coefficients, reused on n STFT bins."""
+    return [0] + [int(math.ceil(n / 2 ** (n_bands - 1 - i))) for i in range(n_bands - 1)] + [n]
+
+
+def stft_member_order(taus):
+    """Member that reads STFT band i, for i = 0 (lowest) ... K - 1: members sorted by decreasing time constant; equal time
+    constants keep the member order (Python's sort is stable), so with equal taus member i reads band i."""
+    t = [float(v) for v in taus]
+    return sorted(range(len(t)), key=lambda k: -t[k])
+
+
+def stft_band_dims(patch_size, n_bands=4):
+    """Number of real values per band of stft_bands for one channel (they add up to patch_size when it is even)."""
+    nb = patch_size // 2 + 1
+    e = band_edges(nb, n_bands)
+    return [sum(1 if (k == 0 or (patch_size % 2 == 0 and k == patch_size // 2)) else 2 for k in range(e[i], e[i + 1])) for i in range(n_bands)]
+
+
+def stft_bands(xp, patch_size, stride, n_bands=4):
+    """MODI 2026-11-13 (STFT test, user request 11-13): short-time Fourier transform whose frames are the model's patches.
+    xp [B, C, L'] (already padded) -> frames = xp.unfold(patch_size, stride) (frame n = the samples of token n), periodic Hann window,
+    real FFT with orthonormal scaling -> patch_size // 2 + 1 bins per frame. The bins are grouped into n_bands frequency ranges
+    (band_edges; band 0 = the lowest bins, including bin 0). A band's values are the real parts of its bins followed by their
+    imaginary parts; the imaginary parts of bin 0 and of the Nyquist bin are always 0 and left out.
+    Returns a list of n_bands tensors [N, B, 1, C * dim_i] (token axis first, channel-major)."""
+    B, C, _ = xp.shape
+    fr = xp.to(torch.float32).unfold(dimension=-1, size=patch_size, step=stride)        # [B, C, N, P]
+    win = torch.hann_window(patch_size, periodic=True, device=fr.device, dtype=fr.dtype)
+    X = torch.fft.rfft(fr * win, dim=-1, norm='ortho')                               # [B, C, N, P // 2 + 1]
+    nb = X.shape[-1]
+    e = band_edges(nb, n_bands)
+    out = []
+    for i in range(n_bands):
+        ks = list(range(e[i], e[i + 1]))
+        im = [k for k in ks if not (k == 0 or (patch_size % 2 == 0 and k == patch_size // 2))]
+        v = torch.cat([X[..., ks].real, X[..., im].imag], dim=-1)                    # [B, C, N, dim_i]
+        out.append(v.permute(2, 0, 1, 3).reshape(v.shape[2], B, 1, C * v.shape[-1]).contiguous())
+    return out
+
+
 class BandEmbedding(nn.Module):
     """MODI 2026-11-13 (frequency bands): Neocortex embedding whose population neuron receives one current per member.
     x [N, B, 1, P, K] (token axis first; slot k = the signal meant for member k) -> K Linear(P -> D) without sharing ->
     BatchNorm over the D * K (unit, member) channels -> the population neuron with currents [N, B, 1, D, K].
     Returns the soma spikes [N, B, 1, D] (and the member currents [N, B, 1, D, K] with return_pre, graph kept)."""
-    def __init__(self, patch_size, embed_dim, n_members, neuron, bias=False):
+    def __init__(self, patch_size, embed_dim, n_members, neuron, bias=False, in_dims=None):
         super().__init__()
         self.embed_dim, self.n_members = embed_dim, n_members
-        self.emb_linear = nn.ModuleList([nn.Linear(patch_size, embed_dim, bias=bias) for _ in range(n_members)])
+        # MODI 2026-11-13 (STFT test): in_dims = input size of each member's Linear (the STFT bands have different sizes); the
+        # input is then a list of n_members tensors [N, B, 1, in_dims[k]]. None = patch_size for every member (unchanged).
+        self.in_dims = [patch_size] * n_members if in_dims is None else [int(d) for d in in_dims]
+        if len(self.in_dims) != n_members:
+            raise ValueError(f'BandEmbedding: {len(self.in_dims)} input sizes for {n_members} members')
+        self.emb_linear = nn.ModuleList([nn.Linear(d, embed_dim, bias=bias) for d in self.in_dims])
         self.emb_bn = nn.BatchNorm1d(embed_dim * n_members)
         self.emb_lif = neuron                                         # NeoNeuron around a PopulationFLIF with a soma
 
     def forward(self, x, pe=True, return_pre=False):
-        T, B, N1, P, K = x.shape
-        if K != self.n_members:
-            raise ValueError(f'BandEmbedding built for {self.n_members} members, got {K} input slots')
-        cur = torch.stack([self.emb_linear[k](x[..., k]) for k in range(K)], dim=-1)        # [T, B, N', D, K]
+        if isinstance(x, (list, tuple)):                              # MODI 2026-11-13: one tensor per member [T, B, N', in_dims[k]]
+            xs = list(x)
+        else:
+            xs = [x[..., k] for k in range(x.shape[-1])]
+        K = len(xs)
+        if K != self.n_members or any(xs[k].shape[-1] != self.in_dims[k] for k in range(K)):
+            raise ValueError(f'BandEmbedding built for {self.n_members} members of sizes {self.in_dims}, got {[tuple(z.shape) for z in xs]}')
+        T, B, N1 = xs[0].shape[:3]
+        cur = torch.stack([self.emb_linear[k](xs[k]) for k in range(K)], dim=-1)            # [T, B, N', D, K]
         cur = self.emb_bn(cur.reshape(T * B * N1, self.embed_dim * K)).reshape(T, B, N1, self.embed_dim, K)
         s = self.emb_lif(cur)                                         # [T, B, N', D] (NeoNeuron.forward_branches)
         return (s, cur) if return_pre else s
@@ -663,9 +714,16 @@ class myModel(nn.Module):
         #   'freq': the DCT bands, lowest band -> slowest member (largest tau)      'rev': lowest band -> fastest member (control)
         #   'same': the unsplit signal in all K slots (control: the K separate embeddings without the band split)
         # The member currents are the start of the membrane shortcut stream, one stream per member (needs --neo_res ms).
+        # MODI 2026-11-13 (STFT test, user request 11-13): neo_band 'stft' = the bands are the bin groups of a short-time Fourier
+        # transform whose frames are the tokens (model.stft_bands), lowest band -> the member with the largest tau (member order
+        # when the taus are equal). neo_pop 'fire' = the population neurons of the Neocortex have no soma: the K members are
+        # independent spiking neurons (time constants --pop_taus) and a unit spikes if any member does (OR).
         self.neo_band = str(kwargs.get('neo_band', 'none'))
-        if self.neo_band not in ('none', 'freq', 'same', 'rev'):
-            raise ValueError("neo_band in {none, freq, same, rev}")
+        self.neo_pop = str(kwargs.get('neo_pop', 'soma'))
+        if self.neo_band not in ('none', 'freq', 'same', 'rev', 'stft') or self.neo_pop not in ('soma', 'fire'):
+            raise ValueError("neo_band in {none, freq, same, rev, stft}, neo_pop in {soma, fire}")
+        if self.neo_pop == 'fire' and self.neo_band == 'none':
+            raise NotImplementedError('neo_pop fire needs per-member inputs (--neo_band same / freq / rev / stft)')
         if self.neo_band != 'none' and (neo_neuron not in ('pop_lif', 'pop_flif') or neo_where != 'both' or not self.hippo_xattn
                                         or str(kwargs.get('neo_res', 'none')) != 'ms' or self.token_shuffle is not None
                                         or len(tuple(kwargs.get('pop_taus', (4., 8., 16., 32.)))) != 4):
@@ -674,7 +732,8 @@ class myModel(nn.Module):
         _neo = dict(tau=self.neo_tau, alpha=float(kwargs.get('neo_alpha', 0.5)), method=str(kwargs.get('fde_method', 'pred')),
                     step=float(kwargs.get('fde_step', 1.0)), memory=int(kwargs.get('fde_memory', 0)),
                     pop_taus=tuple(kwargs.get('pop_taus', (4., 8., 16., 32.))), pop_soma_init=kwargs.get('pop_soma_init', None),
-                    reset=str(kwargs.get('neo_reset', 'spikede')))                       # MODI 2026-10-31
+                    reset=str(kwargs.get('neo_reset', 'spikede')),                       # MODI 2026-10-31
+                    pop_soma=('none' if self.neo_pop == 'fire' else 'lif'))              # MODI 2026-11-13 (STFT test)
         emb_neuron = (build_neo_neuron(neo_neuron, embed_dim, self.T, 'DN', **_neo)
                       if (neo_neuron != 'sj_lif' and neo_where == 'both' and not self.neo_streams) else None)
         mlp_fn = ((lambda: build_neo_neuron(neo_neuron, embed_dim, self.T, 'ND', **_neo))
@@ -713,7 +772,14 @@ class myModel(nn.Module):
           self.encoding_neo = _Embed(self.tok_dim, embed_dim, K, StreamNeurons(kind, taus, embed_dim, self.T, _neo['alpha']),
                                      bias=lif_bias, bn_layout='ncl', gamma=g)
         elif self.neo_band != 'none':                                  # MODI 2026-11-13: one current per population member
-          self.encoding_neo = BandEmbedding(self.tok_dim, embed_dim, len(_neo['pop_taus']), emb_neuron, bias=lif_bias)
+          _dims = None
+          if self.neo_band == 'stft':                                  # member order[i] reads band i (see _tokens_mc)
+              _bd = stft_band_dims(self.patch_size)
+              _ord = stft_member_order(_neo['pop_taus'])
+              _dims = [0] * len(_bd)
+              for _i, _m in enumerate(_ord):
+                  _dims[_m] = _bd[_i] * self.in_channels
+          self.encoding_neo = BandEmbedding(self.tok_dim, embed_dim, len(_neo['pop_taus']), emb_neuron, bias=lif_bias, in_dims=_dims)
         elif not self.hippo_ssa:                                       # stage 9: Hippo-only (SSA) builds no neocortex
           self.encoding_neo = Embedding(num_patches=self.num_patches,
                                     patch_size=self.tok_dim,
@@ -1000,6 +1066,14 @@ class myModel(nn.Module):
             K = taus.numel()
             if band == 'same':
                 neo = neo.unsqueeze(-1).expand(*neo.shape, K).contiguous()
+            elif band == 'stft':                                               # MODI 2026-11-13: list, member order[i] <- band i
+                sig = stft_bands(xp, self.patch_size, self.stride, K)          # frames = the tokens; band 0 = lowest bins
+                if sig[0].shape[0] != self.num_patches:
+                    raise RuntimeError(f'{sig[0].shape[0]} STFT frames but {self.num_patches} tokens')
+                order = stft_member_order(taus.tolist())                       # lowest band -> largest tau (equal taus: member i)
+                neo = [None] * K
+                for i, mth in enumerate(order):
+                    neo[mth] = sig[i]
             else:
                 bands = band_split(xp, K, time_dim=2)                          # [K, B, C, L + S], band 0 = lowest frequencies
                 sig = torch.stack([patch(bands[i]) for i in range(K)], dim=-1).transpose(0, 1).unsqueeze(2)   # [N, B, 1, C*P, K]
