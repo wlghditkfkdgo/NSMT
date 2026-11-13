@@ -12217,3 +12217,38 @@ head = s2                          H1(head가 membrane을 읽으면 CinC, ETT wo
 - 재계산: `python -B summarize_ms.py --task ett|mitbih`, `python -B report_ms.py`(`cinc_mixer_v1/`에서).
 
 **commit:** 이 기록의 commit을 annotated tag `exp/f-lif-pop-v3-ms-20261108`로 식별한다(학습 완료, snapshot 아님). `exp/f-lif-pop-v3`와 이 tag만 push.
+
+## 2026-11-13 20:43 KST — 설계 검토(학습 없음): STFT 4 주파수를 population LIF member 4개에 따로 넣고 τ를 전부 2로 통일하는 SpikMixer 안 — 그대로는 member 4개가 하나로 합쳐져 K = 1 model과 같아진다(τ 통일과 member별 입력이 서로를 지움). 수정안 3개를 제안했고 실행하지 않았다.
+
+**직전 commit:** `2100cd50d`(membrane shortcut 결과, tag `exp/f-lif-pop-v3-ms-20261108`). 브랜치 `exp/f-lif-pop-v3`.
+
+### 사용자 요청(11-13, 원문)
+- "STFT를 선택하고 1. 전체 모델의 뉴런을 population LIF으로 선택(SpikMixer) 2. population 개수 k=4에 맞추어, [4개의 주파수 x 시간 frame x channel] 로 입력을 변환 3. 스파이킹 시간 축 T을 [시간 frame] 축에 일치시킴 - 전체 모델 vs. Neo-Mixer모듈에서만 - 둘 중 성능이 좋은 것으로 선택 4. population LIF의 tau는 전부 2로 통일(각기 다른 주파수를 입력받는 것) 위 설계에 대해서 검토해줘."
+- 그 앞 질문("[L, C] 신호를 주파수 분석하면 어떤 tensor를 얻는가")에는 설명만 했고 기록하지 않았다.
+
+### 점검(`cinc_mixer_v1/review_stft_design.py` → `results/review-stft-20261113/output.txt`, CPU, 학습 없음)
+1. **τ가 같으면 member가 합쳐진다.** 이 code의 population LIF(`PopulationFLIF`, soma 'lif')는 member가 발화하지 않는 적분기 v_k ← v_k + (I_k − v_k) / τ_k이고, soma만 Σ w_k v_k를 받아 발화한다.
+   - 실제 class: `pop_taus` (2, 2, 2, 2)와 K = 1(τ 2)의 출력 spike가 같은 입력에서 완전히 같다.
+   - member마다 다른 입력을 넣어도 τ가 같으면 Σ w_k v_k(I_k) = v(Σ w_k I_k)다(최대 차이 2.2e-16). τ가 4, 8, 16, 32이면 차이 1.03으로 성립하지 않는다.
+   - 같은 입력에서 K = 1 population의 firing rate는 0.040, plain LIF(τ 2)는 0.109다. 앞단 적분기가 하나 더 있어서다.
+2. **STFT의 real / imag는 patch의 가역 선형 변환이다.** window 6, 8, 32에서 0이 아닌 실수 feature 수 = rank = window 길이. 뒤에 Linear가 오면 지금의 patch embedding과 표현할 수 있는 함수가 같다.
+3. **frame 수(`center=True`):** 주파수 4개는 n_fft 6을 뜻한다. ETT 25(hop 4)–33(hop 3), MIT-BIH 63(hop 3) 또는 12(hop 16, sample을 건너뜀), CinC 1,251. window를 지금 patch에 맞추면(ETT 8 / 4, MIT-BIH 32 / 16, CinC 64 / 32) bin 5 / 17 / 33개, frame 25 / 12 / 118개로 지금 token 수(24 / 11 / 117)와 거의 같다.
+4. **bin별 power 비중(train, rectangular window, n_fft 6):** ETTh2 60.8 / 21.5 / 12.1 / 5.6 %, ETTm2 73.7 / 16.3 / 7.1 / 2.9 %, MIT-BIH 92.1 / 6.3 / 1.2 / 0.4 %. MIT-BIH는 값이 0–1 범위라 bin 0에 평균이 들어 있다. MIT-BIH n_fft 32를 절반씩 묶은 4 band는 80.1 / 8.0 / 6.7 / 5.1 %다.
+
+### 검토(내 판단)
+- **2번 + 4번:** 점검 1, 2를 합치면 설계 그대로의 model은 "K = 1 population(τ 2) + 지금 embedding"과 표현력이 같다. 달라지는 것은 BN 위치와 member 4개분의 energy 계산뿐이다. amplitude만 쓰면 비선형 feature가 되지만 window 안의 위치(phase)를 버리고, member가 합쳐지는 것은 그대로다.
+- **4번의 개념:** τ 다양성은 token 사이의 긴 / 짧은 기억이고, STFT band는 window 안의 빠른 / 느린 변화다. 축이 다르다. window보다 긴 변화(ETT의 하루 주기 등)는 bin 0의 frame 간 변화로 남고, 이를 따라가려면 낮은 band에 긴 τ가 필요하다. 다른 세션이 11-13에 시작한 주파수 대역 시험의 `freq` 조건이 이 형태다(낮은 구간 → τ 32). 그 시험은 20:40 기준 진행 중(ETT RESULT 44 / 72, MIT-BIH 9 / 18)이라 결과를 인용하지 않는다. 읽기만 했다.
+- **1번:** SpkMixer에서 LIF가 아닌 neuron 15개 조건은 CinC에서 모두 Spikformer식보다 worse였다(−1.24 ~ −5.59 %p, 11-01). ETT, MIT-BIH의 SpkMixer population은 학습된 적이 없다. τ를 2로 통일하면 긴 τ의 warm-up 문제는 없어지지만, 위 이유로 population이 아니게 된다.
+- **2번의 "주파수 4개":** n_fft 6은 window가 너무 짧고(ETTh2 6시간, MIT-BIH 48 ms) 높은 bin의 power가 작다. CinC는 frame 1,251개가 되어 T = frame이면 시간과 energy가 크게 는다. window = patch, hop = stride로 두고 bin을 4 band로 묶는 편이 지금 tokenization과 control을 그대로 쓸 수 있다.
+- **3번:** 비교 자체는 타당하다. 기존 근거: CinC에서 T_h 없는 Neo-mixer(`sd`) 64.98 / 33.9 µJ, SpkMixer(sdlin) 66.96 / 129.8 µJ(다른 차이가 섞임), ETT에서 모든 층 T = N인 Neo-mixer는 energy 0.2–0.3배(11-04 후보 비교). 정확도만으로 고르면 energy 이점을 버릴 수 있으므로 선택 규칙에 energy를 넣고, 선택은 validation으로 해야 한다.
+
+### 수정안(제안, 실행 안 함)
+- **A(내 추천):** soma 없는 group 형태. D channel을 4 group으로 나누고 group k가 band k의 real / imag만 자기 Linear로 받는다. 모든 neuron은 τ 2로 각자 발화한다. band마다 비선형이 따로라 합쳐지지 않는다. 사실상 "LIF SpkMixer + band별로 나뉜 embedding"이고, 첫 dense Linear에서 band가 섞인다. control은 기존 LIF SpkMixer run과, bin을 group에 무작위로 배정한 model이다. 3번의 두 배치를 함께 돌리면 ETT 12 + MIT-BIH 3 run × (band, 무작위) × (전체, mixer만) = 60 run에 전체 T = frame control 15 run이 더 든다.
+- **B:** soma를 유지하고 τ를 band에 맞춘다(낮은 band → 긴 τ). 다른 세션 시험과 같은 질문이므로 그 결과를 먼저 본다.
+- **C:** 설계 그대로. K = 1과 같으므로 추천하지 않는다.
+- 예상: A의 표현력은 지금 embedding의 부분집합이고, ETT는 mixer를 꺼도 MSE +1.61 %였다. no clear difference를 예상한다.
+
+### 한계
+- 점검 1b는 member 식을 다시 쓴 계산이고(같은 입력 경우만 실제 class로 확인), power 비중은 train 구간의 rectangular window 값이다. 문헌 조사는 하지 않았다. 학습 결과는 없다.
+
+**commit:** `review_stft_design.py`, `results/review-stft-20261113/output.txt`, 이 기록을 `exp/f-lif-pop-v3`에 push. tag 없음(학습 없는 분석). 해시는 다음 기록에 적는다.

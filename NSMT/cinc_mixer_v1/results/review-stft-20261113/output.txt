@@ -1,0 +1,22 @@
+(1a) pop_lif taus (2,2,2,2) vs K=1 tau 2, same input: identical spikes True | rate 0.0399 | soma weights 
+     plain LIF tau 2 on the same input: rate 0.1094, same spikes as the K=1 population: False
+(1b) equal tau, different inputs: max |sum_k w_k v_k - v(sum_k w_k I_k)| = 2.22e-16
+     different taus (4,8,16,32): the same difference = 1.03e+00 (does not collapse)
+(2) P=6: bins 4, real-valued features 8 (non-zero columns 6), rank 6
+(2) P=8: bins 5, real-valued features 10 (non-zero columns 8), rank 8
+(2) P=32: bins 17, real-valued features 34 (non-zero columns 32), rank 32
+(3) ETT 4 bins: L 96, n_fft 6, hop 3 -> bins 4, frames 33
+(3) ETT 4 bins: L 96, n_fft 6, hop 4 -> bins 4, frames 25
+(3) ETT patch-aligned: L 96, n_fft 8, hop 4 -> bins 5, frames 25
+(3) MIT-BIH 4 bins: L 187, n_fft 6, hop 3 -> bins 4, frames 63
+(3) MIT-BIH 4 bins, 11 frames: L 187, n_fft 6, hop 16 -> bins 4, frames 12 (hop > window: samples skipped)
+(3) MIT-BIH patch-aligned: L 187, n_fft 32, hop 16 -> bins 17, frames 12
+(3) CinC 4 bins: L 3750, n_fft 6, hop 3 -> bins 4, frames 1251
+(3) CinC patch-aligned: L 3750, n_fft 64, hop 32 -> bins 33, frames 118
+(4) ETTh2 train windows (window-normalised), n_fft 6: power share per bin % [60.8 21.5 12.1  5.6]
+(4) ETTh2 train windows (window-normalised), n_fft 8: power share per bin % [52.8 23.1 10.6  8.7  4.8]
+(4) ETTm2 train windows (window-normalised), n_fft 6: power share per bin % [73.7 16.3  7.1  2.9]
+(4) ETTm2 train windows (window-normalised), n_fft 8: power share per bin % [68.9 17.4  6.9  4.7  2.1]
+(4) MIT-BIH train beats, n_fft 6: power share per bin % [92.1  6.3  1.2  0.4] 
+(4) MIT-BIH train beats, n_fft 32: power share per bin % [80.1  8.   4.4  2.3  1.6  1.1  0.7  0.5] ... bins 8-16 sum 1.25
+     octave bands [0], [1], [2-3], [4-16] %: [80.1  8.   6.7  5.1]
