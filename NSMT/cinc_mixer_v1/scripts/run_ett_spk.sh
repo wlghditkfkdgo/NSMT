@@ -25,7 +25,22 @@ case $COND in
     case $CFX in iand) CFA=IAND ;; or) CFA=OR ;; add) CFA=ADD ;; ms) CFA=MS ;; *) echo "bad connect in $COND"; exit 1 ;; esac
     [ "$REST" = "spkmx_lif_$COMB" ] || { echo "bad cond $COND"; exit 1; }
     CF="--model spkMixer --mixer lif --mixer_comb $COMB --connect_f $CFA --hippo_T 4" ;;
+  spkmx_pop_lif_muxlin_*)                                # 2026-11-16 STFT band test: population LIF in every layer (soma init 0.5, gain table below)
+    CFX=${COND##*_}; COMB=muxlin
+    case $CFX in iand) CFA=IAND ;; or) CFA=OR ;; add) CFA=ADD ;; *) echo "bad connect in $COND"; exit 1 ;; esac
+    CF="--model spkMixer --mixer pop_lif --mixer_comb $COMB --connect_f $CFA --hippo_T 4 --pop_soma_init 0.5" ;;
   *) echo "bad cond $COND"; exit 1 ;;
+esac
+# 2026-11-16 STFT band test (PROJECT_LOG): BAND=group|member -> --spk_band, TAXIS=token -> --spk_taxis token (tags _bd<band>, _tx<taxis>);
+# a population model always takes its own gain table calib/stft/gains_<task>_pop_lif_muxlin_<connect>_bd<band>_tx<taxis>.json (calibrate_stft.py)
+BX=""; BTAG=""
+case ${BAND:-none} in none) ;; group|member) BX="--spk_band $BAND"; BTAG="_bd$BAND" ;; *) echo "bad BAND"; exit 1 ;; esac
+case ${TAXIS:-rep} in rep) ;; token) BX="$BX --spk_taxis token"; BTAG="${BTAG}_txtoken" ;; *) echo "bad TAXIS"; exit 1 ;; esac
+[ -n "$BX" ] && case $COND in spkmx_*) ;; *) echo "BAND / TAXIS are for the SpkMixer"; exit 1 ;; esac
+case $COND in spkmx_pop_lif_*)
+  GT="$W/calib/stft/gains_${DS}_pop_lif_muxlin_${CFA}_bd${BAND:-none}_tx${TAXIS:-rep}.json"
+  [ -s "$GT" ] || { echo "missing gain table $GT"; exit 1; }
+  BX="$BX --gain_table $GT" ;;
 esac
 case $DS in                       # patch emb heads mlp M lr bs epochs   (as run_ett_mixer.sh; heads unused by the SpkMixer)
   ETTh2) L0=1; E=100 ;;           # Table 13: --patch_size 8 -emb 64 -nh 8  --mlp_ratios 0.5 --time_layers 1 -lr 0.0005 -bs 64
@@ -37,7 +52,7 @@ case $DS in
   ETTh2) HP="--patch_size 8 -emb 64 -nh 8  --mlp_ratios 0.5 --time_layers $LAYERS -lr $LR -bs 64" ;;
   ETTm2) HP="--patch_size 8 -emb 64 -nh 16 --mlp_ratios 1   --time_layers $LAYERS -lr $LR -bs 64" ;;
 esac
-TAGC="${COND}_lr${LR}_L${LAYERS}"
+TAGC="${COND}_lr${LR}_L${LAYERS}${BTAG}"
 HM=""; [ "${HEADMEM:-0}" = 1 ] && { HM="--head_mem"; TAGC="${TAGC}_hm"; }   # 2026-11-03 H1 (head_mem.py): HEADMEM=1 -> --head_mem, tag _hm
 [ "${MS:-0}" = 1 ] && { [ "$COND" = spk_ssa ] || { echo "MS=1 is for spk_ssa (the SpkMixer uses cond spkmx_lif_<comb>_ms)"; exit 1; }; HM="$HM --ms_shortcut"; TAGC="${TAGC}_ms"; }   # 2026-11-08 membrane shortcut
 TL="";[ "${LOSS:-l1}" = mse ] && { TL="--train_loss mse"; TAGC="${TAGC}_mse"; }   # 2026-11-07 L2 test: LOSS=mse -> --train_loss mse, tag _mse
@@ -51,7 +66,7 @@ OUT=$LOG/ett_${DS}_p${PL}_${TAGC}_seed${S}_${TS}_${SHA}.stdout; t0=$(date +%s)
   --log_dir "$LOG/$DS/p$PL" --seed $S -s -nd 0 --gating attn --no-bias --scheduler reduce -e $E --warm_up_epoch 0 \
   --layers 1 --tau 2.0 --weight_decay 0.06 --patience $P \
   --data $DS --data_path $DS.csv --root_path "$W/../forecasting/dataset/ETT-small" --seq_len 96 --pred_len $PL --features M --target OT \
-  $HP $CF $HM $TL --tag $TAGC seed$S > "$OUT" 2>&1)
+  $HP $CF $BX $HM $TL --tag $TAGC seed$S > "$OUT" 2>&1)
 RC=$?
 D=$(ls -td "$LOG/$DS/p$PL"/*/*"+${TAGC}+seed${S}+"*"+epoch+${E}+"*/seed${S}_* 2>/dev/null | head -1)
 CSV="$D/log/final+result.csv"; LCSV="$D/log/last/final+result.csv"

@@ -1,0 +1,146 @@
+pass  c1 band sizes  [[1, 2, 2, 3] [5, 4, 8, 15]]
+pass  c1 band edges
+pass  c1 ETTh2 band 0: every repeat holds the same values
+pass  c1 ETTh2 band 1: every repeat holds the same values
+pass  c1 ETTh2 band 2: every repeat holds the same values
+pass  c1 ETTh2 band 3: every repeat holds the same values
+pass  c1 ETTh2 stft_values == torch.stft  [max diff 0.0e+00, frames 24 = tokens 24]
+pass  c1 ETTh2 Parseval (windowed frame energy)  [1.1e-05]
+pass  c1 MITBIH band 0: every repeat holds the same values
+pass  c1 MITBIH band 1: every repeat holds the same values
+pass  c1 MITBIH band 2: every repeat holds the same values
+pass  c1 MITBIH band 3: every repeat holds the same values
+pass  c1 MITBIH stft_values == torch.stft  [max diff 0.0e+00, frames 11 = tokens 11]
+pass  c1 MITBIH Parseval (windowed frame energy)  [1.9e-06]
+pass  c2 ETTh2 rep: A shares every other weight and the random state with the band-less model  [55 shared tensors]
+pass  c2 ETTh2 rep: A embedding weights = sum(dim_k) * D / 4
+pass  c2 ETTh2 rep: band j reaches only channel group j
+pass  c2 ETTh2 rep: Linear k reads band k
+pass  c2 ETTh2 token: A shares every other weight and the random state with the band-less model  [55 shared tensors]
+pass  c2 ETTh2 token: A embedding weights = sum(dim_k) * D / 4
+pass  c2 ETTh2 token: band j reaches only channel group j
+pass  c2 ETTh2 token: Linear k reads band k
+pass  c2 ETTm2 rep: A shares every other weight and the random state with the band-less model  [55 shared tensors]
+pass  c2 ETTm2 rep: A embedding weights = sum(dim_k) * D / 4
+pass  c2 ETTm2 rep: band j reaches only channel group j
+pass  c2 ETTm2 rep: Linear k reads band k
+pass  c2 ETTm2 token: A shares every other weight and the random state with the band-less model  [55 shared tensors]
+pass  c2 ETTm2 token: A embedding weights = sum(dim_k) * D / 4
+pass  c2 ETTm2 token: band j reaches only channel group j
+pass  c2 ETTm2 token: Linear k reads band k
+pass  c2 MITBIH rep: A shares every other weight and the random state with the band-less model  [71 shared tensors]
+pass  c2 MITBIH rep: A embedding weights = sum(dim_k) * D / 4
+pass  c2 MITBIH rep: band j reaches only channel group j
+pass  c2 MITBIH rep: Linear k reads band k
+pass  c2 MITBIH token: A shares every other weight and the random state with the band-less model  [71 shared tensors]
+pass  c2 MITBIH token: A embedding weights = sum(dim_k) * D / 4
+pass  c2 MITBIH token: band j reaches only channel group j
+pass  c2 MITBIH token: Linear k reads band k
+pass  c3 pop_lif: per-member currents == members and soma written from the definition  [0 of 13440 differ, rate 0.030]
+pass  c3 pop_lif: equal currents to all members == the ordinary call
+pass  c3 pop_lif: one member's current changes the spikes
+pass  c3 member order: lowest band -> slowest member
+pass  c3 ETTh2 rep: B shares every other weight and the random state with the band-less population model  [57 shared tensors]
+pass  c3 ETTh2 rep: B embedding weights = P * D (as the band-less embedding)
+pass  c3 ETTh2 rep: member taus 4 / 8 / 16 / 32, soma tau 2
+pass  c3 ETTh2 rep: band i reaches only member 3 - i (band 0 -> tau 32)
+pass  c3 ETTh2 rep: the embedding neuron receives [T, rows, D, 4] and returns [T, rows, D]  [((4, 1344, 64, 4), (4, 1344, 64))]
+pass  c3 ETTh2 token: B shares every other weight and the random state with the band-less population model  [57 shared tensors]
+pass  c3 ETTh2 token: B embedding weights = P * D (as the band-less embedding)
+pass  c3 ETTh2 token: member taus 4 / 8 / 16 / 32, soma tau 2
+pass  c3 ETTh2 token: band i reaches only member 3 - i (band 0 -> tau 32)
+pass  c3 ETTh2 token: the embedding neuron receives [T, rows, D, 4] and returns [T, rows, D]  [((24, 56, 64, 4), (24, 56, 64))]
+pass  c3 ETTm2 rep: B shares every other weight and the random state with the band-less population model  [57 shared tensors]
+pass  c3 ETTm2 rep: B embedding weights = P * D (as the band-less embedding)
+pass  c3 ETTm2 rep: member taus 4 / 8 / 16 / 32, soma tau 2
+pass  c3 ETTm2 rep: band i reaches only member 3 - i (band 0 -> tau 32)
+pass  c3 ETTm2 rep: the embedding neuron receives [T, rows, D, 4] and returns [T, rows, D]  [((4, 1344, 64, 4), (4, 1344, 64))]
+pass  c3 ETTm2 token: B shares every other weight and the random state with the band-less population model  [57 shared tensors]
+pass  c3 ETTm2 token: B embedding weights = P * D (as the band-less embedding)
+pass  c3 ETTm2 token: member taus 4 / 8 / 16 / 32, soma tau 2
+pass  c3 ETTm2 token: band i reaches only member 3 - i (band 0 -> tau 32)
+pass  c3 ETTm2 token: the embedding neuron receives [T, rows, D, 4] and returns [T, rows, D]  [((24, 56, 64, 4), (24, 56, 64))]
+pass  c3 MITBIH rep: B shares every other weight and the random state with the band-less population model  [75 shared tensors]
+pass  c3 MITBIH rep: B embedding weights = P * D (as the band-less embedding)
+pass  c3 MITBIH rep: member taus 4 / 8 / 16 / 32, soma tau 2
+pass  c3 MITBIH rep: band i reaches only member 3 - i (band 0 -> tau 32)
+pass  c3 MITBIH rep: the embedding neuron receives [T, rows, D, 4] and returns [T, rows, D]  [((4, 88, 384, 4), (4, 88, 384))]
+pass  c3 MITBIH token: B shares every other weight and the random state with the band-less population model  [75 shared tensors]
+pass  c3 MITBIH token: B embedding weights = P * D (as the band-less embedding)
+pass  c3 MITBIH token: member taus 4 / 8 / 16 / 32, soma tau 2
+pass  c3 MITBIH token: band i reaches only member 3 - i (band 0 -> tau 32)
+pass  c3 MITBIH token: the embedding neuron receives [T, rows, D, 4] and returns [T, rows, D]  [((11, 8, 384, 4), (11, 8, 384))]
+pass  c4 ETTh2 lif none rep: mixer neurons step over 24 tokens, embedding / MLP neurons over 4  [4 + 3 neuron layers]
+pass  c4 ETTh2 lif none rep: outputs [T_h 4, rows, N, D], spikes 0 / 1, finite logits  [embedding rate 0.0778, output rate 0.0650]
+pass  c4 ETTh2 lif none rep: embedding spikes of a token depend on that token only (token 0 changed: itself yes, later no; last changed: earlier no); state is carried over the 4 repeats  [first True later False early False, 18947 spikes differ from one-step calls]
+pass  c4 ETTh2 lif none token: mixer neurons step over 24 tokens, embedding / MLP neurons over 24  [4 + 3 neuron layers]
+pass  c4 ETTh2 lif none token: outputs [T_h 1, rows, N, D], spikes 0 / 1, finite logits  [embedding rate 0.0457, output rate 0.0379]
+pass  c4 ETTh2 lif none token: the embedding neuron carries state from token to token (one call over N steps != N one-step calls); earlier tokens never change with the last one  [2915 spikes differ, later tokens changed by token 0: True, early False]
+pass  c4 ETTh2 lif group rep: mixer neurons step over 24 tokens, embedding / MLP neurons over 4  [4 + 3 neuron layers]
+pass  c4 ETTh2 lif group rep: outputs [T_h 4, rows, N, D], spikes 0 / 1, finite logits  [embedding rate 0.0534, output rate 0.0418]
+pass  c4 ETTh2 lif group rep: embedding spikes of a token depend on that token only (token 0 changed: itself yes, later no; last changed: earlier no); state is carried over the 4 repeats  [first True later False early False, 12951 spikes differ from one-step calls]
+pass  c4 ETTh2 lif group token: mixer neurons step over 24 tokens, embedding / MLP neurons over 24  [4 + 3 neuron layers]
+pass  c4 ETTh2 lif group token: outputs [T_h 1, rows, N, D], spikes 0 / 1, finite logits  [embedding rate 0.0309, output rate 0.0236]
+pass  c4 ETTh2 lif group token: the embedding neuron carries state from token to token (one call over N steps != N one-step calls); earlier tokens never change with the last one  [1795 spikes differ, later tokens changed by token 0: True, early False]
+pass  c4 ETTh2 pop_lif none rep: mixer neurons step over 24 tokens, embedding / MLP neurons over 4  [4 + 3 neuron layers]
+pass  c4 ETTh2 pop_lif none rep: outputs [T_h 4, rows, N, D], spikes 0 / 1, finite logits  [embedding rate 0.0782, output rate 0.0644]
+pass  c4 ETTh2 pop_lif none rep: embedding spikes of a token depend on that token only (token 0 changed: itself yes, later no; last changed: earlier no); state is carried over the 4 repeats  [first True later False early False, 26725 spikes differ from one-step calls]
+pass  c4 ETTh2 pop_lif none token: mixer neurons step over 24 tokens, embedding / MLP neurons over 24  [4 + 3 neuron layers]
+pass  c4 ETTh2 pop_lif none token: outputs [T_h 1, rows, N, D], spikes 0 / 1, finite logits  [embedding rate 0.0432, output rate 0.0395]
+pass  c4 ETTh2 pop_lif none token: the embedding neuron carries state from token to token (one call over N steps != N one-step calls); earlier tokens never change with the last one  [3707 spikes differ, later tokens changed by token 0: True, early False]
+pass  c4 ETTh2 pop_lif member rep: mixer neurons step over 24 tokens, embedding / MLP neurons over 4  [4 + 3 neuron layers]
+pass  c4 ETTh2 pop_lif member rep: outputs [T_h 4, rows, N, D], spikes 0 / 1, finite logits  [embedding rate 0.0690, output rate 0.0532]
+pass  c4 ETTh2 pop_lif member rep: embedding spikes of a token depend on that token only (token 0 changed: itself yes, later no; last changed: earlier no); state is carried over the 4 repeats  [first True later False early False, 22216 spikes differ from one-step calls]
+pass  c4 ETTh2 pop_lif member token: mixer neurons step over 24 tokens, embedding / MLP neurons over 24  [4 + 3 neuron layers]
+pass  c4 ETTh2 pop_lif member token: outputs [T_h 1, rows, N, D], spikes 0 / 1, finite logits  [embedding rate 0.0344, output rate 0.0289]
+pass  c4 ETTh2 pop_lif member token: the embedding neuron carries state from token to token (one call over N steps != N one-step calls); earlier tokens never change with the last one  [2913 spikes differ, later tokens changed by token 0: True, early False]
+pass  c4 MITBIH lif none rep: mixer neurons step over 11 tokens, embedding / MLP neurons over 4  [6 + 3 neuron layers]
+pass  c4 MITBIH lif none rep: outputs [T_h 4, rows, N, D], spikes 0 / 1, finite logits  [embedding rate 0.0584, output rate 0.1330]
+pass  c4 MITBIH lif none rep: embedding spikes of a token depend on that token only (token 0 changed: itself yes, later no; last changed: earlier no); state is carried over the 4 repeats  [first True later False early False, 3390 spikes differ from one-step calls]
+pass  c4 MITBIH lif none token: mixer neurons step over 11 tokens, embedding / MLP neurons over 11  [6 + 3 neuron layers]
+pass  c4 MITBIH lif none token: outputs [T_h 1, rows, N, D], spikes 0 / 1, finite logits  [embedding rate 0.0459, output rate 0.1229]
+pass  c4 MITBIH lif none token: the embedding neuron carries state from token to token (one call over N steps != N one-step calls); earlier tokens never change with the last one  [626 spikes differ, later tokens changed by token 0: True, early False]
+pass  c4 MITBIH lif group rep: mixer neurons step over 11 tokens, embedding / MLP neurons over 4  [6 + 3 neuron layers]
+pass  c4 MITBIH lif group rep: outputs [T_h 4, rows, N, D], spikes 0 / 1, finite logits  [embedding rate 0.0225, output rate 0.0949]
+pass  c4 MITBIH lif group rep: embedding spikes of a token depend on that token only (token 0 changed: itself yes, later no; last changed: earlier no); state is carried over the 4 repeats  [first True later False early False, 1230 spikes differ from one-step calls]
+pass  c4 MITBIH lif group token: mixer neurons step over 11 tokens, embedding / MLP neurons over 11  [6 + 3 neuron layers]
+pass  c4 MITBIH lif group token: outputs [T_h 1, rows, N, D], spikes 0 / 1, finite logits  [embedding rate 0.0157, output rate 0.0934]
+pass  c4 MITBIH lif group token: the embedding neuron carries state from token to token (one call over N steps != N one-step calls); earlier tokens never change with the last one  [137 spikes differ, later tokens changed by token 0: True, early False]
+pass  c4 MITBIH pop_lif none rep: mixer neurons step over 11 tokens, embedding / MLP neurons over 4  [6 + 3 neuron layers]
+pass  c4 MITBIH pop_lif none rep: outputs [T_h 4, rows, N, D], spikes 0 / 1, finite logits  [embedding rate 0.0507, output rate 0.1200]
+pass  c4 MITBIH pop_lif none rep: embedding spikes of a token depend on that token only (token 0 changed: itself yes, later no; last changed: earlier no); state is carried over the 4 repeats  [first True later False early False, 6830 spikes differ from one-step calls]
+pass  c4 MITBIH pop_lif none token: mixer neurons step over 11 tokens, embedding / MLP neurons over 11  [6 + 3 neuron layers]
+pass  c4 MITBIH pop_lif none token: outputs [T_h 1, rows, N, D], spikes 0 / 1, finite logits  [embedding rate 0.0458, output rate 0.1155]
+pass  c4 MITBIH pop_lif none token: the embedding neuron carries state from token to token (one call over N steps != N one-step calls); earlier tokens never change with the last one  [1532 spikes differ, later tokens changed by token 0: True, early False]
+pass  c4 MITBIH pop_lif member rep: mixer neurons step over 11 tokens, embedding / MLP neurons over 4  [6 + 3 neuron layers]
+pass  c4 MITBIH pop_lif member rep: outputs [T_h 4, rows, N, D], spikes 0 / 1, finite logits  [embedding rate 0.0692, output rate 0.1412]
+pass  c4 MITBIH pop_lif member rep: embedding spikes of a token depend on that token only (token 0 changed: itself yes, later no; last changed: earlier no); state is carried over the 4 repeats  [first True later False early False, 6839 spikes differ from one-step calls]
+pass  c4 MITBIH pop_lif member token: mixer neurons step over 11 tokens, embedding / MLP neurons over 11  [6 + 3 neuron layers]
+pass  c4 MITBIH pop_lif member token: outputs [T_h 1, rows, N, D], spikes 0 / 1, finite logits  [embedding rate 0.0640, output rate 0.1334]
+pass  c4 MITBIH pop_lif member token: the embedding neuron carries state from token to token (one call over N steps != N one-step calls); earlier tokens never change with the last one  [2085 spikes differ, later tokens changed by token 0: True, early False]
+pass  c5 ETTh2 lif group rep: finite gradients, all 4 band Linears receive one  [1.8e-01 9.4e-02 1.2e-01 6.2e-02]
+pass  c5 ETTh2 lif group token: finite gradients, all 4 band Linears receive one  [2.4e-01 7.3e-02 4.5e-02 1.9e-02]
+pass  c5 ETTh2 pop_lif member rep: finite gradients, all 4 band Linears receive one  [1.5e-02 1.6e-02 5.2e-02 8.7e-02]
+pass  c5 ETTh2 pop_lif member token: finite gradients, all 4 band Linears receive one  [3.7e-02 4.1e-02 1.7e-01 1.7e-01]
+pass  c5 MITBIH lif group rep: finite gradients, all 4 band Linears receive one  [1.5e+00 6.2e-01 2.7e-01 1.5e-01]
+pass  c5 MITBIH lif group token: finite gradients, all 4 band Linears receive one  [5.1e+00 1.0e+00 5.5e-01 1.9e-01]
+pass  c5 MITBIH pop_lif member rep: finite gradients, all 4 band Linears receive one  [7.2e-01 5.1e-01 4.6e-01 5.1e-01]
+pass  c5 MITBIH pop_lif member token: finite gradients, all 4 band Linears receive one  [3.7e+00 1.6e+00 1.5e+00 1.3e+00]
+pass  c6 ETTh2 pop_lif none rep: table loads, every layer fires at the LIF rate  [7 layers, worst relative difference 0.000]
+pass  c6 ETTh2 pop_lif member rep: table loads, every layer fires at the LIF rate  [7 layers, worst relative difference 0.028]
+pass  c6 ETTh2 pop_lif none token: table loads, every layer fires at the LIF rate  [7 layers, worst relative difference 0.000]
+pass  c6 ETTh2 pop_lif member token: table loads, every layer fires at the LIF rate  [7 layers, worst relative difference 0.000]
+pass  c6 ETTm2 pop_lif none rep: table loads, every layer fires at the LIF rate  [7 layers, worst relative difference 0.000]
+pass  c6 ETTm2 pop_lif member rep: table loads, every layer fires at the LIF rate  [7 layers, worst relative difference 0.000]
+pass  c6 ETTm2 pop_lif none token: table loads, every layer fires at the LIF rate  [7 layers, worst relative difference 0.001]
+pass  c6 ETTm2 pop_lif member token: table loads, every layer fires at the LIF rate  [7 layers, worst relative difference 0.000]
+pass  c6 MITBIH pop_lif none rep: table loads, every layer fires at the LIF rate  [9 layers, worst relative difference 0.001]
+pass  c6 MITBIH pop_lif member rep: table loads, every layer fires at the LIF rate  [9 layers, worst relative difference 0.000]
+pass  c6 MITBIH pop_lif none token: table loads, every layer fires at the LIF rate  [9 layers, worst relative difference 0.005]
+pass  c6 MITBIH pop_lif member token: table loads, every layer fires at the LIF rate  [9 layers, worst relative difference 0.004]
+pass  c6 a population model with band / taxis and no table is refused
+pass  c6 refused: group with a population
+pass  c6 refused: member with LIF
+pass  c6 refused: band with the membrane shortcut
+
+144 passed, 0 failed

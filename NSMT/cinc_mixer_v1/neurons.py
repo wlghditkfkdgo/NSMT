@@ -251,7 +251,8 @@ class LIFNeuron(nn.Module):
     def rhs(self, u, x):
         #  u: [B, D, K] v_k   x: [B, D] I_k   ->   F_k: [B, D, K],  s_k: [B, D, K] or None
         """F_k and the member spikes; members that do not fire (soma='lif') have no reset term."""
-        drift = (x.unsqueeze(-1) - u) / self.tau                     # (-v + I) / tau
+        # 2026-11-16 (STFT bands, PROJECT_LOG): x [B, D, K] = one current per member; [B, D] = the same current for all (unchanged)
+        drift = ((x if x.ndim == u.ndim else x.unsqueeze(-1)) - u) / self.tau   # (-v + I) / tau
         if not self.members_fire:
             return drift, None
         look = u + 1. * drift                                        # v + dt * drift, dt = 1 (spikeDE)
@@ -321,9 +322,14 @@ class LIFNeuron(nn.Module):
         """`mode` is accepted for layers.Embedding's call signature and ignored: the selection
         of these classes is fixed at construction. `analog` ('analog' | 'drive') reads the soma
         membrane after reset or the soma input, with the graph attached (soma='lif' only)."""
-        if x.ndim != 3 or x.shape[0] < 1:
+        if x.ndim == 4:                                              # 2026-11-16: [T, B, D, K] per-member currents (soma population only)
+            if x.shape[-1] != self.num_members or type(self).__name__ != 'PopulationFLIF' or not self.has_soma or return_aux:
+                raise ValueError('per-member currents [T, B, D, K] need a PopulationFLIF with a soma and K members (no aux)')
+        elif x.ndim != 3:
             raise ValueError('Expected nonempty [T, B, D] current')
-        T, B, D = x.shape
+        if x.shape[0] < 1:
+            raise ValueError('Expected nonempty [T, B, D] current')
+        T, B, D = x.shape[:3]
         if D != self.size:
             raise ValueError(f'Expected D={self.size}, got {D}')
         self._check_length(T)

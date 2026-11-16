@@ -85,6 +85,12 @@ def measure(run, device):
     m = model.inner
     se = 0.; cnt = 0; spikes = 0.; n_el = 0; binary = True; integer = True; T_h = None; C = None
     syn = SynOpRecorder(m)                                             # 2026-11-01: body synaptic ops, both rules
+    # 2026-11-16 (STFT band test): syops matches neuron classes by exact type (LIFNeuron / FLIFNeuron), so the per-step ACs of the
+    # population neurons (PopulationFLIF) are not in the logged synaptic energy; the recorder counts them (isinstance). Counted
+    # here on their own so that the difference can be checked and added.
+    pop = {'ac': 0.}
+    pop_h = [mod.register_forward_hook(lambda md, i, o: pop.__setitem__('ac', pop['ac'] + i[0].numel()))
+             for mod in m.modules() if type(mod).__name__ == 'PopulationFLIF']
     functional.reset_net(model)
     for x, y, _, _ in dl:
         x = x.float().to(device); y = y.float().to(device)[:, -args.pred_len:, :]
@@ -105,9 +111,12 @@ def measure(run, device):
         out = out.reshape(B, C, args.pred_len).permute(0, 2, 1) * stdev + means
         d = (out - y).double(); se += float((d ** 2).sum()); cnt += d.numel()
     syn.detach(); s = syn.summary()
+    for h in pop_h:
+        h.remove()
     return dict(mse=se / cnt, rate=spikes / n_el, binary=binary, integer=integer, T_h=T_h, C=C, ND=m.num_patches * args.embed_dim,
                 H=args.pred_len, add=str(getattr(args, 'connect_f', '')).upper() == 'ADD', hm=model.tap is not None,
-                body_syn=s['rec_syn_uJ'], body_syn_int=s['syn_energy_int_uJ'])
+                body_syn=s['rec_syn_uJ'], body_syn_int=s['syn_energy_int_uJ'],
+                pop_layers=len(pop_h), pop_neuron_uJ=pop['ac'] / max(1, syn.n_samples) * E_AC)
 
 
 def main():
@@ -140,10 +149,17 @@ def main():
         mac = q['ND'] * q['H'] * q['C']
         ac = q['T_h'] * q['rate'] * mac + (q['T_h'] - 1) * q['H'] * q['C']
         mem = mac if q['hm'] else 0                                    # 2026-11-03 H1: the charge readout, real input -> MAC, kept
+        tok = q['T_h'] == 1 and q['binary'] and not q['add'] and not q['hm']   # 2026-11-16 token layout: the head reads the 0/1 block output
         if q['add']:                                                   # 2026-11-01: integer rule for the body (ADD residual)
             corr = r['total_fft_uJ'] - r['syn_energy_uJ'] + q['body_syn_int'] + ac * E_AC + mem * E_MAC
+        elif tok:                                                      # itself, so syops already counted the head as AC: nothing to correct
+            corr = r['total_fft_uJ']
+            if mac_p != 0 or abs(ac - ac_p) > 0.006 * max(ac, 1.):
+                bad.append(f'{run}: token-layout head: syops AC {ac_p} MAC {mac_p}, expected AC {ac:.1f} MAC 0')
         else:
             corr = r['total_fft_uJ'] - mac * E_MAC + ac * E_AC
+        if q['pop_layers'] and not q['add']:                           # 2026-11-16: + the population neurons' ACs that syops left out
+            corr += q['pop_neuron_uJ']
         rel = abs(q['mse'] - r['mse']) / r['mse']
         if not (math.isfinite(q['mse']) and rel < 1e-5):
             bad.append(f"{run}: test MSE {q['mse']:.6f} != logged {r['mse']:.6f}")
@@ -152,9 +168,12 @@ def main():
         if not q['add'] and not q['binary']:
             bad.append(f'{run}: per-step head input is not binary')
         body_ref = r['syn_energy_uJ'] - (mac + mem) * E_MAC            # syops body = logged synaptic energy minus the MAC head (and readout)
+        if tok:
+            body_ref = r['syn_energy_uJ'] - ac * E_AC                  # 2026-11-16: ... minus the AC head
+        body_ref += q['pop_neuron_uJ'] if q['pop_layers'] else 0.      # 2026-11-16: the recorder also counts the population neurons
         if r['cond'].startswith('spkmx_') and not q['add'] and abs(q['body_syn'] - body_ref) > 1e-3 * max(1e-9, r['syn_energy_uJ']):
             bad.append(f"{run}: recorder body {q['body_syn']:.6f} uJ != syops body {body_ref:.6f} uJ")
-        if abs(mac - mac_p) > 0.006 * mac:                             # syops prints 3 significant digits
+        if not tok and abs(mac - mac_p) > 0.006 * mac:                 # syops prints 3 significant digits
             bad.append(f'{run}: MAC_head {mac} != syops {mac_p}')
         if q['hm']:                                                    # 2026-11-03 H1: syops counted the readout as MAC only
             m_ac, m_mac = head_line(run, 'mem_readout')
@@ -162,7 +181,7 @@ def main():
                 bad.append(f'{run}: mem_readout ops AC {m_ac} MAC {m_mac} != MAC {mem}')
         if not (math.isfinite(corr) and corr > 0):
             bad.append(f'{run}: corrected energy {corr}')
-        rec.update(mse_recomputed=f"{q['mse']:.6f}", rate=f"{q['rate']:.6f}", binary=q['binary'], head_MAC=mac,
+        rec.update(mse_recomputed=f"{q['mse']:.6f}", rate=f"{q['rate']:.6f}", binary=q['binary'], head_MAC=mac,   # head_MAC = N * D * H * C (the head's fan-in x fan-out), also in the token layout
                    head_AC_corr=f'{ac:.1f}', total_fft_uJ_corr=f'{corr:.6f}',
                    body_syn_uJ=f"{q['body_syn']:.6f}", body_syn_int_uJ=f"{q['body_syn_int']:.6f}",   # 2026-11-01
                    rule='integer' if q['add'] else 'binary')

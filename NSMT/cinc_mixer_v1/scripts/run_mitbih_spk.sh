@@ -25,7 +25,22 @@ case $COND in
     case $CFX in iand) CFA=IAND ;; or) CFA=OR ;; add) CFA=ADD ;; ms) CFA=MS ;; *) echo "bad connect in $COND"; exit 1 ;; esac
     [ "$REST" = "spkmx_lif_$COMB" ] || { echo "bad cond $COND"; exit 1; }
     CF="--model spkMixer --mixer lif --mixer_comb $COMB --connect_f $CFA --hippo_T 4" ;;
+  spkmx_pop_lif_muxlin_*)                                # 2026-11-16 STFT band test: population LIF in every layer (soma init 0.5, gain table below)
+    CFX=${COND##*_}; COMB=muxlin
+    case $CFX in iand) CFA=IAND ;; or) CFA=OR ;; add) CFA=ADD ;; *) echo "bad connect in $COND"; exit 1 ;; esac
+    CF="--model spkMixer --mixer pop_lif --mixer_comb $COMB --connect_f $CFA --hippo_T 4 --pop_soma_init 0.5" ;;
   *) echo "bad cond $COND"; exit 1 ;;
+esac
+# 2026-11-16 STFT band test (PROJECT_LOG): BAND=group|member -> --spk_band, TAXIS=token -> --spk_taxis token (tags _bd<band>, _tx<taxis>);
+# a population model always takes its own gain table calib/stft/gains_<task>_pop_lif_muxlin_<connect>_bd<band>_tx<taxis>.json (calibrate_stft.py)
+BX=""; BTAG=""
+case ${BAND:-none} in none) ;; group|member) BX="--spk_band $BAND"; BTAG="_bd$BAND" ;; *) echo "bad BAND"; exit 1 ;; esac
+case ${TAXIS:-rep} in rep) ;; token) BX="$BX --spk_taxis token"; BTAG="${BTAG}_txtoken" ;; *) echo "bad TAXIS"; exit 1 ;; esac
+[ -n "$BX" ] && case $COND in spkmx_*) ;; *) echo "BAND / TAXIS are for the SpkMixer"; exit 1 ;; esac
+case $COND in spkmx_pop_lif_*)
+  GT="$W/calib/stft/gains_MITBIH_pop_lif_muxlin_${CFA}_bd${BAND:-none}_tx${TAXIS:-rep}.json"
+  [ -s "$GT" ] || { echo "missing gain table $GT"; exit 1; }
+  BX="$BX --gain_table $GT" ;;
 esac
 LAYERS=1                                                # model blocks (--layers), as run_mitbih2.sh
 LR=${LR:-0.01}; ML=${MLAYERS:-2}                      # MLAYERS = mixer layers per direction (--time_layers)
@@ -36,7 +51,7 @@ DATA=${DATA:-/home/yschoi/CLS_spiking_transformer/data}   # 5class_mitbih_{train
 mkdir -p "$RES" "$LOG"
 RES="$(cd "$RES" && pwd)"; LOG="$(cd "$LOG" && pwd)"
 SHA=$(cd "$R" && git rev-parse --short HEAD); TS=$(date +%Y%m%d)
-VF=${VAL_FOLD:-}; VFA=""; TAGC="${COND}_lr${LR}_L${ML}"
+VF=${VAL_FOLD:-}; VFA=""; TAGC="${COND}_lr${LR}_L${ML}${BTAG}"
 [ -n "$VF" ] && { VFA="--val_fold $VF"; TAGC="${TAGC}_v${VF}"; }
 HM=""; [ "${HEADMEM:-0}" = 1 ] && { HM="--head_mem"; TAGC="${TAGC}_hm"; }   # 2026-11-03 H1 (head_mem.py): HEADMEM=1 -> --head_mem, tag _hm
 [ -n "${HEADPOOL:-}" ] && [ "$HEADPOOL" != none ] && { HM="$HM --head_pool $HEADPOOL"; TAGC="${TAGC}_hp${HEADPOOL}"; }   # 2026-11-03 head input forms (head_pool.py)
@@ -46,7 +61,7 @@ OUT=$LOG/mitbih_${TAGC}_seed${S}_${TS}_${SHA}.stdout; t0=$(date +%s)
   --model myModel --seed $S --log_dir "$LOG/MITBIH" --gating attn --attn SSA -s --test --print_epoch 1 -nd 0 \
   -e $EPOCHS --warm_up_epoch 0 --num_channels 1 -bs 512 -lr $LR --max_lr 0.005 -emb 384 -nh 8 --mlp_ratios 1 \
   --layers $LAYERS --keep_ratio 0.15 --time_layers $ML --alpha 0.1 --patch_size 32 --no-bias --scheduler cosine \
-  --data UEA --data_path ECG --seq_len 187 --root_path "$DATA" $CF $VFA $HM --tag $TAGC seed$S > "$OUT" 2>&1)
+  --data UEA --data_path ECG --seq_len 187 --root_path "$DATA" $CF $BX $VFA $HM --tag $TAGC seed$S > "$OUT" 2>&1)
 RC=$?
 D=$(ls -td "$LOG/MITBIH"/*/*"+${TAGC}+seed${S}+model+"*/seed${S}_* 2>/dev/null | head -1)
 CSV="$D/log/final+result.csv"

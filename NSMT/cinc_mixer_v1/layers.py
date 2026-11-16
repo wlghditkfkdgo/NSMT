@@ -428,6 +428,9 @@ class NeoNeuron(nn.Module):
         if getattr(self, '_capture', False):                          # MODI 2026-10-24: forward_charge through __call__ (hooks fire)
             s, self._charge = self._spikes_and_charge(x)
             return s
+        if x.ndim == 5:                                               # 2026-11-16 (STFT bands): per-member currents [T, B, N', D, K]
+            T, B, N1, D, K = x.shape                                  # -> soma spikes [T, B, N', D] (this layout for 'DN' and 'ND')
+            return self.neuron(x.reshape(T, B * N1, D, K)).reshape(T, B, N1, D)
         if x.ndim != 4:
             raise ValueError(f'NeoNeuron expects a 4-D tensor, got {tuple(x.shape)}')
         T, B = x.shape[0], x.shape[1]

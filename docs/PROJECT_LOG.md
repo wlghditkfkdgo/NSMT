@@ -12252,3 +12252,118 @@ head = s2                          H1(head가 membrane을 읽으면 CinC, ETT wo
 - 점검 1b는 member 식을 다시 쓴 계산이고(같은 입력 경우만 실제 class로 확인), power 비중은 train 구간의 rectangular window 값이다. 문헌 조사는 하지 않았다. 학습 결과는 없다.
 
 **commit:** `review_stft_design.py`, `results/review-stft-20261113/output.txt`, 이 기록을 `exp/f-lif-pop-v3`에 push. tag 없음(학습 없는 분석). 해시는 다음 기록에 적는다.
+
+---
+
+## 2026-11-16 22:56 KST — 사전등록 + 구현 + 점검(본 학습 전): SpkMixer에 STFT band 입력, A(LIF + band별 channel group) 대 B(population LIF + band별 member, τ 4–32) × T 축 배치 2종, ETT 4 cell → MIT-BIH, 105 run
+
+**직전 commit:** `a08e872ba` (STFT 설계 검토, 학습 없음).
+
+**사용자 요청(11-16, 원문):**
+- "1. band를 어떻게 4 group으로 나눌 예정이야? 구체적인 단계별 방법에 대해서 이해하기 쉽게 설명해줘. 2. A와 B를 동시에 진행해서 비교해보는 것이 좋겠어."
+- A, B는 11-13 검토의 수정안이다. 원 설계(11-13)의 3번 "스파이킹 시간 축 T을 [시간 frame] 축에 일치시킴 — 전체 모델 vs. Neo-Mixer 모듈에서만 — 둘 중 성능이 좋은 것으로 선택"도 이번에 함께 돌린다.
+
+**다른 세션의 같은 질문(읽기만 함):** `exp/nsmt-flif-neo`의 query model(Neocortex path만)에서 같은 STFT 정의로 (가) soma 없는 τ 2, (나) soma 있는 τ 4–32를 이미 돌렸다(commit `91d3b2d93`, 90 run). 결과는 "좋음 없음"이다(ETT 차이 없음, MIT-BIH pop f-LIF에서 나쁨). 이번 시험은 SpkMixer(Hippocampus path 없이 model 전체)에서 같은 질문을 본다. STFT 정의를 그쪽과 같게 맞췄다.
+
+### 정의
+- **STFT(`spk_band.stft_values`):** frame = 지금 patch(window = patch 길이 P, hop = stride). frame n은 token n과 같은 sample이다. periodic Hann window → real FFT(orthonormal) → bin P/2 + 1개. bin을 4 band로 묶는다(경계: bin 수의 1/8, 1/4, 1/2에서 올림). band의 값은 real과 imag이고, bin 0과 마지막 bin의 imag(항상 0)는 뺀다. 그래서 값 개수의 합이 P다.
+
+  | 과제 | P / stride / frame 수 | band 0 | band 1 | band 2 | band 3 | 값 개수 |
+  |---|---|---|---|---|---|---|
+  | ETT | 8 / 4 / 24 | bin 0 | bin 1 | bin 2 | bin 3–4 | 1 / 2 / 2 / 3 |
+  | MIT-BIH | 32 / 16 / 11 | bin 0–2 | bin 3–4 | bin 5–8 | bin 9–16 | 5 / 4 / 8 / 15 |
+
+- **A (`--spk_band group`, neuron LIF):** embedding의 channel D개를 D/4개씩 4 group으로 나눈다(ETT D 64 → 16, MIT-BIH D 384 → 96). group k는 band k만 자기 Linear(값 개수 → D/4)로 받는다. BN(D)과 neuron layer(LIF τ 2, unit마다 발화)는 기본 embedding의 것이다. embedding 뒤는 LIF SpkMixer와 같다. embedding weight는 P × D / 4개다(기본의 1/4).
+- **B (`--spk_band member`, neuron population LIF):** model의 모든 neuron layer가 population LIF다(member 4개 τ 4 / 8 / 16 / 32는 발화하지 않고, soma 하나(τ 2)가 가중합으로 발화). embedding에서만 member마다 입력이 다르다. band i는 자기 Linear(값 개수 → D)를 거쳐 τ가 i번째로 큰 member로 간다(band 0 → τ 32, band 3 → τ 4). BN은 (unit, member) D × 4 channel이다. embedding weight는 P × D개로 기본과 같다. 뒤 층의 population neuron은 member 4개가 같은 전류를 받는다(기존 population과 같음).
+- **T 축 배치(`--spk_taxis`):**
+  - `rep`(지금 구조, "Neo-Mixer 모듈에서만"): embedding과 MLP neuron은 같은 token을 T_h = 4번 반복한 축에서 돌고, mixer만 token(= STFT frame) 축에서 돈다.
+  - `token`("전체 모델"): 반복이 없다(T_h = 1). embedding, mixer, MLP의 모든 neuron이 token 축 N step을 돈다. embedding과 MLP는 앞 → 뒤 방향만이고 mixer는 지금처럼 양방향이다. 출력은 기존 layout [1, B, N, D]로 돌려주므로 head와 평가 code는 그대로다.
+- **형태 8개:** {LIF, A, POP(band 없는 population LIF), B} × {rep, token}. LIF rep은 기존 튜닝 run(11-01 ETT, 11-02 MIT-BIH)을 쓴다. 새로 학습하는 것은 7개다.
+- **설정:** LIF SpkMixer의 튜닝 값 그대로다(다시 튜닝하지 않음). ETT는 muxlin + IAND, mixer 층 1, lr 5e-4(ETTh2) / 1e-4(ETTm2). MIT-BIH는 muxlin + ADD, mixer 층 2, lr 0.02, 마지막 epoch weight. seed 42 / 7 / 2026.
+- **population의 BN gain:** population SpkMixer는 ETT, MIT-BIH에서 학습한 적이 없고 기존 gain table은 CinC용이다. 그래서 `calibrate_spk.calibrate`와 같은 절차로 과제 × band(none, member) × 배치(rep, token)마다 table 12개를 새로 만들었다(`calibrate_stft.py` → `calib/stft/`). 각 population layer의 초기 firing rate를 같은 과제, 같은 배치의 LIF SpkMixer(band 없음)의 값에 맞춘다(train 입력 32 window, model seed 0). 맞춘 뒤 최대 상대 오차는 0.028이다. member band embedding의 gain은 크다(ETT 3.8–4.8, MIT-BIH 9.3 / 15.3; band 없는 population은 1.5–2.0). soma 가중치 초기값은 0.5다(기존 population run과 같음).
+- **run 수:** 7 형태 × (ETT 4 cell × 3 seed + MIT-BIH 3 seed) = 84 + 21 = 105.
+
+### code(기본값이면 이전 경로 그대로)
+- `neurons.py`: `LIFNeuron.rhs`와 `forward`가 member별 전류 [T, B, D, K]를 받는다(soma 있는 `PopulationFLIF`만).
+- `layers.py`: `NeoNeuron.forward`가 5-D 입력 [T, B, N', D, K]를 member별 전류로 넘긴다.
+- 새 `spk_band.py`: `stft_values`, `stft_band_dims`, `member_order`, `GroupBandEmbedding`(A), `MemberBandEmbedding`(B).
+- `spk_mixer.py`: `SpkMixer(band=, taxis=, gain_table=)`, `SpkBlock(token_axis=)`. band embedding의 Linear는 fork한 난수에서 만든다. 그래서 같은 seed에서 나머지 weight와 생성 뒤 난수 상태가 band 없는 model과 같다. band / taxis와 membrane shortcut, head 시험의 조합은 오류를 낸다. population에 band / taxis를 쓰면서 gain table을 주지 않으면 오류를 낸다.
+- `config.py`: `--spk_band {none,group,member}`, `--spk_taxis {rep,token}`, `--gain_table`. 폴더 접미사 `_bd<band>`, `_tx<taxis>`(기본값이면 이름 그대로).
+- `load_model.py`: 위 인자 전달.
+- `scripts/run_ett_spk.sh`, `scripts/run_mitbih_spk.sh`: 조건 `spkmx_pop_lif_muxlin_<cf>` 추가, 환경변수 `BAND`, `TAXIS`(tag `_bd<band>`, `_txtoken`). population run은 자기 gain table을 반드시 받는다.
+- `energy_recount_ett.py`: (1) token 배치는 head 입력이 0/1 그대로라 syops가 이미 AC로 센다. 고치지 않고 syops의 AC 수가 계산값과 맞는지만 본다. (2) syops는 neuron class를 정확한 type으로 찾아서 `PopulationFLIF`의 step당 AC를 세지 않는다. recorder는 센다. 그 차이를 따로 세어 확인하고 corrected energy에 더한다. 기존 suite의 재계산 결과는 그대로다(`smoke-ms-ett-20261108` 다시 돌려 파일 차이 없음). MIT-BIH 재계산은 ADD라 recorder 값을 쓰므로 고칠 것이 없었다.
+- 새 파일: `stft_common.py`(과제별 model 설정, 실제 train 입력 batch), `calibrate_stft.py`, `check_stft.py`, `summarize_stft.py`, `scripts/make_queue_stft.sh`, `scripts/stft_driver.sh`.
+
+### 점검(fail-closed)
+- **c0 이전 경로 비트 동일:** 수정 전 commit(`a08e872ba`)을 `git archive`로 꺼낸 code와 수정한 code에서 같은 snapshot을 만들어 비교했다. SpkMixer 7종(ETT LIF, MIT-BIH LIF / f-LIF / membrane shortcut, CinC pop_lif / pop_flif / popg_lif)과 Neo-mixer pop_lif의 weight, 생성 뒤 난수 상태, 학습 출력, 기울기, 평가 출력 445개 항목이 모두 같다(`results/check-stft-20261116/check_c0.txt`).
+- **c1 STFT:** `stft_values`가 `torch.stft`(periodic Hann, n_fft = P, hop = stride, center 없음, normalized)와 차이 0이다(P 8, P 32). frame 수 = token 수, band 크기 [1, 2, 2, 3] / [5, 4, 8, 15], windowed frame의 energy가 보존된다.
+- **c2 A:** 같은 seed에서 embedding Linear를 뺀 모든 weight와 난수 상태가 LIF model과 같다. embedding weight = P × D / 4. band j를 바꾸면 channel group j만 바뀐다. Linear k의 입력이 band k다(3 과제 × 2 배치).
+- **c3 B:** member별 전류를 받은 neuron의 spike가 정의대로 다시 쓴 계산(member 적분 + soma)과 13,440개 중 0개 다르다. 네 member에 같은 전류를 넣으면 기존 호출과 완전히 같다. 같은 seed에서 embedding을 뺀 weight와 난수 상태가 POP model과 같다. embedding weight = P × D. band i를 바꾸면 member 3 − i만 바뀐다(band 0 → τ 32). embedding neuron이 [T, row, D, 4]를 받는다.
+- **c4 T 축:** rep은 mixer neuron이 N step, embedding / MLP neuron이 4 step을 돈다. token은 모든 neuron이 N step을 돈다(8 형태 × ETTh2, MIT-BIH). token 배치의 embedding neuron은 token 사이에 상태를 넘긴다(N step 한 번 호출 ≠ 1 step N번 호출). rep은 token 0을 바꿔도 뒤 token의 embedding spike가 바뀌지 않는다. 어느 배치든 마지막 token을 바꿔도 앞 token의 embedding spike는 바뀌지 않는다. spike는 0/1이다.
+- **c5 기울기:** 모두 유한하고 band Linear 4개 모두에 0이 아닌 기울기가 간다.
+- **c6 gain table:** 12개 table이 읽히고 모든 layer의 firing rate가 LIF 기준과 10 % 안에서 같다. 잘못된 조합(population + group, LIF + member, band + membrane shortcut, table 없는 population + band)은 거부된다.
+- 합계 144개 통과(`results/check-stft-20261116/check_stft.txt`) + c0 2개.
+- **smoke**(seed 42; ETT 2 epoch ETTh2 H96·ETTm2 H720, MIT-BIH 1 epoch; 7 형태 = 21 run): RESULT 21, SKIP 0. `energy_recount_ett.py` 14 run, `energy_recount_mitbih.py` 7 run이 모든 점검을 통과했다(test MSE / macro-F1 재현, recorder body = syops body + population neuron AC, token 배치 head의 AC 수 일치).
+  - syops의 embedding 연산 수(ETTh2 H96, window당 MAC): 기본 rep 344.06 K, token 86.02 K(1/4). A rep 86.02 K, A token 21.5 K. B rep 344.06 K(기본과 같음), B의 BN 344.06 K(기본 86.02 K의 4배).
+  - `summarize_stft.py`: smoke 행을 4 cell × 3 seed로 복제한 가짜 입력으로 두 과제의 표가 만들어지고, 행 하나를 빼면 멈춘다(파일을 쓰지 않음).
+
+  | 형태 (smoke, 참고) | ETTh2 H96 MSE / energy µJ | ETTm2 H720 MSE / energy µJ | MIT-BIH macro-F1 / energy µJ |
+  |---|---|---|---|
+  | A rep | 0.2925 / 7.83 | 0.4050 / 9.73 | 0.7356 / 7.93 |
+  | POP rep | 0.2889 / 26.57 | 0.4038 / 30.51 | 0.7049 / 20.86 |
+  | B rep | 0.2927 / 28.02 | 0.4063 / 31.16 | 0.7794 / 20.84 |
+  | LIF token | 0.2916 / 2.21 | 0.4040 / 2.85 | 0.7321 / 2.52 |
+  | A token | 0.2978 / 1.90 | 0.4061 / 2.37 | 0.7659 / 2.12 |
+  | POP token | 0.3031 / 6.57 | 0.4023 / 7.54 | 0.4737 / 5.15 |
+  | B token | 0.3204 / 6.95 | 0.4088 / 7.90 | 0.7542 / 5.44 |
+
+  1–2 epoch 값이라 판정에 쓰지 않는다. energy는 재계산 값이다. population 형태는 neuron 계산 비용(member 4개) 때문에 LIF 형태의 약 3배다.
+- **초기 firing rate(새 model, train 입력, 참고):** A의 embedding은 LIF보다 덜 발화한다(ETTh2 rep 0.053 대 0.078, MIT-BIH rep 0.023 대 0.058). A는 LIF model이라 gain을 맞추지 않았다(모든 LIF model의 관례대로 BN gain 1).
+
+### 판정(사전 고정; 값이 빠지거나 중복되거나 유한하지 않으면 멈춤)
+- 배치 p ∈ {rep, token}마다: **S1** A_p − LIF_p (LIF에서 band 입력의 몫), **S2** B_p − POP_p (population에서 band 입력의 몫), **S3** A_p − B_p (사용자가 요청한 비교).
+- 형태 X ∈ {LIF, A, POP, B}마다: **S4** X_token − X_rep (원 설계 3번).
+- 보고 전용: POP_p − LIF_p, 각 형태 − 튜닝한 Spikformer식.
+- 규칙은 기존과 같다.
+  - ETT: r = 100 (A − B) / B (test MSE, seed별), R = 4 cell 평균. better: R ≤ −1 %이고 12쌍 중 8쌍 이상 낮음. worse: 그 거울.
+  - MIT-BIH: test macro-F1 차이(%p). better: 평균 ≥ +0.5이고 3 seed 중 2개 이상 높음. worse: 그 거울.
+- **배치 선택(3번):** ETT는 12 run의 best validation L1 평균이 낮은 배치를 "선택"으로 적는다(test는 쓰지 않음). MIT-BIH는 validation split이 없어(학습 파일 전체로 학습) 선택하지 않고 둘 다 보여준다. energy를 함께 적는다.
+- energy: `energy_recount`의 `total_fft_uJ_corr`. STFT 계산 자체는 hook이 세지 않는다. 상한 어림(frame당 P × P 곱셈, E_MAC)은 ETT window당 0.049 µJ, MIT-BIH beat당 0.052 µJ이고, 요약에 따로 적는다.
+
+### 사전 예상
+- S1(A − LIF): 두 과제, 두 배치 모두 no clear difference. A의 embedding이 표현할 수 있는 함수는 기본 embedding의 부분집합이다. MIT-BIH는 평균이 음수일 것으로 본다(다른 세션에서 band 분리가 MIT-BIH에서 −0.3 ~ −0.9 %p였다). 확신은 낮다.
+- S2(B − POP): ETT no clear difference, MIT-BIH 음수이지만 no clear difference.
+- S3(A − B): ETT no clear difference. MIT-BIH는 A가 높되 no clear difference. energy는 A가 B의 0.25–0.35배.
+- S4(token − rep): ETT는 네 형태 모두 no clear difference(|R| < 1 %), MIT-BIH는 네 형태 모두 worse(반복이 없어 계산이 1/4). energy는 token이 rep의 0.2–0.35배.
+- 어느 형태도 Spikformer식보다 better가 아니다. POP는 LIF보다 better가 아니고 energy는 2.5–3.5배다.
+
+### 읽는 법(미리 적음)
+| 결과 | 뜻 |
+|---|---|
+| S1 better | band를 나눠 넣는 것 자체가 이득이다. 이때만 "bin을 group에 무작위 배정" control을 추가로 돌린다 |
+| S2 better, S1 아님 | 이득은 band와 τ를 맞춘 데서 온다(특히 token 배치에서) |
+| S3 | A와 B 중 어느 쪽이 나은가. 차이 없으면 energy가 낮은 쪽 |
+| S4 token이 no clear difference | 전체 model을 frame 축에 맞추면 같은 정확도에 energy가 줄어든다 |
+| 모두 no clear difference | STFT band 입력은 SpkMixer에서도 이득이 없다(다른 세션의 query model 결과와 같음) |
+
+### 한계
+- A와 B는 band 연결 방식과 neuron 종류가 함께 다르다(사용자가 정한 비교). band 입력만의 몫은 S1, S2로 본다.
+- 설정(lr, 층 수, residual)은 LIF rep으로 튜닝한 값이다. 새 형태 7개(특히 token 배치와 population)에 맞춰 튜닝하지 않았다.
+- B의 "band에 맞춘 τ"는 token 배치에서만 frame 사이의 memory로 작동한다. rep 배치에서는 embedding neuron이 같은 frame을 4번 보는 동안의 충전 속도 차이일 뿐이다.
+- A는 초기 발화율을 맞추지 않았고 population은 맞췄다. gain table은 32 window, seed 0 한 번으로 만들었고 ETT는 예측 길이와 무관하게 dataset마다 하나다.
+- token 배치는 embedding / MLP가 한 방향이고 반복이 없다. rep 배치와 계산량이 다르다(의도한 차이).
+- MIT-BIH는 validation 없이 마지막 epoch weight를 쓴다. seed 3개, 탐색 수준이다.
+- CinC는 돌리지 않는다(주 결과가 아님, 사용자 11-04). 무작위 배정 control은 S1이 better일 때만 돌린다.
+- STFT 비용은 세지 않는다(위 상한).
+
+### 내 실수와 고친 것
+- **실행 script 오타:** `run_ett_spk.sh`에서 `$DS_pop_lif…`로 써서 bash가 다른 변수로 읽었다. population ETT smoke 8 run이 결과 줄도 SKIP 줄도 없이 끝났다. `${DS}`로 고치고 8 run을 다시 돌렸다. driver는 RESULT 수를 세므로 본 실행이었다면 멈췄을 것이다.
+- **점검 c4를 세 번 고쳤다(모두 점검 code의 문제):** (1) 입력 변화가 약해 spike가 바뀌지 않았다. (2) 새 model을 평가 모드로 돌리면 BN running 통계가 수렴하지 않아(초기 분산 1이 실제 분산보다 훨씬 큼) 거의 발화하지 않았다. BN 통계를 그 batch 값으로 맞췄다. (3) "뒤 token의 spike가 바뀌는가"는 우연에 좌우되어 "N step 한 번 호출 ≠ 1 step N번 호출"이라는 확정적인 비교로 바꿨다.
+- **사용자에게 한 설명의 오류:** 1번 답에서 "channel 384개를 96개씩"이라고 했는데 이것은 MIT-BIH다. ETT는 64개를 16개씩이다. 보고 때 바로잡는다.
+
+### 실행
+- NSMT/에서 `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/stft_driver.sh`. ETT 84 run → 재계산 → 요약, 이어서 MIT-BIH 21 run → 재계산 → 요약. 단계마다 RESULT 수와 SKIP 0을 확인하고 실패하면 멈춘다.
+- suite: `flif-v1-ett-spkmux-stft`, `flif-v1-mitbih-spkmux-stft`. queue 파일, driver.log, checkpoint, raw log는 local에 둔다.
+- pool이 도는 동안 model code와 실행 script를 고치지 않는다.
+
+**commit:** 이 기록과 code, script, 점검 출력, gain table 12개, smoke 결과를 `exp/f-lif-pop-v3`에 commit · push 한 뒤 driver를 시작한다. 해시는 결과 기록에 적는다.

@@ -27,6 +27,15 @@ layers.GroupNeuron with the spikeDE groups in every layer (the NeoMixer popg use
 BN gains of the pop / popg layers come from calib/gains_spkMixer_<mixer>_<comb>_<connect>.json (calibrate_spk.py), applied by
 apply_gain_table (fail closed when the table is missing). Loss, optimiser, data and evaluation are the shared ones
 (train_rhythm.py / rhythm_eval.py); the model returns plain logits in training.
+
+2026-11-16 (STFT bands, user request 11-13 / 11-16; defaults leave every earlier path unchanged):
+  band  'none' | 'group' (A: LIF, channel groups read one STFT band each) | 'member' (B: population, one band per member,
+        lowest band -> slowest member); spk_band.py. Only the embedding changes; single input channel.
+  taxis 'rep'   the layout above: T_h repeats in the embedding / MLP, the token (= STFT frame) axis only in the mixer
+        'token' the token axis is the spiking axis of EVERY neuron layer and there are no repeats (T_h = 1): tokens [N, B, 1, P]
+                -> embedding neuron over N -> mixer (forward / reversed) over N -> MLP neurons over N; the outputs are
+                returned in the usual [1, B, N, D] layout, so heads and evaluators are unchanged.
+  gain_table  explicit BN gain table of a population model (calibrate_stft.py); needed for band / taxis / other tasks.
 """
 import json
 import os
@@ -38,6 +47,7 @@ from timm.models.layers import trunc_normal_
 from layers import SpikLinearLayer, build_neo_neuron, GroupNeuron, group_gamma
 from model import Embedding
 from neo_mixer import MixerStack
+from spk_band import BANDS, GroupBandEmbedding, MemberBandEmbedding, member_order, stft_band_dims, stft_values
 
 __all__ = ['SpkMixer', 'apply_gain_table', 'COMBS', 'CONNECTS', 'NEURONS']
 
@@ -45,6 +55,7 @@ NEURONS = ('lif', 'flif', 'pop_lif', 'pop_flif', 'popg_lif', 'popg_flif')
 COMBS = ('or', 'sdor', 'sdlin', 'linmx', 'muxor', 'muxlin')                 # muxor / muxlin: 10-30 fusion MUX
 CONNECTS = ('IAND', 'OR', 'ADD', 'MS')                                       # MS: 2026-11-08 membrane shortcut (SpkBlock.forward_ms)
 CALIBRATED = ('pop_lif', 'pop_flif', 'popg_lif', 'popg_flif')
+TAXES = ('rep', 'token')                                                     # 2026-11-16
 
 
 def gain_table_path(mixer, comb, connect):
@@ -82,8 +93,9 @@ class FuseLinear(nn.Module):
 
 
 class SpkBlock(nn.Module):
-    def __init__(self, dim, mixer, mixer_layers, mlp_ratio, make_neuron, N, T_h, comb, connect, bias=False):
+    def __init__(self, dim, mixer, mixer_layers, mlp_ratio, make_neuron, N, T_h, comb, connect, bias=False, token_axis=False):
         super().__init__()
+        self.token_axis = bool(token_axis)                                    # 2026-11-16: x is [N, B, 1, D] (T_h = the token steps here)
         if comb not in COMBS:
             raise ValueError(f'mixer_comb must be one of {COMBS}')
         if connect not in CONNECTS:
@@ -134,8 +146,8 @@ class SpkBlock(nn.Module):
         return self.fc2.lif(u.contiguous()), u
 
     def mix(self, x):
-        """x [T_h, B, N, D] -> m [T_h, B, N, D]."""
-        xm = x.permute(2, 1, 0, 3).contiguous()                             # [N, B, T_h, D]
+        """x [T_h, B, N, D] -> m [T_h, B, N, D] (token_axis: x and m are [N, B, 1, D])."""
+        xm = x if self.token_axis else x.permute(2, 1, 0, 3).contiguous()   # [N, B, T_h, D]
         if self.comb == 'or':
             f = self.mixer(xm)
             r = self.mixer_rev(xm.flip(0)).flip(0)
@@ -158,6 +170,8 @@ class SpkBlock(nn.Module):
                 else:                                                         # muxor / muxlin (10-30): s_d ? a : F ^ R
                     a = fr if self.comb == 'muxor' else self.fuse(torch.cat([fr, sd], dim=-1))
                     m = sd * a + (1. - sd) * torch.minimum(f, r)
+        if self.token_axis:
+            return m
         return m.permute(2, 1, 0, 3).contiguous()                           # [T_h, B, N, D]
 
     def forward(self, x, mix_fn=None):
@@ -173,12 +187,25 @@ class SpkMixer(nn.Module):
     def __init__(self, seq_len=3750, data_patch_size=64, embed_dim=384, num_classes=4, depths=1, mlp_ratios=1.0, mixer='lif',
                  mixer_layers=2, T_h=4, neo_tau=2.0, neo_alpha=0.5, fde_method='pred', fde_step=1.0, fde_memory=0,
                  pop_taus=(4., 8., 16., 32.), bias=False, tau=2.0, train_mode='training', in_channels=1, pop_soma_init=None,
-                 mixer_comb='or', connect_f='IAND', tau_calib=True, **kwargs):
+                 mixer_comb='or', connect_f='IAND', tau_calib=True, band='none', taxis='rep', gain_table=None, **kwargs):
         super().__init__()
         if mixer not in NEURONS:
             raise ValueError(f'mixer must be one of {NEURONS}')
         if int(T_h) < 1:
             raise ValueError('T_h >= 1')
+        if band not in BANDS or taxis not in TAXES:                          # 2026-11-16 STFT bands / spiking axis
+            raise ValueError(f'band must be one of {BANDS}, taxis one of {TAXES}')
+        if (band != 'none' or taxis != 'rep') and connect_f == 'MS':
+            raise NotImplementedError('band / taxis are not implemented with the membrane shortcut')
+        if band == 'group' and mixer not in ('lif', 'flif'):
+            raise ValueError("band 'group' (A) is for the single neurons lif / flif")
+        if band == 'member' and mixer not in ('pop_lif', 'pop_flif'):
+            raise ValueError("band 'member' (B) is for the soma populations pop_lif / pop_flif")
+        if band != 'none' and int(in_channels or 1) != 1:
+            raise NotImplementedError('STFT bands are implemented for one input channel')
+        self.band, self.taxis = band, taxis
+        if taxis == 'token':
+            T_h = 1                                                           # no repeats: the token axis is the only spiking axis
         self.train_mode = train_mode
         self.patch_size, self.stride = data_patch_size, data_patch_size // 2
         self.num_patches = int((seq_len - data_patch_size) / self.stride + 1) + 1
@@ -200,12 +227,30 @@ class SpkMixer(nn.Module):
             return build_neo_neuron(mixer, size, int(steps), layout, **neo_kw)
 
         N, D = self.num_patches, embed_dim
+        tok_ax = taxis == 'token'
+        steps = N if tok_ax else self.T_h                                     # spiking steps of the embedding / MLP neurons
         self.encoding = Embedding(num_patches=N, patch_size=data_patch_size * self.in_channels, embed_dim=D, stride=self.stride,
-                                  pe=False, bias=bias, tau=tau, pos_emb=False, neuron=make_neuron(D, self.T_h, 'DN'))
-        self.blocks = nn.ModuleList([SpkBlock(D, mixer, self.mixer_layers, mlp_ratios, make_neuron, N, self.T_h, mixer_comb, connect_f, bias)
-                                     for _ in range(self.depths)])
+                                  pe=False, bias=bias, tau=tau, pos_emb=False, neuron=make_neuron(D, steps, 'DN'))
+        self.blocks = nn.ModuleList([SpkBlock(D, mixer, self.mixer_layers, mlp_ratios, make_neuron, N, steps, mixer_comb, connect_f, bias,
+                                              token_axis=tok_ax) for _ in range(self.depths)])
         self.head = nn.Linear(D, num_classes, bias=bias)
         self.apply(self._init_weights)
+        if band != 'none':
+            # 2026-11-16: the default embedding was built and initialised above, so at the same seed every other weight and the
+            # random state after construction equal those of the band-less model; the band Linears come from a forked RNG.
+            dims = stft_band_dims(data_patch_size)
+            if len(taus) != len(dims) and band == 'member':
+                raise ValueError(f'band member needs {len(dims)} members, got taus {taus}')
+            with torch.random.fork_rng(devices=[]):
+                if band == 'group':
+                    enc = GroupBandEmbedding(dims, D, self.encoding.emb_bn, self.encoding.emb_lif, bias)
+                else:
+                    enc = MemberBandEmbedding(dims, D, self.encoding.emb_lif, member_order(taus), bias)
+                for lin in enc.emb_linear:
+                    trunc_normal_(lin.weight, std=.02)
+                    if lin.bias is not None:
+                        nn.init.constant_(lin.bias, 0)
+            self.encoding = enc
         if grouped:                                                           # family gains per group first (tau_gain table) ...
             with torch.no_grad():
                 for name, mod in self.named_modules():
@@ -213,7 +258,9 @@ class SpkMixer(nn.Module):
                         mod.weight.copy_(group_gamma(mod.weight.numel(), taus, fam))
         self.tau_calibrated = False
         if mixer in CALIBRATED and tau_calib:                                 # ... then the layer-wise rate-matched table (fail closed)
-            self.tau_calibrated = apply_gain_table(self, gain_table_path(mixer, mixer_comb, connect_f))
+            if gain_table is None and (band != 'none' or taxis != 'rep'):     # 2026-11-16: the default tables are CinC, rep layout
+                raise ValueError('a population model with band / taxis needs an explicit gain_table (calibrate_stft.py)')
+            self.tau_calibrated = apply_gain_table(self, gain_table if gain_table is not None else gain_table_path(mixer, mixer_comb, connect_f))
 
     def _init_weights(self, m):
         if getattr(m, '_skip_global_init', False):                             # the fusion Linear (initialised in its fork)
@@ -241,6 +288,13 @@ class SpkMixer(nn.Module):
         tok = self.tokens(x)
         if tok_fn is not None:
             tok = tok_fn(tok)
+        tok_ax = self.taxis == 'token'
+        if self.band != 'none':                                               # 2026-11-16: 4 STFT bands of every frame [T_h, B, N, dim_i]
+            tok = stft_values(tok)
+            if tok_ax:
+                tok = [t.permute(2, 1, 0, 3).contiguous() for t in tok]       # [N, B, 1, dim_i]
+        elif tok_ax:
+            tok = tok.permute(2, 1, 0, 3).contiguous()                        # [N, B, 1, P]
         if self.connect_f == 'MS':                                            # 2026-11-08 membrane shortcut
             u, e = self.encoding.forward_ms(tok)
             h, m0 = e, None
@@ -264,6 +318,8 @@ class SpkMixer(nn.Module):
                     h = blk.connect(h, blk.fc2(blk.fc1(h)))
                 else:
                     h = blk(h, fn)
+        if tok_ax:                                                            # back to the usual [1, B, N, D]
+            h, e, m0 = (z.permute(2, 1, 0, 3).contiguous() for z in (h, e, m0))
         feat = h.mean(2)                                                      # token mean [T_h, B, D]
         z = self.head(feat).mean(0)                                           # Spikformer-style readout
         return z, e, m0, feat.mean(0), h

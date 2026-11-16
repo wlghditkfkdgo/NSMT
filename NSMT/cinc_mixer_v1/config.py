@@ -134,6 +134,10 @@ def parse_arguments():
     snn_arg.add_argument('--ms_shortcut', action='store_true', default=False, help='2026-11-08: membrane shortcut in the Spikformer-style blocks (needs --hippo_ssa)')
     snn_arg.add_argument('--hippo_xattn', action='store_true', default=False, help='hippocampus T_h repeats with token cross-attention (q = hippocampus, k/v = neocortex tokens)')
     snn_arg.add_argument('--pop_soma_init', type=float, default=None, help='pop_flif soma mixing weight init (None = 1/K)')
+    # 2026-11-16 (exp/f-lif-pop-v3, STFT bands; spk_mixer.py / spk_band.py)
+    snn_arg.add_argument('--spk_band', choices=['none', 'group', 'member'], default='none', help='spkMixer: STFT bands into channel groups (A) or population members (B)')
+    snn_arg.add_argument('--spk_taxis', choices=['rep', 'token'], default='rep', help='spkMixer: token = every neuron layer steps over the token (STFT frame) axis, no repeats')
+    snn_arg.add_argument('--gain_table', type=str, default=None, help='spkMixer population: explicit BN gain table (calibrate_stft.py)')
     snn_arg.add_argument('--fold', type=int, default=0, help='CinC 2017: test fold 0..4 of the record-wise stratified 5-fold split')
     snn_arg.add_argument('--val_frac', type=float, default=0.1, help='share of the training part held out for validation')
     snn_arg.add_argument('--win_s', type=float, default=30.0, help='CinC 2017 window length (s)')
@@ -256,6 +260,10 @@ class Config():
             _iso += "_ms"
         if getattr(args, 'pop_soma_init', None) is not None:
             _iso += f"_psi{args.pop_soma_init:g}"
+        if getattr(args, 'spk_band', 'none') != 'none':                  # 2026-11-16 STFT bands
+            _iso += f"_bd{args.spk_band}"
+        if getattr(args, 'spk_taxis', 'rep') != 'rep':
+            _iso += f"_tx{args.spk_taxis}"
         if str(getattr(args, 'data', '')).upper() in ('CINC2017', 'SHD'):
             _iso += f"_f{args.fold}" + ("_ce" if getattr(args, 'loss_kind', 'cal') == 'ce' and str(args.data).upper() == 'CINC2017' else '')
             if getattr(args, 'crop_tokens', 0):

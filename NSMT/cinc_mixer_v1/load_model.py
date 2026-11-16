@@ -199,7 +199,12 @@ def load_spk_mixer(args, train=True):
                      bias=args.bias, tau=args.tau, train_mode='training',
                      in_channels=getattr(args, 'num_channels', 1), pop_soma_init=getattr(args, 'pop_soma_init', None),
                      mixer_comb=getattr(args, 'mixer_comb', 'or'), connect_f=getattr(args, 'connect_f', 'IAND'),
-                     tau_calib=getattr(args, 'tau_calib', True))
+                     tau_calib=getattr(args, 'tau_calib', True),
+                     band=getattr(args, 'spk_band', 'none'), taxis=getattr(args, 'spk_taxis', 'rep'),   # 2026-11-16 STFT bands
+                     gain_table=getattr(args, 'gain_table', None))
+    if (getattr(args, 'spk_band', 'none') != 'none' or getattr(args, 'spk_taxis', 'rep') != 'rep') and \
+            (getattr(args, 'head_mem', False) or getattr(args, 'head_pool', 'none') != 'none'):
+        raise NotImplementedError('--spk_band / --spk_taxis are not implemented with the head tests')
     if getattr(args, 'head_mem', False):                              # 2026-11-03 H1 (head_mem.py)
         enable_head_mem(model)
     if getattr(args, 'head_pool', 'none') != 'none':                  # 2026-11-03 head input forms (head_pool.py)
