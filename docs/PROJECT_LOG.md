@@ -12367,3 +12367,144 @@ head = s2                          H1(head가 membrane을 읽으면 CinC, ETT wo
 - pool이 도는 동안 model code와 실행 script를 고치지 않는다.
 
 **commit:** 이 기록과 code, script, 점검 출력, gain table 12개, smoke 결과를 `exp/f-lif-pop-v3`에 commit · push 한 뒤 driver를 시작한다. 해시는 결과 기록에 적는다.
+
+## 2026-11-17 08:01 KST — 결과 + 실험 완료(105 run, SKIP 0): SpkMixer의 STFT band 입력, A 대 B × T 축 배치 2종 — band 입력(A, B)은 어디서도 better가 아니다. ETT는 rep 배치에서 no clear difference, MIT-BIH는 두 배치 모두 worse(A −1.76 / −2.81 %p, B −1.44 / −3.20 %p)다. token 배치는 두 과제의 네 형태 모두 worse이고 energy는 rep의 0.24–0.28배다. B token이 두 과제 모두 가장 나쁘다.
+
+**직전 commit:** `60188bdde`(사전등록 + 구현 + 점검). 새 run 105개의 `sha`가 모두 이 commit이다. 브랜치 `exp/f-lif-pop-v3`. 사용자 요청(11-16): "A와 B를 동시에 진행해서 비교해보는 것이 좋겠어."
+
+### 실행
+- `stft_driver.sh`: 11-16 22:56:27 시작. ETT pool 11-17 05:00:47 끝(RESULT 84, SKIP 0), energy 재계산 · 요약 05:24:16. MIT-BIH pool 05:24:16 시작, 07:54:14 끝(RESULT 21, SKIP 0), 재계산 · 요약 07:59:27. 전체 약 9시간.
+- run당 시간: ETT 293–11,133 s, MIT-BIH 731–6,084 s. 다른 세션의 pool(tmux `flif_len336`, 11-16 22:53:33 시작)이 같은 GPU 4장을 함께 써서 느렸다. 시작 시점 서버 부하는 112 core에 약 129였다. 다른 세션의 process는 건드리지 않았다.
+- energy 재계산: 두 suite 모두 "all checks passed"(다시 계산한 MSE / macro-F1 = 기록값, ETT 84 head 재계산, MIT-BIH는 정수 규칙).
+- 완전성: ETT 84 key, MIT-BIH 21 key가 모두 있고 중복 0, 값이 모두 유한하다. MIT-BIH 21 run 모두 30 epoch, `val_fold=-1`, test 32,833 beat.
+- 독립 재계산: `recheck_stft.py`(요약기 3개를 import하지 않고 `raw.txt`, `energy_recount.csv`만 읽음)가 과제마다 비교 12행(S1–S4, POP − LIF)을 다시 계산했다. R / 평균 차이, 쌍 수, 판정이 `summary.md`와 모두 같다. energy 비는 ETT 3행에서 0.01 다르다(요약기 0.87 / 2.78 / 2.84, 재계산 0.86 / 2.77 / 2.83; 평균을 내는 순서의 차이). 출력은 각 suite의 `recheck.txt`.
+- LIF rep 행은 새로 돌리지 않았다. 기존 튜닝 run(`flif-v1-ett-spkmux-tune`, `flif-v1-mitbih-spkmux-tune`)이다.
+
+### ETT(test MSE, 3 seed 평균; energy는 4 cell 평균 µJ)
+| 형태 | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 | 평균 | energy µJ | params(ETTh2 H96) |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| LIF rep(기존) | 0.2952 | 0.4218 | 0.1775 | 0.4034 | 0.3245 | 10.28 | 169,280 |
+| LIF token | 0.2997 | 0.4302 | 0.1784 | 0.4040 | 0.3281 | 2.50 | 169,280 |
+| A rep | 0.2911 | 0.4234 | 0.1801 | 0.4043 | 0.3247 | 8.88 | 168,896 |
+| A token | 0.2987 | 0.4286 | 0.1814 | 0.4042 | 0.3282 | 2.16 | 168,896 |
+| POP rep | 0.2910 | 0.4134 | 0.1769 | 0.4033 | 0.3212 | 28.50 | 170,944 |
+| POP token | 0.3049 | 0.4363 | 0.1783 | 0.4019 | 0.3304 | 7.08 | 170,944 |
+| B rep | 0.2905 | 0.4188 | 0.1802 | 0.4059 | 0.3238 | 29.73 | 171,328 |
+| B token | 0.3145 | 0.4608 | 0.1814 | 0.4068 | 0.3409 | 7.45 | 171,328 |
+| Spikformer식(튜닝) | 0.2903 | 0.4223 | 0.1767 | 0.4044 | 0.3234 | 10.48 | 169,656 |
+
+| 비교 | R % | 낮은 쌍 | 판정 | energy A/B | cell별 r %(ETTh2 H96, H720, ETTm2 H96, H720) |
+|---|--:|--:|---|--:|---|
+| S1 A rep vs LIF rep | +0.16 | 4/12 | no clear difference | 0.86 | −1.36, +0.38, +1.42, +0.21 |
+| S2 B rep vs POP rep | +0.89 | 2/12 | no clear difference | 1.04 | −0.18, +1.30, +1.82, +0.64 |
+| S3 A rep vs B rep | +0.22 | 8/12 | no clear difference | 0.30 | +0.24, +1.10, −0.05, −0.40 |
+| S1 A token vs LIF token | +0.27 | 6/12 | no clear difference | 0.87 | −0.33, −0.36, +1.70, +0.05 |
+| S2 B token vs POP token | +2.92 | 0/12 | **worse** | 1.05 | +3.17, +5.61, +1.69, +1.22 |
+| S3 A token vs B token | −3.15 | 9/12 | better | 0.29 | −5.02, −6.99, +0.05, −0.62 |
+| S4 LIF token vs LIF rep | +1.04 | 0/12 | **worse** | 0.24 | +1.54, +1.99, +0.49, +0.14 |
+| S4 A token vs A rep | +1.16 | 2/12 | **worse** | 0.24 | +2.63, +1.24, +0.77, −0.02 |
+| S4 POP token vs POP rep | +2.69 | 3/12 | **worse** | 0.25 | +4.77, +5.55, +0.79, −0.36 |
+| S4 B token vs B rep | +4.80 | 1/12 | **worse** | 0.25 | +8.29, +10.03, +0.67, +0.21 |
+| (보고) POP rep vs LIF rep | −0.94 | 10/12 | no clear difference | 2.78 | −1.41, −1.98, −0.34, −0.02 |
+| (보고) POP token vs LIF token | +0.65 | 5/12 | no clear difference | 2.84 | +1.72, +1.44, −0.04, −0.53 |
+| (보고) LIF rep vs Spikformer식 | +0.45 | 3/12 | no clear difference | 0.98 | +1.67, −0.12, +0.47, −0.23 |
+| (보고) A rep vs Spikformer식 | +0.60 | 3/12 | no clear difference | 0.85 | +0.27, +0.26, +1.89, −0.02 |
+| (보고) POP rep vs Spikformer식 | −0.50 | 8/12 | no clear difference | 2.73 | +0.23, −2.11, +0.13, −0.26 |
+| (보고) B rep vs Spikformer식 | +0.38 | 5/12 | no clear difference | 2.85 | +0.04, −0.83, +1.95, +0.38 |
+| (보고) LIF token vs Spikformer식 | +1.50 | 1/12 | worse | 0.24 | +3.24, +1.87, +0.96, −0.09 |
+| (보고) A token vs Spikformer식 | +1.76 | 1/12 | worse | 0.21 | +2.90, +1.48, +2.68, −0.04 |
+| (보고) POP token vs Spikformer식 | +2.16 | 3/12 | worse | 0.68 | +5.01, +3.32, +0.92, −0.62 |
+| (보고) B token vs Spikformer식 | +5.17 | 1/12 | worse | 0.71 | +8.34, +9.12, +2.63, +0.60 |
+
+- **배치 선택(validation, test 미사용):** 12 run의 best validation L1 평균은 LIF 0.36145 / 0.36446, A 0.36302 / 0.36624, POP 0.36151 / 0.36923, B 0.36530 / 0.37339(rep / token)다. 네 형태 모두 rep이 선택된다. test 방향과 같다.
+- **token 배치의 손실은 ETTh2에 몰려 있다.** S4의 cell별 r은 ETTh2에서 +1.2 ~ +10.0 %, ETTm2에서 −0.4 ~ +0.8 %다.
+- **보고 전용:** token 배치는 더 늦은 epoch을 고른다(예: ETTh2 H96 B token best epoch 12, 21, 6 대 B rep 1, 1, 2). seed별 쌍과 firing rate는 `summary.md`에 있다.
+
+### MIT-BIH(test macro-F1 %, 마지막 epoch weight, 3 seed)
+| 형태 | macro-F1 | seed 42, 7, 2026 | accuracy | F1 N / S / V / F / Q | energy µJ | params |
+|---|--:|---|--:|---|--:|--:|
+| LIF rep(기존) | 91.99 | 91.89, 92.13, 91.94 | 98.56 | 99.24 / 85.94 / 96.31 / 79.49 / 98.95 | 9.44 | 1,200,768 |
+| LIF token | 91.10 | 91.22, 91.47, 90.60 | 98.32 | 99.12 / 83.85 / 95.54 / 78.41 / 98.57 | 2.59 | 1,200,768 |
+| A rep | 90.22 | 90.14, 90.32, 90.21 | 98.13 | 99.02 / 82.38 / 94.79 / 76.57 / 98.35 | 8.25 | 1,191,552 |
+| A token | 88.29 | 88.19, 88.47, 88.20 | 97.66 | 98.75 / 78.09 / 93.60 / 73.29 / 97.71 | 2.29 | 1,191,552 |
+| POP rep | 91.40 | 91.50, 91.73, 90.96 | 98.49 | 99.20 / 85.24 / 96.28 / 77.39 / 98.88 | 19.98 | 1,214,592 |
+| POP token | 89.95 | 89.99, 90.25, 89.62 | 97.93 | 98.90 / 81.37 / 94.23 / 77.18 / 98.09 | 5.29 | 1,214,592 |
+| B rep | 89.96 | 89.63, 90.37, 89.87 | 98.09 | 98.99 / 82.03 / 94.68 / 75.84 / 98.24 | 21.93 | 1,216,896 |
+| B token | 86.75 | 86.46, 87.05, 86.73 | 97.08 | 98.43 / 75.60 / 90.96 / 72.37 / 96.38 | 5.74 | 1,216,896 |
+| Spikformer식(튜닝) | 91.78 | 92.10, 91.74, 91.50 | 98.48 | 99.20 / 84.38 / 96.12 / 80.17 / 99.03 | 9.61 | 904,488 |
+
+| 비교 | 평균 %p | 높은 seed | seed 42, 7, 2026 | 판정 | energy A/B |
+|---|--:|--:|---|---|--:|
+| S1 A rep vs LIF rep | −1.76 | 0/3 | −1.74, −1.81, −1.73 | **worse** | 0.87 |
+| S2 B rep vs POP rep | −1.44 | 0/3 | −1.87, −1.37, −1.09 | **worse** | 1.10 |
+| S3 A rep vs B rep | +0.27 | 2/3 | +0.52, −0.05, +0.34 | no clear difference | 0.38 |
+| S1 A token vs LIF token | −2.81 | 0/3 | −3.03, −3.00, −2.40 | **worse** | 0.89 |
+| S2 B token vs POP token | −3.20 | 0/3 | −3.52, −3.20, −2.89 | **worse** | 1.09 |
+| S3 A token vs B token | +1.54 | 3/3 | +1.72, +1.42, +1.47 | better | 0.40 |
+| S4 LIF token vs LIF rep | −0.89 | 0/3 | −0.66, −0.66, −1.34 | **worse** | 0.27 |
+| S4 A token vs A rep | −1.94 | 0/3 | −1.96, −1.85, −2.01 | **worse** | 0.28 |
+| S4 POP token vs POP rep | −1.44 | 0/3 | −1.52, −1.48, −1.33 | **worse** | 0.26 |
+| S4 B token vs B rep | −3.21 | 0/3 | −3.17, −3.32, −3.13 | **worse** | 0.26 |
+| (보고) POP rep vs LIF rep | −0.59 | 0/3 | −0.38, −0.39, −0.98 | worse | 2.12 |
+| (보고) POP token vs LIF token | −1.14 | 0/3 | −1.24, −1.22, −0.97 | worse | 2.04 |
+| (보고) LIF rep vs Spikformer식 | +0.20 | 2/3 | −0.22, +0.39, +0.44 | no clear difference | 0.98 |
+| (보고) A rep vs Spikformer식 | −1.56 | 0/3 | −1.96, −1.42, −1.29 | worse | 0.86 |
+| (보고) POP rep vs Spikformer식 | −0.38 | 0/3 | −0.60, −0.01, −0.54 | no clear difference | 2.08 |
+| (보고) B rep vs Spikformer식 | −1.83 | 0/3 | −2.47, −1.37, −1.63 | worse | 2.28 |
+| (보고) LIF token vs Spikformer식 | −0.68 | 0/3 | −0.88, −0.27, −0.90 | worse | 0.27 |
+| (보고) A token vs Spikformer식 | −3.49 | 0/3 | −3.92, −3.27, −3.30 | worse | 0.24 |
+| (보고) POP token vs Spikformer식 | −1.83 | 0/3 | −2.12, −1.49, −1.88 | worse | 0.55 |
+| (보고) B token vs Spikformer식 | −5.03 | 0/3 | −5.64, −4.69, −4.77 | worse | 0.60 |
+
+- 배치 선택은 하지 않는다(validation split 없음, 사전등록대로).
+- band 입력의 손실은 드문 class에서 크다. A rep − LIF rep의 class별 F1 차이는 N −0.22, S −3.56, V −1.52, F −2.92, Q −0.60 %p다(위 표의 값으로 계산).
+
+### 사전등록 판정 요약
+| 비교 | ETT rep | ETT token | MIT-BIH rep | MIT-BIH token |
+|---|---|---|---|---|
+| S1 A − LIF | no clear difference | no clear difference | worse | worse |
+| S2 B − POP | no clear difference | worse | worse | worse |
+| S3 A − B | no clear difference | better | no clear difference | better |
+| S4 token − rep | LIF, A, POP, B 모두 worse | | LIF, A, POP, B 모두 worse | |
+
+- S1이 better인 곳이 없으므로 "bin을 group에 무작위 배정" control은 돌리지 않는다(사전등록대로).
+- "읽는 법" 표로 읽으면: S1 better 아님, S2 better 아님 → band를 나눠 넣는 것도, band와 τ를 맞추는 것도 이득이 없다. S3의 token 배치 better는 A가 좋아져서가 아니라 B가 나빠져서 생겼다(A token − LIF token은 ETT +0.27 %, MIT-BIH −2.81 %p). S4는 no clear difference가 하나도 없다. 같은 정확도에 energy만 줄어드는 경우는 없다.
+
+### 사전 예상과 비교
+| 예상 | 결과 | 맞음 |
+|---|---|---|
+| S1 두 과제, 두 배치 no clear difference(MIT-BIH 평균 음수) | ETT 둘 다 no clear difference. MIT-BIH 둘 다 worse(부호는 맞음) | 2 / 4 |
+| S2 ETT no clear difference, MIT-BIH 음수이지만 no clear difference | ETT rep만 맞음. ETT token worse, MIT-BIH 둘 다 worse | 1 / 4 |
+| S3 ETT no clear difference, MIT-BIH A가 높되 no clear difference | rep 배치 둘은 맞음. token 배치 둘은 better | 2 / 4 |
+| S3 energy A / B 0.25–0.35 | ETT 0.30, 0.29(맞음). MIT-BIH 0.38, 0.40(범위 밖) | 2 / 4 |
+| S4 ETT 네 형태 no clear difference | 네 형태 모두 worse | 0 / 4 |
+| S4 MIT-BIH 네 형태 worse | 네 형태 모두 worse | 4 / 4 |
+| S4 energy token / rep 0.2–0.35 | 0.24–0.28 | 8 / 8 |
+| 어느 형태도 Spikformer식보다 better가 아님 | 맞음(두 과제, 8 형태) | 맞음 |
+| POP는 LIF보다 better가 아님, energy 2.5–3.5배 | better 아님(맞음). energy는 ETT 2.78, 2.84(맞음), MIT-BIH 2.12, 2.04(범위 밖) | 일부 |
+
+- 크게 틀린 것은 둘이다. (1) token 배치가 ETT에서 손해가 없으리라는 예상. (2) band 입력이 MIT-BIH에서 규칙 안에 드는 손해를 내지 않으리라는 예상.
+- 사전등록 한계 항목에 "B의 band에 맞춘 τ는 token 배치에서만 frame 사이의 memory로 작동한다"고 적었다. 결과는 그 배치에서 B가 두 과제 모두 가장 나쁘다. 이 설명으로 B token의 이득을 기대할 근거는 없었다.
+
+### 해석(내 판단; 원인은 측정하지 않았다)
+- **band 입력은 SpkMixer에서도 이득이 없다.** 다른 세션의 query model 결과(`exp/nsmt-flif-neo` commit `91d3b2d93`, 읽기만 함: ETT no clear difference, MIT-BIH pop f-LIF worse)와 같은 방향이고, MIT-BIH의 손실은 여기서 더 크다.
+- A의 embedding이 표현할 수 있는 함수는 기본 embedding의 부분집합이다(사전등록에 적음). channel group마다 band 하나만 보게 묶으면 표현력이 줄어든다. MIT-BIH에서 드문 class(S, F)가 더 떨어진 것과 어긋나지 않는다. 직접 확인하지는 않았다.
+- token 배치는 반복 4번을 없애서 계산이 1/4이다. 정확도 손실은 LIF에서 ETT +1.04 %, MIT-BIH −0.89 %p로 가장 작고, population과 band를 더할수록 커진다(B: +4.80 %, −3.21 %p). 원인 후보는 설정을 token 배치에 맞춰 튜닝하지 않은 것, 반복이 없어 head가 평균할 step이 1개뿐인 것, 느린 member가 앞 frame의 값을 뒤 frame으로 끌고 가는 것이다. 어느 것도 측정하지 않았다(not run).
+- POP rep은 ETT에서 LIF rep보다 R −0.94 %(10/12)로 기준 1 %에 조금 못 미친다. energy는 2.78배다. MIT-BIH에서는 −0.59 %p로 worse다. population을 SpkMixer 전체에 넣는 것의 근거가 되지 않는다.
+
+### 한계
+- seed 3개. 설정(lr, 층 수, residual)은 LIF rep으로 튜닝한 값이고 새 형태 7개에 맞춰 튜닝하지 않았다. token 배치와 population의 worse는 재튜닝으로 줄어들 수 있다(not run).
+- A와 B는 band 연결 방식과 neuron 종류가 함께 다르다. A는 초기 발화율을 맞추지 않았고 population은 gain table로 맞췄다.
+- MIT-BIH는 validation 없이 마지막 epoch weight를 쓴다. ETT의 배치 선택만 validation으로 했다. test 값으로 고른 것은 없다.
+- energy는 연산 수 추정이다. STFT 비용은 세지 않았다(상한 ETT window당 0.049 µJ, MIT-BIH beat당 0.052 µJ; A와 B의 energy에 더해도 판정은 바뀌지 않는다. energy로 내린 판정이 없다).
+- CinC, 무작위 배정 control, f-LIF 형태, 재튜닝은 not run이다.
+
+### 산출물과 명령
+- `cinc_mixer_v1/results/flif-v1-ett-spkmux-stft/{raw.txt,pool_log.txt,energy_recount.csv,summary.md,recheck.txt}`, `results/flif-v1-mitbih-spkmux-stft/{같은 5개}`, `cinc_mixer_v1/recheck_stft.py`(새 파일; pool이 끝난 뒤 추가했다). `driver.log`, checkpoint, TensorBoard, stdout은 `cinc_mixer_v1/log/`와 각 suite 폴더에 로컬로 둔다.
+- 재계산(`cinc_mixer_v1/`에서): `python -B summarize_stft.py --task ett|mitbih`, `python -B recheck_stft.py ett|mitbih`.
+
+### 결론
+- STFT band 입력(A, B)과 token 배치는 채택하지 않는다. SpkMixer의 기준 형태는 LIF rep 그대로다.
+- token 배치는 energy가 약 1/4이라는 점만 남는다(LIF token: ETT +1.04 %, MIT-BIH −0.89 %p, 둘 다 worse). 이 방향을 재튜닝으로 더 볼지는 사용자 결정 대기다.
+
+**commit:** 이 기록의 commit을 annotated tag `exp/f-lif-pop-v3-stft-20261117`로 식별한다(학습 완료, snapshot 아님). `exp/f-lif-pop-v3`와 이 tag만 push.
