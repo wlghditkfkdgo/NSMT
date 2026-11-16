@@ -880,10 +880,13 @@ class myModel(nn.Module):
             raise ValueError("res_mode in {iand, ms}, neo_res in {none, ms}")
         if self.res_mode == 'ms' and (not (self.hippo_ssa or self.hippo_xattn) or self.roll_mode != 'none' or self.neuron_all != 'sj_lif'):
             raise NotImplementedError('res_mode ms: hippo_ssa / hippo_xattn with roll_mode none and the spikingjelly hippocampus only')
+        # MODI 2026-11-16 (input-length test): neo_memoryless / neo_shuffle are now allowed with neo_res ms (the controls of the msn
+        # base model; neo_forward runs the same membrane-shortcut path on the 1-step / shuffled token sequence); not with neo_band.
         if self.neo_res == 'ms' and (self.hippo_ssa or self.no_neo or self.hippo_only or self.neo_streams or self.neo_bidir
-                                     or self.neo_memoryless or self.neo_shuffle is not None or neo_neuron == 'sj_lif'
-                                     or not self.neo_exact or self.neo_recurrent):
-            raise NotImplementedError('neo_res ms: a unidirectional single-stream Neocortex of passive NeoLayers with a spikeDE neuron only')
+                                     or neo_neuron == 'sj_lif' or not self.neo_exact or self.neo_recurrent
+                                     or ((self.neo_memoryless or self.neo_shuffle is not None) and self.neo_band != 'none')):
+            raise NotImplementedError('neo_res ms: a unidirectional single-stream Neocortex of passive NeoLayers with a spikeDE neuron only '
+                                      '(neo_memoryless / neo_shuffle: without neo_band)')
 
         # MODI 2026-11-04 (H2, head test): attention pooling over the token axis in front of the head. A learned query q (score
         # layer Linear(D -> 1), no bias) scores every token of every T_h step, a = softmax_N(q . x_n / sqrt(D)), and the head
@@ -1092,11 +1095,20 @@ class myModel(nn.Module):
         the result is flipped back and fused with the forward output by OR (torch.maximum)."""
         if getattr(self, 'neo_memoryless', False):                     # MODI 2026-10-26 (B control): each token alone, 1 step
             N, B = neo_in.shape[0], neo_in.shape[1]
+            if getattr(self, 'neo_res', 'none') == 'ms':                   # MODI 2026-11-16: the msn path on 1-step sequences
+                e, u0 = self.encoding_neo(neo_in.reshape(1, N * B, *neo_in.shape[2:]), return_pre=True)
+                o = self.time_block(e, org_seq, u0=u0)
+                return e.reshape(N, B, *e.shape[2:]), o.reshape(N, B, *o.shape[2:])
             e = self.encoding_neo(neo_in.reshape(1, N * B, *neo_in.shape[2:]))
             o = self.time_block(e, org_seq)
             return e.reshape(N, B, *e.shape[2:]), o.reshape(N, B, *o.shape[2:])
         if getattr(self, 'neo_shuffle', None) is not None:                  # MODI 2026-11-02: Neocortex-only order control
             perm = self.neo_shuffle.perms(neo_in.shape[1], neo_in.device, self.training)
+            if getattr(self, 'neo_res', 'none') == 'ms':                   # MODI 2026-11-16: the msn path on the shuffled sequence
+                e, u0 = self.encoding_neo(permute_tokens_det(neo_in, perm), return_pre=True)
+                o = self.time_block(e, org_seq, u0=u0)
+                inv = torch.argsort(perm, dim=1)
+                return permute_tokens_det(e, inv), permute_tokens_det(o, inv)
             e = self.encoding_neo(permute_tokens_det(neo_in, perm))
             o = self.time_block(e, org_seq)
             inv = torch.argsort(perm, dim=1)                                 # back to the original token positions

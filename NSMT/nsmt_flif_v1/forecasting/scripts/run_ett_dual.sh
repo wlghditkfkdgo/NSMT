@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# MODI 2026-11-16 (input-length test): env SEQ = input length (--seq_len, default 96 = every earlier run; RESULT gains seq_len=);
+# + nsmt4q_pop_<lif|flif>_msn_{nomem,nshuf} = the msn base model with --neo_memoryless (every token alone, no state crosses
+# tokens) / --neo_shuffle (the Neocortex reads the tokens in a shuffled order, outputs put back): the controls of the T = N memory.
 # MODI 2026-11-13 (STFT test): + nsmt4q_pop_<lif|flif>_msn_{stft,fire_stft,fire_same} = msn with the STFT bands as member inputs:
 # stft = (na) soma population, tau 4-32; fire_stft = (ga) no soma, 4 independent members with tau 2 (OR); fire_same = (ga) with the unsplit signal.
 # MODI 2026-11-13 (frequency bands): + nsmt4q_pop_<lif|flif>_msn_{freq,same,rev} = the Neocortex-MS query population (msn) with
@@ -53,6 +56,10 @@ case $COND in                     # MODI 2026-10-29: dual-path models, B-form se
   nsmt4q_pop_flif_msh)  CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --res_mode ms" ;;
   nsmt4q_pop_flif_msn)  CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms" ;;
   nsmt4q_pop_flif_mshn) CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --res_mode ms --neo_res ms" ;;
+  nsmt4q_pop_lif_msn_nomem)CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_memoryless" ;;   # MODI 2026-11-16 (input-length test): memory / order controls of msn
+  nsmt4q_pop_lif_msn_nshuf)CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_shuffle" ;;
+  nsmt4q_pop_flif_msn_nomem)CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_memoryless" ;;
+  nsmt4q_pop_flif_msn_nshuf)CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_shuffle" ;;
   nsmt4q_pop_lif_msn_freq)CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band freq" ;;   # MODI 2026-11-13 (frequency bands): msn + one input per population member
   nsmt4q_pop_lif_msn_same)CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band same" ;;
   nsmt4q_pop_lif_msn_rev) CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band rev" ;;
@@ -74,7 +81,7 @@ case $DS in                       # patch emb heads mlp M lr bs epochs   (run_et
   ETTm2) HP="--patch_size 8 -emb 64 -nh 16 --mlp_ratios 1   --time_layers 2 -lr 0.0005 -bs 64"; E=50 ;;
   *) echo "bad dataset $DS"; exit 1 ;;
 esac
-E=${EPOCHS:-$E}; P=${PATIENCE:-10}
+E=${EPOCHS:-$E}; P=${PATIENCE:-10}; SEQ=${SEQ:-96}
 SUITE=${SUITE:-flif-v1-ett-dual-$(date +%Y%m%d)}
 RES=${RES:-$W/results/$SUITE}; LOG=${LOG:-$W/log/$SUITE}
 mkdir -p "$RES" "$LOG"; RES="$(cd "$RES" && pwd)"; LOG="$(cd "$LOG" && pwd)"
@@ -83,7 +90,7 @@ OUT=$LOG/ett_${DS}_p${PL}_${COND}_seed${S}_${TS}_${SHA}.stdout; t0=$(date +%s)
 (cd "$C" && CUDA_VISIBLE_DEVICES=$GPU OMP_NUM_THREADS=${THREADS:-4} $PY ./train_forecast.py \
   --log_dir "$LOG/$DS/p$PL" --seed $S -s -nd 0 --gating attn --no-bias --scheduler reduce -e $E --warm_up_epoch 0 \
   --layers 1 --tau 2.0 --weight_decay 0.06 --patience $P \
-  --data $DS --data_path $DS.csv --root_path "$W/dataset/ETT-small" --seq_len 96 --pred_len $PL --features M --target OT \
+  --data $DS --data_path $DS.csv --root_path "$W/dataset/ETT-small" --seq_len $SEQ --pred_len $PL --features M --target OT \
   $HP $CF --tag $COND seed$S > "$OUT" 2>&1)
 RC=$?
 D=$(ls -td "$LOG/$DS/p$PL"/*/*"+${COND}+seed${S}+"*"+epoch+${E}+"*/seed${S}_* 2>/dev/null | head -1)
@@ -99,4 +106,4 @@ EOF
 [ -z "$VALS" ] && { echo "SKIP(result parse failed) ds=$DS pl=$PL cond=$COND seed=$S out=$OUT" | tee -a "$RES/raw.txt"; exit 1; }
 BE=$(cat "$D/log/best_epoch.txt" 2>/dev/null | tr ' ' ':')
 PAR=$(grep -a 'number of parameters' "$OUT" | grep -oE 'parameters : [0-9]+' | grep -oE '[0-9]+'); t1=$(date +%s)
-echo "RESULT exp=nsmt_flif_v1_ett_dual ds=$DS pl=$PL cond=$COND seed=$S $VALS best_epoch_val_epochs=$BE params=$PAR time_s=$((t1-t0)) sha=$SHA dir=$D" | tee -a "$RES/raw.txt"
+echo "RESULT exp=nsmt_flif_v1_ett_dual ds=$DS pl=$PL cond=$COND seed=$S $VALS best_epoch_val_epochs=$BE params=$PAR time_s=$((t1-t0)) seq_len=$SEQ sha=$SHA dir=$D" | tee -a "$RES/raw.txt"

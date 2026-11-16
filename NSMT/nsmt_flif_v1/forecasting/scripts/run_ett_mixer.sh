@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# MODI 2026-11-16 (input-length test): env SEQ = input length (--seq_len, default 96 = every earlier run; RESULT gains seq_len=).
 # MODI 2026-10-27 (generalization batch): one ETT forecasting run of a CinC model of nsmt_flif_v1/classification
 # (Spikformer-style SSA or the Neo-mixer), trained by classification/train_forecast.py (classification/forecast_wrap.py:
 # window normalisation, channel-independent rows, the model body, flat Linear(N*D -> H) head). Outputs go to this task folder.
@@ -48,7 +49,7 @@ case $DS in                       # patch emb heads mlp M lr bs epochs   (run_et
   ETTm2) HP="--patch_size 8 -emb 64 -nh 16 --mlp_ratios 1   --time_layers 2 -lr 0.0005 -bs 64"; E=50 ;;
   *) echo "bad dataset $DS"; exit 1 ;;
 esac
-E=${EPOCHS:-$E}; P=${PATIENCE:-10}
+E=${EPOCHS:-$E}; P=${PATIENCE:-10}; SEQ=${SEQ:-96}
 SUITE=${SUITE:-flif-v1-gen-ett-$(date +%Y%m%d)}
 RES=${RES:-$W/results/$SUITE}; LOG=${LOG:-$W/log/$SUITE}
 mkdir -p "$RES" "$LOG"; RES="$(cd "$RES" && pwd)"; LOG="$(cd "$LOG" && pwd)"
@@ -57,7 +58,7 @@ OUT=$LOG/ett_${DS}_p${PL}_${COND}_seed${S}_${TS}_${SHA}.stdout; t0=$(date +%s)
 (cd "$C" && CUDA_VISIBLE_DEVICES=$GPU OMP_NUM_THREADS=${THREADS:-4} $PY ./train_forecast.py \
   --log_dir "$LOG/$DS/p$PL" --seed $S -s -nd 0 --gating attn --no-bias --scheduler reduce -e $E --warm_up_epoch 0 \
   --layers 1 --tau 2.0 --weight_decay 0.06 --patience $P \
-  --data $DS --data_path $DS.csv --root_path "$W/dataset/ETT-small" --seq_len 96 --pred_len $PL --features M --target OT \
+  --data $DS --data_path $DS.csv --root_path "$W/dataset/ETT-small" --seq_len $SEQ --pred_len $PL --features M --target OT \
   $HP $CF --tag $COND seed$S > "$OUT" 2>&1)
 RC=$?
 D=$(ls -td "$LOG/$DS/p$PL"/*/*"+${COND}+seed${S}+"*"+epoch+${E}+"*/seed${S}_* 2>/dev/null | head -1)
@@ -73,4 +74,4 @@ EOF
 [ -z "$VALS" ] && { echo "SKIP(result parse failed) ds=$DS pl=$PL cond=$COND seed=$S out=$OUT" | tee -a "$RES/raw.txt"; exit 1; }
 BE=$(cat "$D/log/best_epoch.txt" 2>/dev/null | tr ' ' ':')
 PAR=$(grep -a 'number of parameters' "$OUT" | grep -oE 'parameters : [0-9]+' | grep -oE '[0-9]+'); t1=$(date +%s)
-echo "RESULT exp=nsmt_flif_v1_gen_ett ds=$DS pl=$PL cond=$COND seed=$S $VALS best_epoch_val_epochs=$BE params=$PAR time_s=$((t1-t0)) sha=$SHA dir=$D" | tee -a "$RES/raw.txt"
+echo "RESULT exp=nsmt_flif_v1_gen_ett ds=$DS pl=$PL cond=$COND seed=$S $VALS best_epoch_val_epochs=$BE params=$PAR time_s=$((t1-t0)) seq_len=$SEQ sha=$SHA dir=$D" | tee -a "$RES/raw.txt"
