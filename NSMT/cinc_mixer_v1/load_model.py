@@ -183,6 +183,18 @@ def load_neo_mixer(args, train=True):
     return model
 
 
+def _mixer_variants(args):
+    """2026-11-17 (mixer variants): only the options that differ from the default are passed, so the default call is unchanged."""
+    kw = {}
+    if getattr(args, 'spk_mixpool', 'none') != 'none':
+        kw['mix_pool'] = args.spk_mixpool
+    if getattr(args, 'mixer_ms', False):
+        kw['mixer_ms'] = True
+    if getattr(args, 'mixer_reset', 'spikede') != 'spikede':
+        kw['mixer_reset'] = args.mixer_reset
+    return kw
+
+
 def load_spk_mixer(args, train=True):
     """2026-10-29 (PROJECT_LOG, exp/f-lif-pop-v3): Spikformer-style model with the SSA replaced by the Neo-mixer and the chosen
     neuron in every layer (spk_mixer.SpkMixer). --hippo_T = repetition steps (0 -> 4, the Spikformer-style baseline's value)."""
@@ -201,8 +213,9 @@ def load_spk_mixer(args, train=True):
                      mixer_comb=getattr(args, 'mixer_comb', 'or'), connect_f=getattr(args, 'connect_f', 'IAND'),
                      tau_calib=getattr(args, 'tau_calib', True),
                      band=getattr(args, 'spk_band', 'none'), taxis=getattr(args, 'spk_taxis', 'rep'),   # 2026-11-16 STFT bands
-                     gain_table=getattr(args, 'gain_table', None))
-    if (getattr(args, 'spk_band', 'none') != 'none' or getattr(args, 'spk_taxis', 'rep') != 'rep') and \
+                     gain_table=getattr(args, 'gain_table', None),
+                     **_mixer_variants(args))                                                       # 2026-11-17 (defaults: none)
+    if (getattr(args, 'spk_band', 'none') != 'none' or getattr(args, 'spk_taxis', 'rep') != 'rep' or _mixer_variants(args)) and \
             (getattr(args, 'head_mem', False) or getattr(args, 'head_pool', 'none') != 'none'):
         raise NotImplementedError('--spk_band / --spk_taxis are not implemented with the head tests')
     if getattr(args, 'head_mem', False):                              # 2026-11-03 H1 (head_mem.py)

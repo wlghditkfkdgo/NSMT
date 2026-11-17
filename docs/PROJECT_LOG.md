@@ -12653,3 +12653,192 @@ head = s2                          H1(head가 membrane을 읽으면 CinC, ETT wo
 - pool이 도는 동안 model code와 실행 script를 고치지 않는다.
 
 **commit:** 이 기록과 code, script, 맞춤값 표 2개, 점검 · 시험 학습 출력을 `exp/f-lif-pop-v3`에 commit · push한 뒤 driver를 시작한다. 해시는 결과 기록에 적는다.
+
+## 2026-11-17 21:30 KST — 설계 검토(학습 없음): 사용자 제안 3개(mixer 앞 반복 축 pooling, mixer 방향 안 2층 membrane shortcut, mixer LIF soft reset)에 대한 확인
+
+**직전 commit:** `c9bd40922`(입력 336 사전등록). 입력 336 pool이 도는 중이라 이 기록은 그 pool이 끝난 뒤 commit한다(실행 script가 run마다 HEAD를 `sha`로 적으므로, 도중 commit은 사전등록 해시 점검을 깬다). code 변경 없음.
+
+### 사용자 제안(11-17)
+1. "Neo-mixer 모듈에서 방향전환을 할 때 기존의 spiking time 축을 avg(or max)-pooling해서 시간 축은 token만 남겨야 하지 않을까? 그리고 나서 Neo-mixer의 각 방향의 출력에 대해서 muxlin을 거친 다음에 MLP 통과할 때는 다시 spiking time 축을 (반복으로) 생성하는 거지"
+2. "Neo-mixer의 각 방향 당 레이어를 2개씩 두고, memebrane-shortcut을 적용하는 것은 어때? … 각 방향의 layer 1과 layer 2끼리만 memebrane shortcut을 적용하는 거지"
+3. "Neo-mixer내의 LIF neuron에서 reset은 hard reset(0으로 reset)이 아닌 soft reset(threshold만큼 뺌)으로 교체하는 것은 어때?"
+
+### 확인 1: 반복 축 pooling(학습 없음, `results/check-pool-probe-20261117/`)
+- 지금 mixer는 4개 반복을 같은 weight의 4개 나란한 sequence로 따로 돌린다(fusion, residual도 반복별).
+- 튜닝한 LIF rep checkpoint(seed 42, 4 cell, `flif-v1-ett-spkmux-tune`)에서 test set으로 쟀다. "학습된 mixer + fusion을 반복 평균(mean) 또는 반복 OR(max) 입력에 한 번만 돌리고 출력을 4개 반복에 그대로 복사" 했을 때의 test MSE다(다시 학습하지 않음, BN은 평가 모드 통계).
+
+| cell | 지금(rep) | mean 한 번 | max 한 번 | embedding 발화율 | 4 반복 OR 발화율 | 4 반복이 다른 위치 비율 | mixer 출력 발화율 | mixer 출력이 반복마다 다른 위치 비율 |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| ETTh2 H96 | 0.298527 | 0.306049 (+2.52 %) | 0.289515 (−3.02 %) | 0.1021 | 0.1654 | 0.1283 | 0.0275 | 0.0508 |
+| ETTh2 H720 | 0.425474 | 0.429317 (+0.90 %) | 0.415925 (−2.24 %) | 0.0833 | 0.1395 | 0.1115 | 0.0162 | 0.0346 |
+| ETTm2 H96 | 0.177257 | 0.179887 (+1.48 %) | 0.182109 (+2.74 %) | 0.1232 | 0.1930 | 0.1451 | 0.0366 | 0.0782 |
+| ETTm2 H720 | 0.403427 | 0.405985 (+0.63 %) | 0.402589 (−0.21 %) | 0.0990 | 0.1659 | 0.1362 | 0.0350 | 0.0736 |
+
+- "지금" 열은 기록된 test MSE와 같다(ETTh2 H96 0.298527 등).
+- 4 반복은 복사본이 아니다. 어느 반복에서든 발화한 위치 중 약 75–80 %에서 4 반복이 다 같지는 않다(embedding neuron이 반복마다 충전되기 때문).
+- 다시 학습하지 않은 끼워 넣기, seed 1개, test 값이라 방향만 보는 참고다. 판정에 쓰지 않는다.
+
+### 확인 3: 지금 mixer LIF의 reset
+- 전제와 다르다. SpkMixer의 LIF(spikeDE 형식, `neurons.LIFNeuron`)는 0으로 되돌리지 않는다. 발화하면 θ/τ = 0.5만 뺀다(θ 1, τ 2).
+  - 일정 입력 1.6: 발화 직전 1.200 → 발화 뒤 0.700. 그 뒤로 매 step 발화한다.
+  - 일정 입력 3.0: 1.500 → 1.000.
+- Spikformer식의 spikingjelly `MultiStepLIFNode`는 기본값이 0으로 되돌리기(v_reset 0.0)다.
+- population의 soma는 이미 θ를 다 뺀다.
+- 다른 세션(`exp/nsmt-flif-neo`, 10-31 튜닝 3단계, 읽기만 함)의 같은 질문: Neo-mixer 모든 layer LIF(반복 없는 T = N model), ETTh2 2 cell × seed 3.
+  - validation 비율: 지금 방식 1.0000, θ 빼기 0.9974, 0으로 0.9951.
+  - 0으로 되돌리기가 test −2.10 %(6/6, better)였다.
+  - CinC fold 0에서는 0으로 되돌리기가 −0.73 %p(worse)였다.
+
+### 확인 2: 방향 안 2층 + membrane shortcut
+- ETT 튜닝은 mixer 1층을 골랐다. validation 비율이 2층 1.0022(ETTh2), 1.0016(ETTm2)으로 0.2 % 안의 차이다.
+- MIT-BIH는 이미 방향마다 2층이다.
+- 다른 세션의 기준 model(사용자 결정 11-13)의 Neocortex membrane shortcut(`--neo_res ms`)이 같은 형태다: 실수 흐름 u가 입력 전류에서 시작하고 layer마다 BN(W s)를 더하며, neuron이 u에서 발화한다.
+- 이 브랜치의 block 단위 membrane shortcut(11-08)은 SpkMixer에서 ETT −0.36 %, MIT-BIH −0.09 %p로 no clear difference였다.
+
+### 다음
+사용자에게 설명하고 범위를 묻는다. 입력 336 pool이 끝나기 전에는 model code를 고치지 않는다(필요하면 scratchpad 사본에서 개발).
+
+## 2026-11-18 05:45 KST — 입력 336 pool 중간 기록: 31 / 36 run 완료, 5 run은 GPU memory 부족(SKIP)으로 같은 설정·seed로 재실행 중
+
+**직전 commit:** `c9bd40922`(입력 336 사전등록). 결과와 판정은 재실행이 끝난 뒤 별도 기록에 적는다. 이 기록에는 값을 적지 않는다.
+
+- driver(`len_driver.sh 336`)가 11-18 04:03:08에 멈췄다. "pool done (RESULT 31, SKIP 5)", "STOP: incomplete (need 36 RESULT, 0 SKIP)". 사전등록한 대로 판정 전에 멈춘 것이다.
+- SKIP 5개는 모두 population LIF(POP)이고 모두 첫 epoch 전 `CUDA out of memory`다.
+
+| cell | seed | stdout |
+|---|---|---|
+| ETTm2 H96 | 7 | `..._lr0.0001_L1_s336_seed7_20261117_c9bd40922.stdout` |
+| ETTm2 H96 | 2026 | `..._lr0.0001_L1_s336_seed2026_20261117_c9bd40922.stdout` |
+| ETTh2 H720 | 7 | `..._lr0.0005_L1_s336_seed7_20261117_c9bd40922.stdout` |
+| ETTh2 H96 | 42 | `..._lr0.0005_L1_s336_seed42_20261118_c9bd40922.oom.stdout`(복사본, 아래) |
+| ETTh2 H96 | 7 | `..._lr0.0005_L1_s336_seed7_20261118_c9bd40922.oom.stdout`(복사본, 아래) |
+
+- 원인(내 판단): slot을 GPU마다 2개(0,1,2,3,0,1,2,3)로 두어 POP 입력 336 run 둘이 같은 GPU에 올라갈 수 있었다. 다른 세션의 입력 720 pool도 GPU마다 약 21 GB를 쓰고 있었다. POP 입력 336 run 하나는 약 14.6 GB를 잡는다(재실행 시작 45초 뒤 GPU마다 20.9 → 35.5 GB). 사전 확인에서 이 크기를 재지 않은 것은 내 실수다.
+- 사전등록 규칙("메모리가 부족해 run이 실패(SKIP)하면 같은 설정과 seed로 그 run만 다시 돌리고 기록한다")대로 처리했다.
+  - SKIP 5줄을 `raw.txt`에서 `results/flif-v1-ett-spkmux-len336/skip_oom.txt`로 옮겼다(설명 2줄 포함). 요약기는 SKIP 줄이 있으면 멈추기 때문이다. 옮기기 전 `raw.txt`는 RESULT 31 + SKIP 5 = 36줄이었고, 지금은 RESULT 31줄이다.
+  - ETTh2 H96 seed 42 / 7의 OOM stdout은 재실행이 같은 파일 이름(날짜 20261118)으로 덮어쓰므로 `.oom.stdout`로 복사해 두었다(local).
+  - 실행 script는 사본 `scripts/run_ett_spk_rerun336.sh`를 쓴다. c9bd40922의 `run_ett_spk.sh`와 byte 단위로 같다(`cmp`). 이번 commit에서 원본 `run_ett_spk.sh`를 고치는데, 도는 bash는 script를 위치(byte offset)로 읽으므로 원본을 고치면 도는 run이 깨진다. 그래서 사본으로 돌린다.
+  - queue `scripts/queues/len336-rerun-20261118.txt`(local): 원래 queue(`make_queue_len.sh run 336`)의 해당 5줄에서 script 이름만 바꾼 것이다(5줄 모두 일치 확인). SLOTS=0,1,2,3(GPU마다 1개), suite는 같은 `flif-v1-ett-spkmux-len336`, pool 출력은 `pool_log_rerun.txt`.
+  - 04:05:39에 4개가 시작했고, 5번째(ETTh2 H96 seed 7)는 05:08:31에 시작했다. 다섯 run 모두 아래 commit 전에 시작했으므로 RESULT의 `sha`는 `c9bd40922`로 적힌다.
+- 재실행이 도는 동안 아래 mixer 변형 code를 저장소에 합쳤다.
+  - 다섯 run은 모두 시작했고 model module을 이미 읽었다. 학습 경로에서 함수 안에서 늦게 읽는 module은 `spk_mixer`, `neo_mixer`, `stream_mixer`(model을 만들 때)뿐이다. 그래서 도는 run은 c9bd40922의 code로 끝까지 간다(내 판단).
+  - 합친 code는 기존 경로에서 c9bd40922와 비트 단위로 같다(아래 c0).
+  - 작업 규칙("pool이 도는 동안 model code를 고치지 않는다", 11-13)의 이유는 대기 중인 run이 새 code를 읽는 것이다. 이번에는 대기 중인 run이 없다. 그래도 규칙에서 벗어난 것이므로 적는다.
+
+## 2026-11-18 05:45 KST — 사전등록 + 구현 + 점검(본 학습 전): SpkMixer mixer 변형 3묶음(반복 축 pooling, 방향 안 2층 membrane shortcut, 방향 stack LIF reset), LIF 단계, ETT 4 cell + MIT-BIH, 87 run
+
+**직전 commit:** `c9bd40922`. 이 commit에는 11-17 21:30 설계 검토 기록과 그 출력(`results/check-pool-probe-20261117/`), 입력 336 중간 기록(위)도 함께 들어간다.
+
+**사용자 요청(11-17):** 설계 검토 뒤 "세 묶음 모두 진행하되, LIF 로 먼저보고 이후에 population을 진행해줘."
+- 이번 기록은 LIF 단계다. population 단계는 LIF 결과를 보고한 뒤 따로 사전등록한다(아래 "다음 단계").
+
+### 무엇을 바꾸나(설정은 튜닝한 LIF SpkMixer 그대로, 다시 튜닝하지 않음; arm마다 하나만 바꿈)
+대조(base)는 튜닝 최종 LIF SpkMixer다.
+- ETT: muxlin + IAND, 방향마다 mixer 1층, lr 5e-4 ETTh2 / 1e-4 ETTm2, `flif-v1-ett-spkmux-tune` 행.
+- MIT-BIH: muxlin + ADD, 방향마다 2층, lr 0.02, `flif-v1-mitbih-spkmux-tune` 행.
+
+| 묶음 | arm | 바꾸는 것 | ETT | MIT-BIH | tag |
+|---|---|---|---|---|---|
+| 1 pooling | max | mixer 앞에서 4개 반복을 OR(0/1)로 합친다. 두 방향 stack과 muxlin fusion을 token sequence 하나에 한 번만 돌리고, fusion 출력을 4개 반복에 복사해 residual과 MLP로 보낸다 | 1층 | 2층 | `_mpmax` |
+| 1 pooling | mean | 같음. 합치는 방법만 평균(값 0, ¼, ½, ¾, 1) | 1층 | 2층 | `_mpmean` |
+| 2 shortcut | L2 | 방향마다 2층, shortcut 없음(MS의 짝; ETT만. MIT-BIH는 base가 이미 2층) | 2층 | — | `_L2` |
+| 2 shortcut | MS | 방향마다 2층. layer 1의 전류 u = BN₁(W₁x)에서 시작해 layer 2는 u ← u + BN₂(W₂s₁)에서 발화한다. 방향 안의 두 층 사이에만 있다. 새 parameter 없음 | 2층 | 2층 | `_L2_mms` / `_mms` |
+| 3 reset | subtract | 두 방향 stack의 LIF가 발화하면 θ(= 1)를 뺀다(soft reset) | 1층 | 2층 | `_mrsubtract` |
+| 3 reset | zero | 같은 neuron이 발화하면 0으로 되돌린다(hard reset) | 1층 | 2층 | `_mrzero` |
+
+- 지금(base) reset: 발화하면 θ/τ = 0.5를 뺀다(spikeDE 형식, 11-17 설계 검토).
+- reset은 두 방향 stack의 neuron에만 적용한다. fusion, embedding, MLP neuron은 그대로다. subtract / zero의 정의는 다른 세션의 `--neo_reset`(10-31)과 같다. 발화 신호는 기울기에서 뗀다(detach).
+- 실행: ETT 6 arm × 4 cell × seed 42 / 7 / 2026 = 72 run(suite `flif-v1-ett-spkmux-mx3`), MIT-BIH 5 arm × 3 seed = 15 run(suite `flif-v1-mitbih-spkmux-mx3`).
+
+### code 변경(모두 기본값에서 기존 경로 그대로; 개발은 scratchpad 사본에서 하고 입력 336 run이 모두 시작한 뒤 합침)
+- `neurons.py`: `LIFNeuron(reset='spikede' | 'subtract' | 'zero')`. 기본이 아니면 spikeDE 식 안의 reset 항을 빼고, Euler 갱신 뒤 `_apply_reset`이 발화한 neuron의 membrane에서 θ를 빼거나 0으로 만든다. LIFNeuron에만 허용한다.
+- `layers.py`: 전하(charge)를 함께 내는 경로 `spikes_and_charge`도 같은 `_apply_reset`을 부른다. `build_neo_neuron(..., reset=)`은 LIF에만 넘긴다.
+- `spk_mixer.py`: `SpkBlock` / `SpkMixer`에 `mix_pool`, `mixer_ms`, `mixer_reset`. 방향 stack을 부르는 곳을 `stack()` 하나로 모았다(`mixer_ms`가 꺼져 있으면 예전 호출 그대로). 허용하지 않는 조합은 오류를 낸다: connect MS, band, token 배치와 함께 쓰기; 1층 MS; LIF가 아닌 mixer의 reset; popg; population model이 맞춤값 표 없이 pooling / MS 쓰기.
+- `config.py`: `--spk_mixpool {none,max,mean}`, `--mixer_ms`, `--mixer_reset {spikede,subtract,zero}`. 폴더 이름 끝에 `_mp<x>`, `_mms`, `_mr<x>`.
+- `load_model.py`: 기본값이 아닌 선택만 SpkMixer에 넘긴다(기본 호출은 글자 그대로 같음). head 시험 옵션과 함께 쓰면 오류.
+- `scripts/run_ett_spk.sh`, `scripts/run_mitbih_spk.sh`: 환경 변수 `MIXPOOL=max|mean`, `MIXMS=1`, `MIXRESET=subtract|zero`. SpkMixer 아닌 조건과 population 조건에는 거부한다(population은 다음 단계).
+- 새 파일: `check_mx3.py`(점검 c0–c6), `summarize_mx3.py`(판정표), `recheck_mx3.py`(요약기와 code를 공유하지 않는 재계산), `scripts/make_queue_mx3.sh`(repro / smoke / ett / mitbih), `scripts/mx3_driver.sh`(ETT → MIT-BIH; pool → RESULT 수·SKIP 0 확인 → energy 재계산 → 요약; 실패하면 멈춤), `scripts/run_ett_spk_rerun336.sh`(위 입력 336 재실행용 사본).
+
+### 점검(학습 전)
+모두 통과했다. 출력은 `results/check-mx3-20261118/`에 있다.
+- **c0 기존 경로 불변**(`c0_compare.txt`, `snap_mx3.py`): c9bd40922의 code(`git archive`)와 합친 저장소 code로 같은 snapshot을 떠서 비교했다. 719개 항목이 비트 단위로 같다.
+  - 항목: weight, 난수 상태, 출력, 기울기, neuron spike / 전하.
+  - 대상: SpkMixer ETT LIF 1층 / 2층, 입력 336, token 배치; MIT-BIH LIF, band group, OR fusion, f-LIF, connect MS; CinC population LIF / f-LIF / popg; neuron 단위 시험.
+- **check_mx3.py**(`check_mx3.txt`): 52개 통과, 0개 실패.
+  - c1 reset: 일정 입력 1.6에서 첫 발화 뒤 membrane이 base 0.700, subtract 0.200, zero 0.000이다(손 계산값과 같음). spike 열은 base `0,1,1,1,…`, subtract와 zero는 `0,1,0,1,…`이다. 전하 경로의 spike가 forward와 같고, 입력 기울기가 유한하고 0이 아니다. 같은 무작위 입력에서 발화율은 base 0.0591 > subtract 0.0531 ≥ zero 0.0516이다. reset이 바뀌는 neuron은 두 방향 stack의 2개뿐이고, 나머지 5개는 그대로다.
+  - c2 pooling: mixer 출력이 "합친 입력에 기존 block을 한 번 돌려 4 반복에 복사한 것"과 같다. max 입력 값은 {0, 1}, mean 입력 값은 {0, ¼, ½, ¾, 1}이다. stack neuron은 window마다 sequence 하나(24 token step)만 받는다.
+  - c3 shortcut: 2층 MS stack의 출력이 손으로 쓴 식(u₂ = BN₁W₁x + BN₂W₂s₁)과 같다. parameter와 초기 weight가 shortcut 없는 2층 stack과 같다. 학습 전 model의 2층 발화율은 ETT 0.0861(shortcut 없음 0.0467), MIT-BIH 0.0918(0.0435)이다.
+  - c4: 모든 변형(ETT 5개, MIT-BIH 5개)이 같은 seed에서 대조와 초기 weight, 난수 상태가 같다. 모든 parameter에 기울기가 간다.
+  - c5: 허용하지 않는 조합 8개가 오류를 낸다.
+  - c6: flag와 loader가 기본값이 아닌 선택만 넘긴다.
+- **재현**(`check_runs_mx3.py`, `check_runs_mx3.txt`): 합친 code의 기본 경로로 ETTh2 H96 seed 42와 MIT-BIH seed 42를 다시 돌렸다. 둘 다 튜닝 행과 같다(공유 field 27개 / 34개; 시간·sha·폴더 제외). ETT MSE는 0.298527, MIT-BIH macro-F1은 0.918862다.
+- **짧은 시험 학습**(`smoke-mx3-ett-20261118` 2 epoch, `smoke-mx3-mitbih-20261118` 1 epoch, seed 42): RESULT 17 / 17, SKIP 0.
+  - 학습 인자(`logargs.txt`)가 같은 cell · seed의 튜닝 대조 run과 다른 것은 경로, 날짜, epoch 수, 그리고 arm의 선택(2층 arm은 `time_num_layers` 2)뿐이다.
+  - 대조 run(11-02) 뒤에 생긴 인자 6–7개는 기본값이다.
+  - energy 재계산이 두 suite 모두 "all checks passed"다(재계산 MSE / macro-F1 = 기록값). ETT head 입력은 모두 0/1이다.
+  - 판정에 쓰지 않는다.
+
+| arm | ETTh2 H96 test MSE | energy µJ | base 대비 | ETTm2 H720 test MSE | energy µJ | base 대비 | MIT-BIH macro-F1(1 epoch) | energy µJ | base 대비 |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| max | 0.2919 | 5.68 | 0.63 | 0.4033 | 8.34 | 0.73 | 0.6823 | 6.06 | 0.64 |
+| mean | 0.2881 | 11.78 | 1.30 | 0.4032 | 14.41 | 1.26 | 0.7880 | 20.71 | 2.20 |
+| L2 | 0.2945 | 11.17 | 1.23 | 0.4041 | 13.85 | 1.21 | — | — | — |
+| MS | 0.2938 | 11.35 | 1.25 | 0.4041 | 14.01 | 1.22 | 0.7704 | 10.16 | 1.08 |
+| subtract | 0.2898 | 9.00 | 0.99 | 0.4040 | 11.69 | 1.02 | 0.7740 | 9.76 | 1.04 |
+| zero | 0.2888 | 8.95 | 0.99 | 0.4033 | 11.58 | 1.01 | 0.7143 | 9.17 | 0.98 |
+
+  - "base 대비"는 튜닝 base 행(seed 42, 학습 끝까지)의 energy 9.08 / 11.48 / 9.39 µJ로 나눈 값이다. 시험 학습은 2 epoch(MIT-BIH 1 epoch)이라 대략적인 비율이다.
+  - mean pooling의 energy가 높은 것은 mixer 입력이 0/1이 아니어서 그 Linear가 MAC로 세어지기 때문이다. MIT-BIH는 차원이 384라 그 비중이 더 크다.
+- **요약기 dry run**: 새 suite 자리에 base 행을 tag만 바꿔 넣은 가짜 결과로 `summarize_mx3.py`와 `recheck_mx3.py`(torch 없이 시스템 python)를 돌렸다. 모든 비교가 0이고, 두 code의 Spikformer식 대비 값이 같다(`summarize_mx3_dry_{ett,mitbih}.md`, `recheck_mx3_dry.txt`).
+
+### 판정(사전 고정; 값이 빠지거나 중복되거나 유한하지 않거나, energy 재계산이 기록값을 다시 내지 못하거나, ETT 새 run의 best epoch이 validation 최솟값이 아니면 멈춤)
+- ETT: test MSE, r = 100 (A − B) / B(같은 cell, 같은 seed), R = 4 cell의 seed 평균 r의 평균. better = R ≤ −1 %이고 12쌍 중 8쌍 이상 낮음. worse = 그 거울. 그 외는 no clear difference.
+- MIT-BIH: test macro-F1 차이(%p, seed별). better = 평균 ≥ +0.5 %p이고 3 seed 중 2개 이상 높음. worse = 거울.
+- 비교:
+  - V1 max − base, V2 mean − base(묶음 1)
+  - V3 MS − base, V4(ETT) MS − L2(묶음 2). V4가 shortcut 자체의 효과이고, V3은 "층을 늘리고 shortcut을 단 것" 전체의 효과다.
+  - V5 subtract − base, V6 zero − base(묶음 3)
+- 보고 전용(판정 없음): max − mean, (ETT) L2 − base, subtract − zero, 모든 arm − Spikformer식(튜닝 행), best validation L1, MAE / accuracy, best epoch, 발화율.
+- energy: `total_fft_uJ_corr`(ETT window당, MIT-BIH 박동당). mean pooling의 mixer 입력은 0/1이 아니므로 그 첫 Linear는 MAC로 센다(syops 규칙). max pooling 입력은 0/1이라 AC다.
+
+### 사전 예상
+| 비교 | 예상 판정 | energy(arm / base, 4 cell 평균) | 근거 |
+|---|---|---|---|
+| V1 max − base | ETT, MIT-BIH 모두 no clear difference. 확신 낮음 | 0.6–0.8배 | 다시 학습하지 않은 끼워 넣기(11-17)에서 −3.02 / −2.24 / +2.74 / −0.21 %(평균 −0.68 %)였다. 학습하면 model이 맞춰 갈 것이다. energy는 시험 학습 0.63–0.73배 |
+| V2 mean − base | 둘 다 no clear difference | ETT 1.2–1.4배, MIT-BIH 약 2배 | 끼워 넣기에서 +0.63 – +2.52 %였다. energy는 시험 학습 값 |
+| V3 MS − base | 둘 다 no clear difference | ETT 1.2–1.3배, MIT-BIH 1.0–1.1배 | block 단위 membrane shortcut(11-08)이 no clear difference였다. 1층 대 2층 validation 차이는 0.2 % 안이었다 |
+| V4 MS − L2 | no clear difference | 약 1.0배 | 위와 같음 |
+| V5 subtract − base | 둘 다 no clear difference | 0.95–1.05배 | 시험 학습에서 stack 발화율은 낮아졌지만(ETTh2 H96 mixer 0.043, 대조 재현 0.049) energy는 거의 같았다 |
+| V6 zero − base | ETT no clear difference(R은 음수 쪽일 것), MIT-BIH no clear difference. 확신 낮음 | 0.95–1.05배 | 다른 세션(Neo-mixer 전 layer LIF, 반복 없는 model)에서 0으로 되돌리기가 ETTh2 −2.10 %(better), CinC −0.73 %p(worse)였다. 이번에는 stack neuron에만 적용하므로 효과가 더 작을 것이다 |
+
+### 읽는 법(미리 적음)
+| 결과 | 뜻 |
+|---|---|
+| V1 또는 V2 better | 반복을 합쳐 mixer를 한 번만 돌리는 편이 낫다. population 단계에서도 그 pooling을 쓴다 |
+| V1 no clear difference이고 energy가 낮음 | 같은 성능을 더 적은 연산으로 낸다. 성능 개선은 아니다 |
+| V4 better | 방향 안 shortcut이 2층 mixer를 돕는다. V3도 better여야 base를 바꿀 근거가 된다 |
+| V5 또는 V6 better | mixer stack의 reset 방식이 성능에 영향이 있다. population soma(이미 θ를 뺌)와 비교할 근거가 된다 |
+| 모두 no clear difference | 세 변형 모두 LIF SpkMixer에서 이득이 보이지 않는다. population 단계는 그래도 사용자 요청대로 진행하되, 범위를 사용자와 다시 정한다 |
+
+### 한계
+- 설정은 base 구조에서 튜닝했다. 변형마다 다시 튜닝하지 않았다.
+- seed 3개다. arm이 6개(ETT)라 우연히 better가 나올 가능성이 커진다.
+- pooling은 mixer와 fusion의 반복 차원을 없애므로 학습 경로 자체가 바뀐다. "반복 정보를 버려도 되는가"와 "연산을 줄여도 되는가"가 섞여 있다.
+- MIT-BIH의 V3은 이미 2층인 base에 shortcut만 더한 비교라 ETT의 V3과 뜻이 다르다(ETT V4와 같은 뜻).
+- reset 변형은 stack neuron에만 적용했다. 모든 LIF의 reset을 바꾼 것이 아니다.
+- GPU를 다른 세션과 입력 336 재실행과 함께 쓴다. run 시간은 비교할 수 없다. 메모리 부족으로 SKIP이 나면 같은 설정·seed로 그 run만 다시 돌리고 기록한다.
+
+### 다음 단계(population, 사용자 요청대로 LIF 결과 보고 뒤)
+- 같은 세 묶음을 population LIF SpkMixer(τ 4 / 8 / 16 / 32, soma 0.5)에 적용한다.
+- 필요한 것(이번에 구현하지 않음):
+  - pooling / MS는 mixer 발화율이 달라지므로 변형마다 초기 발화율 맞춤값 표를 새로 만든다(`calibrate_stft.py`, `calibrate_len.py`와 같은 규칙).
+  - reset: population soma는 이미 θ를 뺀다(subtract와 같음). 그래서 population에서는 "지금(θ 빼기) 대 0으로"만 의미가 있다. member / soma 중 어디에 적용할지 정해야 한다.
+- 범위는 LIF 결과와 함께 사용자에게 묻는다.
+
+### 실행
+- NSMT/에서 `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/mx3_driver.sh > /dev/null 2>&1 &`.
+- queue 순서: ETT는 ETTm2 H720 → ETTm2 H96 → ETTh2 H720 → ETTh2 H96, cell마다 arm별 seed 42 / 7 / 2026. 그 뒤 MIT-BIH arm별 seed 3개.
+- queue 파일, driver.log, checkpoint, raw log는 local에 둔다. pool이 도는 동안 model code와 실행 script를 고치지 않는다.
+- 예상 시간(내 추정): ETT LIF run은 GPU를 덜 나눠 쓸 때 ETTh2 약 4–7분, ETTm2 약 13–16분이었다. 지금은 GPU가 다른 세션 pool과 입력 336 재실행으로 바빠 3–5배 걸릴 수 있다. ETT 72 run 약 5–8시간, MIT-BIH 15 run 약 1시간.
+
+**commit:** 이 기록, code, script, 점검·시험 학습 출력을 `exp/f-lif-pop-v3`에 commit · push한 뒤 driver를 시작한다. 해시는 결과 기록에 적는다.

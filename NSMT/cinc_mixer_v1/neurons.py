@@ -211,8 +211,18 @@ class LIFNeuron(nn.Module):
         diagnostics that read neuron.b).
     """
     def __init__(self, size, tau=2., threshold=1., surrogate_scale=5., step=1., max_length=64,
-                 dtype=torch.float32):
+                 dtype=torch.float32, reset='spikede'):
         super().__init__()
+
+        # 2026-11-17 (PROJECT_LOG mixer variants, user request 11-17): how far a spike lowers the membrane at its step:
+        # 'spikede' (default, unchanged: -theta*s/tau inside F, i.e. theta/tau = 0.5 at tau 2), 'subtract' (exactly theta, soft
+        # reset), 'zero' (to exactly 0, hard reset as spikingjelly). Same definitions as exp/nsmt-flif-neo --neo_reset (10-31).
+        # LIFNeuron only for now (the population stage adds its own).
+        if reset not in ('spikede', 'subtract', 'zero'):
+            raise ValueError("reset must be 'spikede', 'subtract' or 'zero'")
+        if reset != 'spikede' and type(self) is not LIFNeuron:
+            raise NotImplementedError('reset options are implemented for LIFNeuron only')
+        self.reset_mode = reset   # not 'reset': spikingjelly reset_net calls m.reset()
 
         tau = torch.as_tensor(tau, dtype=torch.float64).reshape(-1)
         if tau.numel() < 1 or not bool((tau > 0.).all()):
@@ -257,8 +267,18 @@ class LIFNeuron(nn.Module):
             return drift, None
         look = u + 1. * drift                                        # v + dt * drift, dt = 1 (spikeDE)
         s = arctan_spike(look - self.threshold, self.surrogate_scale)
+        if getattr(self, 'reset_mode', 'spikede') != 'spikede':          # 2026-11-17: reset applied after the update (_apply_reset)
+            return drift, s
 
         return drift - (s.detach() * self.threshold) / self.tau, s
+
+    def _apply_reset(self, nxt, s):
+        """2026-11-17: 'subtract' / 'zero' lower the updated (Euler) membrane of the neurons that spiked by theta / by all of it,
+        spike detached (detach_reset). 'spikede' or no spikes: unchanged."""
+        if getattr(self, 'reset_mode', 'spikede') == 'spikede' or s is None:
+            return nxt
+        sd = s.detach()
+        return nxt - sd * (self.threshold if self.reset_mode == 'subtract' else nxt)
 
     # ---- integrator --------------------------------------------------------------------------
     @staticmethod
@@ -345,6 +365,7 @@ class LIFNeuron(nn.Module):
         for t in range(T):
             F, s = self.rhs(u, x[t])
             nxt, coeff, stats = self.integrate(t, u, F, x[t], history, oracle_p)
+            nxt = self._apply_reset(nxt, s)                              # 2026-11-17 (no-op for 'spikede')
             out, soma, drive = self.emit(nxt, s, soma)
             spikes.append(out)
             if analog:

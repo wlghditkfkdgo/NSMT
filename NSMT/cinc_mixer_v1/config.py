@@ -138,6 +138,10 @@ def parse_arguments():
     snn_arg.add_argument('--spk_band', choices=['none', 'group', 'member'], default='none', help='spkMixer: STFT bands into channel groups (A) or population members (B)')
     snn_arg.add_argument('--spk_taxis', choices=['rep', 'token'], default='rep', help='spkMixer: token = every neuron layer steps over the token (STFT frame) axis, no repeats')
     snn_arg.add_argument('--gain_table', type=str, default=None, help='spkMixer population: explicit BN gain table (calibrate_stft.py)')
+    # 2026-11-17 (exp/f-lif-pop-v3, mixer variants, user request 11-17; spk_mixer.py)
+    snn_arg.add_argument('--spk_mixpool', choices=['none', 'max', 'mean'], default='none', help='spkMixer: pool the T_h repeats before the mixer (run it once), copy its output back')
+    snn_arg.add_argument('--mixer_ms', action='store_true', default=False, help='spkMixer: membrane shortcut between the layers of each directional stack')
+    snn_arg.add_argument('--mixer_reset', choices=['spikede', 'subtract', 'zero'], default='spikede', help='spkMixer: reset of the directional-stack LIF neurons')
     snn_arg.add_argument('--fold', type=int, default=0, help='CinC 2017: test fold 0..4 of the record-wise stratified 5-fold split')
     snn_arg.add_argument('--val_frac', type=float, default=0.1, help='share of the training part held out for validation')
     snn_arg.add_argument('--win_s', type=float, default=30.0, help='CinC 2017 window length (s)')
@@ -264,6 +268,12 @@ class Config():
             _iso += f"_bd{args.spk_band}"
         if getattr(args, 'spk_taxis', 'rep') != 'rep':
             _iso += f"_tx{args.spk_taxis}"
+        if getattr(args, 'spk_mixpool', 'none') != 'none':                # 2026-11-17 mixer variants
+            _iso += f"_mp{args.spk_mixpool}"
+        if getattr(args, 'mixer_ms', False):
+            _iso += "_mms"
+        if getattr(args, 'mixer_reset', 'spikede') != 'spikede':
+            _iso += f"_mr{args.mixer_reset}"
         if str(getattr(args, 'data', '')).upper() in ('CINC2017', 'SHD'):
             _iso += f"_f{args.fold}" + ("_ce" if getattr(args, 'loss_kind', 'cal') == 'ce' and str(args.data).upper() == 'CINC2017' else '')
             if getattr(args, 'crop_tokens', 0):

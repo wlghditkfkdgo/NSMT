@@ -36,6 +36,16 @@ apply_gain_table (fail closed when the table is missing). Loss, optimiser, data 
                 -> embedding neuron over N -> mixer (forward / reversed) over N -> MLP neurons over N; the outputs are
                 returned in the usual [1, B, N, D] layout, so heads and evaluators are unchanged.
   gain_table  explicit BN gain table of a population model (calibrate_stft.py); needed for band / taxis / other tasks.
+
+2026-11-17 (mixer variants, user request 11-17; defaults leave every earlier path unchanged; rep layout, IAND / OR / ADD only):
+  mix_pool     'none' | 'max' | 'mean': the T_h repeats are pooled BEFORE the mixer (max = OR of the 4 spike trains, 0/1;
+               mean = their average, values k/4), the two directional stacks and the fusion run ONCE on the token sequence
+               [N, B, 1, D], and the fusion output is copied to the T_h repeats for the residual and the MLP.
+  mixer_ms     membrane shortcut INSIDE each directional stack (needs mixer_layers >= 2): layer 1 u = BN_1(W_1 x), s_1 = LIF_1(u);
+               layer i > 1 u <- u + BN_i(W_i s_{i-1}), s_i = LIF_i(u). Same modules / parameters as the plain stack; the fusion
+               reads the last layer's spikes and H - theta as before.
+  mixer_reset  'spikede' (default) | 'subtract' | 'zero': reset of the neurons of the two directional stacks only (neurons.LIFNeuron;
+               LIF only); the fusion, embedding and MLP neurons keep the default.
 """
 import json
 import os
@@ -54,6 +64,8 @@ __all__ = ['SpkMixer', 'apply_gain_table', 'COMBS', 'CONNECTS', 'NEURONS']
 NEURONS = ('lif', 'flif', 'pop_lif', 'pop_flif', 'popg_lif', 'popg_flif')
 COMBS = ('or', 'sdor', 'sdlin', 'linmx', 'muxor', 'muxlin')                 # muxor / muxlin: 10-30 fusion MUX
 CONNECTS = ('IAND', 'OR', 'ADD', 'MS')                                       # MS: 2026-11-08 membrane shortcut (SpkBlock.forward_ms)
+POOLS = ('none', 'max', 'mean')                                              # 2026-11-17 mixer variants
+RESETS = ('spikede', 'subtract', 'zero')
 CALIBRATED = ('pop_lif', 'pop_flif', 'popg_lif', 'popg_flif')
 TAXES = ('rep', 'token')                                                     # 2026-11-16
 
@@ -93,15 +105,19 @@ class FuseLinear(nn.Module):
 
 
 class SpkBlock(nn.Module):
-    def __init__(self, dim, mixer, mixer_layers, mlp_ratio, make_neuron, N, T_h, comb, connect, bias=False, token_axis=False):
+    def __init__(self, dim, mixer, mixer_layers, mlp_ratio, make_neuron, N, T_h, comb, connect, bias=False, token_axis=False,
+                 mix_pool='none', mixer_ms=False, mixer_reset='spikede'):
         super().__init__()
         self.token_axis = bool(token_axis)                                    # 2026-11-16: x is [N, B, 1, D] (T_h = the token steps here)
+        self.mix_pool, self.mixer_ms, self.mixer_reset = mix_pool, bool(mixer_ms), mixer_reset   # 2026-11-17
         if comb not in COMBS:
             raise ValueError(f'mixer_comb must be one of {COMBS}')
         if connect not in CONNECTS:
             raise ValueError(f'connect_f must be one of {CONNECTS}')
         self.comb, self.connect_f, self.grouped = comb, connect, mixer.startswith('popg_')
         fn = lambda: make_neuron(dim, N, 'ND')                            # mixer / fusion neurons: token axis, N steps
+        if mixer_reset != 'spikede':                                          # 2026-11-17: reset of the directional stacks only
+            fn = lambda: make_neuron(dim, N, 'ND', reset=mixer_reset)
         self.mixer = MixerStack(dim, mixer_layers, fn, bias)
         self.mixer_rev = MixerStack(dim, mixer_layers, fn, bias)
         if comb in ('sdor', 'sdlin', 'muxor', 'muxlin'):
@@ -145,16 +161,33 @@ class SpkBlock(nn.Module):
         u = u + self.fc2.current(self.fc1(s1))
         return self.fc2.lif(u.contiguous()), u
 
+    def stack(self, st, x, charge=False):
+        """2026-11-17: one directional stack; mixer_ms adds each layer's BN current to a real-valued stream u (layer 1 starts it)
+        and every layer's neuron fires on u. Without mixer_ms this is st(x) / st.forward_charge(x) (unchanged)."""
+        if not self.mixer_ms:
+            return st.forward_charge(x) if charge else st(x)
+        u, last = None, len(st.Mem) - 1
+        for i, l in enumerate(st.Mem):
+            T, B, N, D = x.shape
+            c = l.bn(l.w_in(x).reshape(-1, D)).reshape(T, B, N, D)           # NeoLayer.forward's current, same modules
+            u = c if u is None else u + c
+            if i == last:
+                return l.lif.forward_charge(u) if charge else l.lif(u)
+            x = l.lif(u)
+
     def mix(self, x):
         """x [T_h, B, N, D] -> m [T_h, B, N, D] (token_axis: x and m are [N, B, 1, D])."""
         xm = x if self.token_axis else x.permute(2, 1, 0, 3).contiguous()   # [N, B, T_h, D]
+        reps = xm.shape[2]                                                    # 2026-11-17 (not K: the fusion reuses that name)
+        if self.mix_pool != 'none':                                           # 2026-11-17: one token sequence [N, B, 1, D]
+            xm = xm.amax(2, keepdim=True) if self.mix_pool == 'max' else xm.mean(2, keepdim=True)
         if self.comb == 'or':
-            f = self.mixer(xm)
-            r = self.mixer_rev(xm.flip(0)).flip(0)
+            f = self.stack(self.mixer, xm)
+            r = self.stack(self.mixer_rev, xm.flip(0)).flip(0)
             m = torch.maximum(f, r)
         else:
-            f, hf = self.mixer.forward_charge(xm)
-            r, hr = self.mixer_rev.forward_charge(xm.flip(0))
+            f, hf = self.stack(self.mixer, xm, True)
+            r, hr = self.stack(self.mixer_rev, xm.flip(0), True)
             r, hr = r.flip(0), hr.flip(0)
             if self.comb == 'linmx':
                 m = self.fuse(torch.cat([hf, hr, (hf - hr).abs()], dim=-1))
@@ -170,6 +203,8 @@ class SpkBlock(nn.Module):
                 else:                                                         # muxor / muxlin (10-30): s_d ? a : F ^ R
                     a = fr if self.comb == 'muxor' else self.fuse(torch.cat([fr, sd], dim=-1))
                     m = sd * a + (1. - sd) * torch.minimum(f, r)
+        if self.mix_pool != 'none':                                           # 2026-11-17: copy back to the T_h repeats
+            m = m.expand(-1, -1, reps, -1)
         if self.token_axis:
             return m
         return m.permute(2, 1, 0, 3).contiguous()                           # [T_h, B, N, D]
@@ -187,8 +222,20 @@ class SpkMixer(nn.Module):
     def __init__(self, seq_len=3750, data_patch_size=64, embed_dim=384, num_classes=4, depths=1, mlp_ratios=1.0, mixer='lif',
                  mixer_layers=2, T_h=4, neo_tau=2.0, neo_alpha=0.5, fde_method='pred', fde_step=1.0, fde_memory=0,
                  pop_taus=(4., 8., 16., 32.), bias=False, tau=2.0, train_mode='training', in_channels=1, pop_soma_init=None,
-                 mixer_comb='or', connect_f='IAND', tau_calib=True, band='none', taxis='rep', gain_table=None, **kwargs):
+                 mixer_comb='or', connect_f='IAND', tau_calib=True, band='none', taxis='rep', gain_table=None, mix_pool='none',
+                 mixer_ms=False, mixer_reset='spikede', **kwargs):
         super().__init__()
+        if mix_pool not in POOLS or mixer_reset not in RESETS:                # 2026-11-17 mixer variants
+            raise ValueError(f'mix_pool must be one of {POOLS}, mixer_reset one of {RESETS}')
+        if (mix_pool != 'none' or mixer_ms or mixer_reset != 'spikede') and (connect_f == 'MS' or band != 'none' or taxis != 'rep'):
+            raise NotImplementedError('mix_pool / mixer_ms / mixer_reset: rep layout, no band, no connect MS')
+        if mixer_ms and int(mixer_layers) < 2:
+            raise ValueError('mixer_ms needs mixer_layers >= 2 (the shortcut runs between the layers of a direction)')
+        if mixer_reset != 'spikede' and mixer != 'lif':
+            raise NotImplementedError("mixer_reset is implemented for mixer 'lif' only")
+        if (mix_pool != 'none' or mixer_ms) and mixer.startswith('popg_'):
+            raise NotImplementedError('mix_pool / mixer_ms are not implemented for popg neurons')
+        self.mix_pool, self.mixer_ms, self.mixer_reset = mix_pool, bool(mixer_ms), mixer_reset
         if mixer not in NEURONS:
             raise ValueError(f'mixer must be one of {NEURONS}')
         if int(T_h) < 1:
@@ -221,9 +268,11 @@ class SpkMixer(nn.Module):
         grouped = mixer.startswith('popg_')
         fam = mixer.split('_', 1)[1] if grouped else None
 
-        def make_neuron(size, steps, layout):
+        def make_neuron(size, steps, layout, reset='spikede'):
             if grouped:
                 return GroupNeuron(size, taus, fam, T=int(steps), alpha=neo_alpha, axis=(2 if layout == 'DN' else -1))
+            if reset != 'spikede':                                            # 2026-11-17: the directional stacks only
+                return build_neo_neuron(mixer, size, int(steps), layout, reset=reset, **neo_kw)
             return build_neo_neuron(mixer, size, int(steps), layout, **neo_kw)
 
         N, D = self.num_patches, embed_dim
@@ -232,7 +281,8 @@ class SpkMixer(nn.Module):
         self.encoding = Embedding(num_patches=N, patch_size=data_patch_size * self.in_channels, embed_dim=D, stride=self.stride,
                                   pe=False, bias=bias, tau=tau, pos_emb=False, neuron=make_neuron(D, steps, 'DN'))
         self.blocks = nn.ModuleList([SpkBlock(D, mixer, self.mixer_layers, mlp_ratios, make_neuron, N, steps, mixer_comb, connect_f, bias,
-                                              token_axis=tok_ax) for _ in range(self.depths)])
+                                              token_axis=tok_ax, mix_pool=mix_pool, mixer_ms=mixer_ms, mixer_reset=mixer_reset)
+                                     for _ in range(self.depths)])
         self.head = nn.Linear(D, num_classes, bias=bias)
         self.apply(self._init_weights)
         if band != 'none':
@@ -258,8 +308,8 @@ class SpkMixer(nn.Module):
                         mod.weight.copy_(group_gamma(mod.weight.numel(), taus, fam))
         self.tau_calibrated = False
         if mixer in CALIBRATED and tau_calib:                                 # ... then the layer-wise rate-matched table (fail closed)
-            if gain_table is None and (band != 'none' or taxis != 'rep'):     # 2026-11-16: the default tables are CinC, rep layout
-                raise ValueError('a population model with band / taxis needs an explicit gain_table (calibrate_stft.py)')
+            if gain_table is None and (band != 'none' or taxis != 'rep' or mix_pool != 'none' or mixer_ms):   # 2026-11-16 / 11-17
+                raise ValueError('a population model with band / taxis / mix_pool / mixer_ms needs an explicit gain_table')
             self.tau_calibrated = apply_gain_table(self, gain_table if gain_table is not None else gain_table_path(mixer, mixer_comb, connect_f))
 
     def _init_weights(self, m):

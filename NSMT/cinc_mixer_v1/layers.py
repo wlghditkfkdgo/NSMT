@@ -488,6 +488,7 @@ def spikes_and_charge(n, x):
     for t in range(T):
         F, s = n.rhs(u, x[t])
         nxt, _, _ = n.integrate(t, u, F, x[t], history, None)
+        nxt = n._apply_reset(nxt, s)                                  # 2026-11-17 mixer reset (no-op for 'spikede')
         if n.has_soma:
             prev = soma
             o, soma, drive = n.emit(nxt, s, soma)
@@ -507,12 +508,14 @@ def spikes_and_charge(n, x):
 
 
 def build_neo_neuron(kind, size, T, layout, tau=2., alpha=.5, method='pred', step=1., memory=0, pop_taus=(4., 8., 16., 32.),
-                     pop_soma_init=None):
+                     pop_soma_init=None, reset='spikede'):
     """'lif' / 'flif': neurons.py classes wrapped in NeoNeuron; `T` = spiking steps (sizes the kernel table).
     'sj_lif' is handled by the callers (they keep their own spikingjelly LIF, constructed exactly as in nsmt_base)."""
     common = dict(tau=tau, threshold=1., surrogate_scale=5., step=step, max_length=int(T))
+    if reset != 'spikede' and kind != 'lif':                          # 2026-11-17: mixer reset, LIF only for now
+        raise NotImplementedError(f'reset {reset!r} is implemented for the LIF neuron only')
     if kind == 'lif':
-        n = LIFNeuron(size, **common)
+        n = LIFNeuron(size, **common, **({} if reset == 'spikede' else dict(reset=reset)))
     elif kind == 'flif':
         n = FLIFNeuron(size, alpha=alpha, method=method, memory=(int(memory) if memory else None), **common)
     elif kind in ('pop_flif', 'pop_lif', 'pop_rec'):

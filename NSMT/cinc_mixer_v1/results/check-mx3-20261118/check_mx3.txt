@@ -1,0 +1,58 @@
+pass  c1 reset spikede: constant input 1.6, membrane after the first spike  [0.700 (expected 0.7), spikes [0, 1, 1, 1, 1, 1, 1, 1]]
+pass  c1 reset spikede: forward spikes == hand trace
+pass  c1 reset subtract: constant input 1.6, membrane after the first spike  [0.200 (expected 0.2), spikes [0, 1, 0, 1, 0, 1, 0, 1]]
+pass  c1 reset subtract: forward spikes == hand trace
+pass  c1 reset zero: constant input 1.6, membrane after the first spike  [0.000 (expected 0.0), spikes [0, 1, 0, 1, 0, 1, 0, 1]]
+pass  c1 reset zero: forward spikes == hand trace
+pass  c1 reset spikede: charge path spikes == forward, spikes == (H - theta >= 0)  [rate 0.059]
+pass  c1 reset spikede: input gradient finite and nonzero
+pass  c1 reset subtract: charge path spikes == forward, spikes == (H - theta >= 0)  [rate 0.065]
+pass  c1 reset subtract: input gradient finite and nonzero
+pass  c1 reset zero: charge path spikes == forward, spikes == (H - theta >= 0)  [rate 0.053]
+pass  c1 reset zero: input gradient finite and nonzero
+pass  c1 firing on the same input: spikede > subtract >= zero  [{'spikede': 0.0591, 'subtract': 0.0531, 'zero': 0.0516}]
+/home/yschoi/.conda/envs/snn_recall/lib/python3.10/site-packages/timm/models/layers/__init__.py:48: FutureWarning: Importing from timm.models.layers is deprecated, please import via timm.layers
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.layers", FutureWarning)
+/home/yschoi/.conda/envs/snn_recall/lib/python3.10/site-packages/timm/models/registry.py:4: FutureWarning: Importing from timm.models.registry is deprecated, please import via timm.models
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.models", FutureWarning)
+pass  c1 mixer_reset reaches the directional-stack neurons only  [stack ['blocks.0.mixer.Mem.0.lif', 'blocks.0.mixer_rev.Mem.0.lif'], others 5]
+pass  c2 max: mixer output == the plain block run once on the pooled input, copied to the 4 repeats  [rate 0.0065, input values [0.0, 1.0]]
+pass  c2 max: stack neurons step over the 24 tokens of one sequence per window (rows B x 1 x N  [[(24, 6, 64), (24, 6, 64)]]
+pass  c2 mean: mixer output == the plain block run once on the pooled input, copied to the 4 repeats  [rate 0.0095, input values [0.0, 0.25, 0.5, 0.75, 1.0]]
+pass  c2 mean: stack neurons step over the 24 tokens of one sequence per window (rows B x 1 x N  [[(24, 6, 64), (24, 6, 64)]]
+pass  c3 ETT 2 layers: same parameters and initial weights as the plain stack
+pass  c3 ETT 2 layers: stack with shortcut == hand-written stream (u2 = BN1 W1 x + BN2 W2 s1)  [rate 0.0861, plain 0.0467, differ 0.0691]
+pass  c3 MIT-BIH: same parameters and initial weights as the plain stack
+pass  c3 MIT-BIH: stack with shortcut == hand-written stream (u2 = BN1 W1 x + BN2 W2 s1)  [rate 0.0918, plain 0.0435, differ 0.0785]
+pass  c4 pool max: initial weights and random state == control at seed 42
+pass  c4 pool max: gradients reach every parameter; output differs from the control  [no grad: []]
+pass  c4 pool mean: initial weights and random state == control at seed 42
+pass  c4 pool mean: gradients reach every parameter; output differs from the control  [no grad: []]
+pass  c4 ms ETT: initial weights and random state == control at seed 42
+pass  c4 ms ETT: gradients reach every parameter; output differs from the control  [no grad: []]
+pass  c4 reset subtract: initial weights and random state == control at seed 42
+pass  c4 reset subtract: gradients reach every parameter; output differs from the control  [no grad: []]
+pass  c4 reset zero: initial weights and random state == control at seed 42
+pass  c4 reset zero: gradients reach every parameter; output differs from the control  [no grad: []]
+pass  c4 MIT pool max: initial weights and random state == control at seed 42
+pass  c4 MIT pool max: gradients reach every parameter; output differs from the control  [no grad: []]
+pass  c4 MIT pool mean: initial weights and random state == control at seed 42
+pass  c4 MIT pool mean: gradients reach every parameter; output differs from the control  [no grad: []]
+pass  c4 MIT ms: initial weights and random state == control at seed 42
+pass  c4 MIT ms: gradients reach every parameter; output differs from the control  [no grad: []]
+pass  c4 MIT reset subtract: initial weights and random state == control at seed 42
+pass  c4 MIT reset subtract: gradients reach every parameter; output differs from the control  [no grad: []]
+pass  c4 MIT reset zero: initial weights and random state == control at seed 42
+pass  c4 MIT reset zero: gradients reach every parameter; output differs from the control  [no grad: []]
+pass  c5 refused: ms with 1 layer
+pass  c5 refused: reset with pop_lif
+pass  c5 refused: pool with token layout
+pass  c5 refused: pool with connect MS
+pass  c5 refused: pool with band
+pass  c5 refused: pop + pool without gain table
+pass  c5 refused: bad pool
+pass  c5 refused: bad reset
+pass  c6 flags in config.py
+pass  c6 loader passes only non-default options
+
+52 passed, 0 failed

@@ -36,7 +36,13 @@ esac
 BX=""; BTAG=""
 case ${BAND:-none} in none) ;; group|member) BX="--spk_band $BAND"; BTAG="_bd$BAND" ;; *) echo "bad BAND"; exit 1 ;; esac
 case ${TAXIS:-rep} in rep) ;; token) BX="$BX --spk_taxis token"; BTAG="${BTAG}_txtoken" ;; *) echo "bad TAXIS"; exit 1 ;; esac
-[ -n "$BX" ] && case $COND in spkmx_*) ;; *) echo "BAND / TAXIS are for the SpkMixer"; exit 1 ;; esac
+# 2026-11-17 mixer variants (PROJECT_LOG): MIXPOOL=max|mean -> --spk_mixpool (tag _mp<x>), MIXMS=1 -> --mixer_ms (tag _mms),
+# MIXRESET=subtract|zero -> --mixer_reset (tag _mr<x>); SpkMixer only; population models need their own gain table (not yet)
+case ${MIXPOOL:-none} in none) ;; max|mean) BX="$BX --spk_mixpool $MIXPOOL"; BTAG="${BTAG}_mp$MIXPOOL" ;; *) echo "bad MIXPOOL"; exit 1 ;; esac
+case ${MIXMS:-0} in 0) ;; 1) BX="$BX --mixer_ms"; BTAG="${BTAG}_mms" ;; *) echo "bad MIXMS"; exit 1 ;; esac
+case ${MIXRESET:-spikede} in spikede) ;; subtract|zero) BX="$BX --mixer_reset $MIXRESET"; BTAG="${BTAG}_mr$MIXRESET" ;; *) echo "bad MIXRESET"; exit 1 ;; esac
+[ -n "$BX" ] && case $COND in spkmx_*) ;; *) echo "BAND / TAXIS / MIXPOOL / MIXMS / MIXRESET are for the SpkMixer"; exit 1 ;; esac
+[ "${MIXPOOL:-none}${MIXMS:-0}${MIXRESET:-spikede}" != none0spikede ] && case $COND in spkmx_pop_*) echo "mixer variants: population not yet (needs its own gain table)"; exit 1 ;; esac
 case $COND in spkmx_pop_lif_*)
   GT="$W/calib/stft/gains_MITBIH_pop_lif_muxlin_${CFA}_bd${BAND:-none}_tx${TAXIS:-rep}.json"
   [ -s "$GT" ] || { echo "missing gain table $GT"; exit 1; }
