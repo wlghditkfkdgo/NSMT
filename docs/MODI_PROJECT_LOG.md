@@ -8035,3 +8035,112 @@ Spikformer식보다 "좋음"인 변형은 없다.
 **commit / tag:** 이 항목과 결과 파일을 commit 하고 annotated tag `exp/nsmt-flif-neo-20261117-len336`(학습이 끝난 묶음, snapshot 아님)를 붙인다. `exp/nsmt-flif-neo`와 이 tag만 push 한다.
 
 ---
+
+## 2026-11-17 11:14 KST — 사전 고정: ETT 입력 길이 시험, 입력 720 (사용자 결정 11-16의 두 번째 단계) — 입력을 720 sample(token 180개)로 늘려 같은 일곱 조건을 ETT 네 칸 × seed 3으로 돌린다(84 run). 코드는 바꾸지 않는다(입력 336 때의 `c9bef7da0` 코드 그대로, 대기열만 새로 만든다). 판정 규칙은 입력 336 때와 같고, 비교 상대에 입력 336을 더한다. 입력 336에서 빠뜨렸던 "한 neuron에서만 좋음"의 읽는 법을 이번에는 미리 적는다. smoke 12/12
+
+**직전 commit:** `b55fb3bcb` (입력 336 결과, tag `exp/nsmt-flif-neo-20261117-len336`).
+
+**사용자 요청 (11-16, 원문):** "1번을 진행해보자. 우선 입력길이를 336으로 보고 나서 720을 확인해보자."
+- 입력 336 결과(11-17 10:40 항목)는 "L1 나쁨 또는 L2 줄어듦"(진행 여부를 사용자에게 묻기로 한 조건)에 해당하지 않았다. 그래서 계획대로 720을 진행한다.
+
+**목적:** token이 180개가 되면 기준 model(Neocortex-MS query population)과 Spikformer식의 격차가 커지는지 본다. 함께 보는 것:
+- 입력 336에서 pop f-LIF만 "좋음"이었던 것이 다시 나오는지.
+- Neocortex의 memory·순서의 몫이 token 180개에서 생기는지.
+
+**branch / base:** `exp/nsmt-flif-neo`. 학습 코드는 입력 336 때와 같다(`model.py`, `layers.py`, 실행 스크립트 등 `c9bef7da0` 이후 바뀐 것 없음. `b55fb3bcb`에서 더한 것은 결과 파일과 결과 점검·요약 스크립트 2개뿐이다). RESULT 줄의 `sha=`는 이 항목의 commit이 된다.
+
+**범위:**
+- ETT 범위(사용자 결정 12: ETTh2 + ETTm2, H96 / H720)는 그대로다.
+- 바꾸는 것은 `--seq_len 720` 하나다. patch 8, stride 4, embedding 차원, head 수, layer 수, lr, batch, epoch 수, patience 10, L1 손실, seed 42 / 7 / 2026은 입력 96·336 때와 같다. 길이별로 다시 고르지 않는다.
+- 입력이 길어지면 함께 바뀌는 것(모든 model에 똑같이):
+  - token 수: 24(입력 96) → 84(336) → 180(720).
+  - head 입력 크기: 1,536 → 5,376 → 11,520.
+  - 학습 window 수: 입력 96보다 624개 줄어든다.
+  - validation·test의 window 수와 예측 대상은 그대로다(11-16의 c60c가 세 길이를 모두 확인했다).
+
+**model과 통제 (입력 336 때와 같음):**
+
+| 이름 | 조건 | 뜻 |
+|---|---|---|
+| Spikformer식 | `spk_ssa` | Neocortex 없음 |
+| 기준 model | `nsmt4q_pop_<lif\|flif>_msn` | query population + Neocortex MS |
+| memory 끔 (nomem) | `…_msn_nomem` (`--neo_memoryless`) | token마다 Neocortex를 따로 통과시킨다. 상태가 다음 token으로 넘어가지 않는다 |
+| 순서 섞기 (nshuf) | `…_msn_nshuf` (`--neo_shuffle`) | Neocortex가 token을 섞인 순서로 읽고 출력은 원래 자리로 되돌린다 |
+
+**run:** suite `flif-v1-ett-len720`, 7조건 × 4칸 × seed 3 = 84 run. 순서는 주 비교(Spikformer식 + 기준 model) 36 run → 통제 48 run이고, 각 묶음 안에서 ETTm2가 먼저다. 입력 96과 336의 값은 이미 있다(`flif-v1-gen-ett`, `flif-v1-ett-ms`, `flif-v1-ett-len96ctl`, `flif-v1-ett-len336`).
+
+**코드:** 바꾼 것 없음. 대기열은 `bash nsmt_flif_v1/classification/scripts/make_queue_len.sh 720`(→ `scripts/queues/len720-20261116.txt`, 84줄, git 제외)으로 만든다.
+
+**점검 (fail-closed):**
+- 입력 720의 크기(token 180개, head 입력 = N × D)와 data(window 수·예측 대상이 세 길이에서 같음)는 11-16의 c60b·c60c에 들어 있다(98개 통과). 코드가 그대로이므로 다시 돌리지 않았다.
+- **smoke** (1 epoch, seed 42, 입력 720, 12 run; suite `smoke-len-ett720-20261117`):
+  - 12 run: ETTm2 H96의 일곱 조건, ETTm2 H720의 Spikformer식과 pop f-LIF 기준 model, ETTh2 H96의 Spikformer식과 pop LIF 기준 model, ETTh2 H720의 pop LIF memory 끔. RESULT 12, SKIP 0, 모두 rc 0.
+  - `logargs.txt`를 입력 96의 본 run과 비교했다. 다른 것은 `seq_len`(720)과 통제 옵션(`neo_memoryless` / `neo_shuffle`)뿐이다(경로·날짜·epoch 수, 기준 run 뒤에 생긴 옵션의 기본값 제외).
+  - `energy_recount_ett.py`가 12 run에서 test MSE를 정확히 재현했고 점검을 통과했다.
+  - GPU memory 최고치: GPU당 20.9 GB(48 GB 중). GPU 하나에 run 하나로 충분하다.
+  - parameter(입력 720): ETTh2 H96 Spikformer식 1,130,616 / 기준 model 1,136,504, ETTm2 H96 1,137,648 / 1,148,016, ETTm2 H720 8,326,128 / 8,336,496, ETTh2 H720 기준 model 8,324,984.
+  - 1 epoch 시간(초, 이 시험 4개만 GPU를 쓸 때):
+
+    | 칸 | Spikformer식 | nomem | 기준 model | nshuf |
+    |---|---|---|---|---|
+    | ETTm2 H96 | 220 | 237 / 237 | 924 / 927 | 912 / 931 |
+    | ETTm2 H720 | 201 | — | 887 (pop f-LIF) | — |
+    | ETTh2 H96 | 44 | — | 164 (pop LIF) | — |
+    | ETTh2 H720 | — | 44 (pop LIF) | — | — |
+
+  - energy(1 epoch, head 재계산, 참고): ETTm2 H96에서 Spikformer식 74.46 µJ, pop LIF 기준 model 101.15 µJ, pop f-LIF 기준 model 140.81 µJ. 입력 336 smoke(34.7 / 46.3 / 62.2 µJ)의 2.15 / 2.18 / 2.26배다. 기준 model / Spikformer식은 1.36 / 1.89다.
+  - Neocortex 발화율(1 epoch, 참고): 기준 model 0.089–0.143, nshuf 0.060–0.063, nomem pop LIF 0.0000–0.0001, nomem pop f-LIF 0.003.
+  - 1 epoch test MSE(참고, 판정에 쓰지 않음): ETTm2 H96 Spikformer식 0.1747, pop LIF 기준 model 0.1757, pop f-LIF 기준 model 0.1752.
+  - **아래 사전 예상은 이 smoke 값을 보기 전에 썼고, 본 뒤에 고치지 않았다.** energy 비율(1.36 / 1.89)은 예상 구간의 위쪽 끝에 가깝다.
+
+**판정 (사전 고정; 값이 빠지거나 중복되거나 유한하지 않으면 멈춤):**
+- 규칙은 입력 336 때와 같다. r = A / B − 1 (test MSE), 칸 × seed 12쌍. 좋음: 평균 ≤ −1 %이고 8/12 낮음. 나쁨: 그 거울. 칸별 판정(±1 %, 2/3 seed)을 함께 적는다. 결론은 두 neuron 모두 좋으면 "좋음", 한 neuron만이면 "neuron에 따라 다름(약함)", 둘 다 나쁘면 "나쁨", 나머지는 "차이 없음".
+- **L1 (주 비교):** 기준 model − Spikformer식, 입력 720. 입력 96(−0.12 / −0.21 %)과 336(−0.71 / −1.57 %)의 값을 나란히 적는다.
+- **L2 격차의 변화:** 쌍마다 g = r(720) − r(96)이 주 판정이다. 커짐: 평균 ≤ −1 %p이고 8/12 음수. 줄어듦: 그 거울. 나머지는 "변화 없음". g = r(720) − r(336)도 같은 규칙으로 적는다(보조).
+- **L3 통제:** 기준 model − nshuf(순서의 몫), 기준 model − nomem(memory의 몫), 입력 720. nshuf − nomem은 보고 전용이다.
+- **L4 (보고 전용):** 각 model의 입력 720 − 입력 336, 입력 720 − 입력 96(같은 예측 대상).
+- **보고 전용:**
+  - L1에서 ETTh2 H96을 뺀 9쌍의 평균과 낮은 쌍 수. 입력 336에서 pop f-LIF의 판정이 이 칸에 기댔기 때문에 미리 정해 둔다. 판정 규칙은 바꾸지 않는다.
+  - 통제 − Spikformer식, validation L1과 마지막 epoch MSE로 본 L1, MAE로 본 L4, validation이 가장 좋았던 epoch.
+  - MAE, 발화율, energy(head 재계산)와 Spikformer식 대비 비율, parameter, run 시간.
+
+**읽는 법 (미리 적음; 입력 336 때 빠뜨린 줄을 더했다):**
+
+| 결과 | 뜻 | 다음 |
+|---|---|---|
+| L1 좋음(두 neuron) + L2(720 − 96) 커짐(두 neuron) | token이 많아지면 기준 model이 Spikformer식보다 좋아진다 | 사용자에게 보고하고 다음을 정한다 |
+| 위 + L3 순서 또는 memory 좋음 | 그 이득은 Neocortex가 순서 또는 memory를 쓰는 데서 온다 | — |
+| 위 + L3 차이 없음 | 이득은 있지만 Neocortex의 memory·순서로 설명되지 않는다 | 원인을 따로 봐야 함 |
+| L1이 pop f-LIF에서만 좋음 (입력 336과 같은 neuron) | ETTh2 H96을 뺀 9쌍에서도 ≤ −1 %이고 6/9 낮으면 "pop f-LIF에서 약한 이득이 두 길이에서 반복됐다". 아니면 "한 칸에 기댄 값"으로 읽는다. 어느 쪽이든 L2가 "변화 없음"이면 token 수의 효과라고 읽지 않는다 | — |
+| L1이 pop LIF에서만 좋음 (입력 336과 다른 neuron) | neuron이 바뀌었으므로 두 길이의 "좋음"을 같은 현상으로 읽지 않는다 | — |
+| L1 차이 없음(두 neuron) + L2 변화 없음 | 입력 720에서도 격차가 없다. "token 수가 적어서 이득이 없다"는 가설을 지지하지 않는다. 입력 길이 방향을 닫는다 | 사용자에게 보고 |
+| L1 나쁨 또는 L2 줄어듦 (어느 neuron이든) | 긴 입력에서 기준 model이 더 불리하다 | 사용자에게 보고 |
+| L3 순서 또는 memory가 한 neuron에서만 좋음 | 약함. 칸별 값이 한 칸에 기대는지 함께 적는다 | — |
+| L4(720 − 336) 나쁨 (어느 model이든) | 이 설정에서는 336보다 긴 입력이 그 model에 손해다(head가 커지고 첫 epoch에 멈추는 과적합일 수 있음) | L1·L2 해석에 한계로 적는다 |
+
+**사전 예상:**
+- L1 (입력 720): 두 neuron 모두 차이 없음. pop LIF는 확신 중간, pop f-LIF는 확신이 낮다(입력 336에서 틀렸다. 그 "좋음"을 한 칸의 seed 편차로 보고 있어서 이번에는 반복되지 않는다고 예상한다).
+- L2: 720 − 96, 720 − 336 모두 두 neuron에서 변화 없음.
+- L3: 순서·memory 모두 차이 없음.
+- L4: 720 − 96은 Spikformer식과 기준 model 모두 "좋음"(예측 길이 720인 두 칸이 끈다). 720 − 336은 "차이 없음"(확신 낮음). ETTh2 H96은 720에서도 입력 96보다 나쁘다.
+- validation이 가장 좋았던 epoch가 첫 epoch인 run이 84개 중 43개(입력 336)보다 많다.
+- energy(head 재계산): 모든 model이 입력 720에서 입력 336의 1.9–2.4배다(token 수는 2.14배). 기준 model / Spikformer식 비율은 pop LIF 1.20–1.40(336: 1.27), pop f-LIF 1.55–1.95(336: 1.65)다.
+- 기준 model의 Neocortex 발화율(네 칸 평균)은 입력 336보다 높다(pop LIF > 0.078, pop f-LIF > 0.065). 확신 낮음.
+- nomem pop LIF의 Neocortex는 거의 침묵한다(네 칸 평균 발화율 < 0.005).
+
+**실행:**
+- NSMT/에서 tmux `flif_len720`으로 `bash scripts/gpu_pool2.sh nsmt_flif_v1/classification/scripts/queues/len720-20261116.txt 0,1,2,3 2>&1 | tee -a nsmt_flif_v1/forecasting/results/flif-v1-ett-len720-pool.log`을 띄운다(GPU 하나에 run 하나).
+- 결과 줄: `nsmt_flif_v1/forecasting/results/flif-v1-ett-len720/raw.txt`.
+- 끝나면(classification 폴더): pool 기록을 `pool_runs.txt`로 복사 → `python energy_recount_ett.py --suite flif-v1-ett-len720` → `python check_len_results.py --len 720 --sha <이 항목의 commit>` → `python summarize_len.py --lens 336,720` → `python len_extra.py --len 720 --ref 96`, `python len_extra.py --len 720 --ref 336`.
+- pool이 도는 동안 저장소의 기존 코드와 실행 스크립트를 고치지 않는다.
+- 끝나는 시각은 어림하지 않는다. 다른 대화의 작업이 GPU에 올라오면 더 느려진다.
+
+**한계:** 입력 336 항목의 한계가 그대로다(하이퍼파라미터를 입력 96 값 그대로 씀, head가 함께 커짐, patch 8·stride 4 고정, memory 끔 통제는 pop LIF에서 Neocortex 침묵과 구분되지 않음, 순서 섞기 평가는 고정 순열 하나, 다른 길이의 기준값은 다른 날 학습, ETT만, seed 3개, 탐색 수준). 추가로:
+- 입력 336에서 run의 절반이 첫 epoch에 validation 최저를 찍었다. 입력 720에서는 더 심할 수 있고, 그러면 비교하는 것은 사실상 1 epoch 학습한 model들이다.
+- energy가 입력 96의 7–8배가 된다(3.5배 × 2.1배). 정확도가 같으면 긴 입력을 쓸 이유가 없다는 점을 결과에 함께 적는다.
+
+**not run (보류):** 길이별 하이퍼파라미터 탐색, 더 작은 patch, MIT-BIH·CinC의 입력 길이, 양방향 Neocortex, auxiliary loss, anomaly detection.
+
+**commit:** 이 항목과 smoke 결과를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 pool을 시작한다.
+
+---
