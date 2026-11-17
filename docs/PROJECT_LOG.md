@@ -12541,3 +12541,115 @@ head = s2                          H1(head가 membrane을 읽으면 CinC, ETT wo
 - 학습 step 시간은 GPU를 나눠 쓰는 상태에서 3회만 잰 값이다. 비율(POP 336 / 96 ≈ 5.8배)은 어림이다.
 
 **commit:** 이 기록만 `exp/f-lif-pop-v3`에 commit · push한다(tag 없음, 실험이 아님). 해시는 다음 기록에 적는다.
+
+## 2026-11-17 20:30 KST — 사전등록 + 구현 + 점검(본 학습 전): ETT 입력 길이 336, LIF SpkMixer · population LIF SpkMixer · Spikformer식, 36 run
+
+**직전 commit:** `6bdf127fc`(사용자 결정 + 사전 확인). 브랜치 `exp/f-lif-pop-v3`.
+
+**목적:** 사용자 질문(11-17) "만약 (다른 세션에서 진행하고 있는 것처럼) 입력 길이을 336, 720으로 늘리면 어떨까? (Population LIF라는 조건 하에)"와 결정 "336부터 진행하자."의 첫 단계다. 입력을 96 sample(token 24개)에서 336 sample(token 84개)로 늘렸을 때 다음을 본다.
+- population LIF SpkMixer가 LIF SpkMixer보다 나아지는가. member τ 4 / 8 / 16 / 32 중 느린 member의 기억 길이가 입력 96에서는 token 수(24)보다 길었다. 입력 336에서는 그 차이를 쓸 공간이 생긴다(내 가설).
+- Spikformer식과의 격차가 바뀌는가.
+- 입력 길이 자체의 효과는 어떤가.
+
+### 비교 대상(설정은 입력 96에서 튜닝한 값, 다시 튜닝하지 않음)
+| 이름 | model | 입력 96 행(기존 run) | 입력 336 행(새 run) |
+|---|---|---|---|
+| LIF | SpkMixer, LIF, muxlin + IAND, mixer 1층, lr 5e-4 ETTh2 / 1e-4 ETTm2 | `flif-v1-ett-spkmux-tune` | `flif-v1-ett-spkmux-len336`, tag `..._s336` |
+| POP | 같은 구조, population LIF(τ 4 / 8 / 16 / 32, soma 0.5), 초기 발화율 맞춤값은 그 입력 길이에서 만든 것 | `flif-v1-ett-spkmux-stft`의 band 없는 rep 행 | 같음 |
+| SF | Spikformer식, lr 5e-4 / 2.5e-4, 층 1 / 2 | ETTh2 `flif-v1-ett-spkmux/baseline_spk_ssa_raw.txt`, ETTm2 `flif-v1-ett-spkmux-tune` | 같음 |
+
+- ETT 4 cell(ETTh2 / ETTm2 × H96 / H720) × seed 42 / 7 / 2026 × 3 model = 36 run. 바꾸는 것은 `--seq_len 336`뿐이다(patch 8, stride 4, embedding 64, batch 64, patience 10, L1 손실, best validation weight로 test).
+- population f-LIF는 넣지 않았다(내 결정). 입력 96의 population f-LIF SpkMixer ETT run이 없어 24 run이 더 필요하다. 사용자에게 보고하고 원하면 추가한다.
+
+### code 변경(모두 기본값에서 기존 경로 그대로)
+- `scripts/run_ett_spk.sh`: 환경 변수 `SEQ`(기본 96) → `--seq_len $SEQ`. SEQ ≠ 96이면 tag 끝에 `_s<SEQ>`를 붙이고, population model은 `calib/len/gains_<ds>_pop_lif_muxlin_IAND_s<SEQ>.json`을 쓴다(band 없음, rep만 허용).
+- 새 파일:
+  - `check_len.py`(점검 d1–d3)
+  - `calibrate_len.py`(입력 길이별 맞춤값)
+  - `calib/len/gains_{ETTh2,ETTm2}_pop_lif_muxlin_IAND_s336.json`
+  - `scripts/make_queue_len.sh`(repro / smoke / run)
+  - `scripts/len_driver.sh`(pool → RESULT 36 · SKIP 0 확인 → energy 재계산 → 요약, 실패하면 멈춤)
+  - `summarize_len.py`(판정표)
+  - `recheck_len.py`(요약기와 code를 공유하지 않는 재계산)
+
+### 점검(학습 전, 모두 통과)
+- **d1 data**(`results/check-len-20261117/check_len336.txt`): 4 cell × validation / test에서 입력 336의 window 수가 입력 96과 같다(ETTh2 2,785 / 2,161, ETTm2 11,425 / 10,801). 예측 대상이 같은 배열이고, 입력 96 window는 입력 336 window의 끝 96 sample이다(처음, 끝, 고르게 50개 index, channel 7개). 학습 window는 240개 줄어든다.
+- **d2 model:** 두 dataset × LIF / POP에서 입력 336이면 token 84개다. forward / backward 값이 유한하다. head를 뺀 parameter 수는 입력 길이와 무관하다(ETTh2 LIF 21,824, POP 23,488; ETTm2 25,984, 27,776).
+- **d3 초기 발화율:** 입력 96에서 만든 POP 맞춤값을 입력 336에 그대로 쓰면, POP의 mixer layer가 같은 입력 길이 LIF model의 같은 layer보다 많이 발화한다(실제 학습 window 32개).
+  - ETTh2: mixer 정방향 0.0742 대 0.0479, 역방향 0.0770 대 0.0484, fuse 0.0882 대 0.0549. 최대 상대 오차 0.607.
+  - ETTm2: 최대 상대 오차 0.634.
+  - 원인 해석(내 판단): 느린 member가 token이 많을수록 계속 충전된다.
+  - 점검 code에 미리 적은 규칙(오차 ≥ 0.10이면 그 길이에서 다시 맞춤)에 따라 `calibrate_len.py`로 336 맞춤값을 만들었다. 방법은 `calibrate_stft.py`와 같다.
+  - 결과 오차: ETTh2 0.000, ETTm2 0.001.
+  - mixer gain 변화: 1.599 → 1.268, 1.571 → 1.252(ETTh2); 1.540 → 1.243, 1.560 → 1.280(ETTm2). embedding, MLP는 거의 같다.
+  - 출력: `calibrate_len336.txt`.
+- **입력 96 재현**(`results/check-len-repro-20261117/raw.txt`): 수정한 실행 script의 기본 경로로 ETTh2 H96 seed 42를 다시 돌렸다. LIF는 MSE 0.298527, best validation 0.312341, best epoch 3 / 14 epoch이다. SF는 0.291610, 0.311086, 3 / 14다. 둘 다 기존 행과 같다.
+- **짧은 시험 학습**(2 epoch, seed 42, `results/smoke-len336-ett-20261117/`): 6 / 6 RESULT, SKIP 0. energy 재계산은 "all checks passed"(재계산 MSE = 기록값). 판정에 쓰지 않는다.
+
+| cell | model | test MSE | energy µJ(재계산) | params | 시간 s |
+|---|---|--:|--:|--:|--:|
+| ETTh2 H96 | SF | 0.2952 | 32.04 | 539,256 | 85 |
+| ETTh2 H96 | LIF | 0.3006 | 31.52 | 537,920 | 255 |
+| ETTh2 H96 | POP | 0.3092 | 92.84 | 539,584 | 808 |
+| ETTm2 H720 | SF | 0.3683 | 38.02 | 3,899,376 | 228 |
+| ETTm2 H720 | LIF | 0.3810 | 38.12 | 3,896,704 | 846 |
+| ETTm2 H720 | POP | 0.3608 | 105.11 | 3,898,496 | 2,996 |
+
+  - SF ETTh2 H96 seed 42의 2 epoch 값(0.295180, best epoch 1)은 다른 세션의 입력 336 본 run(`exp/nsmt-flif-neo` `flif-v1-ett-len336`, 읽기만 함) 값 0.295180과 같다. 같은 code, 같은 seed라 epoch 1까지 같은 경로를 탔다고 본다.
+  - 입력 336에서 예측 head가 커진다. head가 모든 token의 값을 받기 때문이다. ETTh2 H96 parameter 수는 169,280에서 537,920으로, ETTm2 H720은 1,131,904에서 3,896,704로 늘었다(LIF 기준, 세 model 모두 같은 크기만큼).
+  - POP ETTm2 H720은 epoch 하나에 약 1,130 s가 걸렸다. 입력 96의 같은 run은 epoch당 약 200 s였다. GPU를 다른 세션의 입력 720 pool과 함께 썼다.
+- **요약기 dry run:** 입력 96 행의 tag만 바꾼 가짜 입력 336 행으로 `summarize_len.py`와 `recheck_len.py --dir`을 돌렸다. P3와 G가 모두 0이고 P1 / P2가 입력 96 행과 같다. 두 code의 값도 같다(`summarize_len_dry.md`, `recheck_len_dry.txt`).
+
+### 판정(사전 고정; 값이 빠지거나 중복되거나 유한하지 않거나, 새 run의 best epoch이 validation 최솟값이 아니면 멈춤)
+- test MSE, r = 100 (A − B) / B(seed별), R = 4 cell의 seed 평균 r의 평균.
+  - better: R ≤ −1 %이고 12쌍 중 8쌍 이상 낮음.
+  - worse: 그 거울.
+  - 그 외는 no clear difference.
+- **P1** POP_336 − LIF_336: 사용자 질문의 주 비교다.
+- **P2** POP_336 − SF_336, LIF_336 − SF_336.
+- **P3** X_336 − X_96(X = LIF, POP, SF): 입력 길이 자체의 효과다.
+- **G(격차 변화)**: P1, P2의 각 쌍에 대해 g = r(336) − r(96)(같은 cell, 같은 seed). G = 4 cell의 seed 평균 g의 평균.
+  - G ≤ −1 %p이고 12쌍 중 8쌍 이상 음수이면 "앞 model 쪽으로".
+  - 거울이면 "뒤 model 쪽으로".
+  - 그 외는 "변화 없음".
+- energy: `energy_recount_ett.py`의 `total_fft_uJ_corr`(window당).
+- 보고 전용: 같은 비교를 best validation L1과 마지막 epoch test MSE로 한 값, MAE, best epoch, 발화율.
+- 보고 전용(재현): SF ETTh2 6 run(lr 5e-4, 층 1)을 다른 세션의 입력 336 Spikformer식 run과 비교한다. 같은 code, 같은 설정이므로 같은 값이 나와야 한다. ETTm2는 lr이 달라 비교하지 않는다.
+
+### 사전 예상
+| 비교 | 예상 | 근거 |
+|---|---|---|
+| P3 X_336 − X_96 | 세 model 모두 better(R −2 ~ −4 %). ETTh2 H96은 나빠질 수 있다 | 다른 세션 입력 336: 일곱 model 모두 R −2.45 ~ −3.92 %. 그쪽 SF ETTh2 H96은 나빠졌다 |
+| P1 POP − LIF | no clear difference(R −2 ~ 0 %). 확신 낮음 | 입력 96에서 −0.94 %(10/12). 가설대로면 커지겠지만, 다른 세션에서 memory를 끈 통제도 같은 크기로 좋아졌다 |
+| P2 POP − SF, LIF − SF | 둘 다 no clear difference | 다른 세션에서 격차가 커지지 않았다 |
+| G 세 쌍 | 모두 변화 없음 | 위와 같음 |
+| energy 336 / 96 | 세 model 모두 3.0–3.8배. POP / LIF는 약 2.7–3.0배 유지 | 짧은 시험 학습: LIF 3.3–3.5배, POP 3.5배, SF 3.3–3.4배 |
+| 재현(SF ETTh2) | 6 run 모두 다른 세션 값과 같음 | 위 2 epoch 일치 |
+
+### 읽는 법(미리 적음)
+| 결과 | 뜻 |
+|---|---|
+| P1 better 또는 G(POP vs LIF) "POP 쪽으로" | 긴 입력에서 population의 이득이 생긴다. 입력 720으로 확인할 근거가 된다 |
+| P1 no clear difference, G 변화 없음 | 입력을 늘려도 SpkMixer에서 population의 이득은 생기지 않는다 |
+| P3 better, G 모두 변화 없음 | 긴 입력은 모든 model을 비슷하게 돕는다. spiking이나 population 고유의 효과가 아니다 |
+| P2 better | 긴 입력에서 SpkMixer가 Spikformer식을 앞선다 |
+
+### 한계
+- 설정은 입력 96에서 튜닝했다. 입력 336에 맞춰 다시 튜닝하지 않았다.
+- head parameter가 약 3.2–3.5배 커진다. 세 model이 같은 비율이지만 길이 효과(P3)에는 head 크기 변화가 섞인다.
+- POP는 입력 길이마다 맞춤값을 따로 만들었다(규칙: 같은 길이의 LIF 발화율에 맞춤). 그래서 POP의 P3에는 맞춤값 변화도 들어 있다.
+- seed 3개, ETT만이다. MIT-BIH, CinC는 입력 길이를 바꿀 수 없어 해당 없다.
+- population f-LIF는 not run(위).
+- GPU를 다른 세션과 함께 써서 run 시간은 비교할 수 없다. 메모리가 부족해 run이 실패(SKIP)하면 같은 설정과 seed로 그 run만 다시 돌리고 기록한다. 다른 것은 바꾸지 않는다.
+- 입력 720은 POP가 다른 세션의 run 옆에서 메모리에 올라가지 않았다(11-17 확인). 336 결과를 본 뒤 사용자와 정한다.
+
+### 내 실수
+- 짧은 시험 학습 6 run과 재현 2 run은 실행 script 수정을 commit하기 전에 돌렸다. 그래서 RESULT의 `sha`가 직전 commit `6bdf127fc`로 적혔다. 실제 script는 이 commit에 들어가는 내용이다. 본 학습은 이 commit 뒤에 시작한다.
+
+### 실행
+- NSMT/에서 `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/len_driver.sh 336`.
+- queue 순서: ETTm2 H720 → ETTm2 H96 → ETTh2 H720 → ETTh2 H96, cell마다 seed별 POP / LIF / SF.
+- suite: `flif-v1-ett-spkmux-len336`. queue 파일, driver.log, checkpoint, raw log는 local에 둔다.
+- pool이 도는 동안 model code와 실행 script를 고치지 않는다.
+
+**commit:** 이 기록과 code, script, 맞춤값 표 2개, 점검 · 시험 학습 출력을 `exp/f-lif-pop-v3`에 commit · push한 뒤 driver를 시작한다. 해시는 결과 기록에 적는다.
