@@ -1,0 +1,113 @@
+input 336 against input 96; cells: ETTh2 H96, ETTh2 H720, ETTm2 H96, ETTm2 H720 (B better / W worse / = no clear difference)
+
+== L1 base - Spikformer-style
+L1 pop LIF base - Spikformer-style, input 96                  +0.96=  -1.57B  +0.08=  +0.04= | R -0.12 lower 6/12 no clear difference
+L1 pop LIF base - Spikformer-style, input 336                 -0.18=  +0.11=  -1.68B  -1.07B | R -0.71 lower 10/12 no clear difference
+L1 pop f-LIF base - Spikformer-style, input 96                +0.04=  -1.35B  +0.43=  +0.03= | R -0.21 lower 6/12 no clear difference
+L1 pop f-LIF base - Spikformer-style, input 336               -4.48B  -0.38=  -2.03B  +0.60= | R -1.57 lower 8/12 better
+
+== L2 gap change g = r_L - r_ref (%p)
+L2 pop LIF:  -1.15  +1.68  -1.76  -1.11 | G -0.58 negative 8/12 positive 4/12 -> no clear change
+   per pair (seeds 42 / 7 / 2026): ETTh2 H96 +5.28 -3.05 -5.67; ETTh2 H720 +1.55 +0.58 +2.91; ETTm2 H96 -2.07 -0.57 -2.65; ETTm2 H720 -2.14 -0.29 -0.90
+L2 pop f-LIF:  -4.52  +0.97  -2.46  +0.57 | G -1.36 negative 5/12 positive 7/12 -> no clear change
+   per pair (seeds 42 / 7 / 2026): ETTh2 H96 +1.56 -11.32 -3.80; ETTh2 H720 +0.54 +0.18 +2.19; ETTm2 H96 +1.22 -3.51 -5.10; ETTm2 H720 +0.31 +1.71 -0.31
+
+== L3 controls
+L3 pop LIF msn - msn_nshuf, input 96                          +0.35=  +0.83=  +0.57=  +0.18= | R +0.48 lower 4/12 no clear difference
+L3 pop LIF msn - msn_nshuf, input 336                         +5.56W  +1.34W  -2.50B  -2.42B | R +0.50 lower 5/12 no clear difference
+L3 pop f-LIF msn - msn_nshuf, input 96                        -0.19=  +0.14=  +1.02W  +0.00= | R +0.24 lower 4/12 no clear difference
+L3 pop f-LIF msn - msn_nshuf, input 336                       -0.03=  +1.45W  -1.71B  +1.25W | R +0.24 lower 3/12 no clear difference
+L3 pop LIF msn - msn_nomem, input 96                          +1.02W  -0.41=  +0.45=  +0.05= | R +0.28 lower 4/12 no clear difference
+L3 pop LIF msn - msn_nomem, input 336                         +3.80W  +1.00W  -2.86B  -0.76= | R +0.30 lower 5/12 no clear difference
+L3 pop f-LIF msn - msn_nomem, input 96                        -0.06=  +0.24=  +0.93=  +0.29= | R +0.35 lower 4/12 no clear difference
+L3 pop f-LIF msn - msn_nomem, input 336                       +1.09W  -3.31B  -2.30B  +0.91= | R -0.90 lower 7/12 no clear difference
+L3 pop LIF msn_nshuf - msn_nomem, input 96                    +0.67=  -1.22B  -0.11=  -0.13= | R -0.20 lower 6/12 no clear difference
+L3 pop LIF msn_nshuf - msn_nomem, input 336                   -1.64B  -0.34=  -0.34=  +1.71W | R -0.15 lower 7/12 no clear difference
+L3 pop f-LIF msn_nshuf - msn_nomem, input 96                  +0.13=  +0.10=  -0.09=  +0.29= | R +0.11 lower 3/12 no clear difference
+L3 pop f-LIF msn_nshuf - msn_nomem, input 336                 +1.16=  -4.69B  -0.42=  -0.33= | R -1.07 lower 9/12 better
+
+== L4 every model, input 336 - input 96 (test MSE, then MAE)
+L4 spk_ssa                                                    +6.59W  -5.69B  -1.74B  -8.98B | R -2.45 lower 9/12 better
+   MAE spk_ssa                                                +5.51W  -2.91B  +0.58=  -2.89B | R +0.08 lower 6/12 no clear difference
+L4 nsmt4q_pop_lif_msn                                         +5.29W  -4.08B  -3.47B  -9.99B | R -3.06 lower 9/12 better
+   MAE nsmt4q_pop_lif_msn                                     +4.89W  -1.78B  +0.38=  -3.41B | R +0.02 lower 6/12 no clear difference
+L4 nsmt4q_pop_lif_msn_nomem                                   +2.55W  -5.42B  -0.15=  -9.25B | R -3.07 lower 8/12 better
+   MAE nsmt4q_pop_lif_msn_nomem                               +3.69W  -2.80B  +1.43W  -3.06B | R -0.18 lower 6/12 no clear difference
+L4 nsmt4q_pop_lif_msn_nshuf                                   +0.15=  -4.57B  -0.37=  -7.59B | R -3.10 lower 9/12 better
+   MAE nsmt4q_pop_lif_msn_nshuf                               +2.19W  -2.27B  +1.52W  -2.38B | R -0.24 lower 6/12 no clear difference
+L4 nsmt4q_pop_flif_msn                                        +1.66W  -4.76B  -4.13B  -8.46B | R -3.92 lower 10/12 better
+   MAE nsmt4q_pop_flif_msn                                    +3.52W  -2.34B  +0.00=  -2.54B | R -0.34 lower 8/12 no clear difference
+L4 nsmt4q_pop_flif_msn_nomem                                  +0.52=  -1.24B  -0.99=  -9.02B | R -2.68 lower 8/12 better
+   MAE nsmt4q_pop_flif_msn_nomem                              +2.92W  -0.52=  +1.25W  -2.98B | R +0.17 lower 4/12 no clear difference
+L4 nsmt4q_pop_flif_msn_nshuf                                  +1.54W  -6.00B  -1.40B  -9.58B | R -3.86 lower 9/12 better
+   MAE nsmt4q_pop_flif_msn_nshuf                              +3.03W  -3.17B  +0.98=  -3.46B | R -0.65 lower 6/12 no clear difference
+
+== per-seed L1 ratios at input 336 (seeds 42 / 7 / 2026, %)
+pop LIF: ETTh2 H96 +4.03 -1.22 -3.35; ETTh2 H720 -0.00 -0.70 +1.03; ETTm2 H96 -2.23 -0.30 -2.52; ETTm2 H720 -1.68 -0.75 -0.78
+pop f-LIF: ETTh2 H96 -0.12 -9.87 -3.46; ETTh2 H720 +0.75 -1.55 -0.35; ETTm2 H96 +0.58 -2.88 -3.80; ETTm2 H720 -0.03 +1.38 +0.46
+
+== L1 without ETTh2 H96 (9 pairs)
+pop LIF input 96: mean -0.48 %, lower 5/9
+pop LIF input 336: mean -0.88 %, lower 8/9
+pop f-LIF input 96: mean -0.30 %, lower 5/9
+pop f-LIF input 336: mean -0.60 %, lower 5/9
+
+== per-seed test MSE (seeds 42 / 7 / 2026 per cell) and seed sd / mean (%)
+spk_ssa                L96  0.2916 0.2903 0.2891 | 0.4220 0.4201 0.4248 | 0.1783 0.1771 0.1770 | 0.4019 0.4050 0.4035  sd/mean 0.43 0.56 0.39 0.38
+spk_ssa                L336 0.2952 0.3195 0.3136 | 0.3968 0.4003 0.3978 | 0.1755 0.1730 0.1746 | 0.3693 0.3664 0.3659  sd/mean 4.10 0.45 0.74 0.49
+nsmt4q_pop_lif_msn     L96  0.2879 0.2956 0.2958 | 0.4154 0.4148 0.4168 | 0.1780 0.1776 0.1772 | 0.4037 0.4031 0.4040  sd/mean 1.53 0.26 0.21 0.11
+nsmt4q_pop_lif_msn     L336 0.3071 0.3156 0.3031 | 0.3968 0.3975 0.4019 | 0.1716 0.1725 0.1702 | 0.3631 0.3637 0.3631  sd/mean 2.08 0.69 0.65 0.10
+nsmt4q_pop_flif_msn    L96  0.2867 0.2945 0.2901 | 0.4229 0.4129 0.4140 | 0.1771 0.1783 0.1793 | 0.4005 0.4036 0.4066  sd/mean 1.34 1.32 0.61 0.76
+nsmt4q_pop_flif_msn    L336 0.2948 0.2880 0.3028 | 0.3998 0.3940 0.3964 | 0.1765 0.1680 0.1680 | 0.3692 0.3715 0.3676  sd/mean 2.50 0.73 2.88 0.52
+
+== report only, not pre-registered: controls - Spikformer-style
+pop LIF msn_nomem - Spikformer-style, input 96                -0.05=  -1.16B  -0.37=  -0.01= | R -0.40 lower 10/12 no clear difference
+pop LIF msn_nomem - Spikformer-style, input 336               -3.68B  -0.88=  +1.23W  -0.31= | R -0.91 lower 7/12 no clear difference
+pop LIF msn_nshuf - Spikformer-style, input 96                +0.61=  -2.37B  -0.49=  -0.14= | R -0.60 lower 8/12 no clear difference
+pop LIF msn_nshuf - Spikformer-style, input 336               -5.39B  -1.22B  +0.90=  +1.39W | R -1.08 lower 7/12 no clear difference
+pop f-LIF msn_nomem - Spikformer-style, input 96              +0.09=  -1.58B  -0.49=  -0.25= | R -0.56 lower 9/12 no clear difference
+pop f-LIF msn_nomem - Spikformer-style, input 336             -5.51B  +3.05W  +0.27=  -0.29= | R -0.62 lower 7/12 no clear difference
+pop f-LIF msn_nshuf - Spikformer-style, input 96              +0.23=  -1.49B  -0.58=  +0.03= | R -0.45 lower 10/12 no clear difference
+pop f-LIF msn_nshuf - Spikformer-style, input 336             -4.37B  -1.81B  -0.24=  -0.63= | R -1.76 lower 9/12 better
+
+== the L1 ratio on validation L1 and on the last-epoch test MSE
+validation L1: pop LIF base - Spikformer-style, input 96      +0.32=  +0.50=  +0.25=  +0.09= | R +0.29 lower 0/12 no clear difference
+validation L1: pop LIF base - Spikformer-style, input 336     -0.79=  +0.08=  +0.18=  +0.66= | R +0.04 lower 5/12 no clear difference
+validation L1: pop f-LIF base - Spikformer-style, input 96    +0.13=  +0.23=  +0.17=  +0.04= | R +0.14 lower 4/12 no clear difference
+validation L1: pop f-LIF base - Spikformer-style, input 336   -0.52=  +0.57=  +0.15=  +0.78= | R +0.25 lower 5/12 no clear difference
+last-epoch MSE: pop LIF base - Spikformer-style, input 96     -0.57=  -1.67B  -0.14=  +0.25= | R -0.53 lower 8/12 no clear difference
+last-epoch MSE: pop LIF base - Spikformer-style, input 336    +1.23W  -1.38B  -0.90=  +0.92= | R -0.03 lower 6/12 no clear difference
+last-epoch MSE: pop f-LIF base - Spikformer-style, input 96   -0.81=  -1.32B  +0.66=  +0.79= | R -0.17 lower 6/12 no clear difference
+last-epoch MSE: pop f-LIF base - Spikformer-style, input 336  -1.59B  -1.43B  -0.93=  +0.35= | R -0.90 lower 7/12 no clear difference
+
+== best epoch / epochs run (0-based best epoch; seeds 42, 7, 2026 per cell)
+spk_ssa                        L96  3/14,1/12,7/18 | 3/14,3/14,4/15 | 11/22,7/18,13/24 | 0/11,0/11,1/12
+spk_ssa                        L336 1/12,4/15,2/13 | 0/11,0/11,0/11 | 2/13,2/13,4/15 | 0/11,0/11,0/11
+nsmt4q_pop_lif_msn             L96  1/12,1/12,1/12 | 4/15,3/14,4/15 | 11/22,4/15,5/16 | 1/12,1/12,0/11
+nsmt4q_pop_lif_msn             L336 1/12,2/13,1/12 | 0/11,0/11,3/14 | 0/11,2/13,0/11 | 0/11,0/11,0/11
+nsmt4q_pop_lif_msn_nomem       L96  3/14,1/12,3/14 | 4/15,3/14,6/17 | 13/24,4/15,5/16 | 0/11,0/11,0/11
+nsmt4q_pop_lif_msn_nomem       L336 3/14,2/13,6/17 | 0/11,0/11,0/11 | 2/13,1/12,2/13 | 0/11,0/11,0/11
+nsmt4q_pop_lif_msn_nshuf       L96  3/14,1/12,3/14 | 4/15,3/14,2/13 | 4/15,4/15,7/18 | 0/11,0/11,1/12
+nsmt4q_pop_lif_msn_nshuf       L336 1/12,1/12,13/24 | 0/11,0/11,0/11 | 2/13,1/12,2/13 | 0/11,0/11,0/11
+nsmt4q_pop_flif_msn            L96  1/12,1/12,1/12 | 4/15,3/14,2/13 | 6/17,9/20,7/18 | 0/11,1/12,0/11
+nsmt4q_pop_flif_msn            L336 1/12,1/12,0/11 | 0/11,0/11,0/11 | 2/13,0/11,0/11 | 0/11,0/11,0/11
+nsmt4q_pop_flif_msn_nomem      L96  3/14,1/12,3/14 | 4/15,3/14,6/17 | 7/18,7/18,5/16 | 0/11,1/12,0/11
+nsmt4q_pop_flif_msn_nomem      L336 1/12,1/12,6/17 | 3/14,2/13,2/13 | 2/13,1/12,1/12 | 0/11,0/11,0/11
+nsmt4q_pop_flif_msn_nshuf      L96  3/14,1/12,3/14 | 4/15,3/14,6/17 | 11/22,7/18,5/16 | 0/11,0/11,0/11
+nsmt4q_pop_flif_msn_nshuf      L336 2/13,1/12,1/12 | 0/11,0/11,0/11 | 1/12,1/12,3/14 | 0/11,0/11,0/11
+
+== rho_neo / rho_hippo / mean validation L1 (mean of seeds per cell)
+spk_ssa                        L96  rho_neo nan nan nan nan mean nan | rho_hippo 0.0505 0.0493 0.0746 0.0498 | val 0.3115 0.5352 0.2368 0.3615
+spk_ssa                        L336 rho_neo nan nan nan nan mean nan | rho_hippo 0.0549 0.0461 0.0646 0.0481 | val 0.3183 0.5526 0.2349 0.3537
+nsmt4q_pop_lif_msn             L96  rho_neo 0.0182 0.0170 0.0537 0.0422 mean 0.0328 | rho_hippo 0.0484 0.0491 0.0759 0.0562 | val 0.3125 0.5379 0.2374 0.3618
+nsmt4q_pop_lif_msn             L336 rho_neo 0.0664 0.0573 0.0889 0.0986 mean 0.0778 | rho_hippo 0.0552 0.0526 0.0601 0.0520 | val 0.3158 0.5531 0.2354 0.3560
+nsmt4q_pop_lif_msn_nomem       L96  rho_neo 0.0000 0.0000 0.0002 0.0001 mean 0.0001 | rho_hippo 0.0434 0.0458 0.0708 0.0444 | val 0.3104 0.5341 0.2367 0.3614
+nsmt4q_pop_lif_msn_nomem       L336 rho_neo 0.0000 0.0001 0.0002 0.0002 mean 0.0001 | rho_hippo 0.0462 0.0372 0.0607 0.0460 | val 0.3176 0.5552 0.2346 0.3511
+nsmt4q_pop_lif_msn_nshuf       L96  rho_neo 0.0134 0.0218 0.0526 0.0222 mean 0.0275 | rho_hippo 0.0492 0.0561 0.0816 0.0563 | val 0.3104 0.5363 0.2366 0.3613
+nsmt4q_pop_lif_msn_nshuf       L336 rho_neo 0.0322 0.0221 0.0443 0.0558 mean 0.0386 | rho_hippo 0.0532 0.0491 0.0625 0.0518 | val 0.3176 0.5547 0.2352 0.3506
+nsmt4q_pop_flif_msn            L96  rho_neo 0.0220 0.0194 0.0576 0.0496 mean 0.0371 | rho_hippo 0.0500 0.0483 0.0775 0.0565 | val 0.3119 0.5364 0.2372 0.3616
+nsmt4q_pop_flif_msn            L336 rho_neo 0.0552 0.0496 0.0785 0.0783 mean 0.0654 | rho_hippo 0.0527 0.0497 0.0585 0.0508 | val 0.3167 0.5558 0.2353 0.3564
+nsmt4q_pop_flif_msn_nomem      L96  rho_neo 0.0036 0.0034 0.0028 0.0033 mean 0.0033 | rho_hippo 0.0460 0.0468 0.0745 0.0487 | val 0.3101 0.5346 0.2368 0.3613
+nsmt4q_pop_flif_msn_nomem      L336 rho_neo 0.0024 0.0035 0.0037 0.0045 mean 0.0035 | rho_hippo 0.0459 0.0461 0.0588 0.0459 | val 0.3167 0.5532 0.2353 0.3507
+nsmt4q_pop_flif_msn_nshuf      L96  rho_neo 0.0131 0.0229 0.0627 0.0244 mean 0.0308 | rho_hippo 0.0487 0.0534 0.0831 0.0517 | val 0.3102 0.5340 0.2364 0.3614
+nsmt4q_pop_flif_msn_nshuf      L336 rho_neo 0.0282 0.0240 0.0430 0.0424 mean 0.0344 | rho_hippo 0.0506 0.0484 0.0635 0.0514 | val 0.3181 0.5536 0.2353 0.3518

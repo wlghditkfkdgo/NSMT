@@ -7818,3 +7818,220 @@ Spikformer식보다 "좋음"인 변형은 없다.
 **commit:** 이 항목과 위 코드·스크립트·점검 스크립트·smoke 결과를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 pool을 시작한다.
 
 ---
+
+## 2026-11-17 10:40 KST — 결과: ETT 입력 길이 시험, 입력 336 (132 run) — **"token이 많아지면 기준 model과 Spikformer식의 격차가 커진다"는 확인되지 않았다.** 격차의 변화(L2)는 두 neuron 모두 "변화 없음"이다. 입력 336에서의 주 비교(L1)는 pop LIF가 차이 없음(R −0.71 %, 10/12쌍 낮음), pop f-LIF가 "좋음"(R −1.57 %, 8/12쌍 낮음)이라 결론은 "neuron에 따라 다름(약함)"이다. pop f-LIF의 "좋음"은 ETTh2 H96 한 칸(−4.48 %)에 기대는데, 그 칸은 입력 336에서 Spikformer식의 seed 편차가 커진 칸이다(표준편차 / 평균 0.43 % → 4.10 %). 그 칸을 빼면 −0.60 %(5/9쌍)다. Neocortex의 memory와 순서의 몫(L3)은 두 길이 모두 "차이 없음"이고, memory를 끈 통제와 순서를 섞은 통제도 Spikformer식 대비 같은 크기의 차이를 보인다. 긴 입력 자체는 일곱 model 모두에서 MSE를 낮췄다(L4, R −2.45 ~ −3.92 %). 다만 MAE는 그대로이고 ETTh2 H96은 나빠졌다. energy는 3.2–3.7배가 됐다
+
+**사전 고정:** 2026-11-16 22:51 항목, commit `c9bef7da0`. 규칙·예상·읽는 법은 그 항목을 그대로 적용했다(바꾼 것 없음).
+
+**목적:** 사용자 결정 11-16("1번을 진행해보자. 우선 입력길이를 336으로 보고 나서 720을 확인해보자.")의 첫 단계다. 입력을 96 sample(token 24개)에서 336 sample(token 84개)로 늘렸을 때 기준 model(Neocortex-MS query population, `nsmt4q_pop_<lif|flif>_msn`)과 Spikformer식(`spk_ssa`)의 격차가 커지는지 본다.
+
+**branch / base:** `exp/nsmt-flif-neo`, 학습 코드 = `c9bef7da0`(132 run 모두 RESULT의 `sha=c9bef7da0`). pool이 도는 동안 저장소의 코드와 실행 스크립트를 고치지 않았다.
+
+**환경:** `/home/yschoi/.conda/envs/snn_recall/bin/python`, `LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib`, GPU 0–3(A6000), GPU 하나에 이 묶음의 run 하나.
+
+**dataset / split / 전처리:** ETTh2, ETTm2(예측 길이 96 / 720). split 경계와 표준화는 입력 96 때와 같다. validation·test의 window 수와 예측 대상이 입력 길이와 무관하게 같음은 사전 고정의 c60c로 확인했다. 학습 window는 240개 줄어든다.
+
+**hyperparameter:** `--seq_len 336`만 바꿨다. patch 8, stride 4, embedding 차원 64, lr 0.0005, patience 10, L1 손실, seed 42 / 7 / 2026 등은 입력 96의 본 run과 같다(아래 logargs 점검).
+
+**실행:**
+- NSMT/에서 tmux `flif_len336`: `bash scripts/gpu_pool2.sh nsmt_flif_v1/classification/scripts/queues/len336-20261116.txt 0,1,2,3 2>&1 | tee -a nsmt_flif_v1/forecasting/results/flif-v1-ett-len336-pool.log`
+- 대기열은 `bash nsmt_flif_v1/classification/scripts/make_queue_len.sh 336`으로 다시 만들 수 있다(132줄).
+- 시작 11-16 22:53:33, 끝 11-17 10:19:33. START 132, DONE 132, SKIP 0.
+- **GPU를 다른 대화의 작업과 나눠 썼다.** 11-16 23:17에 확인했을 때 다른 작업 계열(`wt-flif-pop-v3`의 `cinc_mixer_v1`, ETT 학습)이 같은 GPU 4개에 올라와 있었고 네 GPU 모두 사용률 100 %였다. 그 작업은 건드리지 않았다. 언제 끝났는지는 확인하지 않았다(11-17 10:20에는 GPU가 비어 있었다). 그래서 이 묶음의 run 시간(109–7,066초)은 다른 묶음과 비교할 수 없다. 결과 값에는 영향이 없다.
+- 끝난 뒤(classification 폴더):
+  - pool 기록을 `forecasting/results/flif-v1-ett-len336/pool_runs.txt`와 `forecasting/results/flif-v1-ett-len96ctl/pool_runs.txt`로 복사
+  - `python energy_recount_ett.py --suite flif-v1-ett-len336`, `python energy_recount_ett.py --suite flif-v1-ett-len96ctl`
+  - `python check_len_results.py --len 336 --sha c9bef7da0`
+  - `python summarize_len.py --lens 336` → `results/flif-v1-len336-summary.md`
+  - `python len_extra.py --len 336 > results/flif-v1-len336-extra.txt`
+
+**판정 전 점검 (fail-closed, 모두 통과):**
+- `check_len_results.py`(이번에 추가):
+  - `flif-v1-ett-len336` 84줄, `flif-v1-ett-len96ctl` 48줄. (dataset, 예측 길이, 조건, seed) 조합이 빠짐·중복 없이 하나씩이다. SKIP 0.
+  - mse, mae, validation L1, 마지막 epoch mse, energy, 발화율, parameter, 시간이 모두 유한하다.
+  - 132줄 모두 `sha=c9bef7da0`이고 `seq_len`이 기대값(336 / 96)이다.
+  - parameter: 기준 model = nomem = nshuf(칸마다). 입력 336에서 ETTh2 H96 Spikformer식 539,256 / 기준 model 545,144, ETTm2 H720 3,899,376 / 3,909,744.
+  - `logargs.txt` 132개를 같은 model·칸·seed의 입력 96 본 run과 비교했다. 다른 것은 `seq_len`과 통제 옵션(`neo_memoryless`, `neo_shuffle`)뿐이다(경로·날짜·epoch 수와, 기준 run 뒤에 생긴 옵션의 기본값은 제외하고 그 목록을 출력).
+- `energy_recount_ett.py`: 84 + 48 run에서 test MSE를 기록된 값 그대로 재현했고 점검을 통과했다.
+- 판정의 독립 재계산: `len_extra.py`는 `summarize_len.py`와 코드를 공유하지 않고 RESULT 줄에서 L1–L4를 다시 계산한다. 칸별 값, R, 쌍 수, 판정이 판정표와 모두 같다.
+- 첫 점검 스크립트는 `logargs.txt` 형식(`이름----값`)을 읽지 못해 모든 줄을 실패로 냈다(값을 못 읽으면 실패로 처리하는 쪽이라 통과로 새지 않았다). 형식에 맞게 고친 뒤 통과했다.
+
+**결과 — test MSE (seed 3개 평균, validation이 가장 좋았던 weight)**
+
+| model | 입력 | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 | validation L1 평균 |
+|---|---|---|---|---|---|---|
+| Spikformer식 | 96 | 0.2903 | 0.4223 | 0.1775 | 0.4034 | 0.3612 |
+| Spikformer식 | 336 | 0.3094 | 0.3983 | 0.1744 | 0.3672 | 0.3649 |
+| pop LIF 기준 model | 96 | 0.2931 | 0.4157 | 0.1776 | 0.4036 | 0.3624 |
+| pop LIF 기준 model | 336 | 0.3086 | 0.3987 | 0.1714 | 0.3633 | 0.3651 |
+| pop LIF memory 끔 | 96 | 0.2902 | 0.4174 | 0.1768 | 0.4034 | 0.3606 |
+| pop LIF memory 끔 | 336 | 0.2975 | 0.3948 | 0.1765 | 0.3661 | 0.3646 |
+| pop LIF 순서 섞기 | 96 | 0.2921 | 0.4123 | 0.1766 | 0.4029 | 0.3611 |
+| pop LIF 순서 섞기 | 336 | 0.2925 | 0.3934 | 0.1760 | 0.3723 | 0.3645 |
+| pop f-LIF 기준 model | 96 | 0.2904 | 0.4166 | 0.1782 | 0.4036 | 0.3618 |
+| pop f-LIF 기준 model | 336 | 0.2952 | 0.3967 | 0.1708 | 0.3694 | 0.3660 |
+| pop f-LIF memory 끔 | 96 | 0.2906 | 0.4156 | 0.1766 | 0.4024 | 0.3607 |
+| pop f-LIF memory 끔 | 336 | 0.2920 | 0.4104 | 0.1749 | 0.3661 | 0.3640 |
+| pop f-LIF 순서 섞기 | 96 | 0.2910 | 0.4160 | 0.1764 | 0.4036 | 0.3605 |
+| pop f-LIF 순서 섞기 | 336 | 0.2954 | 0.3911 | 0.1740 | 0.3649 | 0.3647 |
+
+- seed 표준편차는 `results/flif-v1-len336-summary.md`에 있다.
+
+**결과 — L1 기준 model − Spikformer식 (r = A / B − 1, %; 칸 판정은 ±1 %·2/3 seed)**
+
+| 비교 | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 | R | 낮은 쌍 | 판정 |
+|---|---|---|---|---|---|---|---|
+| pop LIF, 입력 96 | +0.96 | −1.57 (좋음) | +0.08 | +0.04 | −0.12 | 6/12 | 차이 없음 |
+| pop LIF, 입력 336 | −0.18 | +0.11 | −1.68 (좋음) | −1.07 (좋음) | −0.71 | 10/12 | 차이 없음 |
+| pop f-LIF, 입력 96 | +0.04 | −1.35 (좋음) | +0.43 | +0.03 | −0.21 | 6/12 | 차이 없음 |
+| pop f-LIF, 입력 336 | −4.48 (좋음) | −0.38 | −2.03 (좋음) | +0.60 | −1.57 | 8/12 | **좋음** |
+
+- 입력 336의 seed별 r (seed 42 / 7 / 2026, %):
+  - pop LIF: ETTh2 H96 +4.03 / −1.22 / −3.35, ETTh2 H720 −0.00 / −0.70 / +1.03, ETTm2 H96 −2.23 / −0.30 / −2.52, ETTm2 H720 −1.68 / −0.75 / −0.78.
+  - pop f-LIF: ETTh2 H96 −0.12 / −9.87 / −3.46, ETTh2 H720 +0.75 / −1.55 / −0.35, ETTm2 H96 +0.58 / −2.88 / −3.80, ETTm2 H720 −0.03 / +1.38 / +0.46.
+- **pop f-LIF의 "좋음"은 ETTh2 H96 한 칸에 기댄다.**
+  - 그 칸의 Spikformer식 test MSE는 입력 336에서 0.2952 / 0.3195 / 0.3136이다(입력 96: 0.2916 / 0.2903 / 0.2891). seed 표준편차 / 평균이 0.43 %에서 4.10 %로 커졌다. −9.87 %는 seed 7의 0.3195에 대한 값이다.
+  - ETTh2 H96을 뺀 9쌍: pop f-LIF −0.60 %(5/9 낮음), pop LIF −0.88 %(8/9 낮음). 입력 96에서는 −0.30 %(5/9), −0.48 %(5/9)다.
+- pop LIF는 12쌍 중 10쌍이 낮지만 크기가 1 %에 못 미친다.
+- 같은 비교를 validation L1로 하면 기준 model이 낮지 않다: 입력 336에서 pop LIF +0.04 %(5/12 낮음), pop f-LIF +0.25 %(5/12 낮음). 마지막 epoch weight의 test MSE로 하면 pop LIF −0.03 %(6/12), pop f-LIF −0.90 %(7/12)로 둘 다 차이 없음이다.
+
+**결과 — L2 격차의 변화 (g = r(336) − r(96), %p; 음수 = 기준 model 쪽이 더 좋아짐)**
+
+| neuron | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 | 평균 g | 음수 쌍 | 판정 |
+|---|---|---|---|---|---|---|---|
+| pop LIF | −1.15 | +1.68 | −1.76 | −1.11 | −0.58 | 8/12 | 변화 없음 |
+| pop f-LIF | −4.52 | +0.97 | −2.46 | +0.57 | −1.36 | 5/12 | 변화 없음 |
+
+- pop LIF는 쌍 수는 채웠지만 평균이 −1 %p에 못 미친다. pop f-LIF는 평균은 넘었지만 음수 쌍이 5개뿐이다(평균을 ETTh2 H96 seed 7의 −11.32 %p가 끌었다).
+- ETTh2 H720은 두 neuron 모두 반대 방향이다. 입력 96에서 이 칸은 기준 model이 "좋음"이었는데(−1.57 / −1.35 %) 입력 336에서는 차이가 없다(+0.11 / −0.38 %).
+
+**결과 — L3 통제 (r %, 기준 model − 통제; 음수 = 순서 또는 memory가 도움)**
+
+| 비교 | 입력 | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 | R | 낮은 쌍 | 판정 |
+|---|---|---|---|---|---|---|---|---|
+| pop LIF 순서 (− 순서 섞기) | 96 | +0.35 | +0.83 | +0.57 | +0.18 | +0.48 | 4/12 | 차이 없음 |
+| pop LIF 순서 | 336 | +5.56 (나쁨) | +1.34 (나쁨) | −2.50 (좋음) | −2.42 (좋음) | +0.50 | 5/12 | 차이 없음 |
+| pop f-LIF 순서 | 96 | −0.19 | +0.14 | +1.02 (나쁨) | +0.00 | +0.24 | 4/12 | 차이 없음 |
+| pop f-LIF 순서 | 336 | −0.03 | +1.45 (나쁨) | −1.71 (좋음) | +1.25 (나쁨) | +0.24 | 3/12 | 차이 없음 |
+| pop LIF memory (− memory 끔) | 96 | +1.02 (나쁨) | −0.41 | +0.45 | +0.05 | +0.28 | 4/12 | 차이 없음 |
+| pop LIF memory | 336 | +3.80 (나쁨) | +1.00 (나쁨) | −2.86 (좋음) | −0.76 | +0.30 | 5/12 | 차이 없음 |
+| pop f-LIF memory | 96 | −0.06 | +0.24 | +0.93 | +0.29 | +0.35 | 4/12 | 차이 없음 |
+| pop f-LIF memory | 336 | +1.09 (나쁨) | −3.31 (좋음) | −2.30 (좋음) | +0.91 | −0.90 | 7/12 | 차이 없음 |
+
+- 입력 336에서는 칸별 값이 커졌지만(−3.31 ~ +5.56 %) 방향이 칸마다 갈린다. ETTm2 H96만 두 neuron·두 통제 모두에서 기준 model이 낮다(−1.71 ~ −2.86 %).
+- 보고 전용, 순서 섞기 − memory 끔: pop LIF −0.20 % / −0.15 %(입력 96 / 336, 차이 없음), pop f-LIF +0.11 %(차이 없음) / −1.07 %(9/12, 좋음). pop f-LIF 입력 336의 값은 ETTh2 H720 한 칸(−4.69 %)에서 온다.
+- 보고 전용(사전 고정하지 않은 비교), 통제 − Spikformer식, 입력 336: pop LIF memory 끔 −0.91 %(7/12), pop LIF 순서 섞기 −1.08 %(7/12), pop f-LIF memory 끔 −0.62 %(7/12), pop f-LIF 순서 섞기 −1.76 %(9/12, 좋음). 기준 model의 값(−0.71 / −1.57 %)과 같은 크기다. ETTh2 H96 칸은 통제 넷 모두 −3.68 ~ −5.51 %다.
+
+**결과 — L4 (보고 전용) 각 model의 입력 336 − 입력 96 (같은 예측 대상, r %)**
+
+| model | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 | R (MSE) | 낮은 쌍 | 판정 | R (MAE) |
+|---|---|---|---|---|---|---|---|---|
+| Spikformer식 | +6.59 (나쁨) | −5.69 | −1.74 | −8.98 | −2.45 | 9/12 | 좋음 | +0.08 |
+| pop LIF 기준 model | +5.29 (나쁨) | −4.08 | −3.47 | −9.99 | −3.06 | 9/12 | 좋음 | +0.02 |
+| pop LIF memory 끔 | +2.55 (나쁨) | −5.42 | −0.15 | −9.25 | −3.07 | 8/12 | 좋음 | −0.18 |
+| pop LIF 순서 섞기 | +0.15 | −4.57 | −0.37 | −7.59 | −3.10 | 9/12 | 좋음 | −0.24 |
+| pop f-LIF 기준 model | +1.66 (나쁨) | −4.76 | −4.13 | −8.46 | −3.92 | 10/12 | 좋음 | −0.34 |
+| pop f-LIF memory 끔 | +0.52 | −1.24 | −0.99 | −9.02 | −2.68 | 8/12 | 좋음 | +0.17 |
+| pop f-LIF 순서 섞기 | +1.54 (나쁨) | −6.00 | −1.40 | −9.58 | −3.86 | 9/12 | 좋음 | −0.65 |
+
+- MSE로는 일곱 model 모두 "좋음"이다. 예측 길이 720인 두 칸이 크게 내려갔다.
+- 같은 비교를 MAE로 하면 일곱 model 모두 "차이 없음"이다(R −0.65 ~ +0.17 %). ETTh2 H96의 MAE는 모두 올랐고(+2.19 ~ +5.51 %), ETTm2 H96의 MAE도 내려가지 않았다(+0.00 ~ +1.52 %).
+- ETTh2 H96은 긴 입력에서 MSE가 나빠졌다(Spikformer식 +6.59 %, pop LIF 기준 model +5.29 %).
+- **멈춘 epoch:** validation이 가장 좋았던 epoch가 첫 epoch인 run이 입력 96에서는 84개 중 15개, 입력 336에서는 84개 중 43개다. 입력 336의 ETTm2 H720은 21개 모두, ETTh2 H720은 21개 중 17개가 첫 epoch다. 이 두 칸의 값은 사실상 1 epoch 학습한 model의 값이다.
+
+**결론 (사전 고정 규칙):**
+
+| 비교 | pop LIF | pop f-LIF | 결론 |
+|---|---|---|---|
+| L1 기준 model − Spikformer식, 입력 336 | 차이 없음 | 좋음 | neuron에 따라 다름(약함) |
+| L2 격차의 변화 (336 − 96) | 변화 없음 | 변화 없음 | 변화 없음 |
+| L3 순서, 입력 96 | 차이 없음 | 차이 없음 | 차이 없음 |
+| L3 순서, 입력 336 | 차이 없음 | 차이 없음 | 차이 없음 |
+| L3 memory, 입력 96 | 차이 없음 | 차이 없음 | 차이 없음 |
+| L3 memory, 입력 336 | 차이 없음 | 차이 없음 | 차이 없음 |
+
+**보고 전용 — 발화율(spike를 내는 비율), energy, parameter:**
+
+| model | 입력 | Neocortex 발화율 (네 칸 평균) | energy µJ (네 칸 평균, head 재계산) | energy / Spikformer식 |
+|---|---|---|---|---|
+| Spikformer식 | 96 | — | 10.46 | 1.00 |
+| Spikformer식 | 336 | — | 35.07 | 1.00 |
+| pop LIF 기준 model | 96 | 0.0328 | 13.04 | 1.25 |
+| pop LIF 기준 model | 336 | 0.0778 | 44.70 | 1.27 |
+| pop LIF memory 끔 | 96 | 0.0001 | 12.60 | 1.20 |
+| pop LIF memory 끔 | 336 | 0.0001 | 42.27 | 1.20 |
+| pop LIF 순서 섞기 | 96 | 0.0275 | 13.06 | 1.25 |
+| pop LIF 순서 섞기 | 336 | 0.0386 | 44.34 | 1.26 |
+| pop f-LIF 기준 model | 96 | 0.0371 | 15.86 | 1.51 |
+| pop f-LIF 기준 model | 336 | 0.0654 | 57.96 | 1.65 |
+| pop f-LIF memory 끔 | 96 | 0.0033 | 12.99 | 1.24 |
+| pop f-LIF memory 끔 | 336 | 0.0035 | 43.99 | 1.25 |
+| pop f-LIF 순서 섞기 | 96 | 0.0308 | 15.87 | 1.52 |
+| pop f-LIF 순서 섞기 | 336 | 0.0344 | 57.72 | 1.64 |
+
+- energy는 입력 336에서 입력 96의 3.19–3.73배다(model × 칸). token 수는 3.5배다.
+- 기준 model의 Neocortex 발화율은 입력 336에서 약 2배가 됐다(pop LIF 0.0328 → 0.0778, pop f-LIF 0.0371 → 0.0654). 순서를 섞은 통제는 덜 늘었다(0.0275 → 0.0386, 0.0308 → 0.0344). token이 많고 순서가 제대로일 때 Neocortex가 더 많이 발화하지만, 그 발화가 MSE를 바꾸지는 않았다(L3).
+- memory를 끈 통제의 pop LIF Neocortex는 두 길이 모두 거의 침묵한다(0.0001). 이 통제의 MSE가 기준 model과 같다는 것은, pop LIF에서 Neocortex가 spike를 거의 내지 않아도 결과가 같다는 뜻이다.
+- parameter: ETTh2 H96 Spikformer식 169,656 → 539,256, 기준 model 175,544 → 545,144. ETTm2 H720 1,132,656 → 3,899,376, 1,143,024 → 3,909,744. 늘어난 것은 head다.
+- Hippocampus 발화율, MAE, 칸별 energy는 `results/flif-v1-len336-summary.md`에, seed별 값과 멈춘 epoch는 `results/flif-v1-len336-extra.txt`에 있다.
+
+**사전 예상 대조:**
+
+| 예상 | 결과 | 맞음 / 틀림 |
+|---|---|---|
+| L1: 두 neuron 모두 차이 없음(\|R\| < 1 %) | pop LIF −0.71 % 차이 없음, pop f-LIF −1.57 % "좋음" | pop LIF 맞음, **pop f-LIF 틀림** |
+| L2: 두 neuron 모두 변화 없음 | −0.58 / −1.36 %p, 변화 없음 | 맞음 |
+| L3: 입력 96·336, 순서·memory 모두 차이 없음 | 여덟 판정 모두 차이 없음 | 맞음 |
+| L4: Spikformer식·기준 model 모두 "좋음" | 좋음(−2.45 / −3.06 / −3.92 %) | 맞음 |
+| L4 칸: ETTm2 두 칸은 낮아짐 | −1.74 ~ −9.99 % | 맞음 |
+| L4 칸: ETTh2 H96은 차이 없음 | +6.59 / +5.29 / +1.66 %, "나쁨" | **틀림** |
+| L4 칸: ETTh2 H720은 방향 모름 | −5.69 / −4.08 / −4.76 %, "좋음" | (예상 없음) |
+| energy: 입력 336이 입력 96의 3.0–4.0배 | 3.19–3.73배 | 맞음 |
+| energy 비율 pop LIF 1.15–1.40 | 1.27 | 맞음 |
+| energy 비율 pop f-LIF 1.40–1.90 | 1.65 | 맞음 |
+| memory 끔 pop LIF의 Neocortex 발화율 < 0.005 | 0.0001 / 0.0001 | 맞음 |
+
+- 결론 단위로는 L1이 틀렸다("차이 없음" 예상, 결과 "neuron에 따라 다름(약함)"). L2와 L3 네 결론은 맞았다.
+- ETTh2 H96이 긴 입력에서 나빠진다는 것은 예상하지 못했다.
+
+**읽는 법 적용 (미리 적은 표):**
+- 미리 적은 표에는 "L1이 한 neuron에서만 좋음 + L2 변화 없음"에 해당하는 줄이 없다. 표를 만들 때 이 경우를 빠뜨렸다. 줄을 새로 만들지 않고 가까운 두 줄을 neuron별로 적용한다.
+- **pop LIF — "L1 차이 없음, L2 변화 없음":** 입력 336에서도 격차가 없다. "token 수가 적어서 이득이 없다"는 가설을 지지하지 않는다.
+- **pop f-LIF — L1 좋음, L2 변화 없음, L3 차이 없음:** "L1 좋음 + L2 커짐"이 아니므로 "token이 많아지면 좋아진다"고 읽지 않는다. L1의 차이는 "이득은 있지만 Neocortex의 memory·순서로 설명되지 않는다"는 줄에 해당한다. 통제 두 개도 Spikformer식보다 같은 만큼 낮기 때문이다.
+- **"L1 나쁨 또는 L2 줄어듦"(사용자에게 묻는 조건):** 해당하지 않는다. 입력 720은 사용자 계획대로 진행한다.
+- **"L4 나쁨":** 어느 model도 전체 판정이 "나쁨"은 아니다. 칸으로는 ETTh2 H96이 나빠졌으므로 한계에 적는다.
+
+**이 결과가 말하는 것:**
+- 입력을 96에서 336으로 늘려도 기준 model과 Spikformer식의 격차가 커졌다고 판정되지 않았다(두 neuron 모두).
+- 입력 336에서 기준 model은 Spikformer식보다 낮은 쪽이다(pop LIF 10/12쌍, pop f-LIF 8/12쌍). 크기는 pop LIF가 1 % 미만이고, pop f-LIF는 1 %를 넘지만 한 칸에 기댄다.
+- 그 차이는 Neocortex가 token 사이로 넘기는 상태나 token 순서에서 오지 않는다. memory를 끄거나 순서를 섞어도 MSE가 같고, 그 통제들도 Spikformer식보다 같은 만큼 낮다.
+- 긴 입력은 이 설정에서 모든 model의 MSE를 낮췄다. 이득은 예측 길이 720에 몰려 있고, MAE로는 보이지 않는다.
+
+**이 결과가 말하지 않는 것:**
+- 입력 720에서 어떤지는 모른다(아직 돌리지 않았다).
+- 기준 model이 Spikformer식보다 낮은 쪽인 이유는 가리지 못했다. Neocortex의 memory·순서가 아니라는 것까지만 말한다. query 경로가 생긴 것 자체, 늘어난 parameter(5,888–10,368개) 같은 후보는 확인하지 않았다.
+- pop f-LIF의 "좋음"이 다시 나오는지는 모른다. seed 3개이고 ETTh2 H96의 Spikformer식 seed 값에 기댄다.
+- 길이에 맞춰 lr이나 model 크기를 다시 고르면 어떻게 되는지는 모른다. 입력 336에서는 run의 절반(43/84)이 첫 epoch에서 validation 최저를 찍었다. 지금 학습 설정이 긴 입력에 맞지 않을 수 있다.
+- ETT 밖의 과제는 보지 않았다.
+
+**한계:** 사전 고정 항목의 한계가 그대로다(하이퍼파라미터를 입력 96 값 그대로 씀, head가 함께 커짐, patch 8·stride 4 고정, memory 끔 통제는 pop LIF에서 Neocortex 침묵과 구분되지 않음, 순서 섞기 평가는 고정 순열 하나, 입력 96 기준값은 다른 날 학습, ETT만, seed 3개, 탐색 수준). 추가로:
+- ETTh2 H96은 입력 336에서 모든 model의 seed 편차가 커졌고(Spikformer식 4.10 %, 기준 model 2.08 / 2.50 %) L1·L2의 pop f-LIF 값이 이 칸에 기댄다.
+- 예측 길이 720인 두 칸은 대부분 첫 epoch의 weight로 평가됐다.
+- run 시간은 GPU를 다른 작업과 나눠 써서 참고할 수 없다.
+- 읽는 법 표에 이번 결과에 해당하는 줄이 없었다.
+
+**not run (보류):** 입력 720(다음 항목에서 사전 고정), 길이별 하이퍼파라미터 탐색, 더 작은 patch, MIT-BIH·CinC의 입력 길이, 양방향 Neocortex, auxiliary loss, anomaly detection.
+
+**결과 파일 (Git):**
+- `nsmt_flif_v1/forecasting/results/flif-v1-ett-len336/{raw.txt, pool_runs.txt, energy_recount.csv}`
+- `nsmt_flif_v1/forecasting/results/flif-v1-ett-len96ctl/{raw.txt, pool_runs.txt, energy_recount.csv}`
+- `nsmt_flif_v1/classification/results/flif-v1-len336-summary.md`, `nsmt_flif_v1/classification/results/flif-v1-len336-extra.txt`
+- 새 스크립트: `nsmt_flif_v1/classification/check_len_results.py`(결과 점검), `nsmt_flif_v1/classification/len_extra.py`(보고 전용 값과 판정의 독립 재계산)
+
+**로컬에만 둔 것:** `nsmt_flif_v1/forecasting/log/flif-v1-ett-len336/`, `nsmt_flif_v1/forecasting/log/flif-v1-ett-len96ctl/`(checkpoint, TensorBoard, `logargs.txt` 등), pool 원본 로그(`nsmt_flif_v1/forecasting/results/flif-v1-ett-len336-pool.log`).
+
+**다음:** 사용자 계획대로 입력 720을 따로 사전 고정하고 돌린다.
+
+**commit / tag:** 이 항목과 결과 파일을 commit 하고 annotated tag `exp/nsmt-flif-neo-20261117-len336`(학습이 끝난 묶음, snapshot 아님)를 붙인다. `exp/nsmt-flif-neo`와 이 tag만 push 한다.
+
+---
