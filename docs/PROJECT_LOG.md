@@ -12508,3 +12508,36 @@ head = s2                          H1(head가 membrane을 읽으면 CinC, ETT wo
 - token 배치는 energy가 약 1/4이라는 점만 남는다(LIF token: ETT +1.04 %, MIT-BIH −0.89 %p, 둘 다 worse). 이 방향을 재튜닝으로 더 볼지는 사용자 결정 대기다.
 
 **commit:** 이 기록의 commit을 annotated tag `exp/f-lif-pop-v3-stft-20261117`로 식별한다(학습 완료, snapshot 아님). `exp/f-lif-pop-v3`와 이 tag만 push.
+
+## 2026-11-17 17:09 KST — 사용자 결정 + 사전 확인(학습 없음): frequency 영역 입력은 보류한다. 입력 길이 336 / 720(population LIF)은 사용자 질문 단계이고, SpkMixer가 그 길이에서 돌아가는지와 비용만 쟀다.
+
+**직전 commit:** `82962569e`(STFT band 결과, tag `exp/f-lif-pop-v3-stft-20261117`). 브랜치 `exp/f-lif-pop-v3`. code 변경 없음.
+
+### 사용자 결정(11-17)
+- "우선 그렇다면 frequency 영역으로 변환하여 입력하는 것은 보류하자." → STFT band 입력(A, B)은 보류한다. `--spk_band`, `--spk_taxis` code는 그대로 두고 기본값(none, rep)을 쓴다.
+- 사용자 질문: "만약 (다른 세션에서 진행하고 있는 것처럼) 입력 길이을 336, 720으로 늘리면 어떨까? (Population LIF라는 조건 하에)" → 아직 실행 결정이 아니다. 아래는 답을 위한 확인이다.
+
+### 확인한 것(학습 없음)
+- **code:** `SpkMixer`와 `train_forecast.py`는 `--seq_len`을 받는다. `run_ett_spk.sh`만 `--seq_len 96`이 고정이라 실행하려면 환경 변수 하나를 더해야 한다(not done).
+- **token 수:** patch 8, stride 4에서 입력 96 → 24 token, 336 → 84 token, 720 → 180 token(model을 만들어 확인).
+- **split:** `data_provider/data_loader.py`의 validation / test 시작 경계가 `split 시작 − seq_len`이라 예측 대상은 입력 길이와 무관하게 같다(code를 읽어 확인. window 수 비교는 not run).
+- **계산 비용(ETTh2 설정, batch 64 window × 7 channel, 학습 step 3회 평균, GPU 0을 다른 세션의 run과 함께 씀):**
+
+| model | 입력 | token | 학습 step | GPU memory |
+|---|--:|--:|--:|--:|
+| LIF rep | 96 | 24 | 0.19 s | 0.4 GB |
+| LIF rep | 336 | 84 | 0.47 s | 1.5 GB |
+| LIF rep | 720 | 180 | 1.40 s | 3.2 GB |
+| POP rep | 96 | 24 | 0.33 s | 1.5 GB |
+| POP rep | 336 | 84 | 1.90 s | 9.6 GB |
+| POP rep | 720 | 180 | CUDA out of memory | 25.95 GB까지 잡은 뒤 실패 |
+
+  - POP rep 720은 다른 세션의 run(GPU마다 20.9 GB / 49 GB)과 같은 GPU에 올라가지 않았다. 빈 GPU에서 올라가는지는 not run.
+  - body parameter는 길이와 무관하다(LIF 21,824, POP 23,488; head 제외).
+- **다른 세션에 준 영향:** 이 측정은 GPU 0에서 1분 미만이었다. 측정 뒤 다른 세션의 pool(`flif-v1-ett-len720`)은 START 18, DONE 14, SKIP 0이고 run 4개가 살아 있었다. 그 process는 건드리지 않았다.
+- **다른 세션의 관련 결과(읽기만 함, `exp/nsmt-flif-neo` commit `b55fb3bcb`, model이 다름):** 입력 336은 일곱 model 모두의 MSE를 낮췄고(R −2.45 ~ −3.92 %), Spikformer식과의 격차는 커지지 않았으며, energy는 3.2–3.7배였다. 입력 720은 그 세션에서 도는 중이다.
+
+### 한계
+- 학습 step 시간은 GPU를 나눠 쓰는 상태에서 3회만 잰 값이다. 비율(POP 336 / 96 ≈ 5.8배)은 어림이다.
+
+**commit:** 이 기록만 `exp/f-lif-pop-v3`에 commit · push한다(tag 없음, 실험이 아님). 해시는 다음 기록에 적는다.
