@@ -14006,3 +14006,96 @@ head = s2                          H1(head가 membrane을 읽으면 CinC, ETT wo
 - code(새 큐 단계)는 AD pool이 끝난 뒤 고친다.
 
 **commit:** 이 기록, A의 code와 점검 출력, B의 script · 출력을 `exp/f-lif-pop-v3`에 commit · push한 뒤 AD driver를 시작한다. 해시는 결과 기록에 적는다.
+
+## 2026-11-19 01:16 KST — 결과 + 실험 완료(AD SF-de 54 run, 사전등록 `404bf5938`, SKIP 0): E1 muxlin(튜닝) vs SF-de는 no clear difference(R +1.37 %, 6/9)이고, 논문 기준은 not met이다. 성능 평균은 높지만 energy가 1.05배다(PSM 1.16배). 보고용 muxlin(기본 설정) vs SF-de는 better(R +2.65 %, 9/9)였지만 energy 1.004배로 역시 not met이다
+
+**목적:** 사용자 요청 11-18/19 "1. 이대로 AD를 진행". 3과제 논문 기준(SF-de보다 평균 성능이 좋고 energy < 1, 과제마다 부호로 판단)의 마지막 과제인 AD를 채운다. 설계와 규칙은 00:08 사전등록 그대로다(이 기록에서 바꾼 것 없음).
+
+**branch / base:** `exp/f-lif-pop-v3`, code는 `404bf5938`(54 run의 `sha` 열이 모두 `404bf5938`; 재계산기가 확인).
+
+**실행**
+- `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/adsf_driver.sh`(NSMT/에서). GPU 4장(A6000)에 job 8개, 다른 세션의 pool(tmux `flif_sde`)과 GPU를 함께 썼다.
+- driver.log:
+  - 00:08:31 시작 → 00:55:29 lr pool 끝(RESULT 45, SKIP 0) → 선택 → 01:15:08 final pool 끝(RESULT 54, SKIP 0) → 01:15:09 `driver end`.
+  - 54 run의 `time_s` 합은 29,652 s다. 벽시계로 1시간 7분 걸렸다(예상 2–3시간보다 짧았다).
+- 환경: `snn_recall`(python `/home/yschoi/.conda/envs/snn_recall/bin/python`), seed 42 / 7 / 2026, epoch 10(러너 기본), 층 2(SF-sj 11-03과 같음).
+
+**1단계 lr 선택(validation만; holdout = 학습 파일 앞 80 % 학습, 뒤 20 % validation; `selection.md`)**
+
+| dataset | 선택 lr | score(평균 val MSE / 5e-4의 값; 낮을수록 좋음) | 11-03 SF-sj 선택 |
+|---|---|---|---|
+| MSL | **2e-3** | 1e-4 1.171, 2.5e-4 0.997, 5e-4 1, 1e-3 0.986, **2e-3 0.856** | 2.5e-4 |
+| SMAP | **2e-3** | 1e-4 1.687, 2.5e-4 1.194, 5e-4 1, 1e-3 0.862, **2e-3 0.730** | 2e-3 |
+| PSM | **5e-4** | 1e-4 1.765, 2.5e-4 1.222, **5e-4 1**, 1e-3 1.025, 2e-3 1.042 | 5e-4 |
+
+- MSL 2e-3은 seed마다 val MSE가 크게 다르다(0.0792, 0.0775, 0.0995). 셋째 seed는 다른 lr과 비슷하다.
+
+**결과(test AUC-PR, best-validation 가중치; `summary.md`)**
+
+| 비교 | R(AUC-PR, %) | 높은 쌍 | 판정 | energy A/B | 논문 기준(R > 0, energy < 1) |
+|---|--:|---|---|--:|---|
+| **E1 muxlin(튜닝) vs SF-de(튜닝)** | **+1.37** | 6/9 | **no clear difference** | **1.0499** | **not met**(energy) |
+| (보고) muxlin(기본) vs SF-de(튜닝) | +2.65 | 9/9 | better | 1.0043 | not met(energy) |
+| (보고) SF-de(튜닝) vs SF-sj(튜닝) | −0.29 | 4/9 | no clear difference | 0.99 | — |
+| (보고) muxlin(튜닝) vs SF-sj(튜닝)(= 11-03 A1) | +1.05 | 6/9 | no clear difference | 1.03 | — |
+
+- R = dataset별 seed 평균 r(= 100·(A − B)/B)의 3 dataset 평균. better = R ≥ +2 %이고 9쌍 중 6쌍 이상 높음.
+- E1의 dataset별 평균 r: MSL **+3.23**(+5.16, +2.98, +1.53), SMAP **+2.06**(+2.22, +2.66, +1.31), PSM **−1.18**(−0.85, −1.66, −1.04).
+- muxlin(기본) = OR 잔차, lr 5e-4, 층 2. muxlin(튜닝) = MSL OR / 2e-3 / 층 2, SMAP ADD / 2e-3 / 층 1, PSM ADD / 1e-3 / 층 3(11-03 validation 선택).
+
+| dataset | model | lr | AUC-PR % | AUC-ROC % | energy µJ |
+|---|---|---|--:|--:|--:|
+| MSL | SF-de(튜닝) | 2e-3 | 14.21 ± 0.12 | 59.36 ± 0.24 | 14.51 |
+| MSL | SF-sj(튜닝) | 2.5e-4 | 14.46 ± 0.06 | 60.43 ± 0.09 | 14.50 |
+| MSL | muxlin(튜닝) | 2e-3 | 14.67 ± 0.14 | 61.23 ± 0.30 | 14.64 |
+| MSL | muxlin(기본) | 5e-4 | 14.89 ± 0.13 | 61.57 ± 0.25 | 14.48 |
+| SMAP | SF-de(튜닝) | 2e-3 | 11.57 ± 0.09 | 44.29 ± 0.29 | 7.18 |
+| SMAP | SF-sj(튜닝) | 2e-3 | 11.59 ± 0.05 | 44.89 ± 0.10 | 7.18 |
+| SMAP | muxlin(튜닝) | 2e-3 | 11.81 ± 0.04 | 44.92 ± 0.08 | 7.06 |
+| SMAP | muxlin(기본) | 5e-4 | 11.88 ± 0.12 | 45.42 ± 0.94 | 7.22 |
+| PSM | SF-de(튜닝) | 5e-4 | 39.15 ± 0.11 | 59.82 ± 0.13 | 7.48 |
+| PSM | SF-sj(튜닝) | 5e-4 | 38.76 ± 0.04 | 59.54 ± 0.02 | 7.79 |
+| PSM | muxlin(튜닝) | 1e-3 | 38.69 ± 0.06 | 59.45 ± 0.08 | 8.66 |
+| PSM | muxlin(기본) | 5e-4 | 39.34 ± 0.01 | 60.12 ± 0.05 | 7.56 |
+
+(seed 평균 ± 표준편차. raw F1, point-adjusted F1, best epoch, 시간은 `summary.md`.)
+
+**사전 예상과 비교**
+- E1 no clear difference: 맞았다(+1.37 %, 6/9).
+- E1 논문 기준 "성능 쪽 R > 0, energy ≥ 1이라 not met": 맞았다(R +1.37 %, energy 1.0499).
+- SF-de ≈ SF-sj(다른 과제와 같음): 맞았다(−0.29 %, 4/9, energy 0.99).
+
+**해석(탐색 수준, seed 3)**
+- **AD에서 논문 기준을 못 넘는 이유는 energy다.** 성능 평균은 SF-de보다 높다.
+  - energy 초과는 PSM에서 온다. 튜닝이 PSM에 층 3을 골랐고, energy가 SF-de의 1.16배(8.66 / 7.48 µJ)다. MSL은 1.009배, SMAP은 0.983배다.
+  - PSM은 성능도 SF-de보다 낮다(−1.18 %). 층 3 선택이 PSM에서는 test에서 손해였다.
+- **muxlin(기본)이 튜닝판보다 test에서 세 dataset 모두 높다**(11-03에 이미 본 현상: validation 선택이 test로 이어지지 않음).
+  - muxlin(기본)은 SF-de보다 9/9 높고 R +2.65 %(better)다. energy는 1.0043배로 기준을 0.4 % 넘는다(MSL 0.998, SMAP 1.006, PSM 1.011배).
+  - 다만 이것은 사전등록에서 보고용으로 정한 비교다. test를 보고 기본 설정으로 바꾸면 test로 고른 것이 된다. 주 결과는 E1이다.
+- 3과제 논문 기준 현황(LIF SpkMixer, 각 과제의 튜닝 설정, 기존 energy 규칙):
+
+| 과제 | 성능(SF-de 대비) | energy | 논문 기준 |
+|---|---|--:|---|
+| ETT 입력 96 | R +0.30 %(MSE, 낮을수록 좋음 → 나쁨) | 0.96 | not met |
+| ETT 입력 336 | R −0.25 %(좋음; ETTh2 두 cell에서만) | 0.974 | met |
+| MIT-BIH | +0.04 %p | 0.9993 | met(아주 작은 차) |
+| AD | R +1.37 % | 1.0499 | **not met(energy)** |
+
+- 그래서 "세 과제 모두 SF-de보다 평균 성능이 좋고 energy가 적다"는 아직 성립하지 않는다. AD의 energy가 걸린다.
+- AD에서 energy를 낮출 후보(실행 안 함, 사용자 결정): (a) mean pooling + 새 계산 규칙(승인 대기; AD mean pooling run은 없다), (b) 층 수를 SF-de와 같게 고정. 결과는 예상하지 않는다.
+
+**점검**
+- `recheck_adsf.py select --sha 404bf5938`(독립 재계산, `summarize_adsf`를 import하지 않음): 54행, sha 모두 `404bf5938`, 선택이 `selected_lr.json`과 같다(`recheck_select.txt`).
+- `recheck_adsf.py final --sha 404bf5938`: 비교 4개의 R · 높은 쌍 · 판정 · energy · 논문 기준이 `summary.md`와 같다(`recheck_final.txt`).
+- 요약기 자체 점검: SKIP · 빠진 run · 중복 · 비유한값 · `energy_check` ≠ ok가 없다(있으면 exit 2로 멈춤).
+
+**한계**
+- seed 3, dataset 3이다. AUC-PR 차이가 작다(MSL 0.46 %p, SMAP 0.24 %p).
+- muxlin과 SF-sj 행은 11-03 run(sha `fce65b1dc`)을 다시 쓴다. SF-de만 새로 돌렸다(sha `404bf5938`). 데이터 · epoch 10 · seed는 같다.
+- energy는 기존 규칙(`total_fft_uJ_corr`)이다.
+
+**artifact:** `NSMT/cinc_mixer_v1/results/flif-v1-ad-sfde/`(raw.txt, selection.md, selected_lr.json, summary.md, recheck_select.txt, recheck_final.txt, pool_log_lr.txt, pool_log_final.txt; driver.log와 checkpoint · TensorBoard는 local). run 폴더는 `NSMT/cinc_mixer_v1/log/flif-v1-ad-sfde/<dataset>/261119/` 아래(local).
+
+**다음:** 사용자 요청 3("mixer에만 population")을 시작한다. ETT 입력 길이(96 / 336)와 새 energy 계산 규칙 승인은 사용자 답을 기다린다.
+
+**commit / tag:** 이 기록과 결과를 `exp/f-lif-pop-v3`에 commit · push하고 annotated tag `exp/f-lif-pop-v3-adsf-20261119`(완료된 학습 run)를 붙인다. 이 기록이 들어간 commit은 이 tag로 가리킨다.
