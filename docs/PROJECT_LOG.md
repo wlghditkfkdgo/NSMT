@@ -13664,3 +13664,82 @@ head = s2                          H1(head가 membrane을 읽으면 CinC, ETT wo
 - 그 뒤 사용자에게 가져갈 계획: 논문 기준을 채우는 방향(energy 절감 + 성능 유지, AD에서의 SF-de 비교).
 
 **commit:** 이 기록, 위 code 변경, 점검 출력, 보고 script, 멈춘 격자의 `raw.txt` · `pool_log.txt`를 `exp/f-lif-pop-v3`에 commit · push한 뒤 driver를 시작한다. 해시는 결과 기록에 적는다.
+
+## 2026-11-18 22:17 KST — 결과 + 실험 완료(축소; sf336 12 run, SKIP 0): 입력 336에서 LIF SpkMixer vs SF-de — 판정 no clear difference(D1 R −0.25 %, 7/12), 논문 기준은 met(평균 우위 + energy 0.974배). 다만 ETTh2 두 cell에서만 낮고 ETTm2 두 cell에서는 높다. 입력 96에서는 논문 기준 미달(R +0.30 %)이었다
+
+**commit 기준:** sf336 사전등록 + code는 `f0f488c23`(21:40 기록)이다. 새 12행은 모두 `sha=f0f488c23`이다. 브랜치 `exp/f-lif-pop-v3`.
+
+### 실행
+- `sf336_driver.sh`: 21:41:57 시작, 22:14:39 pool 끝(32분 42초), 22:16:23 driver 끝.
+  - DONE 12 / 12, SKIP 0, pool 기록에 오류 줄 없음(`results/flif-v1-ett-spkmux-pn336-pool_log.txt`).
+  - energy 재계산 "all checks passed"(12 run, 재계산 MSE = 기록값).
+  - 요약 `results/flif-v1-ett-spkmux-pn336/summary.md`.
+- 독립 재계산 `recheck_pn.py sf336 --sha f0f488c23`: 모든 값이 요약과 같다(`results/flif-v1-ett-spkmux-pn336/recheck_pn.txt`).
+- 멈춤 조건: 하나도 걸리지 않았다(best epoch = validation 최솟값 포함).
+- 예상 시간(1–1.5시간)보다 빨랐다.
+
+### 결과(test MSE, seed 42 / 7 / 2026 평균, 입력 336)
+| arm | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 | 평균 | energy µJ(4 cell 평균) |
+|---|--:|--:|--:|--:|--:|--:|
+| LIF SpkMixer 336(11-17) | 0.2964 | 0.3916 | 0.1726 | 0.3778 | 0.3096 | 34.69 |
+| pop LIF all 336(11-17) | 0.2976 | 0.4202 | 0.1696 | 0.3631 | 0.3126 | 98.68 |
+| SF-sj 336(11-17) | 0.3094 | 0.3983 | 0.1715 | 0.3673 | 0.3116 | 35.13 |
+| **SF-de 336(새)** | 0.3044 | 0.3952 | 0.1721 | 0.3697 | 0.3103 | 35.61 |
+
+| 비교 | R % | 더 낮은 쌍 | 판정 | energy A / B | cell별 r % | 논문 기준 |
+|---|--:|--:|---|--:|---|---|
+| **D1 LIF 336 vs SF-de 336** | −0.25 | 7/12 | no clear difference | 0.9740 | −2.64, −0.92, +0.35, +2.19 | **met** |
+| (보고) pop LIF all 336 vs SF-de 336 | +0.23 | 8/12 | no clear difference | 2.7762 | −2.23, +6.33, −1.40, −1.76 | not met |
+| (보고) SF-de 336 vs SF-sj 336 | −0.33 | 8/12 | no clear difference | 1.01 | −1.52, −0.78, +0.32, +0.66 | — |
+| (보고) LIF 336 vs SF-sj 336(= 11-18 P2) | −0.57 | 6/12 | no clear difference | 0.99 | −4.08, −1.69, +0.62, +2.86 | — |
+
+- D1 seed별 r %:
+  - ETTh2 H96: −1.00, −3.25, −3.66
+  - ETTh2 H720: −0.35, −1.28, −1.12
+  - ETTm2 H96: −2.34, +2.12, +1.25
+  - ETTm2 H720: +2.80, +2.54, +1.23
+- LIF SpkMixer는 ETTh2 6쌍에서 모두 낮다. ETTm2에서는 6쌍 중 5쌍이 높다.
+- 보고 전용: 학습 시간은 GPU 공유라 비교하지 않는다. SF-de 336이 고른 epoch은 SF-sj 336과 비슷하다(`summary.md`).
+
+### 사전 예상과 비교
+| 비교 | 예상 | 결과 |
+|---|---|---|
+| D1 | no clear difference | 맞음 |
+| D1 논문 기준 | met 쪽, 확신 낮음(energy 비가 1에 가까움) | met. energy 0.974배 |
+
+### 논문 기준 현황(과제마다 SF-de보다 평균이 좋고 energy < 1, 부호만; LIF SpkMixer 튜닝 설정)
+| 과제 | 평균 차이 | energy 비 | 논문 기준 | 출처 |
+|---|---|--:|---|---|
+| ETT 입력 96 | R +0.30 %(SpkMixer가 조금 나쁨) | 0.96 | **not met** | 1부(20:12 기록) |
+| ETT 입력 336 | R −0.25 % | 0.9740 | met | 이 기록 |
+| MIT-BIH | +0.04 %p | 0.9993(9.4389 / 9.4452 µJ) | met(성능 · energy 모두 차이가 아주 작음) | 1부; 21:40 기록에서 약속한 넷째 자리 값 |
+| AD | SF-de run 없음 | — | 판단할 수 없음 | (SF-sj 대비 AUC-PR +1.05 %, energy 1.03배, 11-03) |
+
+### 해석
+- 입력 336에서는 논문 기준을 넘는다. 다만 다음 세 가지 이유로 "넘는다"가 약하다.
+  1. 판정 규칙으로는 no clear difference다.
+  2. 평균 우위는 ETTh2에서 오고, ETTm2에서는 반대다.
+  3. energy 차이는 2.6 %다.
+- ETT에서 기준을 넘는지가 입력 길이(96 대 336)에 따라 바뀐다. 이 기준은 부호만 보므로 seed나 설정이 조금만 바뀌어도 결과가 뒤집힐 수 있다.
+- MIT-BIH도 같은 이유로 약하다(+0.04 %p, energy 0.9993배).
+- AD는 SF-de와 비교한 적이 없어 기준을 판단할 수 없다. 세 과제 기준을 말하려면 필요한 비교다.
+
+### 한계
+- seed 3개다. 입력 336은 ETT만 했다.
+- LIF 336 · SF-sj 336 행은 11-17 run(다른 commit)이다. 기본 경로가 비트 단위로 같다는 점검(p0)과 재현 5 run으로 뒷받침한다.
+- SF-de 336의 lr은 입력 96에서 고른 값이다. LIF 336, SF-sj 336도 입력 96의 설정을 그대로 썼다(11-17과 같은 방식).
+- 격자(2 · 3부)와 pop LIF mixer 336은 사용자 결정으로 not run이다.
+
+### 실험 마무리
+- 사전등록(18:07)의 1부와 4부의 D1만 끝났다. 2 · 3부(B1–B6, C1–C5)와 D2 · D3는 사용자 결정(21:3x)으로 not run이다.
+- 이 기록의 commit을 annotated tag `exp/f-lif-pop-v3-pn-20261118`로 식별한다. 학습 완료이지만 축소된 완료이고, snapshot은 아니다.
+- `exp/f-lif-pop-v3`와 이 tag만 push한다.
+
+### 다음(사용자 결정 대기)
+- 논문 기준을 채우는 방향의 계획을 제안한다.
+  - AD에서 SF-de와 비교.
+  - energy 차이를 분명히 만드는 방향.
+  - ETT 주 설정(입력 96 / 336) 선택.
+- 입력 720은 여전히 결정 대기다.
+
+**commit:** 이 기록과 `results/flif-v1-ett-spkmux-pn336/`(`driver.log` 제외), `results/flif-v1-ett-spkmux-pn336-pool_log.txt`를 commit하고 tag를 단 뒤 push한다(code 변경 없음).
