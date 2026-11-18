@@ -13180,3 +13180,180 @@ head = s2                          H1(head가 membrane을 읽으면 CinC, ETT wo
 - 그 결과로 사전등록(비교, 규칙, 예상, 실행 순서)을 적고 commit한 뒤 본 학습을 시작한다.
 
 **commit:** 이 기록과 code, 표, 점검 출력을 `exp/f-lif-pop-v3`에 commit · push한다(학습 없음, tag 없음). 해시는 다음 기록에 적는다.
+
+## 2026-11-18 18:07 KST — 사전등록(본 학습 전): neuron 구현 맞추기(Spikformer식 spikeDE LIF, lr 재튜닝) + SpkMixer neuron × 배치 × mean pooling + 입력 336 재실험, 본 학습 234 run
+
+**직전 commit:** `5701db48c`(사용자 결정 + 구현 + 점검). 재현 5 run과 짧은 시험 학습 33 run은 이 commit으로 돌렸다(`sha=5701db48c` 38줄). 브랜치 `exp/f-lif-pop-v3`. 사용자 요청과 선택은 바로 앞 기록(17:29)에 있다.
+
+### 무엇을 돌리나
+**1부: Spikformer식을 SpkMixer와 같은 neuron 구현으로(SF-de)**
+- Spikformer식의 모든 neuron(embedding, attention q / k / v / attn, proj, MLP)을 spikeDE LIF로 바꾼다(`NALL=lif`, tag `_nalif`).
+- 사용자 선택대로 lr을 다시 튜닝한다. 11-01에 spikingjelly 판(SF-sj)을 튜닝한 방식과 같다.
+  - ETT: lr {1e-4, 2.5e-4, 5e-4(기본), 1e-3, 2e-3} × 4 cell × seed 3 = 60 run. 층은 Table 13 그대로(ETTh2 1, ETTm2 2), suite `flif-v1-ett-spkmux` 대신 `flif-v1-ett-sfde`.
+  - MIT-BIH: lr {0.0025, 0.005, 0.01(기본), 0.02} × seed 3, 학습 파일의 fold 0을 validation으로(12 run). 고른 lr로 학습 파일 전체에서 다시 학습한다(3 run). suite `flif-v1-mitbih-sfde`.
+  - 선택은 validation만 쓴다.
+    - ETT: dataset마다 score(v) = H96 / H720 평균의 [seed 평균 best validation L1(v) / 같은 값(5e-4)]. 가장 낮은 값이 이기고, 차이가 1e-12 미만이면 5e-4를 유지한다.
+    - MIT-BIH: fold 0 마지막 epoch validation macro-F1의 seed 평균이 가장 높은 값. 차이가 1e-9 미만이면 0.01을 유지한다.
+  - ETT의 최종 SF-de 행은 선택한 lr의 튜닝 run이다(SF-sj와 같은 방식).
+
+**2부 · 3부: SpkMixer neuron × 배치 × mean pooling**
+- 설정은 튜닝한 LIF SpkMixer 그대로이고 다시 튜닝하지 않는다.
+  - ETT: muxlin + IAND, 방향마다 1층, lr 5e-4 ETTh2 / 1e-4 ETTm2.
+  - MIT-BIH: muxlin + ADD, 2층, lr 0.02, 30 epoch, 마지막 epoch weight.
+
+| arm | neuron | population 위치 | 반복 축 pooling | run |
+|---|---|---|---|---|
+| LIF | LIF | — | 없음 | 기존(`flif-v1-*-spkmux-tune`) |
+| LIF+mean | LIF | — | mean | 기존(11-18 mx3) |
+| pop LIF all | pop LIF | 전체 | 없음 | 기존(11-17 STFT test의 rep 행) |
+| f-LIF | f-LIF(α 0.5) | — | 없음 | 새로 |
+| f-LIF+mean | f-LIF | — | mean | 새로 |
+| pop LIF all+mean | pop LIF | 전체 | mean | 새로 |
+| pop LIF mixer | pop LIF | stack + fusion만 | 없음 | 새로 |
+| pop LIF mixer+mean | pop LIF | stack + fusion만 | mean | 새로 |
+| pop f-LIF all | pop f-LIF | 전체 | 없음 | 새로 |
+| pop f-LIF all+mean | pop f-LIF | 전체 | mean | 새로 |
+| pop f-LIF mixer | pop f-LIF | stack + fusion만 | 없음 | 새로 |
+| pop f-LIF mixer+mean | pop f-LIF | stack + fusion만 | mean | 새로 |
+
+- 새 arm 9개 × (ETT 4 cell × seed 3 = 12, MIT-BIH seed 3) = 135 run. suite `flif-v1-ett-spkmux-pn`, `flif-v1-mitbih-spkmux-pn`.
+- "mixer만"이면 embedding · MLP는 같은 계열의 single neuron이다(pop LIF → LIF, pop f-LIF → f-LIF).
+
+**4부: 이전 실험 중 다시 볼 것(사용자 요청 4)**
+- 후보를 이렇게 정했다(내 판단):
+  - 1번(구현 맞추기)에 관련: 11-17 입력 336 test의 "LIF vs Spikformer식"(P2)을 SF-de로 다시 본다.
+  - 2번(배치)에 관련: 같은 test에서 population LIF(전체)가 ETTh2에서 나빠졌다. population을 mixer에만 둔 형태로 다시 본다.
+  - 실행: 입력 336에서 SF-de(선택한 lr) 12 run + pop LIF mixer 12 run = 24 run. suite `flif-v1-ett-spkmux-pn336`.
+- 다시 보지 않는 것과 이유:
+  - 튜닝 최종표(ETT, MIT-BIH)의 SpkMixer vs Spikformer식 → 1부가 바로 그 재실험이다.
+  - CinC → 주 결과가 아니다(사용자 결정 11-04).
+  - AD → front-end 결정 대기.
+  - STFT band → 사용자 보류(11-17).
+  - head 시험, 11-08 block 단위 membrane shortcut → neuron 구현과 무관하거나 no clear difference였다.
+  - 이 셋은 not run이다.
+- 모두 합치면 SF-de 75 + 격자 135 + 입력 336 24 = 234 run이다. 재현과 시험 학습 38 run을 더하면 이번 실험에서 272 run이다.
+
+### 판정(사전 고정)
+- ETT: test MSE, r = 100 (A − B) / B(같은 cell, 같은 seed), R = 4 cell의 seed 평균 r의 평균.
+  - better: R ≤ −1 %이고 12쌍 중 8쌍 이상 낮음.
+  - worse: 그 거울. 그 외는 no clear difference.
+- MIT-BIH: test macro-F1의 seed별 차이(%p). better = 평균 ≥ +0.5이고 3 seed 중 2개 이상 높음. worse = 거울.
+- energy: `total_fft_uJ_corr`(ETT window당, MIT-BIH 박동당).
+- 값이 빠지거나 중복되거나 유한하지 않거나, energy 재계산이 기록값을 다시 내지 못하거나, ETT 새 run의 best epoch이 validation 최솟값이 아니면 판정 전에 멈춘다.
+
+| 부 | 비교(판정) | 질문 |
+|---|---|---|
+| 1 | **A1** LIF SpkMixer vs SF-de | 같은 neuron 구현에서 SpkMixer와 Spikformer식이 다른가 |
+| 2 | **B1** pop LIF mixer vs LIF, **B2** pop LIF all vs LIF, **B3** pop LIF mixer vs pop LIF all | population LIF를 어디에 두는 것이 나은가 |
+| 2 | **B4** pop f-LIF mixer vs f-LIF, **B5** pop f-LIF all vs f-LIF, **B6** pop f-LIF mixer vs pop f-LIF all | f-LIF 계열에서 같은 질문 |
+| 3 | **C1–C5** mean vs 없음: f-LIF, pop LIF all, pop LIF mixer, pop f-LIF all, pop f-LIF mixer | mean pooling이 각 neuron 형태를 돕는가(LIF는 11-18 V2) |
+| 4 | **D1** LIF 336 vs SF-de 336, **D2** pop LIF mixer 336 vs LIF 336, **D3** pop LIF mixer 336 vs pop LIF all 336 | 입력 336에서 1 · 2부의 질문 |
+
+- 보고 전용(판정 없음):
+  - SF-de vs SF-sj(구현 차이만의 효과), LIF SpkMixer vs SF-sj(예전 비교).
+  - f-LIF vs LIF, mean pooling 안에서의 B1–B6.
+  - 모든 arm vs SF-de.
+  - pop LIF mixer 336 vs SF-de 336, SF-de 336 vs SF-sj 336.
+  - validation L1, MAE, best epoch, 발화율, run 시간.
+- B2는 기존 run끼리의 비교라 값이 이미 알려져 있다(ETT R −0.94 %, 10/12, no clear difference; MIT-BIH −0.59 %p, worse; 11-17 기록). B 묶음을 함께 읽기 위해 판정표에 넣는다. 예상의 대상은 아니다.
+
+### code(이번 commit에 더하는 것, 모두 새 파일; model code는 바꾸지 않음)
+- `summarize_pn.py`: 단계 select / sf_ett / sf_mit / ett / mitbih / len336. 판정표를 쓰고, `selected_lr.json`은 다른 선택으로 덮어쓰지 않는다.
+- `recheck_pn.py`: 요약기를 import하지 않고 `raw.txt`, `energy_recount.csv`만 읽어 다시 계산한다.
+  - `--sha a,b,…`: 사전등록 commit 뒤에 commit이 생기면, 그 commit이 `.py` / `.sh`를 바꾸지 않았을 때만 받는다(`git diff`로 확인).
+- `scripts/pn_driver.sh`: 3단계로 돈다. 단계마다 RESULT 수 · SKIP 0을 확인하고, 실패하면 멈춘다.
+  1. sf pool → 선택 → ETT SF-de energy 재계산 → 1부 ETT 요약.
+  2. main pool(SF-de MIT-BIH 최종 3 → 격자 ETT 108 → 격자 MIT-BIH 27) → energy 재계산 → 1부 MIT-BIH, 2 · 3부 요약.
+  3. len336 pool → 재계산 → 4부 요약.
+- `results/check-pn-20261118/`: `check_runs_pn.py`, `make_dry_pn.py`와 각 출력.
+
+### 재현과 짧은 시험 학습(17:30–17:57, `results/check-pn-20261118/`, 모두 통과)
+- pool: 38 / 38 DONE, SKIP 0, GPU마다 2 slot(`pool_log_check.txt`).
+- **재현**(`check_runs_pn.txt`): 고친 code의 기본 경로로 5 run을 다시 돌렸다. 모두 예전 행과 공유 필드 149개가 같다(시간 · sha · 폴더 제외).
+  - ETTh2 H96 seed 42: LIF 0.298527, pop LIF all(STFT test 행), SF-sj 0.291610.
+  - MIT-BIH seed 42: LIF 0.918862, SF-sj 0.921039.
+- **시험 학습 33 run**(ETT 2 epoch, MIT-BIH 1 epoch, seed 42): `check_runs_pn.py`가 학습 인자를 대조 run과 비교했다.
+  - 다른 것은 각 조합의 선택뿐이다: mixer, pop_soma_init, gain_table(= `calibrate_pn.runner_table`), spk_mixpool, spk_neuron_scope, SF-de의 neuron_all. SF-de는 대조와 lr이 다를 때 lr도 다르다.
+  - 대조 run 뒤에 생긴 인자는 기본값이다.
+  - 처음 버전은 ETT SF-de 2 run에서 FAIL이었다. 대조로 고른 10-31 baseline 행이 다른 세션의 code로 만든 run이라, 그 code 판에만 있는 인자 3개와 data 경로가 달랐다. 대조를 이 브랜치의 SF-sj 튜닝 행(lr 2.5e-4)으로 바꾸고 lr을 허용된 차이로 두어 다시 돌렸다. SF-de run 자체에는 문제가 없었다.
+- energy 재계산: 두 suite 모두 "all checks passed"(ETT 22 run의 head 재계산, 재계산 MSE / macro-F1 = 기록값). ETT의 SpkMixer 행 규칙은 모두 binary다.
+- 아래 값은 2 epoch(MIT-BIH 1 epoch) 값이라 판정에 쓰지 않는다. "LIF 대비"는 튜닝 LIF 행(seed 42, 학습 끝까지)의 energy 9.08 / 11.48 / 9.39 µJ로 나눈 값이다.
+
+| 조합 | ETTh2 H96 MSE | energy µJ (LIF 대비) | ETTm2 H720 MSE | energy µJ (LIF 대비) | MIT-BIH macro-F1 | energy µJ (LIF 대비) |
+|---|--:|--:|--:|--:|--:|--:|
+| f-LIF | 0.2900 | 11.63 (1.28) | 0.4037 | 13.93 (1.21) | 0.7491 | 10.33 (1.10) |
+| f-LIF+mean | 0.2895 | 12.45 (1.37) | 0.4033 | 14.80 (1.29) | 0.7361 | 20.88 (2.22) |
+| pop LIF all+mean | 0.2882 | 21.20 (2.33) | 0.4025 | 25.26 (2.20) | 0.6575 | 25.78 (2.75) |
+| pop LIF mixer | 0.2881 | 19.87 (2.19) | 0.4047 | 22.47 (1.96) | 0.8216 | 17.71 (1.89) |
+| pop LIF mixer+mean | 0.2896 | 14.49 (1.60) | 0.4048 | 17.04 (1.48) | 0.7860 | 22.78 (2.43) |
+| pop f-LIF all | 0.2855 | 49.39 (5.44) | 0.4048 | 54.12 (4.71) | 0.7694 | 31.28 (3.33) |
+| pop f-LIF all+mean | 0.2882 | 30.72 (3.38) | 0.4038 | 35.38 (3.08) | 0.7610 | 30.30 (3.23) |
+| pop f-LIF mixer | 0.2893 | 37.69 (4.15) | 0.4052 | 40.01 (3.49) | 0.7257 | 26.17 (2.79) |
+| pop f-LIF mixer+mean | 0.2906 | 18.98 (2.09) | 0.4047 | 21.29 (1.85) | 0.7884 | 24.67 (2.63) |
+| SF-de(lr 5e-4 / 0.01) | 0.2882 | 9.38 (1.03) | 0.4040 | 11.61 (1.01) | 0.6995 | 8.10 (0.86) |
+| 입력 336 SF-de | 0.3036 | 32.25 | — | — | — | — |
+| 입력 336 pop LIF mixer | 0.2956 | 69.48 | — | — | — | — |
+
+- energy에서 눈에 띄는 점:
+  - population에 mean pooling을 쓰면 energy가 준다(ETT pop f-LIF all 5.44 → 3.38배, pop LIF mixer 2.19 → 1.60배). population neuron이 mixer를 반복마다 4번 도는 대신 한 번만 돌기 때문으로 본다.
+  - LIF · f-LIF에 mean pooling을 쓰면 energy가 는다. mixer 입력이 0/1이 아니어서 곱셈 연산으로 세어지기 때문이다(11-18과 같은 이유).
+  - pop f-LIF는 pop LIF보다 energy가 크다(ETT 전체 5.4배 대 기존 pop LIF 전체 2.8배).
+- **GPU memory**(학습 1 step, batch 64 window × 7 channel, ETTm2 입력 336, `torch.cuda.max_memory_allocated`): pop LIF all 10.54 GB, pop LIF mixer 9.40 GB, LIF 1.71 GB, SF-de 1.73 GB(입력 96 0.41 GB).
+  - 11-17에 nvidia-smi로 본 pop LIF all 336 한 run은 약 14.6 GB였다(같은 비율이면 pop LIF mixer는 약 13 GB).
+  - 지금 다른 세션의 pool(`flif_xnor`)은 GPU마다 약 2.1–2.3 GB를 쓴다. 그래서 입력 336 단계도 GPU마다 2 slot으로 돌린다(2 × 13 + 2.3 ≈ 28 GB < 49 GB).
+  - 그 세션이 다시 GPU마다 21 GB를 쓰면 2 × 13 + 21 ≈ 47 GB로 여유가 거의 없다. 그래서 GPU memory 부족으로 SKIP이 나면 같은 설정과 seed로 그 run만 다시 돌리고 기록한다(11-17과 같은 규칙).
+
+### 사전 예상(확신은 모두 낮다)
+| 비교 | 예상 판정 | energy A / B | 근거 |
+|---|---|---|---|
+| A1 LIF SpkMixer − SF-de | ETT, MIT-BIH 모두 no clear difference | 약 1.0배 | SF-sj와는 ETT +0.45 %, MIT-BIH +0.20 %p였다. 다른 세션의 neuron 전체 교체(10-29)에서도 ETTh2 H96에 이득이 없었다 |
+| (보고) SF-de − SF-sj | no clear difference | 약 1.0배 | 시험 학습 energy 1.01–1.03배. reset과 기울기 근사만 다르다 |
+| B1 pop LIF mixer − LIF | 둘 다 no clear difference | ETT 약 2.0배, MIT-BIH 약 1.9배 | pop LIF all이 ETT −0.94 %(기준 미달)였다 |
+| B3 pop LIF mixer − pop LIF all | ETT no clear difference, MIT-BIH no clear difference(평균은 양수) | 약 0.7–0.9배 | MIT-BIH의 pop LIF all 손해(−0.59 %p)가 embedding · MLP의 population에서 왔다면 mixer만이 회복한다 |
+| B4 / B5 / B6(f-LIF 계열) | 모두 no clear difference | B5 약 4–5배, B4 약 3–3.5배 | f-LIF SpkMixer는 ETT · MIT-BIH에서 처음이라 근거가 약하다 |
+| C1–C5 mean − 없음 | 모두 no clear difference(ETT R은 음수 쪽) | f-LIF 약 1.1–1.3배(MIT-BIH 약 2배), population 0.6–0.8배 | LIF의 mean은 ETT −0.65 %(9/12), MIT-BIH −0.26 %p였다 |
+| D1 LIF 336 − SF-de 336 | no clear difference | 약 1.0배 | LIF 336 − SF-sj 336은 −0.57 %(6/12)였다 |
+| D2 pop LIF mixer 336 − LIF 336 | no clear difference | 약 2배 | pop LIF all 336 − LIF 336은 +0.53 %(7/12)였다 |
+| D3 pop LIF mixer 336 − pop LIF all 336 | no clear difference | 약 0.75배 | 시험 학습 69.5 대 92.9 µJ(ETTh2 H96) |
+| (보고) SF-de의 선택 lr | 예상하지 않는다 | — | 기울기 근사의 크기가 달라 최적 lr이 바뀔 수 있다 |
+
+### 읽는 법(미리 적음)
+| 결과 | 뜻 |
+|---|---|
+| A1 no clear difference | neuron 구현을 맞춰도 "LIF SpkMixer ≈ Spikformer식"이라는 예전 결론은 그대로다 |
+| A1 better / worse | 예전 비교에는 구현 차이가 섞여 있었다. 앞으로의 비교는 SF-de를 기준으로 한다 |
+| B1 또는 B4 better이고 B2 / B5는 아님 | population은 token 축(mixer)에서만 도움이 된다. 기준 배치를 "mixer만"으로 바꿀 근거다 |
+| B3 또는 B6 better | 전체 population이 해롭고, mixer만이 나은 배치다 |
+| C(population) better | mean pooling이 population을 돕고 energy도 줄인다 |
+| 모두 no clear difference | 배치와 pooling은 정확도를 바꾸지 않는다. energy 차이만 남는다 |
+
+### 한계
+- 비교가 많다(과제마다 판정 12개 + 4부 3개). 규칙이 느슨한 편이라 우연히 better / worse가 하나둘 나올 수 있다.
+- SpkMixer의 새 arm은 LIF로 튜닝한 설정을 그대로 쓴다. SF-de는 SF-sj처럼 lr만 다시 튜닝한다(층은 Table 13). 튜닝의 양이 두 model에서 다르다(예전과 같은 비대칭).
+- population 맞춤값 표는 같은 pooling의 single neuron model에 맞췄다. 그래서 C 비교의 두 arm은 맞춤값이 다르다.
+- soma 초기값: pop LIF는 0.5, pop f-LIF는 1.0이다(지금까지의 run과 같게 둠). 두 계열이 완전히 평행하지 않다.
+- f-LIF의 α는 0.5로 고정이다(튜닝하지 않음).
+- MIT-BIH는 validation 없이 마지막 epoch weight를 쓴다(SF-de lr 선택만 fold 0 validation).
+- 기존 행을 재사용한다.
+  - LIF와 SF-sj(11-01).
+  - pop LIF all(11-16/17 run, sha 60188bdde).
+  - LIF+mean(11-18, sha 9ea2adee0).
+  - SF-sj ETTh2(10-31, 다른 세션의 code).
+  - 기본 경로가 비트 단위로 같고(p0), 각 대표 run의 재현이 같다는 것으로 뒷받침한다.
+- soma 없는 population(popg / fire), CinC, AD는 not run이다.
+- GPU를 다른 세션과 함께 써서 run 시간은 비교할 수 없다.
+
+### 실행
+- NSMT/에서 `SLOTS=0,1,2,3,0,1,2,3 SLOTS336=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/pn_driver.sh > /dev/null 2>&1 &`.
+- driver.log는 `results/flif-v1-ett-spkmux-pn/driver.log`(local)에 쓴다. queue, checkpoint, raw log도 local에 둔다.
+- 예상 시간(내 추정, 시험 학습 시간 × epoch 수, GPU 공유):
+  - sf 단계 2–3시간.
+  - main 단계 12–16시간.
+  - 입력 336 단계 5–8시간.
+  - 합계 약 하루.
+- 보고 시점: 1부(SF-de) 결과는 main 단계 앞부분에서 나온다.
+  - SF-de MIT-BIH 최종 3 run이 끝나면 그 suite의 energy 재계산과 1부 요약을 손으로 돌려 먼저 보고한다. driver가 나중에 같은 명령을 다시 돈다.
+- commit 규칙: 도는 run은 시작할 때 HEAD를 `sha`로 적는다. 그래서 pool이 도는 동안의 commit은 log와 결과 파일만 담는다(`.py` / `.sh` 변경 없음). 재계산은 `recheck_pn.py --sha <이 commit>,<그 뒤 commit…>`으로 하며, 그 뒤 commit이 code를 바꾸지 않았는지 git diff로 확인한다.
+- pool이 도는 동안 model code와 실행 script를 고치지 않는다.
+
+**commit:** 이 기록과 위 새 파일, 재현 · 시험 학습 출력을 `exp/f-lif-pop-v3`에 commit · push한 뒤 driver를 시작한다. 해시는 결과 기록에 적는다.
