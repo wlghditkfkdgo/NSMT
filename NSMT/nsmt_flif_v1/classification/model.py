@@ -333,7 +333,8 @@ class HighFreqAmp(nn.Module):
 class Block(nn.Module):
     def __init__(self, T, dim, seq_len, num_heads, mlp_ratios=2., max_ratio=2, qkv_bias=False, qk_scale=None, drop=0., attn_drop=0.1,
                 drop_path=0.1, norm_layer=nn.LayerNorm, sr_ratio=1, lif_bias=False, tau=2.0, attn=False,
-                time_num_layers=1, patch_size=16, ssa=False, xattn=False, ssa_pe=True, attn_bn=False, xattn_mode='replace'):
+                time_num_layers=1, patch_size=16, ssa=False, xattn=False, ssa_pe=True, attn_bn=False, xattn_mode='replace',
+                attn_score='dot'):
         super().__init__()
         
         topk_ratio = None
@@ -345,7 +346,8 @@ class Block(nn.Module):
             self.ssa = SSA_rel_scl(dim=dim, seq_len=seq_len, num_heads=num_heads, pe=bool(ssa_pe), lif_bias=lif_bias, tau=tau, drop=attn_drop,
                                    attn_bn=bool(attn_bn),              # MODI 2026-10-21: BN before the attention neuron (spk_ssa_abn)
                                    kv_cat=(self.use_xattn and xattn_mode == 'cat'),   # MODI 2026-10-26 (B): own + neocortex keys / values
-                                   q_from_kv=(self.use_xattn and xattn_mode == 'query'))   # MODI 2026-10-30: queries from the neocortex
+                                   q_from_kv=(self.use_xattn and xattn_mode == 'query'),   # MODI 2026-10-30: queries from the neocortex
+                                   score=attn_score)                   # MODI 2026-11-18: dot | xnor_log (coupling attention test)
         else:
             self.mca = MutualCrossAttention(dim=dim, out_seq=False, lif_bias=lif_bias, num_heads=num_heads, tau=tau, drop=drop)
         mlp_hidden_dim = int(dim * mlp_ratios)
@@ -633,8 +635,11 @@ class myModel(nn.Module):
         self.pos_emb = bool(kwargs.get('pos_emb', False))
         self.ssa_pe = bool(int(kwargs.get('ssa_pe', 1)))
         self.attn_bn = bool(kwargs.get('attn_bn', False))
+        self.attn_score = str(kwargs.get('attn_score', 'dot'))           # MODI 2026-11-18 (coupling attention test): dot | xnor_log
         if self.hippo_xattn and self.hippo_ssa:
             raise ValueError('choose one of hippo_ssa and hippo_xattn')
+        if self.attn_score != 'dot' and not (self.hippo_ssa or self.hippo_xattn):   # MODI 2026-11-18
+            raise ValueError('attn_score xnor_log needs hippo_ssa or hippo_xattn')
         self.T_h = int(kwargs.get('hippo_T', 0) or 0) or self.T
         if self.T_h != self.T and not (self.hippo_ssa or self.hippo_xattn):
             raise ValueError('hippo_T != number of tokens is only allowed with hippo_ssa / hippo_xattn (the memory-replay cross-attention needs T = N)')
@@ -804,7 +809,8 @@ class myModel(nn.Module):
                     qk_scale=qk_scale, drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[j],
                     norm_layer=norm_layer, sr_ratio=sr_ratios, lif_bias=lif_bias, tau=tau, attn=(gating=='original'),
                     ssa=self.hippo_ssa, xattn=self.hippo_xattn, ssa_pe=self.ssa_pe, attn_bn=self.attn_bn,
-                    xattn_mode=self.hippo_xattn_mode)                  # MODI 2026-10-26
+                    xattn_mode=self.hippo_xattn_mode,                  # MODI 2026-10-26
+                    attn_score=self.attn_score)                        # MODI 2026-11-18
                     for j in range(depths)])
 
         if self.neo_streams:

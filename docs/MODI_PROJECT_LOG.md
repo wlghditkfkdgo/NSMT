@@ -8477,3 +8477,169 @@ Spikformer식보다 "좋음"인 변형은 없다.
 **commit / tag:** 이 항목과 결과 파일, 11-17의 두 항목과 그 파일을 commit 하고 annotated tag `exp/nsmt-flif-neo-20261118-len720`(학습이 끝난 묶음, snapshot 아님)를 붙인다. `exp/nsmt-flif-neo`와 이 tag만 push 한다.
 
 ---
+
+## 2026-11-18 17:10 KST — 사전 고정 + 구현 (학습 전): 결합부 attention 교체 시험, XNOR + Log-PE (사용자 결정 11-18) — 기준 model(Neocortex MS query population)의 Hippocampus–Neocortex cross-attention과 Spikformer식의 self-attention에서, 점수 식 "q·k × 64^−0.5 + 학습되는 상대 위치 bias"를 Lv 외(NeurIPS 2025)의 "값이 같은 channel 수(XNOR) + 정수 log 거리 bias(Log-PE)"로 똑같이 바꾼다. ETT 네 칸 × seed 3 × 3 model = 36 run에, 같은 seed 재학습의 흔들림을 재는 참고 run 3개를 더한다. 이전 경로 16개 항목이 비트 단위로 같고, 점검 x1–x8 통과, check_ms 통과, smoke 3/3. 학습 없는 0단계 진단(지금 checkpoint 36개)도 함께 적는다
+
+**직전 commit:** `827c9a1f1` (입력 720 결과, tag `exp/nsmt-flif-neo-20261118-len720`). branch `exp/nsmt-flif-neo`.
+
+**사용자 요청 (11-18, 원문):** "1. 진행 2. 1번에서 개선이 없으면 진행"
+- 1번 = 내가 11-18에 추천한 "결합부 attention 교체 시험": 보고서(`NSMT/reports/NSMT 결합부 spiking attention 후보.md`) 1순위인 XNOR 유사도 + Log-PE를 기준 model과 Spikformer식 양쪽에 똑같이 넣고, ETT 4칸 × seed 3으로 돌리며, 학습 없는 진단을 먼저 한다.
+- 2번 = "긴 입력에 맞춘 학습 설정 다시 고르기"(입력 720에서 run 2/3가 첫 epoch에 멈춘 문제). 1번에서 개선이 없으면 이어서 진행한다. 아래 "2단계로 넘어가는 조건"에 미리 적는다.
+
+**질문:** 결합부 점수 식을 문헌이 처방한 식으로 바꾸면 기준 model이 Neocortex를 쓰게 되어 Spikformer식보다 앞서는가. 보고서의 근거는 두 가지였다. (가) NeurIPS 2025 forecasting 실험에서 "0/1 dot product + 더하는 위치 bias"가 무너지거나 수렴하지 못했다. (나) 11-08 측정에서 ETTm2의 attention 입력은 bias 항이 지배했다.
+
+**바꾸는 것 (두 model에 똑같이):**
+- 지금(dot): head마다 score_ij = (q_i · k_j) × 64^−0.5 + b_h(j − i). b는 0에서 시작해 학습되는 표다. attention 출력 neuron의 문턱은 1이다.
+- 새 식(xnor_log): head마다 score_ij = (d − |q_i| − |k_j| + 2 q_i·k_j + R_ij) × sigmoid(s).
+  - 앞의 네 항은 "q와 k의 값이 같은 channel 수"다(둘 다 1이거나 둘 다 0). d는 head 하나의 channel 수다(ETTh2 8, ETTm2 4).
+  - R_ij = ⌈log₂((N − 1)/(|i − j| + 1))⌉이고 0 아래는 0으로 자른다. 학습하지 않는 정수다. 가까울수록 크다. N = 24(입력 96)에서 거리 0 / 1 / 5 / 11이면 5 / 4 / 2 / 1이다.
+  - s는 module마다 학습되는 숫자 하나이고, 처음 값은 −4다(sigmoid(−4) ≈ 0.018).
+  - attention 출력 neuron의 문턱은 0.5다.
+  - 학습되던 bias 표는 없어진다. parameter는 module마다 375개 줄고 1개 는다(smoke에서 model당 −375 확인).
+- 배율·문턱·초기값은 저자 공식 코드(microsoft/SeqSNN `spikformer_xnor_log.py`)를 따랐다. 공식 코드에서 배율은 학습되는 sigmoid(s)이고 처음 값은 −4이며, attention 출력 neuron의 문턱은 `common_thr / 2` = 0.5다.
+- **공식 코드와 다른 점 (일부러):**
+  - Log-PE는 논문의 식을 썼다. 공식 코드의 `create_symmetric_matrix`는 거리에 대해 log가 아니라 직선으로 줄고, 같은 거리라도 행마다 값이 다르다. 상대 위치 bias라는 정의에 맞는 쪽은 논문 식이다.
+  - surrogate 함수, q·k·v 앞의 Linear·BN·LIF는 우리 model 것을 그대로 둔다(공식 코드는 ATan, 우리는 Sigmoid). 바꾸는 것은 점수 식, 문턱, 배율뿐이다.
+- **보고서의 S-X와 다른 점:** 보고서는 "XNOR + Log-PE + 발화율 배율"을 1순위 묶음으로 적었다. 이번에는 발화율 배율 대신 공식 코드의 학습 배율을 쓴다. 출판된 구현 그대로를 먼저 보려는 것이다. 발화율 배율(S-N)과 bias만 빼는 대조(S-B)는 돌리지 않는다.
+
+**arm (ETTh2 / ETTm2 × H96 / H720, 입력 96, seed 42 / 7 / 2026):**
+
+| arm | 조건 | suite |
+|---|---|---|
+| 기준 model, 지금 | `nsmt4q_pop_lif_msn`, `nsmt4q_pop_flif_msn` | `flif-v1-ett-ms` (11-08/09에 학습, 다시 돌리지 않음) |
+| Spikformer식, 지금 | `spk_ssa` | `flif-v1-gen-ett` (다시 돌리지 않음) |
+| 기준 model, XNOR | `nsmt4q_pop_lif_msn_xl`, `nsmt4q_pop_flif_msn_xl` (`--attn_score xnor_log`) | `flif-v1-ett-xnor` (새로 24 run) |
+| Spikformer식, XNOR | `spk_ssa_xl` | `flif-v1-ett-xnor` (새로 12 run) |
+| 재학습 흔들림 (보고 전용) | `spk_ssa`, `nsmt4q_pop_lif_msn`, `nsmt4q_pop_flif_msn`, ETTh2 H96 seed 42 | `flif-v1-ett-xnor-repro` (새로 3 run) |
+
+- 다른 설정은 모두 그대로다: patch 8, stride 4, embedding 64, head 8(ETTh2) / 16(ETTm2), layer 수, lr 5e-4, batch 64, weight decay 0.06, reduce scheduler, epoch 100(ETTh2) / 50(ETTm2), patience 10, L1 손실, best-validation weight로 test, `--no-bias`, T_h = 4.
+- "지금" arm을 다시 학습하지 않는 이유: 기본 경로는 고정 입력에서 비트 단위로 같고(아래 x0), 지금 checkpoint 36개가 새 코드에서 기록된 test MSE를 그대로 재현한다(아래 0단계). 이 GPU에서는 같은 seed라도 학습이 비트 단위로 재현되지 않으므로(10-29 이후 기록) 짝은 seed로만 맞춘다. 같은 seed를 다시 학습하면 얼마나 움직이는지는 참고 run 3개로 잰다. 이 값은 판정에 쓰지 않는다.
+- 보고서는 "모든 arm을 같은 code sha에서"라고 적었다. 위 이유로 지금 arm은 재사용한다. 보고서와 다른 점으로 적어 둔다.
+
+**코드 (기본값이면 기존과 같음):**
+- `classification/layers.py` `SSA_rel_scl(score='dot' | 'xnor_log')`: 새 식, `log_pe` buffer(정수 계산으로 만듦), `xl_scale` parameter, 문턱 0.5 attention neuron. `xnor_log`에서는 bias 표와 `rel_pos_idx`를 만들지 않는다. `kv_cat`과 함께 쓰면 거부한다.
+- `classification/model.py` `Block(attn_score=)`, `myModel` kwargs `attn_score`(hippo_ssa나 hippo_xattn이 없으면 거부). `load_model._neo_kwargs`에 전달. `config.py --attn_score {dot,xnor_log}`, 폴더 접미사 `_axl`.
+- `forecasting/scripts/run_ett_mixer.sh`에 `spk_ssa_xl`, `run_ett_dual.sh`에 `nsmt4q_pop_<lif|flif>_msn_xl`.
+- `classification/energy_recount_ett.py`: `spk_ssa_xl`도 head 재계산 대상에 넣었다(기존 조건의 결과는 바뀌지 않음).
+- 새 스크립트:
+  - `check_xnor.py`: 점검 x1–x8.
+  - `fw_identity_xnor.py`: 점검 x0.
+  - `coupling_diag.py`: 0단계와 학습 뒤 진단.
+  - `summarize_xnor.py`: 판정.
+  - `scripts/make_queue_xnor.sh`: 대기열.
+
+**점검 (fail-closed):**
+- **x0 이전 경로 비트 동일:** 수정 전에 `fw_identity_xnor.py save`로 저장하고 수정 뒤 `compare`로 비교했다. 대상은 ETTh2 / ETTm2 H96 seed 42의 `spk_ssa` 둘, 기준 model 둘(pop LIF ETTh2, pop f-LIF ETTm2)이다. 비교한 것은 같은 seed의 초기 weight, 학습 모드 출력과 모든 기울기, 저장된 checkpoint의 평가 출력이다. 16개 항목이 모두 같다(수정 전에도 두 번 돌려 같음을 먼저 확인).
+- **`check_xnor.py` x1–x8 모두 통과:**
+  - x1 Log-PE: 분수 계산으로 만든 식과 정확히 같다. 대칭이고 거리 |i − j|에만 달려 있다. 범위는 N = 24 / 84 / 180에서 0–5 / 0–7 / 0–8이다.
+  - x2 / x3: attention neuron 입력이 손으로 센 "값이 같은 channel 수 + R" × sigmoid(s) × v와 최대 차이 0으로 같다. self 모드와 query 모드, head 8 / 16 모두다. query 모드에서는 q가 kv(Neocortex 쪽 입력)에서 나온다.
+  - x4: 문턱은 dot 1.0, xnor 0.5다. 배율 초기값은 −4다. parameter 차이는 `xl_scale` 추가와 `relative_bias_table` 제거뿐이다.
+  - x5: `xl_scale`과 q / k / v Linear에 0이 아닌 유한한 기울기가 간다.
+  - x6: ETT 크기 model 4개(Spikformer식 ETTh2 / ETTm2, 기준 pop LIF ETTh2, 기준 pop f-LIF ETTm2)에서 같은 seed면 공유 parameter의 초기값이 같고, 다른 것은 bias 표 ↔ `xl_scale`·`log_pe`뿐이다. q / k / v는 같고 attention neuron 입력은 다르다.
+    - 학습 모드에서 첫 attention 발화는 dot 0, xnor 0–0.009였다. 처음에는 두 식 모두 attention이 거의 침묵한다.
+    - sigmoid(s)를 0.5로 올리면 xnor attention이 발화하고(0.57–0.58) 출력이 바뀐다.
+  - x7 batch 불변성: 4개를 한 번에, 하나씩, 섞어서 넣은 출력의 최대 차이가 0이다. 새 model과 무작위로 흔든 model 모두다.
+  - x8: `kv_cat`과 함께, 또는 hippo_ssa / hippo_xattn 없이 쓰면 거부한다.
+- **`check_ms.py` 다시 통과(ALL PASS):** membrane shortcut 경로 점검이다.
+- **smoke** (1 epoch, ETTh2 H96 seed 42, suite `smoke-xnor-20261118`, RESULT 3, SKIP 0):
+
+| 조건 | test MSE | rho_neo | rho_hippo | params | 시간 s |
+|---|---|---|---|---|---|
+| `spk_ssa_xl` | 0.286609 | — | 0.0481 | 169,281 (`spk_ssa` 169,656) | 32 |
+| `nsmt4q_pop_lif_msn_xl` | 0.286916 | 0.0205 | 0.0485 | 175,169 (`…_msn` 175,544) | 44 |
+| `nsmt4q_pop_flif_msn_xl` | 0.285086 | 0.0228 | 0.0500 | 175,169 | 44 |
+
+  - `logargs.txt`에 `attn_score xnor_log`가 찍혔다(기준 model은 `neo_res ms`도). 폴더는 `…_ssaT4_axl`, `…_xaT4_axl_xaquery_ng1_nresms_psi0.5 / psi1`이다. `model_state/{config.pt, best+model.pt, checkpoint.pth}`, `log/{best_log_0.csv, final+result.csv, train_0, val_0}`가 있다.
+  - `energy_recount_ett.py --suite smoke-xnor-20261118`: 3/3 test MSE 재현, head 입력 0/1, 점검 통과.
+  - `coupling_diag.py --arms new --suite_new smoke-xnor-20261118 --only ETTh2_96 --seeds 42`: 3/3 test MSE 재현, batch 불변(최대 차이 2.4e-7), attention 분해의 합이 실제 입력과 같다.
+  - smoke에서 이미 보인 것(1 epoch, 판정에 쓰지 않음):
+    - 기준 model의 "Neocortex가 바꾸는 항"의 비중이 0.042다(지금 checkpoint의 같은 칸은 0.57–0.69, 0단계 표).
+    - 새 식에는 query와 무관한 큰 항(d − |k_j|)이 모든 query에 들어간다. 이 항이 그 자리를 차지했다.
+    - y 발화율은 0.047 / 0.041로, 지금(0.026 / 0.027)보다 높다.
+- **요약 스크립트 시험:** 지금 arm의 줄을 이름만 `_xl`로 바꾼 가짜 suite로 `summarize_xnor.py`를 돌렸다(시험 뒤 지움). V1 / V2 / V4는 0이고, V3은 입력 길이 시험의 입력 96 값(−0.12 / −0.21 %)을 그대로 재현했다. 한 칸 빼기 판정은 합성 값으로 시험했다(한 칸이 끌면 "one-cell (weak)", 고르면 "robust").
+
+**0단계: 학습 없는 진단, 지금 checkpoint 36개 (`coupling_diag.py --arms now`; test split, best-validation weight, seed 평균)**
+
+- **재현과 batch 불변성:** 36개 모두 새 코드에서 기록된 test MSE / MAE / n을 그대로 재현했다(차이 ≤ 2e-6, 아니면 스크립트가 멈춤). batch 불변성도 36개 모두 통과했다(최대 차이 4.8e-7). 결과 파일은 `classification/results/flif-v1-xnor-diag-now.{json,md}`다.
+- **열의 뜻:**
+  - "바꾸는 항 비중": attention neuron 입력을 세 항으로 나눈 크기 비중이다(11-08 방식). 기준 model은 Neocortex가 바꾸는 항, Spikformer식은 query가 바꾸는 항이다.
+  - "위치 항 비중": 학습된 bias 항의 비중이다.
+  - ΔMSE: test 때만 그 항을 없앴을 때의 test MSE 변화다.
+  - 핵심 연산: syops가 세지 않는 q·kᵀ, 위치 덧셈, score × v다(window 하나, 모든 channel 행 합). 앞 숫자는 덧셈마다 0.9 pJ, 뒤 숫자는 정수 부분을 0.03 pJ로 센 값이다.
+
+| model | 칸 | 바꾸는 항 비중 | 위치 항 비중 | ΔMSE % Neocortex 0 | ΔMSE % 위치 0 | ΔMSE % 내용 0 | y 발화율 | gate가 지우는 비율 | bias \|b\| 평균 / 최대 | 핵심 연산 µJ / window (0.9 pJ; 정수) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 기준 pop LIF | ETTh2 H96 | 0.673 | 0.327 | -1.55 | -0.17 | -1.55 | 0.0223 | 3.51 % | 0.020 / 0.070 | 0.172; 0.167 |
+| 기준 pop LIF | ETTh2 H720 | 0.505 | 0.495 | -0.51 | -0.04 | -0.51 | 0.0214 | 3.55 % | 0.037 / 0.169 | 0.170; 0.166 |
+| 기준 pop LIF | ETTm2 H96 | 0.185 | 0.813 | +1.18 | +1.44 | +1.16 | 0.0721 | 17.08 % | 0.137 / 0.555 | 0.335; 0.325 |
+| 기준 pop LIF | ETTm2 H720 | 0.333 | 0.667 | +0.61 | -0.02 | +0.61 | 0.0315 | 7.84 % | 0.064 / 0.292 | 0.306; 0.299 |
+| 기준 pop f-LIF | ETTh2 H96 | 0.611 | 0.389 | +1.20 | -0.18 | +1.20 | 0.0227 | 5.58 % | 0.022 / 0.079 | 0.176; 0.171 |
+| 기준 pop f-LIF | ETTh2 H720 | 0.566 | 0.434 | +1.52 | +0.00 | +1.52 | 0.0217 | 6.31 % | 0.031 / 0.149 | 0.168; 0.164 |
+| 기준 pop f-LIF | ETTm2 H96 | 0.160 | 0.836 | +0.18 | +2.08 | +0.24 | 0.0692 | 19.43 % | 0.148 / 0.679 | 0.339; 0.329 |
+| 기준 pop f-LIF | ETTm2 H720 | 0.336 | 0.664 | +0.49 | +0.04 | +0.49 | 0.0302 | 9.17 % | 0.064 / 0.288 | 0.307; 0.299 |
+| Spikformer식 | ETTh2 H96 | 0.559 | 0.441 | — | -0.07 | +1.18 | 0.0205 | 8.36 % | 0.036 / 0.141 | 0.175; 0.169 |
+| Spikformer식 | ETTh2 H720 | 0.533 | 0.467 | — | +0.34 | -1.00 | 0.0227 | 10.55 % | 0.037 / 0.161 | 0.176; 0.171 |
+| Spikformer식 | ETTm2 H96 | 0.167 | 0.833 | — | +3.29 | +1.48 | 0.0660 | 21.17 % | 0.158 / 0.688 | 0.341; 0.330 |
+| Spikformer식 | ETTm2 H720 | 0.267 | 0.733 | — | +0.22 | +0.79 | 0.0227 | 10.69 % | 0.061 / 0.268 | 0.305; 0.300 |
+
+- **기준 model의 내용 항은 전부 Neocortex에서 온다.** Neocortex가 침묵하는 token의 고정 query(q0)는 사실상 0이다(그 항의 평균 크기 0.0001–0.0004). 그래서 "Neocortex 0"과 "내용 0"이 거의 같다. 11-17 측정과 같은 숫자다(평균 −0.07 % / +0.84 %, 12개 중 6 / 9개가 양수).
+- **위치 항이 쓸모 있는 칸은 ETTm2 H96 하나다.**
+  - 그 칸에서 위치 항을 지우면 MSE가 기준 pop LIF +1.44 %, pop f-LIF +2.08 %, Spikformer식 +3.29 % 오른다.
+  - 그 칸에서 위치 항 비중은 0.81–0.84다.
+  - 다른 칸에서는 위치 항을 지워도 ±0.34 % 안이다.
+  - 새 식은 학습 bias를 학습하지 않는 Log-PE로 바꾼다. 이 칸에서는 위치 정보를 잃을 수 있다. 두 model 모두에 해당하고, Spikformer식이 더 크게 기댄다.
+- **점수의 97.5 %가 0이다.** dot product q·k가 0인 (query, key) 쌍의 비율이다. 세 model 모두 같다.
+- **attention 핵심 연산 energy는 작다.** 0.17–0.34 µJ / window이고, head 재계산 energy(입력 96에서 Spikformer식 9.3–11.6 µJ, 기준 model 11.3–18.0 µJ)의 1–4 %다.
+
+**판정 (사전 고정, `summarize_xnor.py`; 값이 빠지거나 중복되거나 유한하지 않으면 멈춤; 새 줄은 seq_len 96과 sha 하나여야 함):**
+- 규칙은 지금까지와 같다. r = A / B − 1(test MSE)을 12쌍(4칸 × seed 3)에서 계산한다. 좋음: 평균 ≤ −1 %이고 8/12 이상 낮음. 나쁨: 그 거울. 나머지는 차이 없음. 칸별은 ±1 %와 2/3. 두 neuron 결론: 둘 다 같으면 그 판정, 하나만이면 "neuron에 따라 다름(약함)".
+- **V1** 기준 XNOR − 기준 지금: 기준 model이 좋아지는가.
+- **V2** Spikformer식 XNOR − Spikformer식 지금.
+- **V3** 기준 XNOR − Spikformer식 XNOR: 새 식에서 기준 model의 앞섬.
+- **V4** 격차의 변화: 쌍마다 g = r(V3) − r(지금 기준 − 지금 Spikformer식) (%p). 커짐: 평균 ≤ −1이고 8/12 음수. 줄어듦: 그 거울.
+- **한 칸 빼기:** "차이 없음"이 아닌 판정마다 칸 하나를 뺀 9쌍 평균 네 개를 적는다. 넷 모두 같은 부호로 |평균| ≥ 1이면 "robust", 아니면 "한 칸 의존(약함)".
+- **보고 전용:** MAE, validation L1, 첫 epoch 멈춤 수, 발화율, energy(head 재계산; attention 핵심 연산을 더한 값도), parameter, run 시간, 재학습 흔들림, 학습 뒤 진단(`coupling_diag.py --arms new`).
+
+**읽는 법 (미리 적음):**
+- **Neocortex 쪽 양성:** 다음이 모두 성립해야 한다.
+  - V3 "좋음"이고 V4 "커짐"이다(두 neuron 모두, 또는 한 neuron이라도 robust).
+  - 학습 뒤 진단에서 "Neocortex가 바꾸는 항"의 비중과 "Neocortex 0" ΔMSE가 지금보다 크다.
+  - y가 퇴화하지 않았다(거의 0이거나 Hippocampus spike를 대부분 지우는 상태가 아님).
+- **attention만의 개선:** V1과 V2가 함께 "좋음"이고 V3 / V4가 차이 없음이다. 두 model에 공통으로 쓸 수 있는 더 나은 점수 식이라는 뜻이다. Neocortex 주장의 근거로는 쓰지 않는다.
+- **음성:** V3와 V4가 차이 없음이다. 그러면 attention 점수 식 교체는 멈춘다.
+- **2단계로 넘어가는 조건 (사용자 결정 11-18의 2번):** 어느 neuron에서도 V1이 "좋음"이 아니고 V4가 "커짐"이 아니면, 2단계(긴 입력에 맞춘 학습 설정 다시 고르기)를 따로 사전 고정하고 진행한다. 하나라도 있으면 결과를 보고하고 사용자 결정을 기다린다.
+
+**사전 예상:**
+- V1 / V2 / V3: 모두 차이 없음(두 neuron 모두). 다만 ETTm2 H96 칸은 V1·V2 모두 나빠질 수 있다. 0단계에서 학습 bias가 쓸모 있는 위치 정보를 나른 유일한 칸이고, 새 식은 그것을 학습하지 않는 Log-PE로 바꾸기 때문이다. Spikformer식이 그 bias에 더 크게 기대므로(+3.29 %), 그 칸에서는 V2가 V1보다 더 나빠질 것이다.
+- V4: 변화 없음.
+- 진단:
+  - 기준 model의 "Neocortex가 바꾸는 항" 비중은 지금보다 작아진다(smoke 0.042). 새 식의 query와 무관한 항(d − |k_j|)이 모든 query에 들어가기 때문이다. 그러면 이 후보는 보고서가 기대한 방향(Neocortex 항이 bias에 덮이지 않게 함)과 반대로 작동한다.
+  - y 발화율과 attention gate가 지우는 Hippocampus spike 비율은 지금보다 높아진다.
+  - "위치 항 0" ΔMSE는 지금처럼 ETTm2에서 더 크다.
+- energy: attention 핵심 연산을 0.9 pJ로 세면 새 식이 몇 배 비싸다(smoke ETTh2 H96: 1.00 µJ 대 지금 0.17 µJ). 정수 덧셈 0.03 pJ로 세면 더 싸다(0.07 µJ). head 재계산 energy 자체는 비슷하다.
+- 2단계로 넘어간다(위 조건이 성립한다).
+
+**실행:**
+- NSMT/에서 tmux `flif_xnor`으로 `bash scripts/gpu_pool2.sh nsmt_flif_v1/classification/scripts/queues/xnor-20261118.txt 0,1,2,3 2>&1 | tee -a nsmt_flif_v1/forecasting/results/flif-v1-ett-xnor-pool.log`을 띄운다(GPU 하나에 run 하나).
+- 대기열은 `bash nsmt_flif_v1/classification/scripts/make_queue_xnor.sh`로 만든다(39개: 재학습 3, 그다음 ETTm2, ETTh2).
+- 결과 줄: `nsmt_flif_v1/forecasting/results/flif-v1-ett-xnor/raw.txt`, `…/flif-v1-ett-xnor-repro/raw.txt`.
+- 끝나면(classification 폴더):
+  1. pool 기록을 `pool_runs.txt`로 복사한다.
+  2. `python energy_recount_ett.py --suite flif-v1-ett-xnor`(와 `-repro`)를 돌린다.
+  3. `python coupling_diag.py --arms new --out_json results/flif-v1-xnor-diag-new.json --out_md results/flif-v1-xnor-diag-new.md`를 돌린다.
+  4. `python summarize_xnor.py --diag_now results/flif-v1-xnor-diag-now.json --diag_new results/flif-v1-xnor-diag-new.json`을 돌린다.
+- pool이 도는 동안 저장소의 기존 코드와 실행 스크립트를 고치지 않는다. 끝나는 시각은 어림하지 않는다.
+
+**한계:**
+- XNOR + Log-PE는 self-attention forecasting에서 시험된 방법이다. 두 경로를 잇는 cross-attention, head 차원 4–8, ETT에서는 시험된 적이 없다.
+- 공식 코드와 Log-PE 식이 다르다(위). 결과가 나빠도 "공식 구현이 나빴다"로 읽을 수 없고, 거꾸로도 마찬가지다.
+- 0단계와 학습 뒤 진단의 test 때만 하는 제거(Neocortex 0, 위치 0, 내용 0)는 그 항을 쓰도록 학습된 model에서 재는 것이다. 절대값보다 arm 사이 차이로 읽는다.
+- attention 핵심 연산 energy는 내가 정한 계산 관행이다(위 docstring). memory 접근 비용은 세지 않는다.
+- 지금 arm은 다른 날, 다른 sha에서 학습됐다. 짝은 seed로만 맞춘다.
+- 입력 96만 본다. ETT만 본다. seed 3개, 탐색 수준이다.
+
+**not run (보류):** 발화율 배율만(S-N), bias만 제거(S-B), XNOR에서 memory 끔·순서 섞기 대조, 입력 336 / 720에서 XNOR, Hamming(SDHA)·거리 감쇠, CinC·MIT-BIH.
+
+**commit:** 이 항목과 코드·스크립트·점검·smoke 결과·0단계 진단 결과를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 pool을 시작한다. 이 commit이 run들의 sha가 된다.
+
+---

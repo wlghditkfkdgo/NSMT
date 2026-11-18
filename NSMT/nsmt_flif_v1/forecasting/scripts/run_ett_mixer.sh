@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# MODI 2026-11-18 (coupling attention test): + spk_ssa_xl = spk_ssa with --attn_score xnor_log (XNOR + Log-PE, Lv et al. NeurIPS 2025).
 # MODI 2026-11-16 (input-length test): env SEQ = input length (--seq_len, default 96 = every earlier run; RESULT gains seq_len=).
 # MODI 2026-10-27 (generalization batch): one ETT forecasting run of a CinC model of nsmt_flif_v1/classification
 # (Spikformer-style SSA or the Neo-mixer), trained by classification/train_forecast.py (classification/forecast_wrap.py:
@@ -21,6 +22,7 @@ export LD_LIBRARY_PATH="$(dirname "$(dirname "$PY")")/lib${LD_LIBRARY_PATH:+:$LD
 COND=${COND:?}
 case $COND in
   spk_ssa)           CF="--model myModel --hippo_ssa --hippo_T 4" ;;
+  spk_ssa_xl)        CF="--model myModel --hippo_ssa --hippo_T 4 --attn_score xnor_log" ;;   # MODI 2026-11-18 (coupling attention test): XNOR + Log-PE score
   mix_lif_bidir)     CF="--model neoMixer --mixer lif --mixer_bidir" ;;
   mix_flif_bidir)    CF="--model neoMixer --mixer flif --mixer_bidir --neo_alpha 0.5" ;;
   mix_pop_lif_bidir) CF="--model neoMixer --mixer pop_lif --mixer_bidir --pop_soma_init 0.5" ;;

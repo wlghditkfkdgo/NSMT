@@ -16,6 +16,7 @@ def _neo_kwargs(args):
                 hippo_T=getattr(args, 'hippo_T', 0), pop_soma_init=getattr(args, 'pop_soma_init', None),
                 hippo_xattn=getattr(args, 'hippo_xattn', False), pos_emb=getattr(args, 'pos_emb', False),   # MODI 2026-10-21
                 ssa_pe=int(getattr(args, 'ssa_pe', 1)), attn_bn=getattr(args, 'attn_bn', False),
+                attn_score=getattr(args, 'attn_score', 'dot'),                                      # MODI 2026-11-18
                 pop_taus=tuple(float(t) for t in str(getattr(args, 'pop_taus', '4,8,16,32')).split(',')),
                 tau_calib=getattr(args, 'tau_calib', True),                                         # MODI 2026-10-23 (popk streams)
                 neuron_all=getattr(args, 'neuron_all', 'sj_lif'),                                   # MODI 2026-10-29

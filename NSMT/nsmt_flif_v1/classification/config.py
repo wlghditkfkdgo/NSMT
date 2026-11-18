@@ -127,6 +127,8 @@ def parse_arguments():
     snn_arg.add_argument('--mixer_comb', choices=['or', 'xattn', 'xattn_ch', 'lin', 'linmem', 'linmx', 'xattnmem', 'linxor'], default='or',
                          help='MODI 2026-10-21 BiX: how the two mixer directions are combined (OR, or token-axis cross-attention q = forward, k/v = reverse)')
     snn_arg.add_argument('--attn_bn', action='store_true', default=False, help='BN in front of the SSA attention neuron (spk_ssa_abn)')
+    snn_arg.add_argument('--attn_score', choices=['dot', 'xnor_log'], default='dot',   # MODI 2026-11-18 (coupling attention test)
+                         help='SSA / hippo_xattn score: dot = q.k*dim^-0.5 + learned relative bias; xnor_log = XNOR + Log-PE (Lv et al. NeurIPS 2025)')
     snn_arg.add_argument('--hippo_xattn', action='store_true', default=False, help='hippocampus T_h repeats with token cross-attention (q = hippocampus, k/v = neocortex tokens)')
     # MODI 2026-10-26 (B): Spikformer-style self-attention kept + the neocortex tokens as extra keys / values; gradient share; memoryless control
     snn_arg.add_argument('--hippo_xattn_mode', choices=['replace', 'cat', 'query'], default='replace',
@@ -284,6 +286,8 @@ class Config():
                      'xattnmem': '_xamem', 'linxor': '_linxor'}[args.mixer_comb]   # MODI 2026-10-23 / 24: membrane fusion, spike xor
         if getattr(args, 'attn_bn', False):
             _iso += "_abn"
+        if getattr(args, 'attn_score', 'dot') != 'dot':                  # MODI 2026-11-18
+            _iso += "_axl"
         if getattr(args, 'hippo_xattn_mode', 'replace') != 'replace':      # MODI 2026-10-26 (B)
             _iso += f"_xa{args.hippo_xattn_mode}"
         if float(getattr(args, 'neo_grad', 0.5)) != 0.5:

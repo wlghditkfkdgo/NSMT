@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# MODI 2026-11-18 (coupling attention test): + nsmt4q_pop_<lif|flif>_msn_xl = the msn base with --attn_score xnor_log (XNOR + Log-PE).
 # MODI 2026-11-16 (input-length test): env SEQ = input length (--seq_len, default 96 = every earlier run; RESULT gains seq_len=);
 # + nsmt4q_pop_<lif|flif>_msn_{nomem,nshuf} = the msn base model with --neo_memoryless (every token alone, no state crosses
 # tokens) / --neo_shuffle (the Neocortex reads the tokens in a shuffled order, outputs put back): the controls of the T = N memory.
@@ -60,6 +61,8 @@ case $COND in                     # MODI 2026-10-29: dual-path models, B-form se
   nsmt4q_pop_lif_msn_nshuf)CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_shuffle" ;;
   nsmt4q_pop_flif_msn_nomem)CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_memoryless" ;;
   nsmt4q_pop_flif_msn_nshuf)CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_shuffle" ;;
+  nsmt4q_pop_lif_msn_xl) CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --attn_score xnor_log" ;;   # MODI 2026-11-18 (coupling attention test): msn + XNOR + Log-PE score
+  nsmt4q_pop_flif_msn_xl)CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --attn_score xnor_log" ;;
   nsmt4q_pop_lif_msn_freq)CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band freq" ;;   # MODI 2026-11-13 (frequency bands): msn + one input per population member
   nsmt4q_pop_lif_msn_same)CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band same" ;;
   nsmt4q_pop_lif_msn_rev) CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band rev" ;;

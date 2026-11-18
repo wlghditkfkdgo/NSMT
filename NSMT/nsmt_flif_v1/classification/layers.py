@@ -134,10 +134,21 @@ class MLP(nn.Module):
     
 class SSA_rel_scl(nn.Module):
     def __init__(self, dim, seq_len, num_heads=8, pe=True, lif_bias=False, tau=2.0, topk_ratio=None, drop=0.1, attn_bn=False, kv_cat=False,
-                 q_from_kv=False) -> None:
+                 q_from_kv=False, score='dot') -> None:
         super().__init__()
-        
+
         self.seq_len = seq_len
+        # MODI 2026-11-18 (coupling attention test): score 'xnor_log' = XNOR similarity + Log-PE of Lv et al. (NeurIPS 2025,
+        # "Toward Relative Positional Encoding in Spiking Transformers"; official code microsoft/SeqSNN spikformer_xnor_log.py):
+        # per head  score_ij = (d - |q_i| - |k_j| + 2 q_i.k_j + R_ij) * sigmoid(s)   (d - |q| - |k| + 2 q.k = channels where q = k),
+        # R_ij = ceil(log2((N - 1) / (|i - j| + 1))) clipped at 0 (the paper's formula; a fixed integer buffer, no learned bias
+        # table), s = one learned scalar per module, init -4 (the official code), attention neuron threshold 0.5 (official
+        # common_thr / 2). 'dot' = the unchanged default (q.k * dim^-0.5 + learned relative bias, threshold 1).
+        self.score = str(score)
+        if self.score not in ('dot', 'xnor_log'):
+            raise ValueError(f'score {score}: dot | xnor_log')
+        if self.score == 'xnor_log' and kv_cat:
+            raise ValueError('score xnor_log: not with kv_cat')
         # MODI 2026-10-21 (BN audit): optional BN in front of the attention neuron (the only neuron without Linear+BN in front)
         self.attn_bn = nn.BatchNorm1d(dim) if attn_bn else None
         self.num_heads = num_heads
@@ -157,11 +168,27 @@ class SSA_rel_scl(nn.Module):
         self.v_bn = nn.BatchNorm1d(dim)
         self.v_lif = MultiStepLIFNode(tau=tau, detach_reset=True, backend='cupy', surrogate_function=surrogate.Sigmoid())
         
-        self.attn_lif = MultiStepLIFNode(tau=tau, detach_reset=True, backend='cupy', surrogate_function=surrogate.Sigmoid())
+        if self.score == 'xnor_log':                    # MODI 2026-11-18: official threshold common_thr / 2 = 0.5
+            self.attn_lif = MultiStepLIFNode(tau=tau, v_threshold=0.5, detach_reset=True, backend='cupy', surrogate_function=surrogate.Sigmoid())
+        else:
+            self.attn_lif = MultiStepLIFNode(tau=tau, detach_reset=True, backend='cupy', surrogate_function=surrogate.Sigmoid())
 
         self.proj_linear = SpikLinearLayer(in_dim=dim, out_dim=dim, tau=tau, lif_bias=lif_bias)
 
-        if pe:
+        if self.score == 'xnor_log':                    # MODI 2026-11-18: learned scale, fixed integer Log-PE (exact integer arithmetic)
+            self.xl_scale = nn.Parameter(torch.tensor(-4.0))
+            if self.seq_len < 2:
+                raise ValueError('xnor_log needs at least 2 tokens')
+            L1 = self.seq_len - 1
+            R = torch.zeros(self.seq_len, self.seq_len)
+            for i in range(self.seq_len):
+                for j in range(self.seq_len):
+                    r = 0
+                    while (2 ** r) * (abs(i - j) + 1) < L1:   # smallest r >= 0 with 2^r >= (N-1)/(|i-j|+1)
+                        r += 1
+                    R[i, j] = r
+            self.register_buffer('log_pe', R if pe else torch.zeros_like(R))
+        elif pe:
             self.relative_bias_table = nn.Parameter(torch.zeros((2 * self.seq_len -1), num_heads))
             
             # coords = torch.meshgrid((torch.arange(1), torch.arange(self.seq_len)), indexing='ij')
@@ -229,12 +256,17 @@ class SSA_rel_scl(nn.Module):
         q = self.q_lif(self.q_bn(q.transpose(-1, -2)).transpose(-1, -2).reshape(T, B, N, C).contiguous())
         q = q.reshape(T, B, N, self.num_heads, C//self.num_heads).permute(0, 1, 3, 2, 4).contiguous()
 
-        attn_scores = (q @ k.transpose(-2, -1)) * self.scale  # attn shape = [T B head N N]
-        
+        if self.score == 'xnor_log':                    # MODI 2026-11-18: matching channels + Log-PE, times the learned scale
+            d_h = q.shape[-1]
+            attn_scores = d_h - q.sum(-1).unsqueeze(-1) - k.sum(-1).unsqueeze(-2) + 2 * (q @ k.transpose(-2, -1))
+            attn_scores = (attn_scores + self.log_pe) * torch.sigmoid(self.xl_scale)
+        else:
+            attn_scores = (q @ k.transpose(-2, -1)) * self.scale  # attn shape = [T B head N N]
+
         if mask is not None:
             attn_scores = attn_scores + mask * float('-inf')
-           
-        if self.pe:
+
+        if self.pe and self.score == 'dot':
             # relative_bias = self.relative_bias_table.gather(0, self.relative_idx.repeat(1, self.num_heads))
             # relative_bias = rearrange(relative_bias, '(h w) c -> 1 c h w', h=1*self.seq_len, w=1*self.seq_len)
             relative_bias = RelBias1DDeterministicFn.apply(self.relative_bias_table, self.rel_pos_idx)

@@ -1,0 +1,28 @@
+# MODI 2026-11-18: checks of the XNOR + Log-PE score (coupling attention test), run at base 827c9a1f1 + the uncommitted change
+## x0 fw_identity_xnor.py compare (after the change; saved before it)
+identical (16 entries)
+## check_xnor.py
+pass x1 Log-PE N=24: exact formula, symmetric, depends on |i-j| only; range 0..5, distance 0 / 1 / 5 / 11 -> [5, 4, 2, 1]
+pass x1 Log-PE N=84: exact formula, symmetric, depends on |i-j| only; range 0..7, distance 0 / 1 / 5 / 11 -> [7, 6, 4, 3]
+pass x1 Log-PE N=180: exact formula, symmetric, depends on |i-j| only; range 0..8, distance 0 / 1 / 5 / 11 -> [8, 7, 5, 4]
+pass x2 self H=8: attention-neuron input == brute force (max |diff| 0.00e+00); q from x; q / k / v 0/1, rates 0.030 / 0.030 / 0.030
+pass x2 self H=16: attention-neuron input == brute force (max |diff| 0.00e+00); q from x; q / k / v 0/1, rates 0.031 / 0.030 / 0.030
+pass x3 query H=8: attention-neuron input == brute force (max |diff| 0.00e+00); q from kv; q / k / v 0/1, rates 0.030 / 0.031 / 0.030
+pass x3 query H=16: attention-neuron input == brute force (max |diff| 0.00e+00); q from kv; q / k / v 0/1, rates 0.031 / 0.029 / 0.028
+pass x4 thresholds dot 1.0 / xnor 0.5; scale init -4.0; params added ['xl_scale'], removed ['relative_bias_table']
+pass x5 gradients non-zero and finite: [('xl_scale', 0.20705851912498474), ('q_linear.weight', 11.815340042114258), ('k_linear.weight', 32.68819808959961), ('v_linear.weight', 75196.09375)]
+pass x6 spk_ssa ETTh2: shared init identical True; dot-only ['inner.data_block.0.ssa.rel_pos_idx', 'inner.data_block.0.ssa.relative_bias_table']; xnor-only ['inner.data_block.0.ssa.log_pe', 'inner.data_block.0.ssa.xl_scale']; same q/k/v True; attention-neuron input differs True; init attention firing dot 0.0000 / xnor 0.0079 (max input dot 0.875 / xnor 1.619); with sigmoid(s) = 0.5 xnor fires 0.5777 and the output moves True
+pass x7 spk_ssa ETTh2 fresh: batch 4 == batch 1 and shuffled batch (max |diff| 0.00e+00)
+pass x7 spk_ssa ETTh2 perturbed: batch 4 == batch 1 and shuffled batch (max |diff| 0.00e+00)
+pass x6 spk_ssa ETTm2: shared init identical True; dot-only ['inner.data_block.0.ssa.rel_pos_idx', 'inner.data_block.0.ssa.relative_bias_table']; xnor-only ['inner.data_block.0.ssa.log_pe', 'inner.data_block.0.ssa.xl_scale']; same q/k/v True; attention-neuron input differs True; init attention firing dot 0.0000 / xnor 0.0000 (max input dot 0.625 / xnor 0.773); with sigmoid(s) = 0.5 xnor fires 0.5772 and the output moves True
+pass x7 spk_ssa ETTm2 fresh: batch 4 == batch 1 and shuffled batch (max |diff| 0.00e+00)
+pass x7 spk_ssa ETTm2 perturbed: batch 4 == batch 1 and shuffled batch (max |diff| 0.00e+00)
+pass x6 nsmt4q_pop_lif_msn ETTh2: shared init identical True; dot-only ['inner.data_block.0.ssa.rel_pos_idx', 'inner.data_block.0.ssa.relative_bias_table']; xnor-only ['inner.data_block.0.ssa.log_pe', 'inner.data_block.0.ssa.xl_scale']; same q/k/v True; attention-neuron input differs True; init attention firing dot 0.0000 / xnor 0.0094 (max input dot 1.000 / xnor 1.403); with sigmoid(s) = 0.5 xnor fires 0.5791 and the output moves True
+pass x7 nsmt4q_pop_lif_msn ETTh2 fresh: batch 4 == batch 1 and shuffled batch (max |diff| 0.00e+00)
+pass x7 nsmt4q_pop_lif_msn ETTh2 perturbed: batch 4 == batch 1 and shuffled batch (max |diff| 0.00e+00)
+pass x6 nsmt4q_pop_flif_msn ETTm2: shared init identical True; dot-only ['inner.data_block.0.ssa.rel_pos_idx', 'inner.data_block.0.ssa.relative_bias_table']; xnor-only ['inner.data_block.0.ssa.log_pe', 'inner.data_block.0.ssa.xl_scale']; same q/k/v True; attention-neuron input differs True; init attention firing dot 0.0000 / xnor 0.0000 (max input dot 0.750 / xnor 0.755); with sigmoid(s) = 0.5 xnor fires 0.5731 and the output moves True
+pass x7 nsmt4q_pop_flif_msn ETTm2 fresh: batch 4 == batch 1 and shuffled batch (max |diff| 0.00e+00)
+pass x7 nsmt4q_pop_flif_msn ETTm2 perturbed: batch 4 == batch 1 and shuffled batch (max |diff| 0.00e+00)
+pass x8 refusals (kv_cat, no hippo_ssa / hippo_xattn): [True, True]
+ALL PASS
+## check_ms.py: ALL PASS (re-run after the change)
