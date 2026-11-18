@@ -8902,3 +8902,31 @@ Spikformer식보다 "좋음"인 변형은 없다.
 **commit:** 이 항목과 실행 스크립트·고르기·요약 스크립트·smoke 결과를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 driver를 시작한다. 이 commit이 새 run들의 sha가 된다.
 
 ---
+
+## 2026-11-18 20:47 KST — 중단 (사용자 결정): 긴 입력 learning rate 시험 — 75 run 중 4개 끝난 상태에서 멈췄다. 판정은 없다. 재시작은 비교 조건(SpikeDE 기준)이 확정된 뒤 논의한다
+
+**사용자 결정 (11-18, 원문):** "1. (가) 2. 우선 중단. 비교 조건에 확정된 이후에 재시작 논의 3. Spikformer의 1.2–1.5배인 지금 상태가 "비교적 적은 전력"에 들어가지만 그래도 가능하면 Spikformer이하인 전력량이 좋음."
+- 배경: 같은 날 사용자가 논문 목표를 다시 밝혔다. 세 과제(분류, 예측, 이상 탐지)에서 DNN보다 훨씬 적은 전력으로 DNN과 비슷한 성능을 보이는 공통 SNN model을 제안한다. contribution은 T = N이 temporal information을 더 잘 얻게 할 가능성이다. (수정한) Spikformer보다 평균적으로 좋아야 하고, 전력은 비교적 적어야 한다. 이 기준에서 긴 입력 lr 시험은 핵심 경로가 아니라고 내가 판단해 멈추기를 추천했다.
+- 1번 (가) = Spikformer와 기준 model을 모두 SpikeDE neuron으로 맞춘 비교다. 다음 항목에서 사전 고정한다.
+- 3번 = 지금 전력(Spikformer식의 1.2–1.5배)은 받아들일 수 있다. 가능하면 Spikformer식 이하가 좋다.
+
+**멈춘 방법:** 20:46:58에 내 PID만 골라 kill 했다: driver, pool worker, 도는 run 4개와 그 data loader. 다른 대화의 작업(train_forecast 24개, `wt-flif-pop-v3`)은 건드리지 않았다. tmux `flif_lrlong`도 닫혔다. 1단계 대기열에 67줄이 남았다. 고르기와 2단계는 실행되지 않았다.
+
+**끝난 run (4개, sha `0b2a40420`):**
+
+| run | test MSE | MAE | validation | energy µJ | 최저 epoch / epoch 수 | 비교 |
+|---|---|---|---|---|---|---|
+| 재학습 Spikformer식, ETTh2 H96 입력 720 seed 42 | 0.301676 | 0.361672 | 0.335137 | 103.990984 | 4 / 15 | 11-17 run(`fdeaa24d3`)과 비트 단위로 같음 |
+| 재학습 기준 pop LIF, 같은 칸 | 0.286764 | 0.348897 | 0.334321 | 120.780431 | 1 / 12 | 같음 |
+| 재학습 기준 pop f-LIF, 같은 칸 | 0.289810 | 0.351539 | 0.337163 | 147.020940 | 0 / 11 | 같음 |
+| Spikformer식, ETTm2 H720 입력 720 seed 42, lr 0.00005 | 0.363339 | 0.385122 | 0.356843 | 338.348034 | 1 / 12 | lr 0.0005 run은 0.381323 / 0.398192 / 0.363943, 최저 epoch 0 / 11 |
+
+- 재학습 3개는 마지막 epoch MSE까지 같다. 입력 720에서도 학습이 결정적이라는 19:38 정정을 하나 더 확인했다. run 시간은 GPU를 나눠 써서 2배 안팎 길었다(1230 → 2396 s 등).
+- lr 0.00005 run은 model 하나, 칸 하나, seed 하나다. test가 −4.7 % 낮고 validation도 −1.95 % 낮지만 판정이 아니다. 재시작 논의 때 참고한다.
+- 도중에 멈춘 4개(기준 pop LIF / pop f-LIF ETTm2 H720 lr 0.00005, Spikformer식과 기준 pop LIF ETTm2 H720 lr 0.0001)는 결과가 없다. 남은 run 폴더와 stdout은 로컬에 그대로 둔다.
+
+**산출물 (Git):** `nsmt_flif_v1/forecasting/results/flif-v1-ett-lr-repro/{raw.txt, pool_runs.txt}`, `flif-v1-ett-lr720-5e-05/{raw.txt, pool_runs.txt}`. energy 재계산은 하지 않았다(not run; 판정에 쓰지 않음). 완료된 학습 묶음이 아니므로 tag는 붙이지 않는다.
+
+**재시작할 때:** `make_queue_lrlong.sh`가 대기열을 처음부터 다시 만든다. 끝난 4개는 같은 sha면 다시 돌려도 같은 값이 나오므로, 빼고 돌릴지 그때 정한다.
+
+---
