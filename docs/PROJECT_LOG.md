@@ -13743,3 +13743,83 @@ head = s2                          H1(head가 membrane을 읽으면 CinC, ETT wo
 - 입력 720은 여전히 결정 대기다.
 
 **commit:** 이 기록과 `results/flif-v1-ett-spkmux-pn336/`(`driver.log` 제외), `results/flif-v1-ett-spkmux-pn336-pool_log.txt`를 commit하고 tag를 단 뒤 push한다(code 변경 없음).
+
+## 2026-11-18 22:52 KST — 사용자 요청 3개(원문 아래) 중 2 · 3: SpkMixer 지금 구조 설명(학습 없음) + ETT 입력 96 대 336 비교(보고 전용, 학습 없음). AD의 SF-de 비교(요청 1)는 설명 뒤 사용자 확인을 받고 시작한다
+
+**직전 commit:** `12734baa2`(sf336 결과, tag `exp/f-lif-pop-v3-pn-20261118`). 브랜치 `exp/f-lif-pop-v3`. 이 브랜치에서 도는 pool은 없다.
+
+### 사용자 요청(원문)
+> 1. AD에서 SF-de와 비교
+> 2. 1번을 수행하기 전에 현재 SpikMixer 세팅 및 구조가 어떠한지 먼저 이야기해줘.
+> 3. ETT 주 설정 선택 => 96과 336을 비교해줘.
+
+### 2. SpkMixer 지금 구조(code에서 읽음: `spk_mixer.py` 모듈 설명, `forecast_wrap.py`, `ad_wrap.py`, runner 3개, 각 튜닝 suite의 `selected_*.json`)
+- 입력: patch P, stride P/2, 끝 padding → token N개.
+  - ETT 입력 96은 N = 24, 336은 N = 84(P 8).
+  - MIT-BIH는 N = 11(P 32).
+  - AD는 N = 25(window 100, P 8).
+  - 각 token을 T_h = 4번 똑같이 반복한다.
+- embedding: Linear(P → D) → BN → LIF. 반복 축 4 step이다. 출력은 [4, B, N, D] spike다.
+- block(1개):
+  - mixer: 4개의 반복 각각을 token 축으로 처리한다. 순방향 stack과 역방향 stack은 각각 M층의 Linear → BN → LIF이고, token 축 N step이다. 이 부분이 "T = N"이다. 두 방향은 weight가 따로다.
+  - fusion(muxlin):
+    - s_d는 두 방향 막전위 차이 |H_f − H_r|를 BN → LIF에 넣은 neuron이다. 차이가 클 때 발화한다.
+    - L = LIF(BN(W[F ∨ R; s_d]))이고, W는 2D → D다.
+    - 출력은 s_d가 1이면 L, 0이면 F ∧ R이다.
+  - 잔차 연결:
+    - IAND = x(1 − m)(SEW-ResNet 방식, 0/1 유지).
+    - OR = max(x, m).
+    - ADD = x + m(정수값).
+  - MLP: SpikLinear 2개(LIF, 반복 축 4 step). 같은 잔차 연결을 쓴다.
+- head:
+  - ETT: 반복 평균한 token spike를 펼쳐 Linear(N·D → H)에 넣는다.
+  - MIT-BIH: token 평균 → Linear(D → 5), 반복 평균.
+  - AD: token마다 Linear(D → stride·C)로 복원한다.
+- neuron: 모든 층이 spikeDE LIF다(τ 2, θ 1, arctan surrogate scale 5).
+  - neuron 층 수는 5 + 2M이다. ETT 7, MIT-BIH 9, AD PSM 11.
+- SF-de와 다른 곳은 token 섞기뿐이다.
+  - SF-de는 spiking self-attention이다(q / k / v / attn LIF, 반복 축 4 step, 모든 token을 한 번에 본다).
+  - SpkMixer는 token을 시간처럼 차례로 LIF에 넣는다(T = N).
+  - embedding · MLP · head · 학습 규칙은 같다.
+- 과제별 튜닝 설정(validation으로 고름):
+
+| 과제 | 입력 / token N | D | 방향별 mixer 층 M | 잔차 | lr | 기타 | params |
+|---|---|--:|--:|---|--:|---|--:|
+| ETTh2 | 96 / 24 | 64 | 1 | IAND | 5e-4 | mlp 0.5, bs 64, L1 loss, 100 epoch(patience 10), 최고 validation weight | 169,280(SF-de 169,656) |
+| ETTm2 | 96 / 24 | 64 | 1 | IAND | 1e-4 | mlp 1, 50 epoch | — |
+| MIT-BIH | 187 / 11 | 384 | 2 | ADD | 0.02 | bs 512, cosine, 30 epoch, 마지막 weight, CAL 가중 CE | 1,200,768(SF-de 904,488) |
+| AD MSL | 100 / 25 | 64 | 2 | OR | 2e-3 | bs 128, 10 epoch(patience 3), MSE 복원, 채널을 한 token에 섞음 | — |
+| AD SMAP | 100 / 25 | 64 | 1 | ADD | 2e-3 | — | — |
+| AD PSM | 100 / 25 | 64 | 3 | ADD | 1e-3 | — | — |
+
+### 3. ETT 입력 96 대 336(보고 전용; `results/check-pn-20261118/len96_vs_336.py` → `.txt`, summarize_pn의 비교 함수 그대로)
+| model | 96 평균 MSE | 336 평균 MSE | 336 vs 96 R | 더 낮은 쌍 | 판정 | energy(96 → 336 µJ) |
+|---|--:|--:|--:|--:|---|---|
+| LIF SpkMixer | 0.3245 | 0.3096 | −3.98 % | 10/12 | better | 10.28 → 34.69(3.38배) |
+| SF-de | 0.3238 | 0.3103 | −3.35 % | 9/12 | better | 10.67 → 35.61(3.35배) |
+| SF-sj | 0.3234 | 0.3116 | −2.80 % | 9/12 | better | 10.48 → 35.13(3.36배) |
+| pop LIF all | 0.3212 | 0.3126 | −2.55 % | 7/12 | no clear difference | 28.50 → 98.68(3.46배) |
+
+- cell별 336 vs 96 r %(ETTh2 H96, ETTh2 H720, ETTm2 H96, ETTm2 H720):
+  - LIF SpkMixer: +0.39, −7.17, −2.78, −6.36
+  - SF-de: +4.23, −6.53, −2.68, −8.41
+  - SF-sj: +6.59, −5.69, −2.92, −9.18
+  - pop LIF all: +2.27, +1.63, −4.14, −9.96
+
+| 입력 | LIF SpkMixer vs SF-de R | 더 낮은 쌍 | energy 비 | cell별 r % | 논문 기준 |
+|---|--:|--:|--:|---|---|
+| 96 | +0.305 % | 5/12 | 0.9637 | +1.08, −0.24, +0.42, −0.04 | not met |
+| 336 | −0.254 % | 7/12 | 0.9740 | −2.64, −0.92, +0.35, +2.19 | met |
+
+- 격차 변화(336의 r − 96의 r, 음수면 336에서 SpkMixer가 SF-de 대비 좋아짐): −3.72, −0.67, −0.08, +2.23(평균 −0.56).
+  - 336에서 SpkMixer가 앞서는 것은 주로 ETTh2 H96에서 온다. 이 cell에서 SF 두 판은 입력이 길어지면 나빠지고(+4.2 %, +6.6 %), SpkMixer는 거의 그대로다(+0.4 %).
+  - ETTm2 H720에서는 SF-de가 더 많이 좋아진다.
+- 참고(설정 출처): 입력 96은 NSMT 원 code의 기본값이다(`nsmt_base/forecasting/config.py` `--seq_len` 기본 96, `nsmt_base/forecasting/scripts/upstream_ETTm2_96.sh` `seq_len=96`).
+
+### 읽은 것
+- 입력 336은 네 model 모두 MSE를 낮춘다. 단일 neuron 세 model은 판정 better다. energy는 모두 약 3.4배가 된다.
+- 논문 기준(SF-de보다 평균이 좋고 energy < 1)은 336에서만 met이다. 두 길이 모두 차이는 작다(+0.31 % / −0.25 %). 336의 우위는 ETTh2 H96 한 cell이 대부분이다.
+- 결과를 본 뒤 길이를 고르는 것이므로, 어느 쪽을 주 설정으로 해도 논문에 다른 쪽 결과를 함께 적어야 한다.
+- 주 설정 선택은 사용자 결정 대기다.
+
+**commit:** 이 기록과 `results/check-pn-20261118/len96_vs_336.py` · `.txt`를 `exp/f-lif-pop-v3`에 commit · push한다(model code 변경 없음, 학습 없음). 해시는 다음 기록에 적는다.
