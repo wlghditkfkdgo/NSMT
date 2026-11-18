@@ -9165,3 +9165,225 @@ Spikformer식보다 "좋음"인 변형은 없다.
 **다음:** 결과를 보고하고 사용자 결정을 기다린다. lr 시험 재시작, 이상 탐지, DNN 비교표, 비교 기준 Spikformer의 lr을 맞출지가 남아 있다.
 
 ---
+
+## 2026-11-18 23:57 KST — 분석 (학습 없음): 지금 실험들의 epoch별 train / validation loss 경향 (사용자 요청 11-18 밤의 3번) — ETT 180 run, MIT-BIH 18 run. **ETT: train loss는 학습 내내 내려가지만, validation loss는 대부분 epoch 0–3에서 가장 낮고 그 뒤 올라간다(과적합 표시 180 run 중 133개). 입력이 길수록 심하다(입력 720은 36 run 모두 과적합 표시이고, 28개가 첫 epoch에서 validation 최저).** 학습 끝에 train loss가 평평해지는 것은 수렴 때문이 아니라 lr이 1/100 이하로 깎였기 때문이다(180 run 모두 끝 lr ≤ 5e-6). **MIT-BIH: train CE는 0.006–0.008까지 내려가지만 test CE는 끝까지 크게 오르지 않고, test F1은 최고점에서 0.0–0.7 %p 안이다(과적합 표시 0/18).** 다만 train / test CE 차이가 8–10배다
+
+**사용자 요청 (11-18 밤, 원문):** "3. 현재 각 실험에서 각 epoch마다의 loss를 추적해보고, train loss와 val loss의 **경향성**에 대해서 분석해줘. (1) train loss가 계속해서 감소하고 있는 형태인지 (2) overfitting은 없는지 등등"
+
+**방법:** 학습 없이 각 run의 `log/best_log_0.csv`와 stdout(epoch별 lr)을 읽었다. 스크립트는 `classification/loss_trends.py`이고 결과는 `classification/results/flif-v1-loss-trends.{md,csv}`다.
+- **대상 ETT:** 입력 96의 Spikformer식 / 기준 pop LIF / pop f-LIF(지금, SpikeDE, XNOR)와 입력 336 / 720의 같은 세 model이다. 각 4칸 × seed 3 = 12 run, 모두 180 run이다.
+- **대상 MIT-BIH:** Spikformer식과 기준 model 둘(지금, SpikeDE)이다. 각 seed 3, 모두 18 run이다.
+- **ETT 학습 방식(복습):**
+  - lr 5e-4.
+  - validation L1이 2 epoch 좋아지지 않으면 lr × 0.1.
+  - 10 epoch 좋아지지 않으면 멈춤.
+  - validation이 가장 낮은 epoch의 weight로 test.
+- **MIT-BIH 학습 방식:** 30 epoch, cosine lr, 마지막 epoch weight로 test. epoch별 "val" 열은 test 파일이다. 무엇도 고르지 않고 여기서 읽기만 했다.
+- **판정용 표시** (숫자를 보기 전에 정한 서술용 문턱이다, 사전 고정 판정은 아님):
+  - ETT 과적합: 최저 epoch 뒤로 train이 2 % 이상 내려가는 동안 validation이 1 % 이상 올라감.
+  - train 아직 하강: 마지막 3 epoch 동안 train이 0.5 % 이상 내려감.
+  - MIT-BIH 과적합: test CE가 최저점에서 끝까지 10 % 이상 오르는 동안 train CE가 30 % 이상 내려감.
+- **점검:**
+  - 모든 run에서 log의 최저 epoch와 epoch 수가 RESULT 줄과 같다.
+  - MIT-BIH 마지막 epoch F1이 RESULT와 같다.
+  - 값이 빠지거나 유한하지 않으면 멈춘다.
+  - stdout의 lr이 180/180 run에서 읽혔다.
+
+**ETT (12 run씩, 중앙값):**
+
+| 입력 | model | epoch 수 | 최저 epoch (중앙값; epoch 0 수) | train 변화 epoch 0 → 끝 | train 변화 최저 뒤 | validation 변화 최저 → 끝 | 과적합 표시 | 마지막 3 epoch train |
+|---|---|---|---|---|---|---|---|---|
+| 96 | Spikformer식 | 14 | 3; 2 | −8.1 % | −3.7 % | +1.2 % | 7/12 | −0.17 % |
+| 96 | 기준 pop LIF | 13 | 2; 1 | −7.7 % | −4.0 % | +1.0 % | 6/12 | −0.17 % |
+| 96 | 기준 pop f-LIF | 12 | 2; 2 | −7.8 % | −3.6 % | +1.0 % | 6/12 | −0.16 % |
+| 96 SpikeDE | Spikformer식 | 14 | 2; 2 | −9.9 % | −5.3 % | +1.8 % | 8/12 | −0.26 % |
+| 96 SpikeDE | 기준 pop LIF | 12 | 2; 3 | −9.1 % | −5.7 % | +1.5 % | 8/12 | −0.26 % |
+| 96 SpikeDE | 기준 pop f-LIF | 12 | 2; 4 | −9.2 % | −5.4 % | +1.4 % | 8/12 | −0.26 % |
+| 336 | Spikformer식 | 12 | 0; 6 | −18.3 % | −13.8 % | +1.7 % | 11/12 | −0.44 % |
+| 336 | 기준 pop LIF | 11 | 0; 7 | −19.0 % | −15.8 % | +2.1 % | 11/12 | −0.52 % |
+| 336 | 기준 pop f-LIF | 11 | 0; 9 | −18.8 % | −16.0 % | +2.1 % | 12/12 | −0.46 % |
+| 720 | Spikformer식 | 11 | 0; 9 | −26.0 % | −24.1 % | +4.2 % | 12/12 | −0.74 % |
+| 720 | 기준 pop LIF | 11 | 0; 9 | −26.6 % | −25.2 % | +3.7 % | 12/12 | −0.77 % |
+| 720 | 기준 pop f-LIF | 11 | 0; 10 | −27.0 % | −25.3 % | +3.1 % | 12/12 | −0.77 % |
+
+- XNOR 세 model은 입력 96의 지금 model과 같은 모양이다(과적합 6–7/12, 최저 epoch 중앙값 1–2).
+- train이 내려간 epoch의 비율은 83–100 %다.
+- **lr:** 180 run 모두 lr이 두 번 이상 깎여 끝 lr이 5e-6 이하다. 마지막 3 epoch의 train 변화(−0.15 ~ −0.77 %)가 작은 것은 이 때문이다.
+- **칸별 (입력 96, spikingjelly, seed 3개):**
+  - ETTh2 H96: 기준 model은 6 run 모두 epoch 1에서 최저다. 과적합 표시는 model마다 1/3이다.
+  - ETTh2 H720, ETTm2 H720: 거의 모든 run이 과적합 표시다(2–3/3). 최저 epoch는 0–4다.
+  - ETTm2 H96만 예외다. 최저 epoch가 4–13이고 그 뒤 validation이 거의 그대로다(+0.0 ~ +0.7 %). 과적합 표시 0/9.
+- **train과 validation의 차이:** 최저 epoch에서 validation L1이 train L1보다 낮다(중앙값 −0.013 ~ −0.023). train은 학습 모드에서 epoch 동안 평균한 값이고 validation 구간은 다른 시기의 data라서, 이 차이 자체는 과적합의 척도가 아니다. 경향(최저 뒤 validation 상승)만 본다.
+
+**MIT-BIH (seed 3개):**
+
+| model | train CE epoch 0 → 끝 | 마지막 5 epoch train CE | test CE 최저 epoch | test CE 최저 → 끝 | test F1 최고 epoch | F1 최고 → 끝 | 끝 train / test CE | 과적합 표시 |
+|---|---|---|---|---|---|---|---|---|
+| Spikformer식 | −99.5 % | −38.4 % | 28 / 29 / 28 | +0.8 / +0.0 / +0.4 % | 26 / 27 / 27 | −0.26 / −0.04 / −0.17 %p | 0.0074 / 0.0561 | 0/3 |
+| 기준 pop LIF | −99.5 % | −39.1 % | 26 / 27 / 25 | +1.2 / +1.1 / +3.5 % | 28 / 26 / 25 | −0.07 / −0.70 / −0.40 %p | 0.0072 / 0.0587 | 0/3 |
+| 기준 pop f-LIF | −99.5 % | −40.2 % | 29 / 25 / 28 | +0.0 / +0.5 / +1.1 % | 29 / 25 / 28 | +0.00 / −0.13 / −0.24 %p | 0.0075 / 0.0570 | 0/3 |
+| Spikformer식 SpikeDE | −99.6 % | −41.0 % | 20 / 27 / 25 | +2.3 / +0.9 / +0.2 % | 25 / 24 / 27 | −0.21 / −0.45 / −0.12 %p | 0.0069 / 0.0576 | 0/3 |
+| 기준 pop LIF SpikeDE | −99.6 % | −43.4 % | 24 / 22 / 25 | +2.9 / +7.1 / +2.5 % | 25 / 27 / 27 | −0.04 / −0.23 / −0.06 %p | 0.0060 / 0.0626 | 0/3 |
+| 기준 pop f-LIF SpikeDE | −99.6 % | −46.1 % | 24 / 23 / 25 | +0.9 / +2.2 / +1.5 % | 27 / 27 / 28 | −0.11 / −0.34 / −0.04 %p | 0.0059 / 0.0594 | 0/3 |
+
+**사용자 질문에 대한 답:**
+1. **train loss가 계속 감소하는가:**
+   - ETT는 학습 내내 내려간다(입력 96에서 −8 ~ −10 %, 720에서 −26 %). 끝에서 거의 멈춘 것은 lr이 1/100 이하로 깎인 뒤라서다.
+   - MIT-BIH도 끝까지 내려간다(마지막 5 epoch에 −38 ~ −46 %). 30 epoch를 다 써도 train CE가 아직 줄고 있다.
+2. **과적합이 있는가:**
+   - **ETT는 있다.** validation이 epoch 0–3에서 가장 낮고, 그 뒤 train이 3–25 % 더 내려가는 동안 validation은 1–4 % 올라간다. 비교된 model들은 사실상 1–3 epoch 학습한 weight다.
+   - 입력이 길수록(head가 커질수록) 빨리, 크게 일어난다.
+   - 기준 model과 Spikformer식의 모양은 같다. SpikeDE로 바꾸면 조금 더 심하다(과적합 표시 8/12, validation 상승 +1.4 ~ +1.8 %).
+   - **MIT-BIH는 test 성능이 끝까지 거의 떨어지지 않는다.** 하지만 train CE가 test CE의 1/8–1/10까지 내려가 학습 data를 거의 외운 상태다. 기준 pop LIF SpikeDE의 seed 하나는 test CE가 최저점보다 7.1 % 올랐다.
+3. **그 밖에:**
+   - ETTm2 H96만 학습이 길게 이어진다(최저 epoch 4–13).
+   - ETT에서 lr을 깎는 시점(2 epoch 정체)이 과적합이 시작되는 시점과 겹친다. 그래서 "더 학습하면 좋아질" 여지가 있는지는 이 기록으로는 알 수 없다.
+
+**읽는 법 (내 판단, 행동하지 않음):**
+- ETT 비교는 모두 "1–3 epoch 만에 과적합하는 학습 설정" 안에서 이뤄졌다. lr을 낮추거나 정규화(dropout, weight decay)를 더하면 결과가 바뀔 수 있다.
+- 중단한 lr 시험의 끝난 run 하나(입력 720, Spikformer식, lr 0.00005: test 0.3633 대 0.3813)가 그 가능성을 보여 주지만, run 하나라 판정이 아니다.
+- MIT-BIH는 마지막 epoch로 시험하므로 과적합이 생기면 바로 성능에 들어가는데, 지금은 그런 모습이 없다.
+
+**한계:**
+- 탐색 수준의 서술이다. 문턱은 내가 정했다.
+- ETT train L1은 학습 모드에서 epoch 동안 평균한 값이라 validation과 같은 조건이 아니다.
+- MIT-BIH의 epoch별 test 값은 고르기에 쓰지 않았지만 test를 읽은 것이다.
+- CinC와 이상 탐지는 보지 않았다.
+
+**산출물 (Git):** `classification/loss_trends.py`, `classification/results/flif-v1-loss-trends.{md,csv}`. 학습이 없으므로 tag는 붙이지 않는다.
+
+---
+
+## 2026-11-18 23:59 KST — 사전 고정 + 구현 (학습 전): auxiliary loss 시험 (사용자 요청 11-18 밤의 1번) — NSMT의 재구성 손실을 기준 model에 켠다. Neocortex 출력만 읽는 Linear decoder가 각 patch의 저주파 부분을 복원하고, 그 오차를 학습 손실에 더한다. 기준 model 두 가지(Hippocampus spikingjelly / 전부 SpikeDE) × pop LIF / pop f-LIF에, ETT 4칸 × seed 3 = 48 run과 MIT-BIH seed 3 = 12 run이다. 끈 run과 Spikformer식은 기존 run을 쓴다. ETT는 forecasting wrapper에 decoder 호출을 더했다. 기본 경로는 16/16 같고 1 epoch 기본 smoke가 0.286664를 재현했다. 점검 14/14, smoke 10/10
+
+**직전 commit:** `a55b422c3` (SpikeDE 기준 비교 결과, tag `exp/nsmt-flif-neo-20261118-sde`). branch `exp/nsmt-flif-neo`.
+
+**사용자 요청 (11-18 밤, 원문):**
+1. "auxiliary loss를 ON해서 실험하여 비교해줘."
+2. "현재 cross-attention이 아닌 hippo와 neo의 두 tensor를 합치는 데에 "효과적일 거라고 생각하는" 방법을 'SNN 선행 연구 기반'으로 리스트업 해줘." → 문헌 조사 중이다(따로 보고한다).
+3. loss 경향 분석 → 바로 앞 항목.
+
+**배경:**
+- auxiliary loss = NSMT의 재구성 손실이다. `weak_decoder`(Linear D → patch 길이, bias 없음)가 Neocortex 출력 spike만 읽고, 입력 각 patch의 DCT 저역 부분을 복원한다. 손실은 (1 − r) × 과제 손실 + r × 재구성 MSE다.
+- 기준 model은 10-29 B형부터 이 손실을 꺼 왔다(MIT-BIH AUX 0, ETT는 wrapper가 decoder를 부르지 않음). NSMT 논문과 원 code는 켠다.
+- 10-20/21 시험(이전 NSMT 형태, CinC·SHD)에서는 끄거나 비중을 바꿔 좋아진 설정이 없었다. SHD population f-LIF만 비중이 클수록 좋았는데, SHD는 지금 과제가 아니다.
+- 지금 기준 model은 Neocortex를 거의 쓰지 않는다. 시험 때 Neocortex를 0으로 바꿔도 ETT MSE가 1 % 안쪽으로 움직인다. 재구성 손실은 Neocortex 출력이 입력 내용을 담도록 직접 학습시키므로, Neocortex를 쓰게 만들 수 있는 후보다.
+
+**무엇을 켜나:**
+- **ETT** (NSMT 예측 설정, `run_ett.sh` / 논문 Table 13 값): r = α × 예측 길이 / 720.
+
+| 데이터 | α | 저역 비율 (keep_ratio) | r (H96) | r (H720) |
+|---|---|---|---|---|
+| ETTh2 | 0.8 | 0.3 | 0.1067 | 0.8 |
+| ETTm2 | 0.5 | 0.25 | 0.0667 | 0.5 |
+
+  - validation, early stopping, weight 고르기는 지금처럼 예측 L1로만 한다. 원 NSMT는 합친 손실로 멈추고 마지막 weight를 썼다. 우리 비교 방식에 맞췄다.
+- **MIT-BIH:** 0.9 × CE + 0.1 × 재구성 MSE, keep_ratio 0.15다. ECG framework 기본값이고 NSMT 재현 run과 같다.
+- decoder는 시험(추론) 때 쓰지 않는다. 그래서 추론 energy는 바뀌지 않아야 한다.
+- **기준 model 두 가지 모두에 켠다.** 비교 기준 Spikformer를 spikingjelly(`spk_ssa`)로 할지 SpikeDE(`spkall_lif`)로 할지 사용자가 아직 정하지 않았다. 그래서 각 기준 model을 같은 기준의 Spikformer식과 비교한다.
+
+**run:**
+- suite `flif-v1-ett-aux` (48 run): `nsmt4q_pop_<lif|flif>_{msn,msn_sde}_aux` × ETTh2 / ETTm2 × H96 / H720 × seed 42 / 7 / 2026. 나머지 설정은 그대로다.
+- suite `flif-v1-mitbih-aux` (12 run): 같은 네 조건 × seed 3.
+- 끈 쪽 비교 대상: `flif-v1-ett-ms` / `flif-v1-ett-sde`, `flif-v1-mitbih-ms` / `flif-v1-mitbih-sde`.
+- Spikformer식 비교 대상: `flif-v1-gen-ett` / `flif-v1-gen-mitbih` (spk_ssa), `flif-v1-ett-sde` / `flif-v1-mitbih-sde` (spkall_lif).
+
+**판정 (사전 고정, `summarize_aux.py`; 기준 model마다, neuron마다; 규칙은 SpikeDE 비교와 같음):**
+- **A1** 켬 − 끔.
+  - ETT: 12쌍. 좋음 = R ≤ −1 %이고 8/12 낮음.
+  - MIT-BIH: 좋음 = 평균 ≥ +0.5 %p이고 2/3 양수.
+  - 나쁨은 그 거울이다.
+- **A2** 켠 기준 model − 같은 기준의 Spikformer식(같은 규칙). neuron마다 종합한다:
+  - strong: 한 과제 이상 좋음이고 나쁨 없음.
+  - weak: 방향만 맞음.
+  - 나머지: 지지 안 됨.
+- **A3** 격차 변화: A2 − (끈 기준 model − Spikformer식).
+  - ETT: 쌍마다. 커짐 = 평균 ≤ −1 %p이고 8/12 음수.
+  - MIT-BIH: seed마다. 커짐 = 평균 ≥ +0.5 %p이고 2/3.
+- 두 neuron 규칙과 한 칸 빼기는 지금까지와 같다.
+- **보고 전용:**
+  - 마지막 epoch 재구성 MSE, Neocortex 발화율.
+  - energy(켬 / 끔, Spikformer식 대비).
+  - 첫 epoch 멈춤, run 시간.
+  - spikingjelly 기준 model의 학습 뒤 진단(`coupling_diag.py --arms aux`): 시험 때 Neocortex를 0으로 바꾼 ΔMSE 등을 지금 checkpoint의 값(`flif-v1-xnor-diag-now.json`)과 나란히 적는다.
+- 값이 빠지거나 중복되거나 유한하지 않으면 멈춘다. 새 run 폴더의 `_nalif`가 기준과 맞지 않아도 멈춘다. ETT 폴더의 keep_ratio가 0.3 / 0.25가 아니거나, MIT-BIH 줄이 aux=0.1이 아니거나, 새 줄이 sha 하나가 아니어도 멈춘다.
+
+**읽는 법 (미리 적음):**
+- **A1 좋음:** 재구성 손실이 그 기준 model에 도움이 된다. 기본으로 켤지는 사용자가 정한다.
+- **A2 종합 strong:** 켠 기준 model이 Spikformer식보다 낫다고 말할 수 있다.
+- **진단에서 "Neocortex 0" 손해가 지금보다 크면:** model이 Neocortex를 더 쓴다. T = N contribution의 근거로 쓸 수 있는지 함께 본다. 성능 판정(A1 / A2)이 차이 없음이면 근거로 쓰지 않는다.
+- **A1 나쁨 (특히 ETT H720, r 0.5–0.8):** 예측 손실의 비중이 0.2–0.5로 줄어 생긴 손해일 수 있다. 칸을 따로 본다.
+
+**사전 예상:**
+- A1: 두 기준, 두 neuron, 두 과제 모두 차이 없음. ETT H720 칸에서는 조금 나빠질 수 있다(r이 크다).
+- A2 / A3: 지금과 같다. spikingjelly 기준은 지지 안 됨, SpikeDE 기준은 많아야 weak.
+- 재구성 MSE는 끈 run(학습되지 않은 decoder, MIT-BIH 0.08–0.10)보다 크게 낮다.
+- 진단: Neocortex 0의 손해가 조금 커진다(Neocortex가 입력 내용을 더 담음). 그래도 1–2 % 안쪽이다.
+- 추론 energy는 끈 run의 0.98–1.02배다.
+
+**코드 / 스크립트:**
+- `classification/forecast_wrap.py`:
+  - `Forecaster.aux` 속성(기본 False)을 더했다. 켜면 forward에서 Neocortex 출력을 보관한다.
+  - `aux_rec_loss()`는 `weak_decoder`로 복원하고 `org_x`(저역 목표)와의 MSE를 낸다. dual-path만 받는다.
+- `classification/train_forecast.py`:
+  - `--aux_alpha`(기본 0 = 지금과 같음)를 더했다. r = α × H / 720이고, r은 0과 1 사이여야 한다(아니면 멈춤).
+  - 켜면 `best_log_0.csv`에 `train_task`, `train_rec` 열이 더해진다.
+  - 끄면 학습 loop의 code가 이전과 같다.
+- `forecasting/scripts/run_ett_dual.sh`: 조건 `nsmt4q_pop_<lif|flif>_{msn,msn_sde}_aux`. `_aux`로 끝나면 데이터마다 `--keep_ratio`, `--aux_alpha`를 붙인다.
+- `classification/scripts/run_mitbih4.sh`: 같은 네 조건(AUX 0.1).
+- `classification/coupling_diag.py`: `--arms aux`와 `--suite_aux`를 더했다. 기존 `now` / `new`는 그대로다.
+- 새 `classification/check_aux.py`, `classification/summarize_aux.py`, `classification/scripts/make_queue_aux.sh`(대기열 60개: ETTm2 24, MIT-BIH 12, ETTh2 24).
+
+**점검 (fail-closed):**
+- **기본 경로 동일:**
+  - 고치기 전 저장한 기준과 고친 뒤를 비교했다(`fw_identity_xnor.py`). Spikformer식 / 기준 model forecaster의 초기 weight, 출력, 기울기, checkpoint 출력 16/16이 같다.
+  - 실행 스크립트 명령줄도 고치기 전과 같다: ETT 4개(`nsmt4q_pop_lif_msn`, `_flif_msn_sde`, `_lif_msn_xl`, `_flif_msn_nomem`), MIT-BIH 4개(`nsmt4q_pop_lif_msn`, `_flif_msn_sde`, `spk_ssa`, `nsmt4q_pop_flif_hattn`).
+  - `_aux` 조건은 `--keep_ratio`, `--aux_alpha`(ETT) 또는 AUX 0.1(MIT-BIH)만 다르다.
+  - **처음 MIT-BIH 명령줄 비교는 무효였다.** 가짜 python이 ETT 학습 script만 기록했고, 같은 이름의 ETT 결과 파일이 남아 있어 통과처럼 보였다. 기록 방식을 고쳐 다시 비교했다. 그 과정에서 조건 이름을 잘못 쓴 경우 하나(`nsmt4q_pop_flif_hattn`)도 고쳐 다시 돌렸다.
+- **`check_aux.py` 14/14 통과.** 대상은 ETTh2 H96 pop LIF와 ETTm2 H720 pop f-LIF(seed 42 config) × spikingjelly / SpikeDE다.
+  - a1: r 값 4개(0.106667 / 0.8 / 0.066667 / 0.5).
+  - a2: 목표가 복원과 같은 모양([24, 28, 1, 8])이고 유한하며, 원 patch와 다르다(저역).
+  - a3: 재구성 손실만으로 역전파하면 decoder와 Neocortex에만 기울기가 가고, attention의 q_linear와 head는 0이다.
+  - a4: aux를 켜도 예측 출력은 같다.
+  - a5: Spikformer식이나 forward 없이 부르면 거부한다.
+- **smoke** (1 epoch, seed 42, RESULT 10, SKIP 0):
+  - **기본 경로 끝단 확인:** `nsmt4q_pop_lif_msn` ETTh2 H96의 test MSE 0.286664, validation 0.313381이 11-14(`91d3b2d93`) / 11-08(`ebac2538e`) smoke와 같다.
+
+| 조건 | 칸 | test MSE / F1 | r | 첫 epoch train 손실 = (1 − r) 과제 + r 재구성 |
+|---|---|---|---|---|
+| 기준 pop LIF aux | ETTh2 H96 | 0.287335 | 0.106667 | 0.388454 = 0.893333 × 0.362862 + 0.106667 × 0.602784 |
+| 기준 pop f-LIF aux | ETTh2 H96 | 0.286287 | 0.106667 | 0.381331 (과제 0.362833, 재구성 0.536256) |
+| 기준 pop LIF SpikeDE aux | ETTh2 H96 | 0.289371 | 0.106667 | 0.389233 |
+| 기준 pop f-LIF SpikeDE aux | ETTh2 H96 | 0.288334 | 0.106667 | 0.382097 |
+| 기준 pop f-LIF aux | ETTm2 H720 | 0.401541 | 0.5 | 0.307697 = 0.5 × 0.413244 + 0.5 × 0.202150 |
+| MIT-BIH 네 조건 | — | F1 0.7004 / 0.6925 / 0.5799 / 0.5971 | — | 손실 = 0.9 CE + 0.1 MSE (예: 0.48183 = 0.9 × 0.533632 + 0.1 × 0.015615) |
+
+  - ETT 폴더에는 `keep_ratio+0.3` / `+0.25`가 들어 있다. SpikeDE 조건에는 `_nalif`가 있다. MIT-BIH RESULT는 aux=0.1이다.
+- **요약 스크립트 시험 (가짜 suite):** 기존 끈 run에 정해진 배율과 이동을 넣었다.
+  - A1 / A3가 심어 둔 값을 그대로 냈다(ETT −2.00 / +2.00 %, MIT-BIH +0.60 / −0.60 %p 등).
+  - 참고 줄은 기록된 값을 재현했다(spikingjelly −0.12 / −0.21 %, SpikeDE −0.80 / −0.75 %).
+  - 실패해야 하는 3경우가 멈췄다: keep_ratio 틀림, aux 가중치 틀림, sha 둘.
+
+**실행:**
+- NSMT/에서 tmux `flif_aux`로 다음을 띄운다(GPU 하나에 run 하나):
+  `bash nsmt_flif_v1/classification/scripts/make_queue_aux.sh && bash scripts/gpu_pool2.sh nsmt_flif_v1/classification/scripts/queues/aux-20261119.txt 0,1,2,3 2>&1 | tee -a nsmt_flif_v1/forecasting/results/flif-v1-aux-pool.log`
+- 끝나는 시각은 어림하지 않는다.
+- 끝나면(classification 폴더):
+  1. pool 기록을 두 suite의 `pool_runs.txt`로 복사한다.
+  2. `python energy_recount_ett.py --suite flif-v1-ett-aux`를 돌린다.
+  3. `python coupling_diag.py --arms aux --out_json results/flif-v1-aux-diag.json --out_md results/flif-v1-aux-diag.md`를 돌린다.
+  4. `python summarize_aux.py --diag results/flif-v1-aux-diag.json`을 돌린다.
+- pool이 도는 동안 저장소의 code와 실행 스크립트를 고치지 않는다.
+
+**한계:**
+- aux 설정(α, keep_ratio)은 NSMT 값 그대로이고 다시 고르지 않았다.
+- ETT H720은 예측 손실의 비중이 0.2(ETTh2) / 0.5(ETTm2)로 작아진다.
+- 고르기는 예측 L1이다(원 NSMT와 다름).
+- seed 3개, ETT와 MIT-BIH만 본다.
+- 진단은 spikingjelly 기준 model만 한다.
+
+**not run:** Spikformer식에 aux(Neocortex가 없어 해당 없음), 원 신호 그대로 복원(keep_ratio 0), α 탐색, CinC, 이상 탐지.
+
+**commit:** 앞 항목(loss 경향 분석)과 이 항목, code, 스크립트, 점검, smoke 결과를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 pool을 시작한다. 이 commit이 새 run들의 sha가 된다.
+
+---

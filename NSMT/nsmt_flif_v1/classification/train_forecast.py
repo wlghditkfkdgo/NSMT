@@ -9,6 +9,8 @@ L1 (--patience), the best-validation weights (checkpoint.pth) and the last-epoch
 both tested. Test metrics are MSE / MAE over all test windows, steps and channels on the scaled data (as test.py).
 Outputs follow train_rhythm.py: log/ = best-validation weights, log/last/ = last epoch; best_log_0.csv, train_0 / val_0
 TensorBoard events, logargs.txt, model_state/{config.pt, checkpoint.pth, best+model.pt}.
+MODI 2026-11-19: --aux_alpha > 0 adds NSMT's reconstruction loss for dual-path forecasters (see split_args); best_log_0.csv then
+also has train_task (forecast L1) and train_rec (reconstruction MSE); train_loss is the weighted sum. 0 (default) = unchanged.
 usage: python train_forecast.py --data ETTh2 --data_path ETTh2.csv --root_path <ETT-small> --seq_len 96 --pred_len 96
        --model neoMixer|myModel ... (see nsmt_flif_v1/forecasting/scripts/run_ett_mixer.sh)
 """
@@ -48,6 +50,11 @@ def split_args():
     ap.add_argument('--embed', default='timeF')
     ap.add_argument('--patience', type=int, default=10)
     ap.add_argument('--num_workers', type=int, default=2)
+    # MODI 2026-11-19 (aux loss, user request 11-19): NSMT's reconstruction loss for the dual-path forecasters. Training loss =
+    # (1 - r) * L1 + r * MSE(weak_decoder(Neocortex output), low-pass target) with r = aux_alpha * pred_len / 720 (the NSMT
+    # forecasting recipe, nsmt_flif_v1/forecasting/train.py); the low-pass fraction is --keep_ratio. Validation, early stopping and
+    # model selection stay on the forecast L1. 0 (default) = unchanged.
+    ap.add_argument('--aux_alpha', type=float, default=0.0)
     fc, rest = ap.parse_known_args()
     sys.argv = sys.argv[:1] + rest
     return fc
@@ -60,10 +67,21 @@ def data_args(args, fc):
                                  num_workers=fc.num_workers, augmentation_ratio=0)
 
 
-def train_epoch(model, dl, opt, H, device):
+def train_epoch(model, dl, opt, H, device, r=0.0):
     model.train(); model.train_mode = 'training'
     crit = nn.L1Loss()
     tot = 0.; n = 0
+    if r > 0:                                                          # MODI 2026-11-19: aux loss (see split_args)
+        tt = tr_ = 0.
+        for x, y, _, _ in dl:
+            x = x.float().to(device); y = y.float().to(device)[:, -H:, :]
+            out = model(x)
+            task = crit(out, y); rec = model.aux_rec_loss()
+            loss = task * (1. - r) + rec * r
+            opt.zero_grad(); loss.backward(); opt.step()
+            functional.reset_net(model)
+            tot += loss.item(); tt += task.item(); tr_ += rec.item(); n += 1
+        return {'loss': tot / n, 'task': tt / n, 'rec': tr_ / n}
     for x, y, _, _ in dl:
         x = x.float().to(device); y = y.float().to(device)[:, -H:, :]
         out = model(x)
@@ -146,6 +164,13 @@ def main():
     print(f'creating model >> number of parameters : {n_params}  tokens {model.num_patches}  T {model.T}'
           f'  T_h {getattr(model.inner, "T_h", model.T)}', flush=True)
     args.model_params = n_params
+    aux_r = fc.aux_alpha * fc.pred_len / 720.                         # MODI 2026-11-19 (aux loss)
+    if fc.aux_alpha != 0:
+        if model.kind != 'dual' or not (0. < aux_r < 1.):
+            raise ValueError(f'--aux_alpha: dual-path forecasters only, 0 < r < 1 (got kind {model.kind}, r {aux_r})')
+        model.aux = True
+        args.aux_r = aux_r
+        print(f'aux loss on: r = {aux_r:.6f} (aux_alpha {fc.aux_alpha} x {fc.pred_len} / 720), keep_ratio {args.keep_ratio}', flush=True)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     sched = get_scheduler(args.scheduler, opt, max_lr=args.lr, min_lr=min(1e-6, args.lr * 1e-2), max_epochs=args.epoch)
     if args.scheduler == 'cosine':
@@ -156,7 +181,8 @@ def main():
     ckpt = os.path.join(args.save_model_state_path, 'checkpoint.pth')
     epochs_run = 0
     for epoch in range(args.epoch):
-        tr = train_epoch(model, train_dl, opt, fc.pred_len, args.device)
+        tr = train_epoch(model, train_dl, opt, fc.pred_len, args.device, r=aux_r) if fc.aux_alpha != 0 else \
+            train_epoch(model, train_dl, opt, fc.pred_len, args.device)
         va = evaluate(model, val_dl, fc.pred_len, args.device)
         if args.scheduler == 'reduce':
             sched.step(va['loss'])

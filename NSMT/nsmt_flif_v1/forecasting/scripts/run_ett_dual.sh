@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# MODI 2026-11-19 (aux loss, user request 11-19): + nsmt4q_pop_<lif|flif>_{msn,msn_sde}_aux = the msn base (spikingjelly hippocampus) /
+#   the all-SpikeDE msn base with NSMT's reconstruction loss (--aux_alpha, --keep_ratio as run_ett.sh: ETTh2 0.8 / 0.3, ETTm2 0.5 / 0.25).
 # MODI 2026-11-18 (SpikeDE-basis comparison, user decision 11-18 "(가)"): + nsmt4q_pop_<lif|flif>_msn_sde = the msn base with
 #   --neuron_all lif (every spikingjelly LIF of the hippocampus -> SpikeDE LIF; the Neocortex keeps its SpikeDE population neuron).
 # MODI 2026-11-18 (long-input lr test): env LR = learning rate (unset = the dataset default above, every earlier run; the command
@@ -71,6 +73,10 @@ case $COND in                     # MODI 2026-10-29: dual-path models, B-form se
   nsmt4q_pop_flif_msn_xl)CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --attn_score xnor_log" ;;
   nsmt4q_pop_lif_msn_sde)   CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neuron_all lif" ;;   # MODI 2026-11-18 (SpikeDE basis)
   nsmt4q_pop_flif_msn_sde)  CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neuron_all lif" ;;   # MODI 2026-11-18 (SpikeDE basis)
+  nsmt4q_pop_lif_msn_aux)   CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms" ;;   # MODI 2026-11-19 (aux loss): + NSMT reconstruction loss (per dataset below)
+  nsmt4q_pop_lif_msn_sde_aux)   CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neuron_all lif" ;;   # MODI 2026-11-19 (aux loss): + NSMT reconstruction loss (per dataset below)
+  nsmt4q_pop_flif_msn_aux)  CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms" ;;   # MODI 2026-11-19 (aux loss): + NSMT reconstruction loss (per dataset below)
+  nsmt4q_pop_flif_msn_sde_aux)  CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neuron_all lif" ;;   # MODI 2026-11-19 (aux loss): + NSMT reconstruction loss (per dataset below)
   nsmt4q_pop_lif_msn_freq)CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band freq" ;;   # MODI 2026-11-13 (frequency bands): msn + one input per population member
   nsmt4q_pop_lif_msn_same)CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band same" ;;
   nsmt4q_pop_lif_msn_rev) CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band rev" ;;
@@ -92,6 +98,10 @@ case $DS in                       # patch emb heads mlp M lr bs epochs   (run_et
   ETTm2) HP="--patch_size 8 -emb 64 -nh 16 --mlp_ratios 1   --time_layers 2 -lr 0.0005 -bs 64"; E=50 ;;
   *) echo "bad dataset $DS"; exit 1 ;;
 esac
+if [[ $COND == *_aux ]]; then           # MODI 2026-11-19: NSMT forecasting aux setting (run_ett.sh / paper Table 13): keep_ratio, alpha
+  case $DS in ETTh2) CF="$CF --keep_ratio 0.3 --aux_alpha 0.8" ;; ETTm2) CF="$CF --keep_ratio 0.25 --aux_alpha 0.5" ;;
+    *) echo "aux: no NSMT setting for $DS"; exit 1 ;; esac
+fi
 E=${EPOCHS:-$E}; P=${PATIENCE:-10}; SEQ=${SEQ:-96}
 SUITE=${SUITE:-flif-v1-ett-dual-$(date +%Y%m%d)}
 RES=${RES:-$W/results/$SUITE}; LOG=${LOG:-$W/log/$SUITE}
