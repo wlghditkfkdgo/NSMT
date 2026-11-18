@@ -17,7 +17,8 @@
 #   main     needs the selections (summarize_pn.py --stage select): SF-de MIT-BIH final 3, then the grid ETT 9 x 12 = 108
 #            (flif-v1-ett-spkmux-pn), MIT-BIH 9 x 3 = 27 (flif-v1-mitbih-spkmux-pn)
 #   len336   needs the ETT selection: SF-de 12 + pop LIF mixer-only 12 = 24 (flif-v1-ett-spkmux-pn336)
-# usage (from anywhere): bash make_queue_pn.sh repro|smoke|sf|main|len336 ; prints <queue file>:<jobs>
+#   sf336    (user decision 11-18 21:4x: grid stopped, pop LIF mixer-only 336 dropped) SF-de 336 only = 12 (flif-v1-ett-spkmux-pn336)
+# usage (from anywhere): bash make_queue_pn.sh repro|smoke|sf|main|len336|sf336 ; prints <queue file>:<jobs>
 set -u
 W="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 Q="$W/scripts/queues"; mkdir -p "$Q"
@@ -38,7 +39,7 @@ sel() {                                                                         
   [ -s "$f" ] || { echo "no selection $f" >&2; exit 1; }
   python3 -c "import json; print(json.load(open('$f'))['selected']['$2'])" || exit 1
 }
-case ${1:?repro|smoke|sf|main|len336} in
+case ${1:?repro|smoke|sf|main|len336|sf336} in
   repro) f="$Q/pn-repro-$D.txt"; : > "$f"
          echo "SUITE=check-pn-repro-$D-ett COND=spkmx_lif_muxlin_iand LR=0.0005 LAYERS=1 $E ETTh2 96 42" >> "$f"
          echo "SUITE=check-pn-repro-$D-ett COND=spkmx_pop_lif_muxlin_iand LR=0.0005 LAYERS=1 $E ETTh2 96 42" >> "$f"
@@ -68,6 +69,11 @@ case ${1:?repro|smoke|sf|main|len336} in
          for dp in "ETTm2 96" "ETTm2 720" "ETTh2 720" "ETTh2 96"; do
            set -- $dp; l=$(sel ett $1) || exit 1
            for s in 42 7 2026; do g_ett "SEQ=336 SUITE=flif-v1-ett-spkmux-pn336" "COND=spkmx_pop_lif_muxlin_X NSCOPE=mixer" $dp $s >> "$f"; done
+           for s in 42 7 2026; do sf_ett "SEQ=336 SUITE=flif-v1-ett-spkmux-pn336" "$l" $dp $s >> "$f"; done
+         done ;;
+  sf336) f="$Q/pn-sf336-$D.txt"; : > "$f"
+         for dp in "ETTm2 96" "ETTm2 720" "ETTh2 720" "ETTh2 96"; do
+           set -- $dp; l=$(sel ett $1) || exit 1
            for s in 42 7 2026; do sf_ett "SEQ=336 SUITE=flif-v1-ett-spkmux-pn336" "$l" $dp $s >> "$f"; done
          done ;;
   *) echo "bad stage $1"; exit 1 ;;

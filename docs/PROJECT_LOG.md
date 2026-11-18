@@ -13577,3 +13577,90 @@ head = s2                          H1(head가 membrane을 읽으면 CinC, ETT wo
 - 결정이 오기 전까지 pool은 그대로 둔다.
 
 **commit:** 이 기록과 `results/check-pn-20261118/criterion_vs_sfde.txt`를 `exp/f-lif-pop-v3`에 commit · push한다(code 변경 없음). 해시는 다음 기록에 적는다.
+
+## 2026-11-18 21:40 KST — 사용자 결정: 격자(2 · 3부)를 멈추고 입력 336의 SF-de 12 run만 돌린다. "SF-de보다 평균적으로 좋고 전력은 적다"는 과제마다 부호로 판단한다. 멈춤 기록 + code 변경(학습 없음) + sf336 사전등록
+
+**직전 commit:** `e92bed512`(사용자 목표 진술 + 기존 변형 점검, 21:35 기록). 브랜치 `exp/f-lif-pop-v3`.
+
+### 사용자 결정(21:3x, 질문 2개에 대한 답)
+- 지금 도는 실험: "격자 멈추고 SF-de 336만". 입력 336의 SF-de 12 run만 돌려 D1(LIF 336 vs SF-de 336)을 끝낸다. 이미 끝난 격자 run은 판정에 쓰지 않는다.
+- "평균적으로 좋다"의 규칙: "과제마다 평균 우위(부호만)".
+  - 과제마다 seed · cell 평균이 SF-de보다 좋으면 된다. 크기 기준은 없다.
+  - 과제마다 energy는 SF-de의 1배 미만이어야 한다.
+  - 아래에서는 이것을 "논문 기준"이라 부른다.
+- 기존 판정 규칙(better / worse)은 그대로 두고, 논문 기준을 함께 적는다.
+- 이 기준은 부호만 보므로 차이가 아주 작아도 통과한다(예: MIT-BIH +0.04 %p). 질문할 때 이 점을 함께 적었다.
+
+### 멈춤(21:38)
+- `ps`로 읽은 PID로만 멈췄다.
+  - driver(`pn_driver.sh`) 3개.
+  - pool(`gpu_pool2.sh cinc_mixer_v1/scripts/queues/pn-main-20261118.txt`) 17개.
+  - runner(`run_ett_spk.sh`) 16개.
+  - 이 worktree의 python 24개.
+  - 남은 것은 0이다.
+- 다른 세션의 pool(tmux `flif_sde`, 큐 `nsmt_flif_v1/classification/scripts/queues/sde-20261118.txt`, 20:57 시작)은 그대로 돈다. 확인했다.
+- main 단계는 19:48:52 시작부터 21:38까지 START 18, DONE 10이었다.
+  - DONE 10 = SF-de MIT-BIH 최종 3 + 격자 7.
+  - 학습 중에 멈춘 run 8개는 모두 pop f-LIF 계열 ETTm2 H96이다.
+  - 남은 큐는 120줄이다. 큐 파일(local)은 그대로 둔다.
+- 격자 run 시간은 3,873–5,993 s였다(GPU 공유). 사전등록의 main 단계 예상(12–16시간)은 너무 짧았을 것이다.
+- 끝난 격자 7행(`results/flif-v1-ett-spkmux-pn/raw.txt`, 모두 `sha=1bed92742`, SKIP 0)은 판정에 쓰지 않는다. 기록으로만 남긴다.
+  - energy 재계산은 하지 않았다.
+
+| arm(ETTm2 H96, test MSE) | seed 42 | seed 7 | seed 2026 |
+|---|--:|--:|--:|
+| pop f-LIF all | 0.177880 | 0.177001 | 멈춤 |
+| pop f-LIF all+mean | 0.177058 | 0.177096 | 0.176704 |
+| pop f-LIF mixer | 0.178279 | 0.178288 | 멈춤 |
+
+- 참고로 같은 cell의 seed 평균은 LIF SpkMixer 0.1775, SF-de 0.1768이다(1부).
+
+### code 변경(이번 commit; 이 브랜치 pool이 멈춘 상태에서 고침)
+- `scripts/make_queue_pn.sh`: 단계 `sf336`을 추가했다.
+  - SF-de 336 12 run만 담는다(suite `flif-v1-ett-spkmux-pn336`).
+  - lr은 1부 선택값이다(ETTh2 5e-4, ETTm2 1e-4). 층은 Table 13이다.
+- `summarize_pn.py`: 단계 `sf336`을 추가했다.
+  - D1(판정)을 낸다.
+  - 보고: pop LIF all 336 vs SF-de 336, SF-de 336 vs SF-sj 336, LIF 336 vs SF-sj 336.
+  - "Paper bar" 표를 함께 쓴다(R < 0이고 energy A/B < 1이면 met).
+- `recheck_pn.py`: 단계 `sf336`을 추가했다. 같은 비교와 논문 기준을 독립으로 다시 계산한다.
+  - `cmp_ett`가 (R, energy)를 돌려주게 했다. 출력은 그대로다.
+- `scripts/sf336_driver.sh`(새 파일): pool → RESULT 12 / SKIP 0 확인 → energy 재계산 → `summarize_pn.py --stage sf336`. 실패하면 멈춘다.
+- 점검:
+  - 기존 단계의 출력이 바뀌지 않았다. `summarize_pn.py --stage sf_ett / sf_mit`가 commit된 `summary.md`와 바이트 단위로 같고, `recheck_pn.py select / sf_ett / sf_mit`가 commit된 `recheck_pn.txt`와 같다.
+  - dry run(`make_dry_pn.py`: SF-sj 336 행을 SF-de 336 이름으로 넣음) 결과, D1 = 11-18 P2 값(R −0.57 %, 6/12, energy 0.99)을 그대로 냈다. SF-de 336 vs SF-sj 336 = 0이다. 요약기와 재계산기가 일치한다.
+    - 출력: `results/check-pn-20261118/summarize_sf336_dry.md`, `recheck_sf336_dry.txt`.
+  - 큐 12줄의 lr / 층 / suite가 위와 같다(`pn-sf336-20261118.txt`, local).
+- 이 commit에 함께 넣는 것:
+  - 앞 두 기록에서 약속한 보고 script(`results/check-pn-20261118/popall_vs_sfde.py`, `criterion_vs_sfde.py`).
+  - 멈춘 격자의 `raw.txt`, `pool_log.txt`.
+  - `driver.log`는 local에 둔다.
+
+### sf336 사전등록(학습 전)
+- run: SF-de, 입력 336, ETTh2 / ETTm2 × H96 / H720 × seed 42 / 7 / 2026 = 12 run.
+  - 나머지 설정은 11-17 입력 336 test와 같다.
+  - GPU memory: run당 1.73 GB(18:07 기록). GPU마다 2 slot(8 slot)으로 돌린다.
+- 판정: D1 LIF 336 vs SF-de 336, ETT 규칙(R ≤ −1 %이고 8/12면 better, 거울이면 worse).
+- 논문 기준: D1에서 R < 0이고 energy A/B < 1이면 met.
+- 보고 전용: pop LIF all 336 vs SF-de 336(논문 기준 포함), SF-de 336 vs SF-sj 336, LIF 336 vs SF-sj 336.
+- 예상(확신 낮음):
+  - D1 no clear difference.
+  - 논문 기준은 met 쪽. LIF 336 vs SF-sj 336이 −0.57 %(6/12), energy 0.99였고, 입력 96에서 SF-de는 SF-sj와 비슷했다(+0.15 %, energy 1.02).
+  - energy 비가 1에 가까워서, energy 쪽 기준은 어느 방향으로도 갈 수 있다.
+- 예상 시간(내 추정): SF-sj 336 run은 ETTm2 13–16분, ETTh2 3–4분이었다. 입력 96에서 SF-de run은 SF-sj보다 1.5–2.5배 길었다(GPU 공유라 비교에 한계가 있음). 그래서 12 run에 약 1–1.5시간으로 본다.
+- 실행(이 commit · push 뒤, NSMT/에서): `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/sf336_driver.sh > /dev/null 2>&1 &`. driver.log는 `results/flif-v1-ett-spkmux-pn336/driver.log`(local)이다.
+
+### 논문 기준으로 다시 읽은 1부(같은 값; 판정은 바뀌지 않음)
+| 과제 | LIF SpkMixer vs SF-de | 평균 우위 | energy 비 | 논문 기준 |
+|---|---|---|--:|---|
+| ETT(입력 96) | R +0.30 % | 아니오(SpkMixer가 평균에서 조금 나쁨) | 0.96 | not met |
+| MIT-BIH | +0.04 %p | 예 | 1.00(9.44 대 9.45 µJ) | 성능은 met, energy는 1배에 거의 붙어 있음 |
+| AD | SF-de run 없음 | — | — | 아직 판단할 수 없음(SF-sj 대비는 AUC-PR +1.05 %, energy 1.03배) |
+
+- MIT-BIH의 energy 비는 소수 넷째 자리까지 다음 기록에 적는다(`energy_recount.csv`로 계산).
+
+### 다음
+- sf336 결과를 기록하고 commit · push한 뒤, 이 실험(pn)의 tag를 단다. 격자는 멈췄으므로 tag 설명에 "축소 완료"라고 적는다.
+- 그 뒤 사용자에게 가져갈 계획: 논문 기준을 채우는 방향(energy 절감 + 성능 유지, AD에서의 SF-de 비교).
+
+**commit:** 이 기록, 위 code 변경, 점검 출력, 보고 script, 멈춘 격자의 `raw.txt` · `pool_log.txt`를 `exp/f-lif-pop-v3`에 commit · push한 뒤 driver를 시작한다. 해시는 결과 기록에 적는다.

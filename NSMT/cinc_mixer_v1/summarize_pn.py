@@ -15,6 +15,10 @@ Stages:
                       every arm vs SF-de and SF-sj
     len336            part 4 (ETT input 336): D1 LIF vs SF-de, D2 pop LIF mixer vs LIF, D3 pop LIF mixer vs pop LIF all (verdicts); report:
                       pop LIF mixer vs SF-de, SF-de vs SF-sj
+    sf336             (user decision 11-18 21:4x: grid stopped, pop LIF mixer-only 336 not run) D1 LIF 336 vs SF-de 336 (verdict); report:
+                      pop LIF all 336 vs SF-de 336, SF-de 336 vs SF-sj 336, LIF 336 vs SF-sj 336; plus the paper bar
+Paper bar (user decision 11-18 21:4x, per task, sign only): a SpkMixer arm meets it against SF-de when its mean is better (ETT R < 0; MIT-BIH mean
+difference > 0) AND its energy is lower (energy A/B < 1). Reported next to the verdicts; the verdict rules below are unchanged.
 Rules (each task's existing one): ETT test MSE, r = 100 (A - B) / B per seed, R = mean over the 4 cells of the seed-mean r, better = R <= -1 % and
 >= 8 of 12 pairs lower, worse = mirror; MIT-BIH test macro-F1 (last-epoch weights), per-seed difference in %p, better = mean >= +0.5 and >= 2 of 3
 seeds higher, worse = mirror. Energy: total_fft_uJ_corr of energy_recount (per window / beat).
@@ -282,11 +286,35 @@ def stage_len336():
     return os.path.join(P336, 'summary.md'), ett_tables(T, 'Part 4, ETT input 336: SF-de and pop LIF mixer-only', Q, R)
 
 
+
+def paper_bar_ett(name, c):
+    """user decision 11-18: mean better (R < 0) and less energy (A/B < 1), sign only."""
+    ok_p, ok_e = c['R'] < 0, c['energy'] < 1
+    return f"| {name} | {c['R']:+.3f} | {'yes' if ok_p else 'no'} | {c['energy']:.4f} | {'yes' if ok_e else 'no'} | {'met' if ok_p and ok_e else 'not met'} |"
+
+
+def stage_sf336():
+    raw, en = os.path.join(L336, 'raw.txt'), os.path.join(L336, 'energy_recount.csv')
+    T = {'LIF 336': load_ett(raw, en, lambda ds: f'spkmx_lif_muxlin_iand_lr{LR_MX[ds]}_L1_s336', 'spkmx_lif_muxlin_iand'),
+         'pop LIF all 336': load_ett(raw, en, lambda ds: f'spkmx_pop_lif_muxlin_iand_lr{LR_MX[ds]}_L1_s336', 'spkmx_pop_lif_muxlin_iand'),
+         'SF-sj 336': load_ett(raw, en, lambda ds: f'spk_ssa_lr{LR_SF[ds]}_L{LY_SF[ds]}_s336', 'spk_ssa')}
+    T['SF-de 336'] = load_sfde_ett('_s336')
+    Q = [('D1 LIF 336 vs SF-de 336', T['LIF 336'], T['SF-de 336'])]
+    R = [('(report) pop LIF all 336 vs SF-de 336', T['pop LIF all 336'], T['SF-de 336']), ('(report) SF-de 336 vs SF-sj 336', T['SF-de 336'], T['SF-sj 336']),
+         ('(report) LIF 336 vs SF-sj 336 (= 11-18 P2)', T['LIF 336'], T['SF-sj 336'])]
+    L = ett_tables(T, 'Part 4 (reduced by the user decision of 11-18 21:4x), ETT input 336: LIF SpkMixer vs SF-de', Q, R)
+    L += ['', '## Paper bar (user decision 11-18): SpkMixer mean better than SF-de and less energy, sign only', '',
+          '| comparison | R % | mean better (R < 0) | energy A/B | less energy (< 1) | paper bar |', '|---|--:|---|--:|---|---|']
+    for name, x, y in Q + R[:1]:
+        L.append(paper_bar_ett(name, compare(x, y, 'mse')))
+    return os.path.join(P336, 'summary.md'), L
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--stage', required=True, choices=['select', 'sf_ett', 'sf_mit', 'ett', 'mitbih', 'len336']); ap.add_argument('--out')
+    ap.add_argument('--stage', required=True, choices=['select', 'sf_ett', 'sf_mit', 'ett', 'mitbih', 'len336', 'sf336']); ap.add_argument('--out')
     a = ap.parse_args()
-    p, L = {'select': stage_select, 'sf_ett': stage_sf_ett, 'sf_mit': stage_sf_mit, 'ett': stage_ett, 'mitbih': stage_mit, 'len336': stage_len336}[a.stage]()
+    p, L = {'select': stage_select, 'sf_ett': stage_sf_ett, 'sf_mit': stage_sf_mit, 'ett': stage_ett, 'mitbih': stage_mit, 'len336': stage_len336, 'sf336': stage_sf336}[a.stage]()
     p = a.out or p
     with open(p, 'w') as f:
         f.write('\n'.join(L) + '\n')

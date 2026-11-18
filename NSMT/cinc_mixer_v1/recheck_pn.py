@@ -1,10 +1,11 @@
 # recheck_pn.py (2026-11-18, exp/f-lif-pop-v3; PROJECT_LOG neuron implementation / placement): independent recomputation of the pre-registered
 # selection and comparisons. Reads raw.txt and energy_recount.csv only; does not import summarize_pn / summarize_l2 / summarize_ms. Fails closed on
 # missing, ambiguous or non-finite rows and on a recount that does not reproduce the logged metric.
-# usage (from cinc_mixer_v1/): python -B recheck_pn.py select|sf_ett|sf_mit|ett|mitbih|len336 [--sha <pre-reg commit>[,<later commit>...] (rows of the new suites)]
+# sf336 (user decision 11-18 21:4x): D1 LIF 336 vs SF-de 336 + reports, without pop LIF mixer-only 336; paper bar = mean better (R < 0) and energy A/B < 1
+# usage (from cinc_mixer_v1/): python -B recheck_pn.py select|sf_ett|sf_mit|ett|mitbih|len336|sf336 [--sha <pre-reg commit>[,<later commit>...] (rows of the new suites)]
 #        env PN_DRY=<folder>: read the new suites from <folder>/<suite> (dry runs)
 import collections, csv, json, math, os, sys
-ST = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] in ('select', 'sf_ett', 'sf_mit', 'ett', 'mitbih', 'len336') else sys.exit('usage: recheck_pn.py <stage> [--sha c]')
+ST = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] in ('select', 'sf_ett', 'sf_mit', 'ett', 'mitbih', 'len336', 'sf336') else sys.exit('usage: recheck_pn.py <stage> [--sha c]')
 # --sha a[,b,...]: the pre-registration commit and any later commits; a later commit is accepted only if it changes no .py / .sh file against the first
 SHA = sys.argv[sys.argv.index('--sha') + 1].split(',') if '--sha' in sys.argv else None
 if SHA and len(SHA) > 1:
@@ -100,6 +101,7 @@ def cmp_ett(name, A, B):
     v = 'better' if Rm <= -1 and lo >= 8 else 'worse' if Rm >= 1 and hi >= 8 else 'no clear difference'
     er = sum(sum(A[(ds, pl, s)][3] for s in SEEDS) / sum(B[(ds, pl, s)][3] for s in SEEDS) for ds, pl in CELLS) / 4
     print(f'{name}: R {Rm:+.2f} lower {lo}/12 {v} energy {er:.2f} cells ' + ', '.join(f'{c:+.2f}' for c in cell))
+    return Rm, er
 
 
 def cmp_mit(name, A, B):
@@ -165,9 +167,17 @@ if ST == 'select':
         e, m = sel()
         print('selected_lr.json agrees:', e == out and m == {'MITBIH': b})
         if not (e == out and m == {'MITBIH': b}): bad += 1
-elif ST in ('sf_ett', 'ett', 'len336'):
+elif ST in ('sf_ett', 'ett', 'len336', 'sf336'):
     e, _ = sel()
-    if ST == 'len336':
+    if ST == 'sf336':
+        shas('flif-v1-ett-spkmux-pn336')
+        T = {'LIF 336': ett_arm('flif-v1-ett-spkmux-len336', lambda ds: f'spkmx_lif_muxlin_iand_lr{LRM[ds]}_L1_s336'),
+             'pop LIF all 336': ett_arm('flif-v1-ett-spkmux-len336', lambda ds: f'spkmx_pop_lif_muxlin_iand_lr{LRM[ds]}_L1_s336'),
+             'SF-sj 336': ett_arm('flif-v1-ett-spkmux-len336', lambda ds: f'spk_ssa_lr{LRS[ds]}_L{LYS[ds]}_s336'),
+             'SF-de 336': ett_arm('flif-v1-ett-spkmux-pn336', lambda ds: f'spk_ssa_lr{e[ds]}_L{LYS[ds]}_s336_nalif')}
+        Q = [('D1 LIF 336 vs SF-de 336', 'LIF 336', 'SF-de 336'), ('(report) pop LIF all 336 vs SF-de 336', 'pop LIF all 336', 'SF-de 336'),
+             ('(report) SF-de 336 vs SF-sj 336', 'SF-de 336', 'SF-sj 336'), ('(report) LIF 336 vs SF-sj 336', 'LIF 336', 'SF-sj 336')]
+    elif ST == 'len336':
         shas('flif-v1-ett-spkmux-pn336')
         T = {'LIF 336': ett_arm('flif-v1-ett-spkmux-len336', lambda ds: f'spkmx_lif_muxlin_iand_lr{LRM[ds]}_L1_s336'),
              'pop LIF all 336': ett_arm('flif-v1-ett-spkmux-len336', lambda ds: f'spkmx_pop_lif_muxlin_iand_lr{LRM[ds]}_L1_s336'),
@@ -191,7 +201,9 @@ elif ST in ('sf_ett', 'ett', 'len336'):
             Q = QS + [(f'(report) {n} vs SF-de', n, 'SF-de') for n in ARMS]
     if bad: sys.exit('STOP: %d problems' % bad)
     for name, a, b in Q:
-        cmp_ett(name, T[a], T[b])
+        Rm, er = cmp_ett(name, T[a], T[b])
+        if ST == 'sf336' and b == 'SF-de 336':
+            print(f'   paper bar: mean better {Rm < 0}, energy < 1 {er < 1} -> {"met" if Rm < 0 and er < 1 else "not met"} (R {Rm:+.3f}, energy {er:.4f})')
     for n, X in T.items():
         ms = [sum(X[(ds, pl, s)][0] for s in SEEDS) / 3 for ds, pl in CELLS]
         print(f'{n:22s}', ' '.join(f'{z:.4f}' for z in ms), f'mean {sum(ms) / 4:.4f}', 'energy %.2f' % (sum(sum(X[(ds, pl, s)][3] for s in SEEDS) / 3 for ds, pl in CELLS) / 4))
