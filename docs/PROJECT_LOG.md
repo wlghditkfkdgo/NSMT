@@ -13357,3 +13357,102 @@ head = s2                          H1(head가 membrane을 읽으면 CinC, ETT wo
 - pool이 도는 동안 model code와 실행 script를 고치지 않는다.
 
 **commit:** 이 기록과 위 새 파일, 재현 · 시험 학습 출력을 `exp/f-lif-pop-v3`에 commit · push한 뒤 driver를 시작한다. 해시는 결과 기록에 적는다.
+
+## 2026-11-18 20:12 KST — 결과(1부 완료, 75 run, SKIP 0): neuron 구현을 맞춘 Spikformer식(SF-de) — LIF SpkMixer와 ETT · MIT-BIH 모두 no clear difference(A1 ETT R +0.30 %, 5/12; MIT-BIH +0.04 %p, 2/3). 구현을 맞춰도 예전 결론("LIF SpkMixer ≈ Spikformer식")은 그대로다
+
+**사전등록 commit:** `1bed92742`(18:07 기록). 브랜치 `exp/f-lif-pop-v3`. 이번 commit은 기록과 결과 파일만 담는다. main pool이 도는 중이라 code(`.py` / `.sh`)는 바꾸지 않았다.
+
+### 실행
+- `pn_driver.sh` sf 단계: 18:08:46 시작, 19:40:16 끝.
+  - 72 / 72 DONE, SKIP 0(`results/flif-v1-ett-sfde-pool_log.txt`).
+  - RESULT 행 수: ETT 60, MIT-BIH fold 0 12.
+- main 단계 맨 앞의 SF-de MIT-BIH 최종 3 run: 19:48:52 시작, 20:07 끝. RESULT 3, SKIP 0.
+- 새 행 75개는 모두 `sha=1bed92742`이다.
+- driver가 돌린 것:
+  - lr 선택(`selection.md`, `selected_lr.json`).
+  - ETT SF-de energy 재계산. "all checks passed"(60 run의 head 재계산, 재계산 MSE = 기록값).
+  - 1부 ETT 요약(`results/flif-v1-ett-sfde/summary.md`).
+- 손으로 돌린 것(20:08–20:11, 사전등록의 보고 시점 규칙):
+  - `energy_recount_mitbih.py --suite flif-v1-mitbih-sfde`. "all checks passed"(15 run, 재계산 macro-F1 = 기록값).
+  - `summarize_pn.py --stage sf_mit`(`results/flif-v1-mitbih-sfde/summary.md`).
+  - driver가 main 단계 끝에 같은 두 명령을 다시 돈다.
+- 독립 재계산 `recheck_pn.py select / sf_ett / sf_mit --sha 1bed92742`: 선택과 모든 비교값이 요약기와 같다(`results/flif-v1-ett-sfde/recheck_pn.txt`, `results/flif-v1-mitbih-sfde/recheck_pn.txt`).
+- 멈춤 조건: 하나도 걸리지 않았다(빠진 · 중복 · 유한하지 않은 값 없음, ETT 새 run의 best epoch = validation 최솟값).
+
+### SF-de lr 선택(validation만)
+| 과제 | 후보별 점수 | 선택 | SF-sj(11-01) 선택 |
+|---|---|---|---|
+| ETTh2 | best validation L1의 lr 5e-4 대비 비(H96 / H720 평균): 1e-4 1.00359, 2.5e-4 1.00240, **5e-4 1.00000**, 1e-3 1.00447, 2e-3 1.01058 | 5e-4 | 5e-4 |
+| ETTm2 | 같은 비: **1e-4 0.99713**, 2.5e-4 0.99846, 5e-4 1.00000, 1e-3 1.00045, 2e-3 1.00384 | 1e-4 | 2.5e-4 |
+| MIT-BIH | fold 0 마지막 epoch validation macro-F1(seed 평균): 0.0025 91.655, 0.005 91.454, **0.01 92.193**, 0.02 91.523 | 0.01 | 0.005 |
+
+- ETTm2에서 1위와 2위의 차이는 0.13 %다. 후보 lr 사이 차이가 모두 작다.
+
+### 결과 ETT(test MSE, seed 42 / 7 / 2026 평균)
+| arm | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 | 평균 | energy µJ(4 cell 평균) |
+|---|--:|--:|--:|--:|--:|--:|
+| LIF SpkMixer | 0.2952 | 0.4218 | 0.1775 | 0.4034 | 0.3245 | 10.28 |
+| SF-de | 0.2921 | 0.4229 | 0.1768 | 0.4036 | 0.3238 | 10.67 |
+| SF-sj(예전) | 0.2903 | 0.4223 | 0.1767 | 0.4044 | 0.3234 | 10.48 |
+
+| 비교 | R % | 더 낮은 쌍 | 판정 | energy A / B | cell별 r % |
+|---|--:|--:|---|--:|---|
+| **A1 LIF SpkMixer vs SF-de** | +0.30 | 5/12 | no clear difference | 0.96 | +1.08, −0.24, +0.42, −0.04 |
+| (보고) SF-de vs SF-sj | +0.15 | 7/12 | no clear difference | 1.02 | +0.61, +0.13, +0.04, −0.19 |
+| (보고) LIF SpkMixer vs SF-sj | +0.45 | 3/12 | no clear difference | 0.98 | +1.67, −0.12, +0.47, −0.23 |
+
+- A1 seed별 r %:
+  - ETTh2 H96: +3.57, −1.48, +1.16
+  - ETTh2 H720: −0.78, +0.32, −0.28
+  - ETTm2 H96: +0.34, +0.10, +0.83
+  - ETTm2 H720: −0.32, −0.16, +0.35
+- ETTh2 H96에서는 seed 사이 차이가 효과보다 크다.
+
+### 결과 MIT-BIH(test, 30 % test 파일, 마지막 epoch weight, seed 평균)
+| arm | macro-F1 % | seed 42, 7, 2026 | 정확도 % | class F1 N / S / V / F / Q | energy µJ | params |
+|---|--:|---|--:|---|--:|--:|
+| LIF SpkMixer | 91.99 | 91.89, 92.13, 91.94 | 98.56 | 99.24 / 85.94 / 96.31 / 79.49 / 98.95 | 9.44 | 1,200,768 |
+| SF-de(lr 0.01) | 91.94 | 91.76, 92.50, 91.57 | 98.53 | 99.23 / 85.14 / 96.09 / 80.23 / 99.03 | 9.45 | 904,488 |
+| SF-sj(예전, lr 0.005) | 91.78 | 92.10, 91.74, 91.50 | 98.48 | 99.20 / 84.38 / 96.12 / 80.17 / 99.03 | 9.61 | 904,488 |
+
+| 비교 | 평균 %p | 높은 seed | seed별 %p | 판정 | energy A / B |
+|---|--:|--:|---|---|--:|
+| **A1 LIF SpkMixer vs SF-de** | +0.04 | 2/3 | +0.13, −0.37, +0.37 | no clear difference | 1.00 |
+| (보고) SF-de vs SF-sj | +0.16 | 2/3 | −0.35, +0.76, +0.07 | no clear difference | 0.98 |
+| (보고) LIF SpkMixer vs SF-sj | +0.20 | 2/3 | −0.22, +0.39, +0.44 | no clear difference | 0.98 |
+
+### 사전 예상과 비교
+| 비교 | 예상 | 결과 |
+|---|---|---|
+| A1 | ETT · MIT-BIH 모두 no clear difference, energy 약 1.0배 | 맞음. energy 0.96 / 1.00배 |
+| (보고) SF-de vs SF-sj | no clear difference, 약 1.0배 | 맞음. 1.02 / 0.98배 |
+| SF-de의 선택 lr | 예상하지 않음 | ETTm2(1e-4)와 MIT-BIH(0.01)에서 SF-sj와 다른 lr이 골라졌다. ETTh2는 같다 |
+
+### 보고 전용 관찰(판정 없음)
+- 발화율(rho_hippo):
+  - ETT에서는 SF-de가 SF-sj보다 높다. 예: ETTh2 H96 0.0572 대 0.0505, ETTm2 H720 0.0627 대 0.0539.
+  - MIT-BIH에서는 SF-de가 더 낮다(0.1165 대 0.1275).
+  - energy 차이는 2 % 안쪽이다.
+- 학습 시간: SF-de run이 SF-sj run보다 길었다(ETTm2 H96 1276–1513 s 대 578–692 s, MIT-BIH 926–1119 s 대 408–420 s).
+  - 두 model의 run은 다른 날, 다른 GPU 부하에서 돌았다. 그래서 이 차이를 neuron 구현의 속도 차이로 읽지 않는다. 원인은 확인하지 않았다.
+- 멈춘 시점(ETT, seed별 best epoch):
+  - SF-de는 ETTh2 H96 1, 1, 3이고, SF-sj는 3, 1, 7이다.
+  - 나머지 cell은 비슷하다(`summary.md`).
+
+### 해석(사전에 적은 "읽는 법" 기준)
+- A1 no clear difference: neuron 구현을 맞춰도 "LIF SpkMixer ≈ Spikformer식"이라는 예전 결론은 그대로다. 예전 비교(SF-sj)에 구현 차이가 섞여 결론을 바꿨다는 증거는 없다.
+- SF-de와 SF-sj는 ETT · MIT-BIH 모두 서로 no clear difference다. 4부(D1)는 사전등록대로 SF-de를 쓴다.
+- 이 결과가 말하지 않는 것: "SpkMixer가 Spikformer식보다 낫다"도, "못하다"도 아니다. seed 3개, ETT 4 cell, MIT-BIH test 1개에서 차이를 찾지 못했다는 뜻이다.
+
+### 한계
+- seed 3개다. MIT-BIH는 validation 없이 마지막 epoch weight를 쓴다(lr 선택만 fold 0 validation).
+- SF-de는 lr을 다시 튜닝했다. 층 수는 Table 13 그대로이고, SpkMixer는 다시 튜닝하지 않았다. 튜닝 양이 두 model에서 다르다(예전과 같은 비대칭).
+- lr 후보 사이 validation 차이가 작다. 다른 seed 묶음이면 다른 lr이 골라질 수 있다.
+- run 시간은 GPU 공유 때문에 비교할 수 없다.
+
+### 진행 중
+- main 단계: 19:48:52 시작, 135 run 남음(격자 ETT 108 → MIT-BIH 27). 그 뒤 입력 336 단계(24 run)를 돈다.
+- 2 · 3부 결과는 main 단계가 끝나면 기록한다.
+- 사용자 결정 대기: 입력 720.
+
+**commit:** 이 기록과 `results/flif-v1-ett-sfde/`, `results/flif-v1-mitbih-sfde/`, `results/flif-v1-ett-sfde-pool_log.txt`를 `exp/f-lif-pop-v3`에 commit · push한다(code 변경 없음, tag 없음). 해시는 다음 기록에 적는다.
