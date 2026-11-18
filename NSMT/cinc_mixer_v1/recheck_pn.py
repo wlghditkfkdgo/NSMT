@@ -2,10 +2,12 @@
 # selection and comparisons. Reads raw.txt and energy_recount.csv only; does not import summarize_pn / summarize_l2 / summarize_ms. Fails closed on
 # missing, ambiguous or non-finite rows and on a recount that does not reproduce the logged metric.
 # sf336 (user decision 11-18 21:4x): D1 LIF 336 vs SF-de 336 + reports, without pop LIF mixer-only 336; paper bar = mean better (R < 0) and energy A/B < 1
-# usage (from cinc_mixer_v1/): python -B recheck_pn.py select|sf_ett|sf_mit|ett|mitbih|len336|sf336 [--sha <pre-reg commit>[,<later commit>...] (rows of the new suites)]
+# mxmit (2026-11-19, user request 11-19): MIT-BIH mixer-only population (suite flif-v1-mitbih-spkmux-mxpop): B1, B3, C3, C5 + reports + paper bar vs SF-de
+#        under the existing energy and, for the mean arms, the pooled-integer rule (energy_pool.csv; proposal awaiting the user's approval)
+# usage (from cinc_mixer_v1/): python -B recheck_pn.py select|sf_ett|sf_mit|ett|mitbih|len336|sf336|mxmit [--sha <pre-reg commit>[,<later commit>...] (rows of the new suites)]
 #        env PN_DRY=<folder>: read the new suites from <folder>/<suite> (dry runs)
 import collections, csv, json, math, os, sys
-ST = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] in ('select', 'sf_ett', 'sf_mit', 'ett', 'mitbih', 'len336', 'sf336') else sys.exit('usage: recheck_pn.py <stage> [--sha c]')
+ST = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] in ('select', 'sf_ett', 'sf_mit', 'ett', 'mitbih', 'len336', 'sf336', 'mxmit') else sys.exit('usage: recheck_pn.py <stage> [--sha c]')
 # --sha a[,b,...]: the pre-registration commit and any later commits; a later commit is accepted only if it changes no .py / .sh file against the first
 SHA = sys.argv[sys.argv.index('--sha') + 1].split(',') if '--sha' in sys.argv else None
 if SHA and len(SHA) > 1:
@@ -17,7 +19,7 @@ if SHA and len(SHA) > 1:
         print(f'commit {c}: no .py / .sh change against {SHA[0]}')
 R = os.path.dirname(os.path.abspath(__file__)) + '/results/'
 DRY = os.environ.get('PN_DRY')
-NEWS = ('flif-v1-ett-sfde', 'flif-v1-mitbih-sfde', 'flif-v1-ett-spkmux-pn', 'flif-v1-mitbih-spkmux-pn', 'flif-v1-ett-spkmux-pn336')
+NEWS = ('flif-v1-ett-sfde', 'flif-v1-mitbih-sfde', 'flif-v1-ett-spkmux-pn', 'flif-v1-mitbih-spkmux-pn', 'flif-v1-ett-spkmux-pn336', 'flif-v1-mitbih-spkmux-mxpop')
 d_ = lambda s: (DRY + '/' + s) if DRY and s in NEWS else R + s
 SEEDS = ['42', '7', '2026']
 CELLS = [('ETTh2', '96'), ('ETTh2', '720'), ('ETTm2', '96'), ('ETTm2', '720')]
@@ -109,6 +111,19 @@ def cmp_mit(name, A, B):
     v = 'better' if m >= .5 and hi >= 2 else 'worse' if m <= -.5 and lo >= 2 else 'no clear difference'
     er = sum(A[s][1] for s in SEEDS) / sum(B[s][1] for s in SEEDS)
     print(f'{name}: {m:+.2f} higher {hi}/3 ' + ', '.join(f'{x:+.2f}' for x in d) + f' {v} energy {er:.2f}')
+    return m, er
+
+
+def pooled(path, tag):
+    v = {}
+    for r in csv.DictReader(open(path)):
+        if r['tag'] == tag:
+            if r['seed'] in v:
+                print('DUPLICATE pooled', tag, r['seed']); globals()['bad'] += 1
+            v[r['seed']] = float(r['E_pool'])
+    if sorted(v) != sorted(SEEDS) or not all(math.isfinite(x) for x in v.values()):
+        print('MISSING pooled', path, tag, sorted(v)); globals()['bad'] += 1
+    return v
 
 
 ARMS = {'LIF': ('lif', ''), 'LIF+mean': ('lif', '_mpmean'), 'f-LIF': ('flif', ''), 'f-LIF+mean': ('flif', '_mpmean'), 'pop LIF all': ('pop_lif', ''),
@@ -207,6 +222,36 @@ elif ST in ('sf_ett', 'ett', 'len336', 'sf336'):
     for n, X in T.items():
         ms = [sum(X[(ds, pl, s)][0] for s in SEEDS) / 3 for ds, pl in CELLS]
         print(f'{n:22s}', ' '.join(f'{z:.4f}' for z in ms), f'mean {sum(ms) / 4:.4f}', 'energy %.2f' % (sum(sum(X[(ds, pl, s)][3] for s in SEEDS) / 3 for ds, pl in CELLS) / 4))
+elif ST == 'mxmit':
+    _, m = sel()
+    shas('flif-v1-mitbih-spkmux-mxpop')
+    rr = rows(d_('flif-v1-mitbih-spkmux-mxpop') + '/raw.txt')
+    if len(rr) != 12:
+        print('ROWS', len(rr), 'want 12'); bad += 1
+    T = {'SF-de': mit_arm('flif-v1-mitbih-sfde', f'spk_ssa_lr{m["MITBIH"]}_L2_nalif'), 'SF-sj': mit_arm('flif-v1-mitbih-spkmux-tune', 'spk_ssa_lr0.005_L2')}
+    MX = ('pop LIF mixer', 'pop LIF mixer+mean', 'pop f-LIF mixer', 'pop f-LIF mixer+mean')
+    for n in ('LIF', 'LIF+mean', 'pop LIF all') + MX:
+        mx, suf = ARMS[n]
+        T[n] = mit_arm('flif-v1-mitbih-spkmux-mxpop' if n in MX else suite_of(n, 'mitbih'), f'spkmx_{mx}_muxlin_add_lr0.02_L2{suf}')
+    EP = {'LIF+mean': pooled(R + 'check-pool-energy-20261119/energy_pool.csv', 'spkmx_lif_muxlin_add_lr0.02_L2_mpmean')}
+    for n in ('pop LIF mixer+mean', 'pop f-LIF mixer+mean'):
+        mx, suf = ARMS[n]
+        EP[n] = pooled(d_('flif-v1-mitbih-spkmux-mxpop') + '/energy_pool.csv', f'spkmx_{mx}_muxlin_add_lr0.02_L2{suf}')
+    if bad: sys.exit('STOP: %d problems' % bad)
+    Q = [('B1 pop LIF mixer vs LIF', 'pop LIF mixer', 'LIF'), ('B3 pop LIF mixer vs pop LIF all', 'pop LIF mixer', 'pop LIF all'),
+         ('C3 pop LIF mixer+mean vs pop LIF mixer', 'pop LIF mixer+mean', 'pop LIF mixer'), ('C5 pop f-LIF mixer+mean vs pop f-LIF mixer', 'pop f-LIF mixer+mean', 'pop f-LIF mixer'),
+         ('(report) pop f-LIF mixer vs pop LIF mixer', 'pop f-LIF mixer', 'pop LIF mixer'), ('(report, mean) pop LIF mixer+mean vs LIF+mean', 'pop LIF mixer+mean', 'LIF+mean')]
+    Q += [(f'(report) {n} vs SF-de', n, 'SF-de') for n in ('LIF', 'LIF+mean') + MX] + [('(report) SF-de vs SF-sj', 'SF-de', 'SF-sj')]
+    for name, a, b in Q:
+        mm, er = cmp_mit(name, T[a], T[b])
+        if b == 'SF-de' and a != 'SF-de':
+            line = f'   paper bar: higher {mm > 0}, energy < 1 {er < 1} -> {"met" if mm > 0 and er < 1 else "not met"}'
+            if a in EP:
+                ep = sum(EP[a][s] for s in SEEDS) / sum(T['SF-de'][s][1] for s in SEEDS)
+                line += f'; pooled rule energy {ep:.4f} -> {"met" if mm > 0 and ep < 1 else "not met"}'
+            print(line)
+    for n, X in T.items():
+        print(f'{n:22s} F1 {sum(X[s][0] for s in SEEDS) / 3:.2f} energy {sum(X[s][1] for s in SEEDS) / 3:.2f}')
 else:
     _, m = sel()
     shas('flif-v1-mitbih-sfde')

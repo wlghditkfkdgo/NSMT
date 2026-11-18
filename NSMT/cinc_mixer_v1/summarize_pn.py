@@ -17,6 +17,11 @@ Stages:
                       pop LIF mixer vs SF-de, SF-de vs SF-sj
     sf336             (user decision 11-18 21:4x: grid stopped, pop LIF mixer-only 336 not run) D1 LIF 336 vs SF-de 336 (verdict); report:
                       pop LIF all 336 vs SF-de 336, SF-de 336 vs SF-sj 336, LIF 336 vs SF-sj 336; plus the paper bar
+    mxmit             (2026-11-19, user request 11-19: mixer-only population after AD) MIT-BIH, the 4 mixer-only arms in the fresh suite
+                      flif-v1-mitbih-spkmux-mxpop: B1 pop LIF mixer vs LIF, B3 pop LIF mixer vs pop LIF all, C3 pop LIF mixer+mean vs
+                      pop LIF mixer, C5 pop f-LIF mixer+mean vs pop f-LIF mixer (verdicts); report: pop f-LIF mixer vs pop LIF mixer,
+                      pop LIF mixer+mean vs LIF+mean, every arm vs SF-de, SF-de vs SF-sj; paper bar vs SF-de under the existing energy and,
+                      for the mean arms, under the pooled-integer rule (energy_pool.csv; proposal awaiting the user's approval)
 Paper bar (user decision 11-18 21:4x, per task, sign only): a SpkMixer arm meets it against SF-de when its mean is better (ETT R < 0; MIT-BIH mean
 difference > 0) AND its energy is lower (energy A/B < 1). Reported next to the verdicts; the verdict rules below are unchanged.
 Rules (each task's existing one): ETT test MSE, r = 100 (A - B) / B per seed, R = mean over the 4 cells of the seed-mean r, better = R <= -1 % and
@@ -24,10 +29,12 @@ Rules (each task's existing one): ETT test MSE, r = 100 (A - B) / B per seed, R 
 seeds higher, worse = mirror. Energy: total_fft_uJ_corr of energy_recount (per window / beat).
 Fail closed (exit 2, nothing written): a missing run, a SKIP line of a used condition, a duplicate, a non-finite value, a recount that does not reproduce
 the logged metric, a non-binary ETT head input, or (ETT) a new run whose best epoch is not the argmin of its validation loss.
-usage: python -B summarize_pn.py --stage select|sf_ett|sf_mit|ett|mitbih|len336 [--out <file>]
+usage: python -B summarize_pn.py --stage select|sf_ett|sf_mit|ett|mitbih|len336|sf336|mxmit [--out <file>]
 """
 import argparse
+import csv
 import json
+import math
 import os
 import sys
 
@@ -39,9 +46,12 @@ PNE, PNM, P336 = os.path.join(RES, 'flif-v1-ett-spkmux-pn'), os.path.join(RES, '
 MX3E, MX3M = os.path.join(RES, 'flif-v1-ett-spkmux-mx3'), os.path.join(RES, 'flif-v1-mitbih-spkmux-mx3')
 STE, STM = os.path.join(RES, 'flif-v1-ett-spkmux-stft'), os.path.join(RES, 'flif-v1-mitbih-spkmux-stft')
 L336 = os.path.join(RES, 'flif-v1-ett-spkmux-len336')
+MXM = os.path.join(RES, 'flif-v1-mitbih-spkmux-mxpop')                    # 2026-11-19 mixer-only population, MIT-BIH
+POOL0 = os.path.join(RES, 'check-pool-energy-20261119', 'energy_pool.csv')  # 00:08 pooled-integer recount (LIF, LIF+mean)
 if os.environ.get('PN_DRY'):                                              # dry runs: the new suites from <PN_DRY>/<suite>
     _d = os.environ['PN_DRY']
     SFE, SFM, PNE, PNM, P336 = (os.path.join(_d, os.path.basename(x)) for x in (SFE, SFM, PNE, PNM, P336))
+    MXM = os.path.join(_d, os.path.basename(MXM))
 ETT_LR = ('0.0001', '0.00025', '0.0005', '0.001', '0.002')
 MIT_LR = ('0.0025', '0.005', '0.01', '0.02')
 # arm -> (suite folder, cond, tag suffix after _lr<LR>_L<layers>); ETT LR = LR_MX, layers 1; MIT-BIH lr 0.02, layers 2
@@ -310,11 +320,79 @@ def stage_sf336():
     return os.path.join(P336, 'summary.md'), L
 
 
+MXARMS = ('pop LIF mixer', 'pop LIF mixer+mean', 'pop f-LIF mixer', 'pop f-LIF mixer+mean')
+
+
+def pool_energy(path, tag):
+    """seed -> E_pool (pooled-integer rule) of the final runs with this tag in an energy_pool.csv; fail closed unless exactly the 3 seeds."""
+    if not os.path.exists(path):
+        stop(f'no {path}')
+    out = {}
+    for r in csv.DictReader(open(path)):
+        if r['tag'] != tag:
+            continue
+        s = int(r['seed'])
+        if s in out:
+            stop(f'duplicate pooled-rule row {tag} seed {s} in {path}')
+        out[s] = float(r['E_pool'])
+        if not math.isfinite(out[s]):
+            stop(f'non-finite pooled-rule energy {tag} seed {s}')
+    if sorted(out) != sorted(SEEDS):
+        stop(f'pooled-rule rows of {tag} in {path}: seeds {sorted(out)}')
+    return out
+
+
+def stage_mxmit():
+    T = {}
+    for name in ('LIF', 'LIF+mean', 'pop LIF all') + MXARMS:
+        _, _, mixer, suf = next(a for a in ARMS if a[0] == name)
+        S = MXM if name in MXARMS else where(name, 'mitbih')
+        T[name] = load_mit(os.path.join(S, 'raw.txt'), os.path.join(S, 'energy_recount.csv'), f'spkmx_{mixer}_muxlin_add_lr0.02_L2{suf}')
+    raw = os.path.join(MXM, 'raw.txt')
+    if any(l.startswith('SKIP') for l in open(raw)):
+        stop(f'SKIP line in {raw}')
+    n = sum(1 for l in open(raw) if l.startswith('RESULT'))
+    if n != 12:
+        stop(f'{raw}: {n} RESULT rows, want 12')
+    SFD = load_sfde_mit()
+    SFJ = load_mit(os.path.join(MITB, 'raw.txt'), os.path.join(MITB, 'energy_recount.csv'), 'spk_ssa_lr0.005_L2')
+    Q = [('B1 pop LIF mixer vs LIF', T['pop LIF mixer'], T['LIF']), ('B3 pop LIF mixer vs pop LIF all', T['pop LIF mixer'], T['pop LIF all']),
+         ('C3 pop LIF mixer+mean vs pop LIF mixer', T['pop LIF mixer+mean'], T['pop LIF mixer']),
+         ('C5 pop f-LIF mixer+mean vs pop f-LIF mixer', T['pop f-LIF mixer+mean'], T['pop f-LIF mixer'])]
+    R = [('(report) pop f-LIF mixer vs pop LIF mixer', T['pop f-LIF mixer'], T['pop LIF mixer']),
+         ('(report, mean) pop LIF mixer+mean vs LIF+mean', T['pop LIF mixer+mean'], T['LIF+mean'])]
+    R += [(f'(report) {n} vs SF-de', T[n], SFD) for n in ('LIF', 'LIF+mean') + MXARMS] + [('(report) SF-de vs SF-sj', SFD, SFJ)]
+    full = dict(T, **{'SF-de': SFD, 'SF-sj': SFJ})
+    L = mit_tables(full, 'Mixer-only population, MIT-BIH (user request 11-19): population neuron only in the directional stacks + fusion', Q, R)
+    EP = {'LIF+mean': pool_energy(POOL0, 'spkmx_lif_muxlin_add_lr0.02_L2_mpmean')}
+    for n in ('pop LIF mixer+mean', 'pop f-LIF mixer+mean'):
+        _, _, mixer, suf = next(a for a in ARMS if a[0] == n)
+        EP[n] = pool_energy(os.path.join(MXM, 'energy_pool.csv'), f'spkmx_{mixer}_muxlin_add_lr0.02_L2{suf}')
+    eb = mean([SFD[s]['E'] for s in SEEDS])
+    L += ['', '## Paper bar vs SF-de (user decision 11-18: mean macro-F1 higher and energy A/B < 1, sign only)', '',
+          'Existing energy = total_fft_uJ_corr (integer rule). Pooled-integer rule (mean arms only; proposal awaiting the user\'s approval): '
+          'a Linear input whose T_h-fold is integer counts sum(T_h x) ACs (energy_pool_mitbih.py / check-pool-energy-20261119); SF-de unchanged.', '',
+          '| arm | mean %p vs SF-de | higher (> 0) | energy A/B | paper bar | energy µJ pooled rule | energy A/B pooled rule | paper bar pooled rule |',
+          '|---|--:|---|--:|---|--:|--:|---|']
+    for n in ('LIF', 'LIF+mean') + MXARMS:
+        c = cmp_mit(T[n], SFD)
+        bar = 'met' if c['mean'] > 0 and c['energy'] < 1 else 'not met'
+        if n in EP:
+            ep = mean([EP[n][s] for s in SEEDS])
+            pb = 'met' if c['mean'] > 0 and ep / eb < 1 else 'not met'
+            tail = f'{ep:.2f} | {ep / eb:.4f} | {pb} |'
+        else:
+            tail = '- | - | - |'
+        L.append(f"| {n} | {c['mean']:+.3f} | {'yes' if c['mean'] > 0 else 'no'} | {c['energy']:.4f} | {bar} | " + tail)
+    return os.path.join(MXM, 'summary.md'), L
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--stage', required=True, choices=['select', 'sf_ett', 'sf_mit', 'ett', 'mitbih', 'len336', 'sf336']); ap.add_argument('--out')
+    ap.add_argument('--stage', required=True, choices=['select', 'sf_ett', 'sf_mit', 'ett', 'mitbih', 'len336', 'sf336', 'mxmit']); ap.add_argument('--out')
     a = ap.parse_args()
-    p, L = {'select': stage_select, 'sf_ett': stage_sf_ett, 'sf_mit': stage_sf_mit, 'ett': stage_ett, 'mitbih': stage_mit, 'len336': stage_len336, 'sf336': stage_sf336}[a.stage]()
+    p, L = {'select': stage_select, 'sf_ett': stage_sf_ett, 'sf_mit': stage_sf_mit, 'ett': stage_ett, 'mitbih': stage_mit, 'len336': stage_len336, 'sf336': stage_sf336,
+            'mxmit': stage_mxmit}[a.stage]()
     p = a.out or p
     with open(p, 'w') as f:
         f.write('\n'.join(L) + '\n')

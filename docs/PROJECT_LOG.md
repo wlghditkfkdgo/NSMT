@@ -14099,3 +14099,61 @@ head = s2                          H1(head가 membrane을 읽으면 CinC, ETT wo
 **다음:** 사용자 요청 3("mixer에만 population")을 시작한다. ETT 입력 길이(96 / 336)와 새 energy 계산 규칙 승인은 사용자 답을 기다린다.
 
 **commit / tag:** 이 기록과 결과를 `exp/f-lif-pop-v3`에 commit · push하고 annotated tag `exp/f-lif-pop-v3-adsf-20261119`(완료된 학습 run)를 붙인다. 이 기록이 들어간 commit은 이 tag로 가리킨다.
+
+## 2026-11-19 01:26 KST — 사전등록(본 학습 전): "population을 mixer에만" 실험 중 MIT-BIH 부분(4 arm × seed 3 = 12 run). ETT 부분은 사용자의 입력 길이 결정(96 / 336)을 기다린다
+
+**목적:** 사용자 요청 11-19 "3. [mixer에만 population] 실험을 AD 이후에 진행해줘. (plan에 기록)". AD가 끝났으므로(01:16 기록) 시작한다. MIT-BIH는 ETT 입력 길이 결정과 무관하므로 먼저 돌린다.
+
+**branch / base:** `exp/f-lif-pop-v3`, base `7fc145921`(AD 결과 commit). 이 기록의 commit이 본 학습 code다(해시는 결과 기록에 적는다).
+
+**설계(18:07 사전등록의 arm 정의 그대로, 다시 튜닝하지 않음)**
+- "mixer에만" = population neuron을 두 방향 stack과 fusion(s_d와 fusion Linear 뒤 neuron)에만 둔다. embedding과 MLP neuron은 같은 계열의 단일 neuron(LIF / f-LIF)이다(`NSCOPE=mixer` → `--spk_neuron_scope mixer`, tag `_nsmixer`).
+- arm 4개: pop LIF mixer, pop LIF mixer + mean pooling, pop f-LIF mixer, pop f-LIF mixer + mean pooling.
+- 설정: MIT-BIH 튜닝된 LIF SpkMixer 그대로. muxlin, ADD 잔차, mixer 층 2, lr 0.02, 30 epoch, 학습 파일 전체, 마지막 epoch 가중치로 30 % test 파일을 평가한다. seed 42 / 7 / 2026.
+- 새 suite `flif-v1-mitbih-spkmux-mxpop`(멈춘 격자 suite와 섞지 않음).
+- 비교 대상(이미 있는 run): LIF(`flif-v1-mitbih-spkmux-tune`), LIF + mean(`flif-v1-mitbih-spkmux-mx3`), pop LIF all(`flif-v1-mitbih-spkmux-stft`, 11-17), SF-de(`flif-v1-mitbih-sfde`, lr 0.01 선택), SF-sj(`flif-v1-mitbih-spkmux-tune`, lr 0.005).
+
+**판정(18:07 사전등록 중 계산할 수 있는 것; MIT-BIH 규칙: test macro-F1 seed별 차이 %p, 평균 ≥ +0.5이고 seed 2/3 이상 높으면 better, 반대면 worse)**
+- B1 pop LIF mixer vs LIF
+- B3 pop LIF mixer vs pop LIF all
+- C3 pop LIF mixer + mean vs pop LIF mixer
+- C5 pop f-LIF mixer + mean vs pop f-LIF mixer
+- B4 · B6은 f-LIF · pop f-LIF all arm이 없어 계산하지 않는다.
+- 보고(판정 아님): pop f-LIF mixer vs pop LIF mixer, pop LIF mixer + mean vs LIF + mean, 모든 arm vs SF-de, SF-de vs SF-sj.
+- 논문 기준(사용자 결정 11-18): 각 arm vs SF-de에서 평균 macro-F1이 높고 energy A/B < 1이면 met.
+  - 기존 energy(`total_fft_uJ_corr`, integer 규칙)로 낸다.
+  - mean arm은 pooled-integer 규칙 energy도 함께 적는다(00:08 제안, 사용자 승인 대기; 승인 전에는 보고용).
+
+**code 변경(학습 경로는 바꾸지 않음: `git diff 5701db48c HEAD`에 MIT-BIH runner · model 파일 없음)**
+- `scripts/make_queue_pn.sh`: 단계 `mxmit`(12줄, 느린 arm 먼저) → `scripts/queues/pn-mxmit-20261119.txt`(local).
+- `summarize_pn.py`: 단계 `mxmit`(판정 4개, 보고, 논문 기준 표; 두 energy 규칙). 12 RESULT · SKIP 0 · energy 행이 아니면 멈춘다.
+- `recheck_pn.py`: 단계 `mxmit`(독립 재계산; summarize_* 를 import하지 않음).
+- 새 `energy_pool_mitbih.py`: 한 suite의 pooled-integer 재계산(규칙과 점검은 00:08 `check-pool-energy-20261119/energy_recount_pool.py`와 같음) → `results/<suite>/energy_pool.csv`.
+- 새 `scripts/mxpop_driver.sh`: pool(12) → 12 RESULT · SKIP 0 확인 → `energy_recount_mitbih.py` → `energy_pool_mitbih.py` → `summarize_pn.py --stage mxmit` → `driver end`. 실패하면 멈춘다.
+
+**점검(모두 통과; `NSMT/cinc_mixer_v1/results/check-mxpop-20261119/`)**
+- queue: 12줄이 18:07 격자 queue(`pn-main-20261118.txt`)의 MIT-BIH mixer-only 12줄과 SUITE 말고는 같다.
+- 재현: 오늘 code(`7fc145921`)로 pop f-LIF mixer seed 42를 1 epoch 돌렸다(`results/check-mxpop-mem-20261119/`). 18:07 시험 학습 행(`5701db48c`)과 RESULT 필드 38개가 모두 같다(macro-F1 0.725682; `repro_mem_vs_smoke.txt`).
+- energy 재계산기: 실제 run 4개(위 run, 18:07 시험 학습의 pop LIF mixer, pop LIF mixer + mean, pop f-LIF mixer + mean; 모두 1 epoch)로 시험했다.
+  - integer 규칙(`energy_recount_mitbih.py`): 다시 계산한 macro-F1이 기록값과 같다.
+  - pooled 규칙(`energy_pool_mitbih.py`): mean run에서만, 두 방향 stack의 첫 Linear(`blocks.0.mixer.Mem.0.w_in`, `blocks.0.mixer_rev.Mem.0.w_in`)에만 적용된다. pooling 없는 run은 값이 그대로다.
+  - 1 epoch 값이라 판정이나 예상에 쓰지 않는다.
+- dry run(`make_dry_mxpop.py`: 11-17 pop LIF all 행을 네 arm 이름으로 넣음):
+  - 예상대로 B3 = C3 = C5 = 정확히 0이다. B1은 11-17 pop LIF all vs LIF 값(−0.59 %p, 0/3, worse, energy 2.12)이다.
+  - 요약기(`summarize_mxmit_dry.md`)와 독립 재계산기(`recheck_mxmit_dry.txt`)가 모든 값에서 같다.
+- GPU 메모리: pop f-LIF mixer run 하나의 최대값은 5,712 MiB다(`gpu_memory.txt`, process별 1초 간격). 다른 세션 process가 GPU마다 약 2 GB를 쓴다. 그래서 GPU당 2개(SLOTS `0,1,2,3,0,1,2,3`)로 정했다.
+- 내 실수: 메모리 측정 run을 처음에는 runner의 GPU 인자를 빠뜨리고 실행했다. runner가 학습 전에 멈춰서(rc 1) 남은 것이 없다.
+
+**사전 예상(확신 낮음)**
+- B1 · B3: no clear difference 또는 worse(11-17 pop LIF all이 LIF보다 −0.59 %p였다).
+- 기존 energy 규칙에서 네 arm 모두 논문 기준 not met(population neuron이 더 비싸서 energy > SF-de일 것으로 본다).
+- C3 · C5: no clear difference.
+- pooled 규칙에서 mean arm의 energy는 예상하지 않는다.
+
+**예상 시간(내 추정):** 18:07 시험 학습 1 epoch가 78–243 s였으므로 30 epoch run은 약 40–120분이다. 12 run을 8칸으로 돌리면 약 2–4시간이다.
+
+**ETT 부분(대기):** 입력 96이면 4 arm × 4 cell × seed 3 = 48 run이다. 입력 336이면 pop f-LIF 336의 BN gain 맞춤값 표를 새로 만들어야 한다. 사용자 결정 뒤 따로 사전등록한다.
+
+**실행:** 이 commit · push 뒤 NSMT/에서 `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/mxpop_driver.sh > /dev/null 2>&1 &`. driver.log는 `results/flif-v1-mitbih-spkmux-mxpop/driver.log`(local)다.
+
+**commit:** 이 기록, 위 code, 점검 출력을 `exp/f-lif-pop-v3`에 commit · push한다. 해시는 결과 기록에 적는다.
