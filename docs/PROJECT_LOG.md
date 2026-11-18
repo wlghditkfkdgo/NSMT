@@ -13887,3 +13887,122 @@ head = s2                          H1(head가 membrane을 읽으면 CinC, ETT wo
   - 이 폴더는 읽기만 했다.
 
 **commit:** 이 기록과 `results/ref-dnn-l336-20261118/tables.md`를 `exp/f-lif-pop-v3`에 commit · push한다(code 변경 없음, 학습 없음). 해시는 다음 기록에 적는다.
+
+## 2026-11-19 00:08 KST — 사용자 결정 + 사전등록(본 학습 전): AD에서 SF-de 비교(54 run) / mean pooling energy 재계산 결과(학습 없음: 새 계산 규칙에서 LIF+mean은 SF-de의 0.67배(ETT) · 0.64배(MIT-BIH)) / AD 뒤 "mixer에만 population" 실험 계획
+
+**직전 commit:** `abdb861cb`(질문 답 + DNN 표). 브랜치 `exp/f-lif-pop-v3`.
+
+### 사용자 결정(원문)
+> 1. 이대로 AD를 진행하고
+> 2. mean pooling energy를 다시 측정해줘.
+> 3. [mixer에만 population] 실험을 AD 이후에 진행해줘. (plan에 기록)
+
+- "이대로"는 앞 보고(23:48 기록 뒤)의 AD 계획 그대로라는 뜻이다.
+  - SF-de lr만 튜닝(11-03 SF-sj와 같은 방식).
+  - SpkMixer는 11-03 튜닝 행.
+  - 판정은 튜닝값, 기본값은 보고용.
+  - AD 설정 자체의 약점은 따로 다룬다.
+
+### A. AD SF-de 사전등록
+**무엇을 돌리나(suite `flif-v1-ad-sfde`)**
+- SF-de: Spikformer식 model의 모든 neuron을 spikeDE LIF로 바꾼 판(`NALL=lif`, tag `_nalif`).
+- 1단계 lr(holdout: 학습 파일 앞 80 % 학습, 뒤 20 % validation, test 없음).
+  - lr {1e-4, 2.5e-4, 5e-4(기본), 1e-3, 2e-3} × MSL / SMAP / PSM × seed 42 / 7 / 2026 = 45 run.
+  - 층 2(11-03 SF-sj와 같음).
+- 선택(validation만): dataset마다 score(v) = seed 평균 best validation MSE(v) / 같은 값(5e-4). 가장 낮은 값을 고르고, 차이가 1e-12 미만이면 5e-4를 유지한다.
+- 2단계 최종: 학습 파일 전체로 고른 lr에서 9 run. best validation weight로 test한다.
+- 나머지 설정은 11-03 AD와 같다(window 100, P 8, D 64, bs 128, 10 epoch, patience 3, MSE 복원, anomaly ratio 1).
+
+**판정(사전 고정)**
+- 지표는 test AUC-PR이다. seed별 r = 100 (A − B) / B, R = 세 dataset의 seed 평균 r의 평균.
+  - better: R ≥ +2 %이고 9쌍 중 6쌍 이상 높음.
+  - worse: 그 거울.
+  - 11-03 AD 규칙과 같다.
+- energy: `total_fft_uJ_corr`. 행마다 `energy_check` ok여야 한다.
+- 논문 기준: R > 0이고 energy A / B < 1이면 met.
+
+| 비교 | 종류 |
+|---|---|
+| **E1** muxlin(튜닝, 11-03 행) vs SF-de(튜닝) | 판정 + 논문 기준 |
+| muxlin(기본값: OR, lr 5e-4, 2층; 11-03 행) vs SF-de | 보고 + 논문 기준 |
+| SF-de vs SF-sj(튜닝) | 보고 |
+| muxlin(튜닝) vs SF-sj(= 11-03 A1) | 보고 |
+
+- 멈춤 조건: 빠진 run, 중복, SKIP, 유한하지 않은 AUC-PR, `energy_check`가 ok가 아님.
+
+**code(이번 commit)**
+- `scripts/run_ad_spk.sh`: `NALL=lif` → `--neuron_all lif`, tag `_nalif`(spk_ssa만). `NALL`이 없으면 학습 명령이 예전과 같다.
+- 새 파일:
+  - `scripts/make_queue_adsf.sh`(단계 repro / smoke / lr / final).
+  - `scripts/adsf_driver.sh`(lr pool → 45 RESULT · SKIP 0 확인 → 선택 → final pool → 54 확인 → 요약, 실패하면 멈춤).
+  - `summarize_adsf.py`(select / final; 11-03 `summarize_ad_tune`의 compare · 행 선택을 재사용; `selected_lr.json`은 다른 선택으로 덮어쓰지 않음).
+  - `recheck_adsf.py`(요약기를 import하지 않는 독립 재계산, `--sha`).
+  - `results/check-adsf-20261118/`: `check_adsf.py`, `make_dry_adsf.py`와 출력.
+
+**점검(모두 통과, `results/check-adsf-20261118/`)**
+- 재현: 고친 runner의 기본 경로로 SF-sj MSL seed 42(lr 2.5e-4, 학습 파일 전체)를 다시 돌렸다. 11-03 행과 공유 필드 48개가 같다(시간 · sha · 폴더 제외; AUC-PR 0.144329, energy 14.501226).
+- 시험 학습: SF-de 1 epoch, seed 42, 3 dataset × holdout 0 / 1 = 6 run, SKIP 0.
+  - 학습 인자(`logargs.txt`)가 11-02 SF-sj 시험 학습과 다른 것은 경로 · 날짜 · tag와 `neuron_all = lif`뿐이다. 그 뒤에 생긴 인자 10개는 기본값이다.
+  - 학습 파일 전체 run은 `energy_check` ok다(MSL AUC-PR 0.150, SMAP 0.119, PSM 0.387; 1 epoch 값이라 판정에 쓰지 않음).
+- dry run: SF-sj 행을 SF-de 이름으로 넣었더니 예상값을 그대로 냈다. 요약기와 재계산기가 일치한다.
+  - 선택은 11-03 SF-sj 선택(MSL 2.5e-4, SMAP 2e-3, PSM 5e-4).
+  - E1은 11-03 A1(R +1.05 %, 6/9, energy 1.03).
+  - SF-de vs SF-sj = 0.
+- GPU memory: run당 약 1.4 GB(nvidia-smi)라서 GPU마다 2 slot(8 slot)으로 돌린다.
+- **내 실수:** 재현 · 시험 학습 7 run을 runner 변경을 commit하기 전에 시작했다. 그래서 그 행의 `sha`는 `abdb861cb`이지만 실제 code는 이 commit의 runner다(바뀐 것은 `NALL` 두 줄뿐). 본 학습은 이 commit 뒤에 시작하므로 영향이 없다.
+
+**사전 예상(확신 낮음)**
+- E1: no clear difference. SF-sj 대비 +1.05 %였고, 다른 과제에서 SF-de ≈ SF-sj였다.
+- E1 논문 기준: 성능 쪽은 R > 0일 가능성이 크다. energy는 SF-sj 대비 1.03배였으므로 1 이상으로 not met일 가능성이 크다.
+- SF-de의 선택 lr은 예상하지 않는다.
+
+**예상 시간(내 추정):** SF-sj AD run은 holdout 73–306 s, 최종 213–2,304 s였다. SF-de는 다른 과제에서 1.5–2.5배 길었다. 그래서 합계 2–3시간으로 본다.
+
+**실행:** 이 commit · push 뒤 NSMT/에서 `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/adsf_driver.sh > /dev/null 2>&1 &`. driver.log는 `results/flif-v1-ad-sfde/driver.log`(local)이다.
+
+### B. mean pooling energy 재계산(사용자 요청 2, 학습 없음, 보고 전용; `results/check-pool-energy-20261119/`)
+- **왜:** mean pooling에서 두 방향 stack은 4번 반복의 평균(k/4)을 읽는다. 지금 규칙(syops, integer)은 이것을 곱셈(MAC, 4.6 pJ)으로 센다.
+  - 그런데 W·(k/4) = (1/4)·(W 열을 k번 더함)이고, 1/4은 바로 뒤 BN(inference에서 채널별 affine)이 흡수한다. 그러면 덧셈 k번만 남는다.
+- **새 규칙(내 제안, 사용자 승인 대기; "pooled-integer"):** Linear 입력 x ≥ 0이 정수면 sum(x) AC(지금의 integer 규칙)다. 아니고 4x가 정수면 sum(4x) AC다. 그 밖은 MAC이다. BN · neuron은 그대로다.
+- **방법:** `energy_recount_pool.py`가 학습된 run을 다시 읽어 test 집합을 다시 돌렸다. 대상은 LIF SpkMixer 기준 15 run과 mean pooling 15 run(ETT 12 + MIT-BIH 3씩)이다.
+  - ETT: E_pool = `total_fft_uJ_corr` − `body_syn_uJ` + 새 규칙 body energy.
+  - MIT-BIH: E_pool = `total_fft_uJ` − `syn_energy_uJ` + 새 규칙 energy.
+- **점검(30 / 30 통과):**
+  - 다시 계산한 MSE / macro-F1이 기록값과 같다.
+  - 기존 규칙 값이 CSV와 같다.
+  - 새 규칙이 적용된 층은 mean pooling run에서만, 두 방향 stack의 첫 Linear(`blocks.0.mixer.Mem.0.w_in`, `blocks.0.mixer_rev.Mem.0.w_in`) 두 개뿐이다.
+  - pooling 없는 run은 값이 그대로다.
+
+| 과제 | arm | energy µJ(기존 규칙) | energy µJ(새 규칙) | LIF 기준 대비(기존 → 새) | SF-de 대비(기존 → 새) |
+|---|---|--:|--:|---|---|
+| ETT | LIF 기준 | 10.28 | 10.28 | 1 | 0.9637 |
+| ETT | LIF + mean pooling | 13.01 | 7.18 | 1.2678 → 0.6958 | 1.2218 → **0.6705** |
+| ETT | SF-de | 10.67 | 10.67 | — | 1 |
+| MIT-BIH | LIF 기준 | 9.44 | 9.44 | 1 | 0.9993 |
+| MIT-BIH | LIF + mean pooling | 20.56 | 6.00 | 2.1787 → 0.6360 | 2.1772 → **0.6356** |
+| MIT-BIH | SF-de | 9.45 | 9.45 | — | 1 |
+
+- 성능(기록값, 재계산으로 바뀌지 않음; 21:35 기록): LIF+mean vs SF-de는 ETT R −0.36 %(7/12), MIT-BIH −0.21 %p(높은 seed 1/3)다.
+- 새 규칙을 쓸 때 LIF+mean의 논문 기준(입력 96):
+  - ETT met(성능 평균 우위 + energy 0.67배).
+  - MIT-BIH는 성능 쪽에서 not met(−0.21 %p; 판정 규칙으로는 no clear difference).
+- 해석:
+  - mean pooling은 "같은 성능으로 energy를 약 1/3 줄이는" 방향이다.
+  - 다만 MIT-BIH의 평균 성능이 조금 낮다(−0.21 %p).
+  - 이 결론은 새 계산 규칙을 받아들일 때만 성립한다. 사용자 승인이 필요하다.
+- 이번 재계산은 LIF만 했다. population · f-LIF의 mean arm은 학습된 run이 없어서 하지 않았다(격자 멈춤).
+
+### C. AD 뒤 계획(사용자 요청 3, plan 기록)
+- AD가 끝나면 "population을 mixer에만" 실험을 한다(18:07 사전등록의 arm 정의 그대로).
+  - pop LIF mixer, pop LIF mixer+mean, pop f-LIF mixer, pop f-LIF mixer+mean.
+  - 4 arm × (ETT 4 cell × seed 3 + MIT-BIH seed 3) = 60 run.
+- 판정은 18:07 사전등록 중 계산할 수 있는 것만 쓴다.
+  - B1 pop LIF mixer vs LIF, B3 pop LIF mixer vs pop LIF all, C3 pop LIF mixer+mean vs pop LIF mixer, C5 pop f-LIF mixer+mean vs pop f-LIF mixer.
+  - B4 · B6는 f-LIF · pop f-LIF all arm이 없어 계산할 수 없다(추가하면 +30 run).
+  - 네 arm 모두 SF-de 대비 논문 기준을 함께 낸다. mean arm의 energy는 기존 규칙과 새 규칙(승인되면)을 둘 다 적는다.
+- 시작 전에 정할 것:
+  - ETT 입력 길이(96 사전등록 / 336 주 설정이면 336). pop f-LIF 336 맞춤값 표는 새로 만들어야 한다.
+  - 멈춘 격자의 pop f-LIF mixer 2행은 다시 돌린다(새 suite에서 깨끗하게).
+- code(새 큐 단계)는 AD pool이 끝난 뒤 고친다.
+
+**commit:** 이 기록, A의 code와 점검 출력, B의 script · 출력을 `exp/f-lif-pop-v3`에 commit · push한 뒤 AD driver를 시작한다. 해시는 결과 기록에 적는다.
