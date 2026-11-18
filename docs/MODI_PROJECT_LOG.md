@@ -8773,3 +8773,132 @@ Spikformer식보다 "좋음"인 변형은 없다.
 **commit / tag:** 이 항목과 결과 파일을 commit 하고 annotated tag `exp/nsmt-flif-neo-20261118-xnor`를 붙인다. `exp/nsmt-flif-neo`와 이 tag만 push 한다. commit hash는 이 commit 안에 적을 수 없으므로 tag로 가리킨다.
 
 ---
+
+## 2026-11-18 19:39 KST — 사전 고정 + 실행 준비 (학습 전): 긴 입력에서 learning rate 다시 고르기 (사용자 결정 11-18의 2번) — 입력 336 / 720에서 세 model(Spikformer식, 기준 model pop LIF / pop f-LIF)의 learning rate(lr)를 {0.00005, 0.0001, 0.00025, 0.0005(지금 값)} 중에서 seed 42의 validation으로 다시 고른다. 고른 lr이 지금 값이 아니면 seed 7 / 2026을 더 돌려, 지금 lr과 비교하고 기준 model과 Spikformer식을 다시 비교한다. 1단계(고르기) 72 run과 같은 seed 재학습 확인 3 run, 2단계(확인) 최대 48 run이다. 학습 code는 바꾸지 않는다. 실행 스크립트에 환경 변수 `LR`만 더했고, 비워 두면 명령줄이 24/24 같다. smoke 4/4
+
+**직전 commit:** `057e81577` (XNOR 결과, tag `exp/nsmt-flif-neo-20261118-xnor`). branch `exp/nsmt-flif-neo`.
+
+**사용자 요청 (11-18, 원문):** "1. 진행 2. 1번에서 개선이 없으면 진행". 2번은 "긴 입력에 맞춘 학습 설정 다시 고르기"다. 입력 720에서 run 2/3가 첫 epoch에 멈춘 문제를 다룬다. 직전 항목에서 1번(XNOR)은 개선이 없었고, 미리 적은 2단계 조건이 성립했다.
+
+**질문:**
+- 입력 336 / 720에서 lr을 그 길이에 맞게 다시 고르면 각 model이 좋아지는가(S1).
+- 각자 고른 lr에서 기준 model과 Spikformer식의 차이가 생기거나 격차가 바뀌는가(S2 / S3).
+- 입력 길이 시험(11-17, 11-18)은 "입력 96에서 정한 설정 그대로"였다. 그 결론("길이를 늘려도 격차 없음, 길이 방향을 닫음")이 학습 설정 탓인지 확인하는 것이다.
+
+**왜 lr이고, 왜 아래쪽만 보는가 (근거):**
+- 입력 720의 run은 첫 epoch 뒤 바로 과적합한다. 예를 들어 Spikformer식 ETTm2 H720 seed 7(입력 720)은 train L1이 0.371 → 0.329 → 0.309 → … → 0.281로 계속 내려가는데, validation L1은 첫 epoch의 0.3666이 가장 낮고 그 뒤 0.372–0.382로 올라간다.
+- 세 model만 보면, validation 최저가 첫 epoch인 run의 수는 다음과 같다(칸마다 9 run).
+
+| 입력 | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 |
+|---|---|---|---|---|
+| 336 | 1 | 8 | 4 | 9 |
+| 720 | 4 | 8 | 7 | 9 |
+
+- 예측 head는 입력이 길수록 커진다(token 수 × 64 × 예측 길이). ETTm2 H720 입력 720 model의 parameter는 8.33 M이고 대부분 head다.
+- 큰 걸음이면 첫 epoch 안에서 과적합이 끝난다. 그래서 lr을 낮추는 쪽만 본다. 더 큰 lr(0.001 이상)은 돌리지 않는다.
+- lr 말고 과적합을 다룰 다른 손잡이(dropout, weight decay, head 크기, patch)는 이번에 보지 않는다. 사용자가 이름을 든 것이 lr이고, forecasting wrapper에는 dropout이 없어서 code를 바꿔야 한다.
+
+**무엇을 바꾸나:** lr만. 나머지는 입력 길이 시험과 같다: patch 8, stride 4, embedding 64, head 8(ETTh2) / 16(ETTm2), layer 수, batch 64, weight decay 0.06, reduce scheduler(validation이 2 epoch 좋아지지 않으면 lr × 0.1), epoch 100(ETTh2) / 50(ETTm2), patience 10, L1 손실, best-validation weight로 test, `--no-bias`, T_h = 4.
+
+**model:** Spikformer식 `spk_ssa`, 기준 model `nsmt4q_pop_lif_msn` / `nsmt4q_pop_flif_msn`(Neocortex MS query population). 기준 model이 pop LIF와 pop f-LIF 둘 다 들어간다.
+
+**칸:** ETTh2 / ETTm2 × H96 / H720, 입력 336과 720.
+
+**1단계 (고르기, seed 42만):**
+- 새 lr {0.00005, 0.0001, 0.00025} × 3 model × 입력 2 × 4칸 = **72 run**.
+- lr 0.0005는 입력 길이 시험의 run을 다시 쓴다(suite `flif-v1-ett-len336` sha `c9bef7da0`, `flif-v1-ett-len720` sha `fdeaa24d3`).
+- 다시 써도 되는 근거:
+  - 학습 code는 결정적으로 돈다(`config.set_random_seed`).
+  - 직전 항목에서 같은 seed 재학습 3개가 다른 날·다른 sha의 run을 비트 단위로 재현했다.
+  - 실행 스크립트를 고친 뒤에도 `LR`을 비우면 명령줄이 같다(아래 점검).
+  - 확인 삼아 입력 720 ETTh2 H96 seed 42를 세 model 모두 지금 lr로 다시 돌린다(suite `flif-v1-ett-lr-repro`, **3 run**, 보고 전용).
+- **고르는 규칙 (validation만, test는 보지 않음):**
+  - model과 입력 길이마다 s(lr) = 네 칸의 [validation L1(lr) / validation L1(0.0005) − 1]의 평균(%)을 구한다.
+  - s가 가장 낮은 lr을 고른다.
+  - 다른 lr이 0.0005보다 엄밀히 낮을 때만 바꾼다. 같으면 0.0005를 둔다.
+  - `select_lrlong.py`가 고르고 `classification/results/flif-v1-lrlong-selected.json`에 적는다. 줄이 빠지거나 겹치거나, 값이 유한하지 않거나, seq_len·lr·run 폴더가 맞지 않으면 멈춘다.
+
+**2단계 (확인):**
+- 고른 lr이 0.0005가 아닌 (model, 입력 길이)마다 seed 7 / 2026 × 4칸 = 8 run을 더 돌린다. 최대 6 × 8 = **48 run**이다.
+- seed 42 run은 1단계 run을 그대로 쓴다.
+- 0.0005를 고른 경우 그 model의 "고른 arm"은 지금 arm과 같다(새 run 없음).
+
+**판정 (사전 고정, `summarize_lrlong.py`; 입력 길이마다 따로):**
+- r = A / B − 1 (test MSE). 12쌍 = 4칸 × seed 3. 좋음 = 평균 ≤ −1 %이고 8/12 낮음. 나쁨은 그 거울. 칸 판정 ±1 %, 2/3.
+- **S1** 고른 lr − 0.0005, model마다: lr을 다시 고르면 그 model이 좋아지는가.
+- **S2** 기준 model(자기가 고른 lr) − Spikformer식(자기가 고른 lr), neuron마다: 주 비교.
+- **S3** 격차의 변화: 쌍마다 g = r(S2) − r(둘 다 0.0005) (%p). 커짐 = 평균 ≤ −1이고 8/12 음수. 줄어듦은 그 거울. "둘 다 0.0005"는 입력 길이 시험의 주 비교(L1)와 같은 값이다.
+- **두 neuron 규칙:** 둘 다 같은 판정이면 그 판정. 하나만이면 "neuron에 따라 다름(약함)".
+- **한 칸 빼기:** "차이 없음"이 아닌 판정마다 칸 하나를 뺀 9쌍 평균 네 개를 적는다. 넷 모두 같은 부호로 |평균| ≥ 1이면 "robust", 아니면 "한 칸 의존(약함)".
+- **보고 전용:**
+  - seed 42의 고르기 표: 모든 lr의 validation s와, 참고로 test 비율. 같은 설정에서 lr만 바꿨을 때의 변화를 나란히 보인다. test는 고르기에 쓰지 않는다.
+  - 첫 epoch 멈춤 수, epoch 수, run 시간, MAE, energy(head 재계산), 발화율, 재학습 확인.
+
+**읽는 법 (미리 적음):**
+- **S1 "좋음"인 model:** 그 입력 길이에서 0.0005로 낸 숫자가 그 model을 낮게 평가했다는 뜻이다.
+- **긴 입력에서 기준 model이 앞섬:** S2 "좋음"이고 S3 "커짐"이다(두 neuron 모두, 또는 한 neuron이라도 robust). 그러면 "입력 길이 방향을 닫는다"는 결론은 학습 설정 탓이었다. 보고하고 사용자 결정을 기다린다(길이 방향을 다시 열지 등).
+- **결론 유지:** S2 차이 없음이고 S3 변화 없음이다. lr을 다시 골라도 입력 길이 시험의 결론이 그대로다.
+- **기준 model이 뒤짐:** S2 "나쁨" 또는 S3 "줄어듦"이다. 보고한다.
+- **lr만으로는 안 됨:** 고른 lr에서도 첫 epoch 멈춤이 run의 절반 이상이면, lr만으로는 과적합을 풀지 못한 것이다. 다른 손잡이(dropout, weight decay, head 크기, patch)는 시험하지 않았다고 적는다.
+- **가장자리:** 어떤 (model, 입력 길이)가 가장 낮은 0.00005를 고르면 lr 범위가 그 model의 최적값을 감싸지 못한 것이다. 보고하고, 사용자 결정 없이 범위를 넓히지 않는다.
+- 이 단계가 끝나면 결과를 보고하고 사용자 결정을 기다린다. 미리 허락된 다음 단계는 없다.
+
+**사전 예상:**
+- 고르기: 입력 720에서는 세 model 모두 0.0005보다 낮은 lr을 고른다. 입력 336에서는 셋 중 둘 이상이 그렇다.
+- 가장자리: 입력 720에서 적어도 한 model이 0.00005를 고른다.
+- 첫 epoch 멈춤: 고른 lr에서 줄지만, H720 칸에서는 여전히 1/3 이상이다.
+- S1: 입력 길이마다 많아야 한 model이 "좋음"이고 나머지는 차이 없음이다. 첫 epoch weight도 이미 early stopping으로 고른 것이고, lr을 낮춰도 head가 큰 것은 그대로이기 때문이다.
+- S2: 두 입력 길이 모두 두 neuron 차이 없음. S3: 변화 없음.
+
+**코드 / 스크립트 (학습 code는 그대로):**
+- `forecasting/scripts/run_ett_mixer.sh`, `run_ett_dual.sh`: 환경 변수 `LR`.
+  - 비우면 지금과 같다.
+  - 주면 dataset 설정 뒤에 `-lr $LR`을 붙인다(argparse는 마지막 값을 씀).
+  - run 폴더를 `+epoch+E+lr+$LR+`로 찾고, RESULT 줄에 `lr=`을 더한다.
+  - `LR`은 Python이 float를 찍는 모양으로 써야 한다(0.0001, 0.00025, 5e-05). 아니면 폴더를 못 찾아 SKIP이 된다(fail-closed).
+- 새 `classification/scripts/make_queue_lrlong.sh`: 1단계 대기열 75개를 만든다. 재학습 3개가 먼저, 그다음 입력 720 → 336, ETTm2 → ETTh2, 낮은 lr부터다.
+- 새 `classification/select_lrlong.py`: 위 고르는 규칙대로 고르고, 2단계 대기열을 만든다.
+- 새 `classification/scripts/lrlong_driver.sh`: 1단계 pool → (RESULT 75, SKIP 0이 아니면 멈춤) → 고르기 → 2단계 pool. 모든 줄을 `forecasting/results/flif-v1-ett-lrlong-pool.log`에 남긴다.
+- 새 `classification/summarize_lrlong.py`: 위 판정. 저장된 고르기 JSON이 새로 고른 것과 다르면 멈춘다. 새 run이 sha 하나가 아니어도 멈춘다.
+- suite: 입력 길이와 lr마다 하나다(`flif-v1-ett-lr<L>-<lr>`). 같은 suite 안에서 run 폴더 이름에 입력 길이가 들어가지 않기 때문이다.
+
+**점검 (fail-closed):**
+- **명령줄 동일 (`LR` 비움):** 가짜 python(인자만 적고 끝남)으로 고치기 전 / 뒤 실행 스크립트를 돌렸다. 6 조건(`spk_ssa`, `spk_ssa_xl`, 기준 pop LIF / pop f-LIF, `nsmt4q_pop_lif_msn_nomem`, `nsmt4q_pop_flif_msn_xl`) × ETTh2 / ETTm2 × 입력 96 / 720 = 24개가 모두 같다. `LR=0.0001`이면 `-lr 0.0001` 두 인자만 더해진다.
+- **smoke** (1 epoch, ETTh2 H96 seed 42, 입력 720, suite `smoke-lrlong-20261118` / `-def`, RESULT 4, SKIP 0):
+
+| 조건 | LR | test MSE | logargs의 lr | 폴더의 lr | RESULT lr= | 1 epoch 시간 |
+|---|---|---|---|---|---|---|
+| spk_ssa | 0.0001 | 0.321704 | 0.0001 | `+lr+0.0001+` | 0.0001 | 93 s |
+| 기준 pop LIF | 5e-05 | 0.341336 | 5e-05 | `+lr+5e-05+` | 5e-05 | 550 s |
+| 기준 pop f-LIF | 0.00025 | 0.301481 | 0.00025 | `+lr+0.00025+` | 0.00025 | 603 s |
+| spk_ssa | (비움) | 0.291673 | 0.0005 | `+lr+0.0005+` | (없음) | 101 s |
+
+  - 1 epoch 시간은 다른 대화의 작업(GPU마다 2개)과 GPU를 나눠 쓴 값이다. 입력 길이 시험 때 기준 model ETTh2 H96 입력 720은 run 전체가 평균 883 s였다.
+- **고르기·요약 스크립트 시험 (가짜 suite):** 입력 336 / 720의 실제 줄에 정해진 배율을 곱해 가짜 suite를 만들었다(시험 뒤 scratchpad에만 남김).
+  - 고른 lr이 심어 둔 답과 같았다(동점이면 0.0005 유지 포함).
+  - S1이 심어 둔 −2.00 / −5.00 / +2.00 %를 그대로 냈다.
+  - "둘 다 0.0005" 줄이 입력 길이 시험의 L1 값(입력 720: +0.52 / +0.25 %, 입력 336: −0.71 / −1.57 %, 마지막은 "한 칸 의존(약함)")을 그대로 재현했다.
+  - 실패해야 하는 8경우가 모두 멈췄다: 2단계 줄 빠짐, seed 42 줄 중복, 다른 lr 폴더, validation nan, 고친 고르기 JSON, seq_len 틀림(seed 42에서는 고르기가, seed 7에서는 요약이 잡음), sha 둘.
+  - 처음 시험에서 두 경우가 통과해 버렸는데, 시험 자체가 잘못된 것이었다(grep이 자기 입력 파일에 덧붙이지 못함; seed 7 줄을 고쳐 고르기가 읽지 않음). 시험을 고쳐 다시 돌렸다.
+
+**실행:**
+- NSMT/에서 tmux `flif_lrlong`으로 `bash nsmt_flif_v1/classification/scripts/make_queue_lrlong.sh && bash nsmt_flif_v1/classification/scripts/lrlong_driver.sh 0,1,2,3`(GPU 하나에 run 하나).
+- 다른 대화의 작업이 GPU마다 2개씩 돌고 있다. 그 작업에는 손대지 않는다.
+- 측정한 run 시간 (입력 길이 시험, lr 0.0005, 세 model, 칸 평균): 입력 336은 ETTh2 535–597 s, ETTm2 3462–3719 s; 입력 720은 ETTh2 759–883 s, ETTm2 4992–5182 s. 그때 run은 11–15 epoch였다. 낮은 lr은 epoch가 늘 수 있고, 지금은 GPU를 나눠 쓴다. 끝나는 시각은 어림하지 않는다.
+- 끝나면(classification 폴더):
+  1. pool 기록을 suite마다 `pool_runs.txt`로 복사한다.
+  2. 7개 suite(`flif-v1-ett-lr-repro`, `flif-v1-ett-lr{336,720}-{5e-05,0.0001,0.00025}`)에 `python energy_recount_ett.py --suite <suite>`를 돌린다.
+  3. `python summarize_lrlong.py`.
+- pool이 도는 동안 저장소의 code와 실행 스크립트를 고치지 않는다. 특히 `select_lrlong.py`는 1단계 뒤에 driver가 실행하므로 그 전에 고치지 않는다.
+
+**한계:**
+- 고르기는 seed 하나(42)의 validation이다. seed 42 run은 고르기와 판정에 함께 쓰인다(validation으로 골랐으므로 그 run의 test가 조금 좋게 나올 수 있다). 나머지 두 seed는 고르기와 무관하다.
+- lr만, 아래쪽만 본다. 다른 손잡이는 보지 않는다.
+- 0.0005 arm은 다른 날·다른 sha의 run이다. 짝은 seed로 맞춘다. 재학습 확인 3 run을 보고한다.
+- ETT 네 칸, seed 3, 탐색 수준이다.
+
+**not run:** 0.001 이상의 lr; dropout / weight decay / head 크기 / patch; 기준 model 통제(memory 끔, 순서 섞기)의 새 lr; 입력 96의 새 lr; 입력 336 / 720에서 XNOR; CinC·MIT-BIH.
+
+**commit:** 이 항목과 실행 스크립트·고르기·요약 스크립트·smoke 결과를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 driver를 시작한다. 이 commit이 새 run들의 sha가 된다.
+
+---

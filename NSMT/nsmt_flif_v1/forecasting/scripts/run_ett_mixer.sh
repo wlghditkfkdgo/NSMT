@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# MODI 2026-11-18 (long-input lr test): env LR = learning rate (unset = the dataset default above, every earlier run; the command
+#   line, folder glob and RESULT line are then unchanged). Set: '-lr $LR' is appended after the dataset flags (argparse keeps the
+#   last), the run folder is found with '+epoch+E+lr+$LR+' (LR must be written as Python prints the float, e.g. 0.0001, 0.00025,
+#   5e-05; otherwise no folder matches and the run is a SKIP), and RESULT gains lr=.
 # MODI 2026-11-18 (coupling attention test): + spk_ssa_xl = spk_ssa with --attn_score xnor_log (XNOR + Log-PE, Lv et al. NeurIPS 2025).
 # MODI 2026-11-16 (input-length test): env SEQ = input length (--seq_len, default 96 = every earlier run; RESULT gains seq_len=).
 # MODI 2026-10-27 (generalization batch): one ETT forecasting run of a CinC model of nsmt_flif_v1/classification
@@ -61,9 +65,9 @@ OUT=$LOG/ett_${DS}_p${PL}_${COND}_seed${S}_${TS}_${SHA}.stdout; t0=$(date +%s)
   --log_dir "$LOG/$DS/p$PL" --seed $S -s -nd 0 --gating attn --no-bias --scheduler reduce -e $E --warm_up_epoch 0 \
   --layers 1 --tau 2.0 --weight_decay 0.06 --patience $P \
   --data $DS --data_path $DS.csv --root_path "$W/dataset/ETT-small" --seq_len $SEQ --pred_len $PL --features M --target OT \
-  $HP $CF --tag $COND seed$S > "$OUT" 2>&1)
+  $HP $CF ${LR:+-lr $LR} --tag $COND seed$S > "$OUT" 2>&1)
 RC=$?
-D=$(ls -td "$LOG/$DS/p$PL"/*/*"+${COND}+seed${S}+"*"+epoch+${E}+"*/seed${S}_* 2>/dev/null | head -1)
+D=$(ls -td "$LOG/$DS/p$PL"/*/*"+${COND}+seed${S}+"*"+epoch+${E}+${LR:+lr+$LR+}"*/seed${S}_* 2>/dev/null | head -1)
 CSV="$D/log/final+result.csv"; LCSV="$D/log/last/final+result.csv"
 if [ $RC -ne 0 ] || [ ! -s "$CSV" ]; then echo "SKIP(rc=$RC, no result) ds=$DS pl=$PL cond=$COND seed=$S out=$OUT" | tee -a "$RES/raw.txt"; exit 1; fi
 VALS=$($PY - "$CSV" "$LCSV" <<'EOF'
@@ -76,4 +80,4 @@ EOF
 [ -z "$VALS" ] && { echo "SKIP(result parse failed) ds=$DS pl=$PL cond=$COND seed=$S out=$OUT" | tee -a "$RES/raw.txt"; exit 1; }
 BE=$(cat "$D/log/best_epoch.txt" 2>/dev/null | tr ' ' ':')
 PAR=$(grep -a 'number of parameters' "$OUT" | grep -oE 'parameters : [0-9]+' | grep -oE '[0-9]+'); t1=$(date +%s)
-echo "RESULT exp=nsmt_flif_v1_gen_ett ds=$DS pl=$PL cond=$COND seed=$S $VALS best_epoch_val_epochs=$BE params=$PAR time_s=$((t1-t0)) seq_len=$SEQ sha=$SHA dir=$D" | tee -a "$RES/raw.txt"
+echo "RESULT exp=nsmt_flif_v1_gen_ett ds=$DS pl=$PL cond=$COND seed=$S $VALS best_epoch_val_epochs=$BE params=$PAR time_s=$((t1-t0)) seq_len=$SEQ${LR:+ lr=$LR} sha=$SHA dir=$D" | tee -a "$RES/raw.txt"
