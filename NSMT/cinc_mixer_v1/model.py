@@ -699,7 +699,22 @@ class myModel(nn.Module):
                                                         f'xaT{self.T_h}' + ('_bimx' if self.neo_stream_fuse == 'mx' else ''), taus)
         for blk in self.data_block:                                    # MODI 2026-10-24: alignment order of the streams
             blk.stream_rev = self.stream_rev
-        
+        # 2026-11-18 (--neuron_all, user request 11-18): every spikingjelly LIF of the Spikformer-style model (embedding, SSA q / k /
+        # v / attn, proj, MLP; T_h repeat steps) becomes the spikeDE neuron of the SpkMixer, so the two models share one neuron
+        # implementation. Swapped after the weight init (spikeDE LIF has no parameters), so the weights and the random state are
+        # those of the default model. Default 'sj_lif': unchanged.
+        self.neuron_all = str(kwargs.get('neuron_all', 'sj_lif'))
+        if self.neuron_all != 'sj_lif':
+            if self.neuron_all != 'lif':
+                raise ValueError("neuron_all in {sj_lif, lif}")
+            if not self.hippo_ssa or self.ms_shortcut:
+                raise NotImplementedError('neuron_all: the Spikformer-style model (hippo_ssa) without the membrane shortcut only')
+            from layers import swap_sj_neurons
+            self.n_swapped = swap_sj_neurons(self, self.neuron_all, self.T_h, **_neo)
+            left = [n for n, m_ in self.named_modules() if isinstance(m_, MultiStepLIFNode)]
+            if left:
+                raise NotImplementedError(f'neuron_all: spikingjelly LIF left in {left}')
+
         if ((self.train_mode != 'training') and (self.train_mode != 'pre_training')):
             for module in self.modules():
                 if isinstance(module, nn.BatchNorm1d):

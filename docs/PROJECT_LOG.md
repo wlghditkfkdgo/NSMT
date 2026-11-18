@@ -13098,3 +13098,85 @@ head = s2                          H1(head가 membrane을 읽으면 CinC, ETT wo
 - population 단계(사용자 요청)는 범위를 사용자와 정한 뒤 사전등록한다. 사전등록에 적어 둔 필요 사항: 변형마다 초기 발화율 맞춤값 표를 새로 만든다. population soma는 이미 θ를 빼므로 reset은 "지금 대 0으로"만 의미가 있다.
 
 **commit:** 이 기록의 commit을 annotated tag `exp/f-lif-pop-v3-mx3-20261118`로 식별한다(LIF 단계 학습 완료, snapshot 아님). `exp/f-lif-pop-v3`와 이 tag만 push.
+
+## 2026-11-18 17:29 KST — 사용자 결정 + 구현 + 점검(학습 없음): neuron 구현 맞추기(Spikformer식 → spikeDE LIF), SpkMixer neuron 배치(population을 mixer에만 / 전체), mean pooling 위주
+
+**직전 commit:** `358dc5694`(mixer 변형 LIF 단계 결과). 브랜치 `exp/f-lif-pop-v3`. 이 기록은 구현과 점검만 적는다. 사전등록(비교, 규칙, 예상, 실행)은 시험 학습을 본 뒤 다음 기록에 적는다.
+
+### 사용자 질문과 요청(11-18)
+- 질문: "현재는 아키텍쳐 전체에 걸쳐서 '동일한 뉴런'을 사용하고 있는 거지?"
+  - 내 답(code 확인): SpkMixer는 neuron이 있는 모든 layer에 같은 종류를 쓴다(10-28 사용자 결정).
+  - 다만 Spikformer식은 spikingjelly LIF(발화하면 0으로 되돌림, sigmoid 기울기 근사)를 쓰고, SpkMixer LIF는 spikeDE LIF(θ/τ = 0.5를 뺌, arctan 기울기 근사)를 쓴다. τ 2, θ 1, 충전 방식은 같다.
+  - 그래서 지금까지의 "SpkMixer vs Spikformer식" 비교에는 neuron 구현 차이가 섞여 있었다.
+- 요청(원문):
+  1. "SpkMixer vs. Spikformer 에서 무조건 둘의 뉴런의 구현을 "일치"시켜서 실험해. 즉, Spikformer는 (SpkMixer의 neuron 선택과 상관없이) 무조건 LIF neuron을 사용하는데 그 "구현"은 SpikeDE로 사용해. 혹은 반대로 SpikMIxer의 (standard) LIF neuron 실험을 Spikingjelly LIF로 구현한 neuron을 사용해서 (Spikformer와) 일치시켜줘."
+  2. "아래 두 가지 경우를 나눠서 SpikMixer를 실험해줘. neo-Mixer에서만 population LIF/f-LIF 뉴런 적용 (나머지 뉴런들은 standard LIF/f-LIF 사용) / 전체 아키텍쳐에 대해 뉴런 통일"
+  3. "(나) pooling에 대하여, mean pooling은 가능성이 있다고 생각해. (특히 ETT에서 유의미하게 개선함.) 그러므로 mean pooling 위주로 실험"
+  4. "현재 1과 2에 대해서 이전의 실험들 중 재실험을 해볼 법한 세팅 혹은 비교 실험이 있다면 진행해줘."
+- 내가 바로잡은 사실(3번): 11-18 결과에서 ETT mean pooling은 사전등록 규칙으로 no clear difference였다(R −0.65 %, 9/12, 이득은 ETTh2 H96 −1.99 %에 몰림). 다만 MIT-BIH에서 max는 −2.75 %p(worse)였고 mean은 −0.26 %p였으므로, 두 과제 공통 후보로는 mean이 낫다는 판단에는 동의한다고 답했다.
+- 사용자 선택(질문 2개):
+  - 구현 방향: "Spikformer → spikeDE (Recommended)". Spikformer식의 모든 neuron을 SpkMixer와 같은 spikeDE LIF로 바꾼다. population · f-LIF도 spikeDE 계열이라 2번 실험까지 한 구현으로 묶인다. Spikformer식 lr은 기존과 같은 방식으로 다시 튜닝한다.
+  - "Neo-mixer에서만"의 범위: "stack + fusion (Recommended)". token 축 neuron(두 방향 stack + muxlin fusion의 neuron)만 population이고, embedding · MLP(반복 축 4 step)는 같은 계열의 standard neuron이다.
+
+### code 변경(모두 기본값에서 기존 경로 그대로)
+- `layers.py`: `swap_sj_neurons(root, kind, T, **kw)`. 다른 세션의 10-29 `--neuron_all` code(`exp/nsmt-flif-neo`, 읽기만 함)를 옮겼다. spikingjelly `MultiStepLIFNode`를 주인 module에 맞는 크기와 배치의 spikeDE neuron으로 바꾼다(Embedding.emb_lif, SpikLinearLayer.lif, SSA q / k / v / attn). 규칙이 없는 주인은 오류를 낸다.
+- `model.py`(myModel): `neuron_all`('sj_lif' 기본 | 'lif').
+  - `--hippo_ssa`에서만 쓸 수 있고, membrane shortcut과 함께 쓰면 오류를 낸다.
+  - weight 초기화 뒤에 바꾼다(spikeDE LIF는 parameter가 없다). 그래서 같은 seed에서 weight와 난수 상태가 기존 model과 같다.
+  - 남은 spikingjelly LIF가 있으면 오류를 낸다.
+- `spk_mixer.py`: `neuron_scope`('all' 기본 | 'mixer').
+  - 'mixer'이면 embedding과 MLP(fc1, fc2)의 neuron이 같은 계열의 single neuron이 된다(pop_lif → lif, pop_flif → flif). 두 방향 stack과 fusion의 neuron(s_d, fusion Linear 뒤)은 population이다.
+  - pop_lif / pop_flif, rep 배치, band 없음, connect MS 아님에서만 쓸 수 있다. 맞춤값 표를 명시해야 한다.
+- `config.py`:
+  - `--neuron_all {sj_lif,lif}`(폴더 이름 끝 `_nalif`)
+  - `--spk_neuron_scope {all,mixer}`(`_nsmixer`)
+- `load_model.py`:
+  - 기본값이 아닌 선택만 넘긴다.
+  - `_check_pn`은 neuron_all을 myModel에서만, spk_neuron_scope를 spkMixer에서만 허용한다. 다른 loader에도 붙였다. head 시험 옵션과 함께 쓰면 오류를 낸다.
+- `scripts/run_ett_spk.sh`, `scripts/run_mitbih_spk.sh`:
+  - 새 조건 `spkmx_flif_muxlin_<cf>`(f-LIF, α 0.5)와 `spkmx_pop_flif_muxlin_<cf>`(population f-LIF, soma 초기값 1.0: 단계 9 이후 모든 population f-LIF run과 같음).
+  - 새 환경 변수:
+    - `NSCOPE=mixer`(tag `_nsmixer`)
+    - `NALL=lif`(spk_ssa 전용, tag `_nalif`)
+  - population과 `MIXPOOL`을 함께 쓸 수 있게 했다(자기 맞춤값 표 필요).
+  - population이 MIXMS / MIXRESET과 함께 쓰이면 여전히 거부한다.
+  - 맞춤값 표: pop_lif / 전체 / pooling 없음 / 입력 96은 예전 표(`calib/stft/..._bdnone_txrep.json`)를 그대로 쓴다. 그 외는 `calib/pn/gains_<task>_<mixer>_muxlin_<connect>_sc<scope>_mp<pool>[_s<L>].json`이다.
+- 새 파일:
+  - `calibrate_pn.py`: 맞춤값 표. `calibrate_stft.py`와 같은 방법이다. 기준은 같은 계열 single neuron model이고, pooling과 입력 길이가 같다. 범위는 적용하지 않는다.
+  - `check_pn.py`: 점검 p0–p6.
+  - `scripts/make_queue_pn.sh`: 단계 repro / smoke / sf / main / len336.
+  - `results/check-pn-20261118/snap_pn.py`
+
+### 맞춤값 표 23개(`results/check-pn-20261118/calibrate_pn.txt`, `calibrate_pn336.txt`)
+- 3 과제(ETTh2, ETTm2, MIT-BIH) × {pop LIF 전체 + mean, pop LIF mixer만 ± mean, pop f-LIF 전체 ± mean, pop f-LIF mixer만 ± mean} = 21개.
+- 입력 336의 pop LIF mixer만(ETTh2, ETTm2) = 2개.
+- 맞춘 layer의 발화율 상대 오차는 최대 0.002다.
+- 모든 layer로 보면 최대 0.067이다(MIT-BIH pop LIF mixer만 + mean의 MLP layer). MLP는 맞춘 mixer의 spike를 받으므로 정확히 같지 않다. 규칙(< 0.10)을 넘은 표는 없다.
+
+### 점검(모두 통과, `results/check-pn-20261118/`)
+- **p0 기존 경로 불변**(`p0_compare.txt`): 358dc5694의 code(`git archive`)와 고친 code로 같은 snapshot을 떠서 비교했다. 1,025개 항목이 비트 단위로 같다(weight, 난수 상태, 출력, 기울기, neuron spike / 전하).
+  - 대상: snap_mx3의 SpkMixer 경로 전부.
+  - 11-17 mixer 변형(mean pooling, 방향 안 shortcut, zero reset).
+  - pop LIF + STFT 맞춤값 표.
+  - Spikformer식(spikingjelly)의 MIT-BIH 분류기와 ETT forecaster.
+- **check_pn.py**(`check_pn.txt`): 78개 통과, 0개 실패.
+  - **p1 Spikformer식 + spikeDE LIF(MIT-BIH, ETT):**
+    - spikingjelly LIF 8개가 모두 바뀌고 남은 것은 0개다.
+    - weight · BN 통계 · 난수 상태가 spikingjelly model과 같다.
+    - 바뀐 neuron은 spikeDE LIF(τ 2, θ 1, 기울기 근사 5, spikeDE reset, 4 step)다.
+    - 같은 입력에서 SpkMixer의 embedding LIF와 spike · 입력 기울기가 비트 단위로 같다.
+    - 학습 step이 유한하고, 모든 parameter에 기울기가 가며, spike는 0/1이다.
+  - **p2 mixer만(ETTh2, MIT-BIH × pop LIF / pop f-LIF):**
+    - population이 stack + fusion에 정확히 있다(ETT 4개, MIT-BIH 6개). embedding · fc1 · fc2는 single neuron이다.
+    - Linear / BN weight와 난수 상태가 "전체" population model, single neuron model과 같다. population soma에는 무작위 초기화가 없다.
+  - **p3:** 맞춤값 표 24개(입력 336 2개 포함)가 있다. 값은 유한하고 양수이며, population layer의 BN만 담는다. 실행 script의 경로 규칙이 `calibrate_pn.table_path`와 같다.
+    - 처음 버전은 MIT-BIH 실행 script의 경로 문자열을 잘못 찾아 1개가 FAIL이었다. 실행 script에는 문제가 없었다. 점검 문자열을 고쳐 다시 돌렸다.
+  - **p4:** f-LIF는 모든 layer가 FLIF(α 0.5, τ 2)다. pop f-LIF는 member τ 4 / 8 / 16 / 32, α 0.5, soma 초기값 1.0이다. pop LIF는 α 1, soma 0.5다.
+  - **p5:** 허용하지 않는 조합이 오류를 낸다. model / loader 10개, 실행 script 8개다.
+  - **p6:** flag, loader, 폴더 이름이 맞다.
+
+### 다음
+- 재현 5 run과 짧은 시험 학습 33 run을 이 commit으로 돌린다(`make_queue_pn.sh repro|smoke`). 기존 경로 재현과 새 조건의 메모리 · 시간 · energy를 본다.
+- 그 결과로 사전등록(비교, 규칙, 예상, 실행 순서)을 적고 commit한 뒤 본 학습을 시작한다.
+
+**commit:** 이 기록과 code, 표, 점검 출력을 `exp/f-lif-pop-v3`에 commit · push한다(학습 없음, tag 없음). 해시는 다음 기록에 적는다.

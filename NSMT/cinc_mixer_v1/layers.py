@@ -535,6 +535,30 @@ def build_neo_neuron(kind, size, T, layout, tau=2., alpha=.5, method='pred', ste
     return NeoNeuron(n, layout)
 
 
+def swap_sj_neurons(root, kind, T, **neo_kw):
+    """2026-11-18 (--neuron_all, user request 11-18: the Spikformer-style model with the SpkMixer's spikeDE LIF; ported from
+    exp/nsmt-flif-neo nsmt_flif_v1/classification/layers.py of 10-29): every spikingjelly MultiStepLIFNode under `root` -> the
+    spikeDE neuron `kind` (NeoNeuron, same options as build_neo_neuron; `T` = spiking steps of these layers). Size and layout from
+    the owner: model.Embedding (emb_lif, embed_dim, 'DN'), SpikLinearLayer (lif, out_dim, 'ND'), SSA_rel_scl (q / k / v / attn
+    _lif, dim, 'ND'). Any other owner raises. Returns the number of replaced neurons."""
+    n = 0
+    for mod in list(root.modules()):
+        for name, child in list(mod.named_children()):
+            if not isinstance(child, MultiStepLIFNode):
+                continue
+            if name == 'emb_lif' and hasattr(mod, 'embed_dim'):
+                size, layout = mod.embed_dim, 'DN'
+            elif isinstance(mod, SpikLinearLayer) and name == 'lif':
+                size, layout = mod.out_dim, 'ND'
+            elif isinstance(mod, SSA_rel_scl) and name in ('q_lif', 'k_lif', 'v_lif', 'attn_lif'):
+                size, layout = mod.q_linear.out_features, 'ND'
+            else:
+                raise NotImplementedError(f'--neuron_all: no rule for {type(mod).__name__}.{name}')
+            setattr(mod, name, build_neo_neuron(kind, size, T, layout, **neo_kw))
+            n += 1
+    return n
+
+
 # ---- MODI 2026-10-21: soma-less population (tau groups / streams) and recurrent population ---------------------------------
 # Rate-matched BN gamma init (MODI 2026-10-22): for each neuron family and tau, the gain whose initial firing on real CinC
 # BN pre-activations (embedding input for spikingjelly LIF, first-mixer-layer input for spikeDE neurons; seed 0, 32 training

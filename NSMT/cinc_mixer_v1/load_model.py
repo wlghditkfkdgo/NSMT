@@ -21,7 +21,8 @@ def _neo_kwargs(args):
                 pop_taus=tuple(float(t) for t in str(getattr(args, 'pop_taus', '4,8,16,32')).split(',')),
                 tau_calib=getattr(args, 'tau_calib', True),                                         # MODI 2026-10-23 (popk streams)
                 stream_rev=getattr(args, 'stream_rev', False), neo_stream_fuse=getattr(args, 'neo_stream_fuse', 'none'),   # MODI 2026-10-24
-                ms_shortcut=getattr(args, 'ms_shortcut', False))                                    # 2026-11-08 membrane shortcut
+                ms_shortcut=getattr(args, 'ms_shortcut', False),                                   # 2026-11-08 membrane shortcut
+                **({'neuron_all': args.neuron_all} if getattr(args, 'neuron_all', 'sj_lif') != 'sj_lif' else {}))   # 2026-11-18 (default call unchanged)
 
 
 def _check_ms(args):
@@ -35,8 +36,19 @@ def _check_ms(args):
         raise NotImplementedError('the membrane shortcut is not combined with --head_mem / --head_pool')
 
 
+def _check_pn(args):
+    """2026-11-18 (neuron implementation / placement), fail closed: --neuron_all is for myModel --hippo_ssa, --spk_neuron_scope for spkMixer."""
+    if getattr(args, 'neuron_all', 'sj_lif') != 'sj_lif' and args.model != 'myModel':
+        raise ValueError('--neuron_all is for myModel --hippo_ssa (the SpkMixer chooses its neuron with --mixer)')
+    if getattr(args, 'spk_neuron_scope', 'all') != 'all' and args.model != 'spkMixer':
+        raise ValueError('--spk_neuron_scope is for spkMixer')
+    if getattr(args, 'neuron_all', 'sj_lif') != 'sj_lif' and (getattr(args, 'head_mem', False) or getattr(args, 'head_pool', 'none') != 'none'):
+        raise NotImplementedError('--neuron_all is not combined with --head_mem / --head_pool')
+
+
 def load_mymodel(args, train=True):
     _check_ms(args)
+    _check_pn(args)
     if train:
         model = create_model(
                 'mymodel',
@@ -162,6 +174,7 @@ def load_mymodel(args, train=True):
         
 def load_neo_mixer(args, train=True):
     """stage 7: the attention-free, T = N aligned model (neo_mixer.NeoMixer)."""
+    _check_pn(args)                                                   # 2026-11-18: fail closed on the new flags
     from neo_mixer import NeoMixer
     model = NeoMixer(seq_len=args.seq_len, data_patch_size=args.patch_size, embed_dim=args.embed_dim, num_classes=args.num_classes,
                      depths=args.num_layers, mlp_ratios=args.mlp_ratios, mixer=getattr(args, 'mixer', 'pop_flif'),
@@ -192,6 +205,8 @@ def _mixer_variants(args):
         kw['mixer_ms'] = True
     if getattr(args, 'mixer_reset', 'spikede') != 'spikede':
         kw['mixer_reset'] = args.mixer_reset
+    if getattr(args, 'spk_neuron_scope', 'all') != 'all':             # 2026-11-18 neuron placement
+        kw['neuron_scope'] = args.spk_neuron_scope
     return kw
 
 
@@ -200,6 +215,7 @@ def load_spk_mixer(args, train=True):
     neuron in every layer (spk_mixer.SpkMixer). --hippo_T = repetition steps (0 -> 4, the Spikformer-style baseline's value)."""
     from spk_mixer import SpkMixer
     _check_ms(args)
+    _check_pn(args)
     T_h = int(getattr(args, 'hippo_T', 0) or 0) or 4
     model = SpkMixer(seq_len=args.seq_len, data_patch_size=args.patch_size, embed_dim=args.embed_dim, num_classes=args.num_classes,
                      depths=args.num_layers, mlp_ratios=args.mlp_ratios, mixer=getattr(args, 'mixer', 'lif'),
@@ -233,6 +249,7 @@ def load_spk_mixer(args, train=True):
 
 def load_stream_mixer(args, train=True):
     """MODI 2026-10-21: soma-less population as K separate streams merged in the head (stream_mixer.StreamMixer)."""
+    _check_pn(args)                                                   # 2026-11-18: fail closed on the new flags
     from stream_mixer import StreamMixer
     model = StreamMixer(seq_len=args.seq_len, data_patch_size=args.patch_size, embed_dim=args.embed_dim, num_classes=args.num_classes,
                         depths=args.num_layers, mlp_ratios=args.mlp_ratios, mixer=getattr(args, 'mixer', 'popk_flif'),

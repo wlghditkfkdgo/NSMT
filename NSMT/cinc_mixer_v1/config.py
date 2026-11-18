@@ -142,6 +142,9 @@ def parse_arguments():
     snn_arg.add_argument('--spk_mixpool', choices=['none', 'max', 'mean'], default='none', help='spkMixer: pool the T_h repeats before the mixer (run it once), copy its output back')
     snn_arg.add_argument('--mixer_ms', action='store_true', default=False, help='spkMixer: membrane shortcut between the layers of each directional stack')
     snn_arg.add_argument('--mixer_reset', choices=['spikede', 'subtract', 'zero'], default='spikede', help='spkMixer: reset of the directional-stack LIF neurons')
+    # 2026-11-18 (exp/f-lif-pop-v3, neuron implementation / placement, user request 11-18)
+    snn_arg.add_argument('--neuron_all', choices=['sj_lif', 'lif'], default='sj_lif', help='myModel --hippo_ssa: every spikingjelly LIF -> the spikeDE LIF of the SpkMixer')
+    snn_arg.add_argument('--spk_neuron_scope', choices=['all', 'mixer'], default='all', help='spkMixer population: all = every neuron layer; mixer = only the token-axis neurons (directional stacks + fusion), embedding / MLP the single neuron of the same family')
     snn_arg.add_argument('--fold', type=int, default=0, help='CinC 2017: test fold 0..4 of the record-wise stratified 5-fold split')
     snn_arg.add_argument('--val_frac', type=float, default=0.1, help='share of the training part held out for validation')
     snn_arg.add_argument('--win_s', type=float, default=30.0, help='CinC 2017 window length (s)')
@@ -274,6 +277,10 @@ class Config():
             _iso += "_mms"
         if getattr(args, 'mixer_reset', 'spikede') != 'spikede':
             _iso += f"_mr{args.mixer_reset}"
+        if getattr(args, 'neuron_all', 'sj_lif') != 'sj_lif':             # 2026-11-18
+            _iso += f"_na{args.neuron_all}"
+        if getattr(args, 'spk_neuron_scope', 'all') != 'all':
+            _iso += f"_ns{args.spk_neuron_scope}"
         if str(getattr(args, 'data', '')).upper() in ('CINC2017', 'SHD'):
             _iso += f"_f{args.fold}" + ("_ce" if getattr(args, 'loss_kind', 'cal') == 'ce' and str(args.data).upper() == 'CINC2017' else '')
             if getattr(args, 'crop_tokens', 0):

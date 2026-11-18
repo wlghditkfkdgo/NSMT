@@ -29,6 +29,14 @@ case $COND in
     CFX=${COND##*_}; COMB=muxlin
     case $CFX in iand) CFA=IAND ;; or) CFA=OR ;; add) CFA=ADD ;; *) echo "bad connect in $COND"; exit 1 ;; esac
     CF="--model spkMixer --mixer pop_lif --mixer_comb $COMB --connect_f $CFA --hippo_T 4 --pop_soma_init 0.5" ;;
+  spkmx_flif_muxlin_*)                                   # 2026-11-18 neuron placement test: f-LIF (spikeDE, alpha 0.5) in every layer
+    CFX=${COND##*_}; COMB=muxlin
+    case $CFX in iand) CFA=IAND ;; or) CFA=OR ;; add) CFA=ADD ;; *) echo "bad connect in $COND"; exit 1 ;; esac
+    CF="--model spkMixer --mixer flif --mixer_comb $COMB --connect_f $CFA --hippo_T 4" ;;
+  spkmx_pop_flif_muxlin_*)                               # 2026-11-18: population f-LIF (soma init 1.0 as every population f-LIF run; gain table below)
+    CFX=${COND##*_}; COMB=muxlin
+    case $CFX in iand) CFA=IAND ;; or) CFA=OR ;; add) CFA=ADD ;; *) echo "bad connect in $COND"; exit 1 ;; esac
+    CF="--model spkMixer --mixer pop_flif --mixer_comb $COMB --connect_f $CFA --hippo_T 4 --pop_soma_init 1.0" ;;
   *) echo "bad cond $COND"; exit 1 ;;
 esac
 # 2026-11-16 STFT band test (PROJECT_LOG): BAND=group|member -> --spk_band, TAXIS=token -> --spk_taxis token (tags _bd<band>, _tx<taxis>);
@@ -42,9 +50,19 @@ case ${MIXPOOL:-none} in none) ;; max|mean) BX="$BX --spk_mixpool $MIXPOOL"; BTA
 case ${MIXMS:-0} in 0) ;; 1) BX="$BX --mixer_ms"; BTAG="${BTAG}_mms" ;; *) echo "bad MIXMS"; exit 1 ;; esac
 case ${MIXRESET:-spikede} in spikede) ;; subtract|zero) BX="$BX --mixer_reset $MIXRESET"; BTAG="${BTAG}_mr$MIXRESET" ;; *) echo "bad MIXRESET"; exit 1 ;; esac
 [ -n "$BX" ] && case $COND in spkmx_*) ;; *) echo "BAND / TAXIS / MIXPOOL / MIXMS / MIXRESET are for the SpkMixer"; exit 1 ;; esac
-[ "${MIXPOOL:-none}${MIXMS:-0}${MIXRESET:-spikede}" != none0spikede ] && case $COND in spkmx_pop_*) echo "mixer variants: population not yet (needs its own gain table)"; exit 1 ;; esac
-case $COND in spkmx_pop_lif_*)
+[ "${MIXMS:-0}${MIXRESET:-spikede}" != 0spikede ] && case $COND in spkmx_pop_*|spkmx_flif_*) echo "MIXMS / MIXRESET: LIF SpkMixer only"; exit 1 ;; esac
+# 2026-11-18 neuron placement test (PROJECT_LOG): NSCOPE=mixer -> --spk_neuron_scope mixer (tag _nsmixer): population only in the directional
+# stacks + fusion, embedding / MLP the single neuron of the family; population models with NSCOPE=mixer, MIXPOOL or pop_flif take the table
+# calib/pn/gains_<task>_<mixer>_muxlin_<connect>_sc<scope>_mp<pool>[_s<SEQ>].json (calibrate_pn.py); pop_lif / all / none keeps its earlier table
+NS=${NSCOPE:-all}
+case $NS in all) ;; mixer) case $COND in spkmx_pop_*) BX="$BX --spk_neuron_scope mixer"; BTAG="${BTAG}_nsmixer" ;; *) echo "NSCOPE=mixer is for population conditions"; exit 1 ;; esac ;; *) echo "bad NSCOPE"; exit 1 ;; esac
+case $COND in spkmx_pop_*)
+  PMX=pop_lif; case $COND in spkmx_pop_flif_*) PMX=pop_flif ;; esac
   GT="$W/calib/stft/gains_MITBIH_pop_lif_muxlin_${CFA}_bd${BAND:-none}_tx${TAXIS:-rep}.json"
+  if [ "$PMX" = pop_flif ] || [ "$NS" != all ] || [ "${MIXPOOL:-none}" != none ]; then
+    [ "${BAND:-none}" = none ] && [ "${TAXIS:-rep}" = rep ] || { echo "NSCOPE / MIXPOOL / pop_flif: band none and rep only"; exit 1; }
+    GT="$W/calib/pn/gains_MITBIH_${PMX}_muxlin_${CFA}_sc${NS}_mp${MIXPOOL:-none}.json"
+  fi
   [ -s "$GT" ] || { echo "missing gain table $GT"; exit 1; }
   BX="$BX --gain_table $GT" ;;
 esac
@@ -62,6 +80,8 @@ VF=${VAL_FOLD:-}; VFA=""; TAGC="${COND}_lr${LR}_L${ML}${BTAG}"
 HM=""; [ "${HEADMEM:-0}" = 1 ] && { HM="--head_mem"; TAGC="${TAGC}_hm"; }   # 2026-11-03 H1 (head_mem.py): HEADMEM=1 -> --head_mem, tag _hm
 [ -n "${HEADPOOL:-}" ] && [ "$HEADPOOL" != none ] && { HM="$HM --head_pool $HEADPOOL"; TAGC="${TAGC}_hp${HEADPOOL}"; }   # 2026-11-03 head input forms (head_pool.py)
 [ "${MS:-0}" = 1 ] && { [ "$COND" = spk_ssa ] || { echo "MS=1 is for spk_ssa (the SpkMixer uses cond spkmx_lif_<comb>_ms)"; exit 1; }; HM="$HM --ms_shortcut"; TAGC="${TAGC}_ms"; }   # 2026-11-08 membrane shortcut
+case ${NALL:-sj_lif} in sj_lif) ;; lif) { [ "$COND" = spk_ssa ] && [ "${MS:-0}" != 1 ]; } || { echo "NALL=lif is for spk_ssa without MS"; exit 1; }
+  HM="$HM --neuron_all lif"; TAGC="${TAGC}_nalif" ;; *) echo "bad NALL"; exit 1 ;; esac   # 2026-11-18: Spikformer-style with the spikeDE LIF (neuron_all)
 OUT=$LOG/mitbih_${TAGC}_seed${S}_${TS}_${SHA}.stdout; t0=$(date +%s)
 (cd "$W" && CUDA_VISIBLE_DEVICES=$GPU OMP_NUM_THREADS=${THREADS:-4} $PY ./train.py \
   --model myModel --seed $S --log_dir "$LOG/MITBIH" --gating attn --attn SSA -s --test --print_epoch 1 -nd 0 \

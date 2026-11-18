@@ -46,6 +46,13 @@ apply_gain_table (fail closed when the table is missing). Loss, optimiser, data 
                reads the last layer's spikes and H - theta as before.
   mixer_reset  'spikede' (default) | 'subtract' | 'zero': reset of the neurons of the two directional stacks only (neurons.LIFNeuron;
                LIF only); the fusion, embedding and MLP neurons keep the default.
+
+2026-11-18 (neuron placement, user request 11-18; default 'all' leaves every earlier path unchanged):
+  neuron_scope 'all' | 'mixer': with 'mixer' only the token-axis neurons -- the two directional stacks and the fusion neurons
+               (s_d and the fusion Linear's neuron; user choice 11-18 "stack + fusion") -- are the population neuron (pop_lif /
+               pop_flif); the embedding and MLP neurons (repeat axis, T_h steps) are the single spikeDE neuron of the same family
+               (lif / flif). The population soma has no random init, so at the same seed every weight equals the 'all' model's.
+               Needs an explicit gain table (only the population layers are calibrated); rep layout, no band, no connect MS.
 """
 import json
 import os
@@ -68,6 +75,7 @@ POOLS = ('none', 'max', 'mean')                                              # 2
 RESETS = ('spikede', 'subtract', 'zero')
 CALIBRATED = ('pop_lif', 'pop_flif', 'popg_lif', 'popg_flif')
 TAXES = ('rep', 'token')                                                     # 2026-11-16
+SCOPES = ('all', 'mixer')                                                    # 2026-11-18 neuron placement
 
 
 def gain_table_path(mixer, comb, connect):
@@ -106,8 +114,9 @@ class FuseLinear(nn.Module):
 
 class SpkBlock(nn.Module):
     def __init__(self, dim, mixer, mixer_layers, mlp_ratio, make_neuron, N, T_h, comb, connect, bias=False, token_axis=False,
-                 mix_pool='none', mixer_ms=False, mixer_reset='spikede'):
+                 mix_pool='none', mixer_ms=False, mixer_reset='spikede', make_rest=None):
         super().__init__()
+        rest = make_neuron if make_rest is None else make_rest               # 2026-11-18: embedding / MLP neuron (neuron_scope)
         self.token_axis = bool(token_axis)                                    # 2026-11-16: x is [N, B, 1, D] (T_h = the token steps here)
         self.mix_pool, self.mixer_ms, self.mixer_reset = mix_pool, bool(mixer_ms), mixer_reset   # 2026-11-17
         if comb not in COMBS:
@@ -134,11 +143,11 @@ class SpkBlock(nn.Module):
                     nn.init.constant_(self.fuse.linear.bias, 0)
             self.fuse.linear._skip_global_init = True
         hidden = int(dim * mlp_ratio)
-        self.fc1 = SpikLinearLayer(dim, hidden, lif_bias=bias, neuron=make_neuron(hidden, T_h, 'ND'))   # repetition axis, T_h steps
-        self.fc2 = SpikLinearLayer(hidden, dim, lif_bias=bias, neuron=make_neuron(dim, T_h, 'ND'))
+        self.fc1 = SpikLinearLayer(dim, hidden, lif_bias=bias, neuron=rest(hidden, T_h, 'ND'))   # repetition axis, T_h steps
+        self.fc2 = SpikLinearLayer(hidden, dim, lif_bias=bias, neuron=rest(dim, T_h, 'ND'))
         if connect == 'MS':                                                   # 2026-11-08 membrane shortcut; same fork as the fusion Linear
             with torch.random.fork_rng(devices=[]):
-                self.ms_mix = SpikLinearLayer(dim, dim, lif_bias=bias, neuron=make_neuron(dim, T_h, 'ND'))
+                self.ms_mix = SpikLinearLayer(dim, dim, lif_bias=bias, neuron=rest(dim, T_h, 'ND'))
                 trunc_normal_(self.ms_mix.linear.weight, std=.02)
                 if self.ms_mix.linear.bias is not None:
                     nn.init.constant_(self.ms_mix.linear.bias, 0)
@@ -223,8 +232,13 @@ class SpkMixer(nn.Module):
                  mixer_layers=2, T_h=4, neo_tau=2.0, neo_alpha=0.5, fde_method='pred', fde_step=1.0, fde_memory=0,
                  pop_taus=(4., 8., 16., 32.), bias=False, tau=2.0, train_mode='training', in_channels=1, pop_soma_init=None,
                  mixer_comb='or', connect_f='IAND', tau_calib=True, band='none', taxis='rep', gain_table=None, mix_pool='none',
-                 mixer_ms=False, mixer_reset='spikede', **kwargs):
+                 mixer_ms=False, mixer_reset='spikede', neuron_scope='all', **kwargs):
         super().__init__()
+        if neuron_scope not in SCOPES:                                        # 2026-11-18 neuron placement
+            raise ValueError(f'neuron_scope must be one of {SCOPES}')
+        if neuron_scope != 'all' and (mixer not in ('pop_lif', 'pop_flif') or band != 'none' or taxis != 'rep' or connect_f == 'MS'):
+            raise NotImplementedError("neuron_scope 'mixer': pop_lif / pop_flif, rep layout, no band, no connect MS")
+        self.neuron_scope = neuron_scope
         if mix_pool not in POOLS or mixer_reset not in RESETS:                # 2026-11-17 mixer variants
             raise ValueError(f'mix_pool must be one of {POOLS}, mixer_reset one of {RESETS}')
         if (mix_pool != 'none' or mixer_ms or mixer_reset != 'spikede') and (connect_f == 'MS' or band != 'none' or taxis != 'rep'):
@@ -275,13 +289,19 @@ class SpkMixer(nn.Module):
                 return build_neo_neuron(mixer, size, int(steps), layout, reset=reset, **neo_kw)
             return build_neo_neuron(mixer, size, int(steps), layout, **neo_kw)
 
+        make_rest = None
+        if neuron_scope == 'mixer':                                           # 2026-11-18: embedding / MLP = the single neuron
+            single = mixer.split('_', 1)[1]                                   # pop_lif -> lif, pop_flif -> flif
+            make_rest = lambda size, steps, layout: build_neo_neuron(single, size, int(steps), layout, **neo_kw)
+
         N, D = self.num_patches, embed_dim
         tok_ax = taxis == 'token'
         steps = N if tok_ax else self.T_h                                     # spiking steps of the embedding / MLP neurons
         self.encoding = Embedding(num_patches=N, patch_size=data_patch_size * self.in_channels, embed_dim=D, stride=self.stride,
-                                  pe=False, bias=bias, tau=tau, pos_emb=False, neuron=make_neuron(D, steps, 'DN'))
+                                  pe=False, bias=bias, tau=tau, pos_emb=False, neuron=(make_rest or make_neuron)(D, steps, 'DN'))
         self.blocks = nn.ModuleList([SpkBlock(D, mixer, self.mixer_layers, mlp_ratios, make_neuron, N, steps, mixer_comb, connect_f, bias,
-                                              token_axis=tok_ax, mix_pool=mix_pool, mixer_ms=mixer_ms, mixer_reset=mixer_reset)
+                                              token_axis=tok_ax, mix_pool=mix_pool, mixer_ms=mixer_ms, mixer_reset=mixer_reset,
+                                              make_rest=make_rest)
                                      for _ in range(self.depths)])
         self.head = nn.Linear(D, num_classes, bias=bias)
         self.apply(self._init_weights)
@@ -308,8 +328,8 @@ class SpkMixer(nn.Module):
                         mod.weight.copy_(group_gamma(mod.weight.numel(), taus, fam))
         self.tau_calibrated = False
         if mixer in CALIBRATED and tau_calib:                                 # ... then the layer-wise rate-matched table (fail closed)
-            if gain_table is None and (band != 'none' or taxis != 'rep' or mix_pool != 'none' or mixer_ms):   # 2026-11-16 / 11-17
-                raise ValueError('a population model with band / taxis / mix_pool / mixer_ms needs an explicit gain_table')
+            if gain_table is None and (band != 'none' or taxis != 'rep' or mix_pool != 'none' or mixer_ms or neuron_scope != 'all'):
+                raise ValueError('a population model with band / taxis / mix_pool / mixer_ms / neuron_scope needs an explicit gain_table')
             self.tau_calibrated = apply_gain_table(self, gain_table if gain_table is not None else gain_table_path(mixer, mixer_comb, connect_f))
 
     def _init_weights(self, m):
