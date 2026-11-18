@@ -13823,3 +13823,67 @@ head = s2                          H1(head가 membrane을 읽으면 CinC, ETT wo
 - 주 설정 선택은 사용자 결정 대기다.
 
 **commit:** 이 기록과 `results/check-pn-20261118/len96_vs_336.py` · `.txt`를 `exp/f-lif-pop-v3`에 commit · push한다(model code 변경 없음, 학습 없음). 해시는 다음 기록에 적는다.
+
+## 2026-11-18 23:48 KST — 사용자 질문 4개에 대한 답(학습 없음): mixer 입력 pooling을 안 쓰는 이유, "population을 mixer에만" 결과(없음: 격자를 멈춤), 표의 "pop LIF"의 뜻, look-back 336 DNN 결과표(PatchTST · DLinear, 접근함)와 SpikF(서버에 공식 저장소 복사본 있음). AD 계획은 이 답 뒤에 논의
+
+**직전 commit:** `3a5c479bb`(구조 설명 + 96 대 336). 브랜치 `exp/f-lif-pop-v3`.
+
+### 정정
+- 앞 기록의 제목 시각 "22:52"는 틀렸다. 실제로 쓴 시각은 22:58이다. 제목을 쓰기 직전에 `date`를 확인하지 않았다. 내용은 고치지 않는다.
+
+### 사용자 질문(원문)
+> 1. 지금 mixer의 입력에서 pooling이 적용되고 있지 않은 이유가 뭐야?
+> 2. SpikMixer에서 'neo-mixer'만 population LIF/f-LIF 변경하고 나머지 뉴런들은 standard LIF뉴런 사용하는 실험의 결과는 어떻게 됐어?
+> 3. [2번의 ETT 입력 96 대 336] 결과 표의 model 열에서 'pop LIF'은 무슨 모델을 나타내는 거야?
+> 4. DNN선행 연구들 중에서 look-back window=336으로 (같은 벤치마크 데이터셋) 예측한 연구가 있어? 그리고 그 결과 표에 접근 가능해?
+> - 추가적으로 SpikF가 아마 현재 repository에 있을 수도 있는데, 없더라도 SpikF 공식 github에 접근해서 모델 구조만 가져올 수 있는 상태야? 가능한지 불가능한지만 알려줘.
+> 5. 우선 1번부터 3번 질문에 답한 다음에 AD 의 실행 계획을 논하자.
+
+### 1. mixer 입력 pooling을 안 쓰는 이유
+- 11-18 mx3 실험(LIF, 사전등록 9ea2adee0)에서 pooling을 해 봤다. 사전등록 규칙상 기준 형태는 "better"일 때만 바꾸는데, 어느 것도 better가 아니었다. 그래서 "반복별 mixer(pooling 없음)"를 유지했다(10:39 기록).
+
+| 변형(LIF) | ETT R vs 기준 | 낮은 쌍 | MIT-BIH %p | 높은 seed | energy 비(ETT / MIT-BIH) |
+|---|--:|--:|--:|--:|---|
+| max pooling | −0.81 % | 8/12 | −2.75(worse; S class −8.85) | 0/3 | 0.67 / 0.62 |
+| mean pooling | −0.65 % | 9/12 | −0.26 | 1/3 | 1.27 / 2.18 |
+
+- 사용자는 11-18에 mean pooling을 위주로 보자고 했다. 그 arm들(f-LIF와 population의 mean)은 격자에 들어 있었고, 격자를 21:3x에 멈췄다.
+- 새로 확인할 점(내 해석, 아직 다시 세지 않음): mean pooling의 energy 증가는 계산 규칙 때문일 수 있다.
+  - pooling한 입력은 k/4(k = 4번 중 발화 수)라서 곱셈(MAC)으로 세었다.
+  - 그런데 W·(k/4)는 W 열을 k번 더한 뒤 1/4을 곱한 것이고, 1/4은 바로 뒤 BN의 배율에 흡수된다. 그러면 덧셈(AC)만 남는다.
+  - 이렇게 세면 첫 Linear의 비용은 pooling이 없을 때와 같다. 나머지 mixer(LIF N step, 둘째 층 이후, fusion)는 4번 대신 1번 돈다.
+  - 이 브랜치는 MIT-BIH ADD 잔차의 정수 입력에 이미 같은 방식(integer 규칙)을 쓴다.
+  - 학습 없이 energy만 다시 세어 확인할 수 있다.
+- 다만 다시 세어도 MIT-BIH 성능은 SF-de보다 평균이 낮다(LIF+mean −0.21 %p, 21:35 기록). 그래서 MIT-BIH의 논문 기준은 성능 쪽에서 못 채운다.
+
+### 2. "population을 mixer에만" 결과
+- 결과가 없다. 이 배치(`--spk_neuron_scope mixer`)는 18:07 사전등록 격자의 arm이었다. 격자는 사용자 결정(21:3x, 내 권고)으로 멈췄다.
+  - pop LIF mixer: 0 / 15 run.
+  - pop f-LIF mixer: 2 / 15 run(ETTm2 H96 seed 42 0.178279, seed 7 0.178288). 판정에 쓸 수 없다.
+- 시험 학습(2 epoch) energy만 있다. LIF 대비 ETT 2.19 / 1.96배, MIT-BIH 1.89배다. mean pooling을 쓰면 1.60 / 1.48 / 2.43배다(18:07 기록).
+- 그 이전에 CinC에서 쓴 NeoMixer(10-19 ~ 10-28)도 population을 mixer 층에만 두었다. 그러나 반복 축이 없고 합치기도 달라서 지금 구조와 비교할 수 없다. 사용자는 10-28 22:04에 그 배치를 "의도와 어긋남"으로 정정했다.
+- 다시 돌린다면: pop LIF mixer와 pop f-LIF mixer(± mean) 4 arm × 15 = 60 run이다.
+  - 입력 96의 pop LIF all ETT run은 598–3,753 s, 격자의 pop f-LIF run은 3,873–5,993 s였다.
+  - 8 slot으로 약 8–12시간으로 본다(내 추정).
+
+### 3. 표의 "pop LIF"
+- SpkMixer의 모든 neuron 층(embedding, 두 방향 stack, fusion의 s_d와 결합 neuron, MLP 2개)이 population LIF인 model이다("pop LIF all").
+  - member τ 4 / 8 / 16 / 32와 LIF soma τ 2, soma 초기값 0.5, BN 배율은 맞춤값 표(calibration)로 맞췄다.
+- 입력 96 행은 11-16/17 STFT test의 rep 행(band 없음)이고, 336 행은 11-17 입력 길이 test 행이다.
+- "mixer에만" 형태가 아니다. 앞 보고에서 "pop LIF"로 줄여 쓴 것은 내 표기가 불분명했다.
+
+### 4. look-back 336 DNN 결과표, SpikF
+- PatchTST(ICLR 2023)와 DLinear(AAAI 2023)가 ETTh2 · ETTm2에서 L = 336 결과를 낸다.
+  - arXiv PDF를 받아 `pdftotext`로 표를 읽었다. 값과 출처 문장은 `results/ref-dnn-l336-20261118/tables.md`에 있다. PDF는 local에 둔다.
+  - 웹 도구 요약은 PDF를 읽지 못해 쓰지 않았다.
+  - PatchTST/42(L 336): ETTh2 H96 0.274, H720 0.379, ETTm2 H96 0.165, H720 0.367(MSE).
+  - DLinear(L 336): ETTh2 H96 0.289, H720 0.605, ETTm2 H96 0.167, H720 0.397(MSE).
+  - 같은 cell에서 이 브랜치 LIF SpkMixer 336은 0.2964, 0.3916, 0.1726, 0.3778이다.
+  - 평가 방식(test 집합 처리, 정규화)이 같은지는 확인하지 않았다. 그래서 지금은 방향을 보는 참고값이다.
+- SpikF: 가능하다.
+  - `/home/yschoi/SpikF`에 공식 저장소(`github.com/WWJ-creator/SpikF`)의 복사본이 있다. HEAD `041e398`이고 `git ls-remote`로 본 공식 HEAD와 같다.
+  - model 파일은 `models/SpikF.py`, `iSpikformer.py`, `SpikeRNN.py`다.
+  - 그 폴더의 `test_results`는 ETT를 L = 336으로 돌린 이름이다(예: `SpikF_ETTh2_ftM_sl336_pl96`).
+  - 이 폴더는 읽기만 했다.
+
+**commit:** 이 기록과 `results/ref-dnn-l336-20261118/tables.md`를 `exp/f-lif-pop-v3`에 commit · push한다(code 변경 없음, 학습 없음). 해시는 다음 기록에 적는다.
