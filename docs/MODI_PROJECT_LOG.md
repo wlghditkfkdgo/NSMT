@@ -8643,3 +8643,133 @@ Spikformer식보다 "좋음"인 변형은 없다.
 **commit:** 이 항목과 코드·스크립트·점검·smoke 결과·0단계 진단 결과를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 pool을 시작한다. 이 commit이 run들의 sha가 된다.
 
 ---
+
+## 2026-11-18 19:38 KST — 결과: 결합부 attention 교체 시험, XNOR + Log-PE (39 run, 사전 고정 `7b2e186e6`) — **기준 model은 좋아지지 않았다(V1 두 neuron 모두 차이 없음, R −0.17 / +0.24 %). Spikformer식도 그대로다(V2 +0.20 %). 새 식에서도 기준 model과 Spikformer식의 차이는 없고(V3 −0.49 / −0.16 %), 격차도 바뀌지 않았다(V4 −0.37 / +0.05 %p).** 미리 적은 읽는 법으로 "음성"이므로 attention 점수 식 교체는 멈춘다. 2단계 조건(어느 neuron에서도 V1 "좋음"이 아니고 V4 "커짐"이 아님)이 성립하므로 2단계를 따로 사전 고정한다(다음 항목). **정정:** 같은 seed로 다시 학습한 3 run이 다른 날·다른 sha의 run을 비트 단위로 그대로 재현했다. 사전 고정 항목과 이전 항목 여러 곳의 "GPU 연산이 비트 단위로 재현되지 않는다"는 틀렸다
+
+**branch / 기준:** `exp/nsmt-flif-neo`, 사전 고정 commit `7b2e186e6`(새 run 39개 모두 이 sha). 사전 고정은 2026-11-18 17:10 항목이다.
+
+**실행:** tmux `flif_xnor`, GPU 4장에 run 하나씩, 17:11:09 시작, 18:57:04 마지막 run 끝. RESULT 39(재학습 3 + 새 식 36), SKIP 0. 이 시간에 다른 대화의 작업이 같은 GPU에서 돌았다(18:08부터).
+
+**후처리 (사전 고정 순서 그대로, classification 폴더):**
+1. pool 기록 `forecasting/results/flif-v1-ett-xnor-pool.log`를 `flif-v1-ett-xnor/pool_runs.txt`와 `flif-v1-ett-xnor-repro/pool_runs.txt`로 복사했다(START / DONE 39쌍).
+2. `python energy_recount_ett.py --suite flif-v1-ett-xnor` → 36 run, test MSE 36/36 재현, "all checks passed". `--suite flif-v1-ett-xnor-repro` → 3 run, 3/3 재현, "all checks passed".
+3. `python coupling_diag.py --arms new --out_json results/flif-v1-xnor-diag-new.json --out_md results/flif-v1-xnor-diag-new.md` → 36 run 모두 기록된 test MSE / MAE / n을 재현했다(차이 ≤ 2e-6이 아니면 스크립트가 멈춤). batch 불변성 36/36 통과(최대 차이 4.8e-7). 결과 파일 `classification/results/flif-v1-xnor-diag-new.{json,md}`.
+4. `python summarize_xnor.py --diag_now results/flif-v1-xnor-diag-now.json --diag_new results/flif-v1-xnor-diag-new.json` → `classification/results/flif-v1-xnor-summary.md`.
+
+**나쁜 것 먼저:**
+- 기준 model이 Neocortex를 쓰게 만들려던 후보가 아무것도 바꾸지 못했다. 기준 model, Spikformer식, 둘의 격차 모두 차이 없음이다.
+- 칸 하나에서 Spikformer식이 새 식으로 나빠졌다(V2 ETTh2 H96 +1.18 %, 칸 판정 "나쁨"). 사전 예상은 ETTm2 H96에서 나빠진다는 것이었는데, ETTm2 H96은 +0.06 %로 그대로였다.
+- - 새 식은 사전 예상대로 "Neocortex가 바꾸는 항"의 비중을 크게 줄였다(기준 model 평균 0.42 → 0.06). 점수의 약 2/3가 query와 무관한 항이 됐다. 보고서가 기대한 방향(Neocortex 항이 bias에 덮이지 않게 함)과 반대다.
+
+**test MSE (seed 42 / 7 / 2026 평균 ± 표준편차, best-validation weight, 입력 96):**
+
+| model | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 |
+|---|---|---|---|---|
+| Spikformer식, 지금 | 0.2903 ± 0.0012 | 0.4223 ± 0.0024 | 0.1775 ± 0.0007 | 0.4034 ± 0.0016 |
+| Spikformer식, XNOR + Log-PE | 0.2938 ± 0.0029 | 0.4197 ± 0.0069 | 0.1776 ± 0.0007 | 0.4041 ± 0.0017 |
+| 기준 pop LIF, 지금 | 0.2931 ± 0.0045 | 0.4157 ± 0.0011 | 0.1776 ± 0.0004 | 0.4036 ± 0.0005 |
+| 기준 pop LIF, XNOR + Log-PE | 0.2927 ± 0.0042 | 0.4134 ± 0.0027 | 0.1771 ± 0.0015 | 0.4047 ± 0.0030 |
+| 기준 pop f-LIF, 지금 | 0.2904 ± 0.0039 | 0.4166 ± 0.0055 | 0.1782 ± 0.0011 | 0.4036 ± 0.0031 |
+| 기준 pop f-LIF, XNOR + Log-PE | 0.2903 ± 0.0052 | 0.4202 ± 0.0027 | 0.1778 ± 0.0009 | 0.4050 ± 0.0023 |
+
+**판정 (r = A / B − 1, test MSE, %; 12쌍 = 4칸 × seed 3; 좋음 = 평균 ≤ −1 %이고 8/12 낮음, 나쁨은 그 거울):**
+
+| 비교 | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 | R % | A가 낮은 쌍 | 판정 |
+|---|---|---|---|---|---|---|---|
+| V1 pop LIF: 기준 XNOR − 기준 지금 | −0.13 | −0.54 | −0.28 | +0.26 | −0.17 | 6/12 | 차이 없음 |
+| V1 pop f-LIF: 기준 XNOR − 기준 지금 | −0.05 | +0.88 | −0.23 | +0.36 | +0.24 | 4/12 | 차이 없음 |
+| V2 Spikformer식 XNOR − 지금 | +1.18 (칸: 나쁨) | −0.63 | +0.06 | +0.17 | +0.20 | 4/12 | 차이 없음 |
+| V3 pop LIF: 기준 XNOR − Spikformer식 XNOR | −0.36 | −1.47 (칸: 좋음) | −0.27 | +0.13 | −0.49 | 9/12 | 차이 없음 |
+| V3 pop f-LIF: 기준 XNOR − Spikformer식 XNOR | −1.16 (칸: 좋음) | +0.16 | +0.13 | +0.23 | −0.16 | 5/12 | 차이 없음 |
+| (참고) pop LIF: 기준 지금 − Spikformer식 지금 | +0.96 | −1.57 (칸: 좋음) | +0.08 | +0.04 | −0.12 | 6/12 | 차이 없음 |
+| (참고) pop f-LIF: 기준 지금 − Spikformer식 지금 | +0.04 | −1.35 (칸: 좋음) | +0.43 | +0.03 | −0.21 | 6/12 | 차이 없음 |
+
+- **V4 격차의 변화** (쌍마다 g = r(V3) − r(참고), %p; 음수 = 새 식에서 기준 model이 더 앞섬): pop LIF 평균 −0.37(음수 6/12), pop f-LIF +0.05(6/12). 둘 다 "변화 없음"이다. 칸별로는 ETTh2 H96이 −1.32 / −1.20, ETTh2 H720이 +0.10 / +1.51이다.
+- **결론 (두 neuron 규칙):** V1 차이 없음, V2 차이 없음, V3 차이 없음, V4 변화 없음.
+- 모든 판정이 "차이 없음 / 변화 없음"이라 한 칸 빼기는 적용되지 않는다.
+- energy(head 재계산)의 새 식 / 지금 비율은 1.01–1.02다.
+
+**같은 seed 재학습 (참고 run 3개; ETTh2 H96 seed 42, 입력 96, 지금 식):**
+
+| model | 원래 run (sha) | 재학습 (`7b2e186e6`) |
+|---|---|---|
+| Spikformer식 | MSE 0.291610, MAE 0.336512, validation 0.311086 (`f0950c9a1`) | 모두 같음 |
+| 기준 pop LIF | 0.287947 / 0.332963 / 0.312045 (`16052238e`) | 모두 같음 |
+| 기준 pop f-LIF | 0.286712 / 0.332825 / 0.312065 (`16052238e`) | 모두 같음 |
+
+- 마지막 epoch의 MSE와 energy(total_fft_uJ)도 같다. 원래 run은 다른 날, 다른 code 버전에서 학습한 것이다.
+
+**정정 (내 실수):**
+- 사전 고정 항목(17:10)에 "이 GPU에서는 같은 seed라도 학습이 비트 단위로 재현되지 않으므로 재학습 3개는 참고값"이라고 적었다. `summarize_xnor.py`의 설명문에도 같은 문장이 있다. 틀렸다.
+- 학습 code는 처음부터 결정적으로 돌도록 설정돼 있다. `classification/config.py`의 `set_random_seed`(19–34행)가 cuDNN 결정 모드, cuBLAS workspace 설정, `torch.use_deterministic_algorithms(True)`를 켠다. 학습마다 이 함수를 부른다.
+- 같은 문장은 이전 항목 여러 곳에도 있다(11-04 이후 결과 항목의 "기준선은 다른 날 학습됐다. GPU 연산은 비트 단위로 재현되지 않으므로 짝은 seed로만 맞춘다" 등, 이 파일 6148·6292·6712·6921·7110행 근처). 측정한 적은 없고, 내가 가정을 사실처럼 옮겨 적은 것이다.
+- **판정에 미치는 영향:** 없다. 그 항목들은 "짝은 seed로만 맞춘다"는 보수적인 처리를 했고, 재학습이 같다면 다른 날 run을 다시 쓰는 것은 같은 code로 다시 돌린 것과 같다. 이번 결과는 오히려 기존 run 재사용의 근거를 강하게 한다.
+- **아직 모르는 것:** 확인한 것은 입력 96의 3 run이다. 다른 GPU 종류, 다른 library 버전에서는 확인하지 않았다. 다음 항목의 입력 720 재학습 3 run(보고 전용)이 하나를 더 확인한다.
+- 사전 고정 항목과 이전 항목, `summarize_xnor.py`의 설명문은 고치지 않는다(기록은 덧붙이기만 함; 설명문은 사전 고정된 판정 code이므로 그대로 둔다).
+
+**학습 뒤 진단 (`coupling_diag.py --arms new`; test split, best-validation weight, seed 평균):**
+
+네 칸 × seed 3의 평균이다. "바뀌는 항"은 query가 바꾸는 점수 부분이다(기준 model에서는 Neocortex; 기준점은 기준 model은 Neocortex가 침묵하는 token의 고정 query, Spikformer식은 0). "고정 항"은 query와 무관한 부분이다(새 식의 d − |k_j|). 세 비중의 합은 1이다.
+
+| model | 바뀌는 항 비중 | 위치 항 비중 | 고정 항 비중 | Neocortex 0 ΔMSE | attention spike 비율 | y 발화율 | gate가 지우는 Hippocampus spike | 점수 배율 | attention 핵심 연산 µJ (0.9 pJ / 정수 0.03 pJ) |
+|---|---|---|---|---|---|---|---|---|---|
+| Spikformer식, 지금 | 0.382 | 0.618 | 0.000 | — | 0.0105 | 0.0330 | 12.69 % | 0.125 (고정) | 0.249 / 0.242 |
+| Spikformer식, XNOR + Log-PE | 0.054 | 0.291 | 0.655 | — | 0.0716 | 0.0474 | 10.71 % | 0.0187–0.0538 | 1.058 / 0.086 |
+| 기준 pop LIF, 지금 | 0.424 | 0.576 | 0.000 | −0.07 % | 0.0109 | 0.0368 | 8.00 % | 0.125 (고정) | 0.246 / 0.239 |
+| 기준 pop LIF, XNOR + Log-PE | 0.059 | 0.286 | 0.655 | +0.90 % | 0.0683 | 0.0509 | 10.98 % | 0.0190–0.0442 | 1.046 / 0.088 |
+| 기준 pop f-LIF, 지금 | 0.418 | 0.581 | 0.001 | +0.84 % | 0.0121 | 0.0359 | 10.12 % | 0.125 (고정) | 0.248 / 0.241 |
+| 기준 pop f-LIF, XNOR + Log-PE | 0.058 | 0.286 | 0.656 | +1.19 % | 0.0789 | 0.0512 | 10.74 % | 0.0198–0.0461 | 1.049 / 0.088 |
+
+- 점수 배율은 새 식에서 학습되는 sigmoid(s)다. 처음 값 0.018에서 0.019–0.054로 조금 커졌다.
+- attention spike 비율(점수가 문턱을 넘은 비율)은 새 식에서 6–7배다(0.0105–0.0121 → 0.0683–0.0789). 문턱이 0.5로 낮고 query와 무관한 항이 모든 쌍에 더해지기 때문으로 보인다(따로 재지 않음).
+- **위치 항을 지우면 (ΔMSE, 칸별):** 새 식에서는 −1.60 ~ +0.45 %로, 어느 칸도 +0.5 % 넘게 나빠지지 않았다. 지금 식에서 위치 bias가 쓸모 있던 ETTm2 H96(+1.44 / +2.08 / +3.29 %)에서도 새 식의 Log-PE를 지우면 −0.26 / −0.63 / −0.96 %다(기준 pop LIF / pop f-LIF / Spikformer식).
+- **Neocortex 0:** 새 식에서 손해가 조금 커졌다(pop LIF −0.07 → +0.90 %, pop f-LIF +0.84 → +1.19 %). 다만 새 식에서는 q를 0으로 바꾸면 점수 크기도 바뀐다(−|q_i| 항). 그래서 순수한 내용 제거가 아니다. 성능 판정(V1·V3)이 차이 없음이므로 이 차이를 Neocortex 이용의 증거로 쓰지 않는다.
+- y는 퇴화하지 않았다(0.047–0.051).
+- 칸별 값은 `flif-v1-xnor-diag-new.md`와 `flif-v1-xnor-summary.md`에 있다.
+- **energy에 attention 핵심 연산을 더하면 (0.9 pJ / 덧셈):** Spikformer식 지금 대비 새 식 Spikformer식 1.09, 기준 pop LIF 1.24 → 1.33, 기준 pop f-LIF 1.50 → 1.60배다(head 재계산만이면 1.02, 1.25 → 1.26, 1.51 → 1.53).
+
+**보고 전용:**
+- **첫 epoch 멈춤** (validation 최저가 첫 epoch인 run, 12개 중): Spikformer식 지금 2 → XNOR 3, 기준 pop LIF 1 → 3, 기준 pop f-LIF 2 → 2.
+- **학습 길이:** 기준 pop f-LIF XNOR의 ETTm2 H96 두 run이 길게 학습했다(seed 42: 최저 epoch 26, 37 epoch, 3352 s; seed 2026: 13, 24 epoch, 2583 s). 그 두 run의 test MSE는 0.176781 / 0.178054다.
+- **발화율:** Neocortex(rho_neo) 0.0328 → 0.0348(pop LIF), 0.0371 → 0.0403(pop f-LIF). Hippocampus(rho_hippo)는 세 model 모두 0.06 안팎으로 조금 늘었다(Spikformer식 0.0560 → 0.0609).
+- **parameter:** model마다 375개 줄었다(ETTh2 H96 Spikformer식 169,656 → 169,281; 기준 model 175,544 → 175,169).
+- **MAE:** 같은 방향이다. 판정에는 쓰지 않는다(`flif-v1-xnor-summary.md`).
+
+**사전 예상과 대조:**
+
+| 예상 | 결과 | 맞음? |
+|---|---|---|
+| V1 / V2 / V3 모두 차이 없음 | 모두 차이 없음 | 맞음 |
+| ETTm2 H96에서 V1·V2가 나빠지고, V2가 더 나빠짐 | V1 −0.28 / −0.23, V2 +0.06 %, 모두 차이 없음 | 틀림 |
+| V4 변화 없음 | 두 neuron 모두 변화 없음 | 맞음 |
+| 기준 model의 Neocortex가 바꾸는 항 비중이 작아짐 | pop LIF 0.424 → 0.059, pop f-LIF 0.418 → 0.058 | 맞음 |
+| y 발화율과 gate가 지우는 비율이 높아짐 | y는 세 model 모두 늘었다(0.033–0.037 → 0.047–0.051). gate는 기준 model에서 늘고(8.00 → 10.98 %, 10.12 → 10.74 %), Spikformer식에서는 줄었다(12.69 → 10.71 %) | 대체로 맞음 (Spikformer식 gate는 틀림) |
+| 위치 항 0 ΔMSE는 지금처럼 ETTm2에서 더 큼 | 새 식에서는 어느 칸도 +0.5 % 미만; ETTm2 H96은 음수 | 틀림 |
+| attention 핵심 연산 energy: 0.9 pJ면 새 식이 몇 배, 정수 0.03 pJ면 더 쌈; head 재계산 energy는 비슷 | 1.05 대 0.25 µJ(약 4.2배); 정수로 세면 0.09 대 0.24 µJ; head 재계산 비율 1.01–1.02 | 맞음 |
+| 2단계로 넘어감 | 조건 성립 | 맞음 |
+
+**읽는 법 적용:**
+- "음성"(V3와 V4가 차이 없음)이다. attention 점수 식 교체는 여기서 멈춘다. 보고서의 다른 후보(발화율 배율만, bias만 빼기, Hamming 거리 등)는 돌리지 않는다.
+- "attention만의 개선"(V1과 V2가 함께 좋음)도 아니다.
+- 2단계 조건이 성립한다. 2단계는 다음 항목에서 사전 고정한다.
+
+**결론:**
+- 결합부 점수 식을 XNOR + Log-PE로 바꿔도, 입력 96의 ETT 네 칸에서 기준 model도 Spikformer식도 좋아지지 않았고 둘의 격차도 그대로다.
+- - 새 식에서 query(기준 model에서는 Neocortex)가 바꾸는 점수 부분은 지금 식보다 훨씬 작다(0.42 → 0.06). 점수의 약 2/3가 query와 무관한 항이고, 학습되는 위치 bias가 하던 일(ETTm2 H96)을 Log-PE가 대신하지 않았다.
+- 결합부 점수 식이 기준 model과 Spikformer식의 격차를 막고 있다는 근거는 이 시험에서 나오지 않았다.
+
+**한계:**
+- 사전 고정의 한계 그대로다: cross-attention과 작은 head에서 처음 시험한 방법이고, Log-PE 식은 공식 code와 다르며, 입력 96·ETT만 보고 seed 3개다.
+- 지금 arm은 다른 날 학습한 run을 다시 썼다. 위 재학습 결과로 보면 다시 돌려도 같은 값이 나왔을 것이다(입력 96의 3 run으로 확인).
+
+**not run (보류):** 사전 고정 항목의 목록 그대로(발화율 배율만, bias만 제거, XNOR에서 memory 끔·순서 섞기 대조, 입력 336 / 720에서 XNOR, Hamming·거리 감쇠, CinC·MIT-BIH). 이번 결과가 음성이므로 다시 열지 않는다.
+
+**산출물 (Git):**
+- `nsmt_flif_v1/forecasting/results/flif-v1-ett-xnor/{raw.txt, pool_runs.txt, energy_recount.csv}`
+- `nsmt_flif_v1/forecasting/results/flif-v1-ett-xnor-repro/{raw.txt, pool_runs.txt, energy_recount.csv}`
+- `nsmt_flif_v1/classification/results/flif-v1-xnor-diag-new.{json,md}`, `flif-v1-xnor-summary.md`
+- checkpoint, TensorBoard, stdout, pool log 원본은 로컬(`forecasting/log/flif-v1-ett-xnor*/`, `forecasting/results/flif-v1-ett-xnor-pool.log`).
+
+**commit / tag:** 이 항목과 결과 파일을 commit 하고 annotated tag `exp/nsmt-flif-neo-20261118-xnor`를 붙인다. `exp/nsmt-flif-neo`와 이 tag만 push 한다. commit hash는 이 commit 안에 적을 수 없으므로 tag로 가리킨다.
+
+---
