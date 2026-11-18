@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# MODI 2026-11-18 (SpikeDE-basis comparison, user decision 11-18 "(가)"): + nsmt4q_pop_<lif|flif>_msn_sde = the msn base with
+#   --neuron_all lif (every spikingjelly LIF of the hippocampus -> SpikeDE LIF; the Neocortex keeps its SpikeDE population neuron).
 # MODI 2026-11-18 (long-input lr test): env LR = learning rate (unset = the dataset default above, every earlier run; the command
 #   line, folder glob and RESULT line are then unchanged). Set: '-lr $LR' is appended after the dataset flags (argparse keeps the
 #   last), the run folder is found with '+epoch+E+lr+$LR+' (LR must be written as Python prints the float, e.g. 0.0001, 0.00025,
@@ -67,6 +69,8 @@ case $COND in                     # MODI 2026-10-29: dual-path models, B-form se
   nsmt4q_pop_flif_msn_nshuf)CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_shuffle" ;;
   nsmt4q_pop_lif_msn_xl) CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --attn_score xnor_log" ;;   # MODI 2026-11-18 (coupling attention test): msn + XNOR + Log-PE score
   nsmt4q_pop_flif_msn_xl)CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --attn_score xnor_log" ;;
+  nsmt4q_pop_lif_msn_sde)   CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neuron_all lif" ;;   # MODI 2026-11-18 (SpikeDE basis)
+  nsmt4q_pop_flif_msn_sde)  CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neuron_all lif" ;;   # MODI 2026-11-18 (SpikeDE basis)
   nsmt4q_pop_lif_msn_freq)CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band freq" ;;   # MODI 2026-11-13 (frequency bands): msn + one input per population member
   nsmt4q_pop_lif_msn_same)CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band same" ;;
   nsmt4q_pop_lif_msn_rev) CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band rev" ;;

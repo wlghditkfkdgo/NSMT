@@ -864,12 +864,14 @@ class myModel(nn.Module):
             blk.neo_grad = self.neo_grad                               # MODI 2026-10-26
         # MODI 2026-10-29 (--neuron_all): the hippocampus neurons (embedding, SSA, MLP; T_h repeat steps) become the spikeDE
         # neuron too, so no spikingjelly LIF is left (Spikformer-style; the B form with a spikeDE neocortex). Default: unchanged.
+        # MODI 2026-11-18 (SpikeDE-basis comparison, user decision 11-18 "(가)"): also the query form (hippo_xattn_mode 'query',
+        # e.g. the msn base) -- every spikingjelly LIF of the hippocampus becomes the spikeDE neuron, the Neocortex keeps its own.
         self.neuron_all = str(kwargs.get('neuron_all', 'sj_lif'))
         if self.neuron_all != 'sj_lif':
             if self.neuron_all not in ('lif', 'flif', 'pop_lif', 'pop_flif'):
                 raise ValueError('neuron_all in {sj_lif, lif, flif, pop_lif, pop_flif}')
-            if not (self.hippo_ssa or (self.hippo_xattn and self.hippo_xattn_mode == 'cat' and neo_neuron != 'sj_lif' and not self.neo_streams)):
-                raise NotImplementedError('neuron_all: Spikformer-style (hippo_ssa) or the B form with a spikeDE neocortex only')
+            if not (self.hippo_ssa or (self.hippo_xattn and self.hippo_xattn_mode in ('cat', 'query') and neo_neuron != 'sj_lif' and not self.neo_streams)):
+                raise NotImplementedError('neuron_all: Spikformer-style (hippo_ssa) or the B / query form with a spikeDE neocortex only')
             nh = swap_sj_neurons(self.encoding, self.neuron_all, self.T_h, **_neo) + swap_sj_neurons(self.data_block, self.neuron_all, self.T_h, **_neo)
             left = [n for n, m_ in self.named_modules() if isinstance(m_, MultiStepLIFNode)]
             if left:

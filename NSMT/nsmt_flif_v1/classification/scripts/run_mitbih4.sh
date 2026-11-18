@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# MODI 2026-11-18 (SpikeDE-basis comparison, user decision 11-18 "(가)"): + nsmt4q_pop_<lif|flif>_msn_sde = the msn base with
+#   --neuron_all lif (every spikingjelly LIF of the hippocampus -> SpikeDE LIF; the Neocortex keeps its SpikeDE population neuron).
 # MODI 2026-11-13 (STFT test): + nsmt4q_pop_<lif|flif>_msn_{stft,fire_stft,fire_same} = msn with the STFT bands as member inputs:
 # stft = (na) soma population, tau 4-32; fire_stft = (ga) no soma, 4 independent members with tau 2 (OR); fire_same = (ga) with the unsplit signal.
 # MODI 2026-11-13 (frequency bands): + nsmt4q_pop_<lif|flif>_msn_{freq,same,rev} = the Neocortex-MS query population (msn) with
@@ -79,6 +81,8 @@ case $COND in
   nsmt4q_pop_lif_mshn)  AUX=0; CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --res_mode ms --neo_res ms" ;;
   nsmt4q_pop_flif_msh)  AUX=0; CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha $ALPHA --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --res_mode ms" ;;
   nsmt4q_pop_flif_msn)  AUX=0; CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha $ALPHA --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms" ;;
+  nsmt4q_pop_lif_msn_sde)   AUX=0; CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neuron_all lif" ;;   # MODI 2026-11-18 (SpikeDE basis)
+  nsmt4q_pop_flif_msn_sde)  AUX=0; CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha $ALPHA --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neuron_all lif" ;;   # MODI 2026-11-18 (SpikeDE basis)
   nsmt4q_pop_flif_mshn) AUX=0; CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha $ALPHA --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --res_mode ms --neo_res ms" ;;
   nsmt4q_pop_lif_msn_freq)AUX=0; CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band freq" ;;   # MODI 2026-11-13 (frequency bands)
   nsmt4q_pop_lif_msn_same)AUX=0; CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band same" ;;

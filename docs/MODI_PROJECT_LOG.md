@@ -8930,3 +8930,131 @@ Spikformer식보다 "좋음"인 변형은 없다.
 **재시작할 때:** `make_queue_lrlong.sh`가 대기열을 처음부터 다시 만든다. 끝난 4개는 같은 sha면 다시 돌려도 같은 값이 나오므로, 빼고 돌릴지 그때 정한다.
 
 ---
+
+## 2026-11-18 20:57 KST — 사전 고정 + 구현 (학습 전): SpikeDE 기준 비교 (사용자 결정 11-18 "(가)") — Spikformer식과 기준 model(Neocortex MS query population)을 모두 SpikeDE neuron만으로 만들어 비교한다. 두 model에 남은 spikingjelly LIF 8개(embedding, attention, MLP)를 SpikeDE LIF로 바꾸고, 기준 model의 Neocortex(SpikeDE population)는 그대로 둔다. ETT 4칸 × seed 3 = 36 run, MIT-BIH seed 3 = 9 run, 재학습 확인 1 run이다. code 변경은 한 줄이다(query 형태에서도 `--neuron_all`을 허용). 기본 경로 16/16이 같고, 점검 s1–s6 36/36, smoke 6/6
+
+**직전 commit:** `48a34f376` (긴 입력 lr 시험 중단). branch `exp/nsmt-flif-neo`.
+
+**사용자 요청과 결정 (11-18, 원문):**
+- 질문: "우선 현재 'Spikformer'가 "우리모델과 달리" 'spikingjelly LIF'를 사용하고 있다면, 'Spike DE' 라이브러리 기준으로 다시 계산한 값으로 비교해줘."
+- 내 확인: 전제는 절반만 맞다. 두 model이 공유하는 부분(embedding, attention, MLP)은 둘 다 spikingjelly `MultiStepLIFNode`다(`layers.py` 161–174행 등). SpikeDE neuron은 기준 model의 Neocortex에만 있다. 그래서 Spikformer식만 SpikeDE로 바꾸면 우리 쪽에 유리하게 기운다. 10-29에 spikingjelly LIF를 SpikeDE LIF로 바꾸기만 해도 Neo-mixer가 1.0–2.3 % 나빠졌다. 세 가지 선택지를 드렸다: (가) 둘 다 전부 SpikeDE, (나) Spikformer만, (다) 그대로.
+- 결정: "1. (가)". 같은 답에서 전력 기준도 정했다: "Spikformer의 1.2–1.5배인 지금 상태가 "비교적 적은 전력"에 들어가지만 그래도 가능하면 Spikformer이하인 전력량이 좋음."
+- 이 비교는 사용자가 같은 날 밝힌 논문 목표의 일부다: (수정한) Spikformer보다 평균적으로 좋고, 전력은 비교적 적어야 한다.
+
+**질문:** 두 model이 모두 SpikeDE neuron만 쓸 때 기준 model이 Spikformer식보다 좋은가. 그리고 그 격차가 지금 비교(공유 부분이 둘 다 spikingjelly)와 다른가.
+
+**바꾸는 것:**
+- 두 model 모두 `--neuron_all lif`를 쓴다. spikingjelly LIF 8개가 모두 SpikeDE LIF(`NeoNeuron(LIFNeuron)`)로 바뀐다. 설정은 τ 2, 문턱 1, reset spikede(발화 뒤 θ/τ를 뺌), 4 step이다.
+- Spikformer식은 `spkall_lif`다(10-29에 만든 조건 그대로).
+- 기준 model은 새 조건 `nsmt4q_pop_<lif|flif>_msn_sde`다. msn 옵션에 `--neuron_all lif`만 더했다.
+- SpikeDE LIF와 spikingjelly LIF는 발화 뒤 reset 방식이 다르다(spikingjelly는 0으로, SpikeDE는 θ/τ를 빼서 τ 2이면 문턱의 절반). 학습에 쓰는 surrogate 함수도 다르다.
+- **새 run은 기준 run과 같은 실행 스크립트를 쓴다.** 그래서 다른 점은 neuron library뿐이다.
+
+| 과제 | 새 arm | 실행 스크립트 | 비교 기준 run |
+|---|---|---|---|
+| ETT | `spkall_lif` | `run_ett_mixer.sh` | `spk_ssa`, suite `flif-v1-gen-ett` |
+| ETT | `nsmt4q_pop_<n>_msn_sde` | `run_ett_dual.sh` | `nsmt4q_pop_<n>_msn`, suite `flif-v1-ett-ms` |
+| MIT-BIH | `spkall_lif` | `run_mitbih2.sh` | `spk_ssa`, suite `flif-v1-gen-mitbih` (10-27) |
+| MIT-BIH | `nsmt4q_pop_<n>_msn_sde` | `run_mitbih4.sh` (lr 0.01, 학습 파일 전체) | `nsmt4q_pop_<n>_msn`, suite `flif-v1-mitbih-ms` |
+
+- 나머지 설정은 그대로다.
+  - ETT: 입력 96, patience 10, best-validation weight로 test, lr 5e-4.
+  - MIT-BIH: 30 epoch, cosine, batch 512, lr 0.01, 마지막 epoch weight로 test.
+- 기준 run은 다른 날 학습했다. 학습은 결정적이므로 다시 쓴다(11-18 19:38 정정, 20:47 확인).
+
+**run:**
+- suite `flif-v1-ett-sde`: `spkall_lif`와 `nsmt4q_pop_<lif|flif>_msn_sde` × ETTh2 / ETTm2 × H96 / H720 × seed 42 / 7 / 2026 = **36 run**.
+- suite `flif-v1-mitbih-sde`: 같은 세 조건 × seed 3 = **9 run**.
+- suite `flif-v1-mitbih-sde-repro`: MIT-BIH `spk_ssa` seed 42를 `run_mitbih2.sh`로 다시 학습한다(**1 run**, 보고 전용).
+- ETTh2 H96의 `spkall_lif` 3 run은 10-29 quick run(`flif-v1-ett-nall`, sha `1aeffcc9a`)과 같은 값이 나와야 한다(보고 전용 재현 확인).
+
+**판정 (사전 고정, `summarize_sde.py`; 두 neuron 규칙: 둘 다면 그 판정, 하나면 "neuron에 따라 다름(약함)"):**
+- **E1** ETT 기준 SpikeDE − Spikformer식 SpikeDE (주 비교): r = A / B − 1(test MSE), 12쌍. 좋음 = 평균 ≤ −1 %이고 8/12 낮음. 나쁨은 그 거울. 칸 판정 ±1 %, 2/3.
+- **E2** ETT 격차의 변화: 쌍마다 g = r(E1) − r(지금). 지금 = 기준 − Spikformer식, 공유 부분이 둘 다 spikingjelly. 커짐 = 평균 ≤ −1 %p이고 8/12 음수. 줄어듦은 그 거울.
+- **M1** MIT-BIH 기준 SpikeDE − Spikformer식 SpikeDE (주 비교): seed마다 d = macro-F1 차이. 좋음 = 평균 ≥ +0.5 %p이고 2/3 양수. 나쁨은 그 거울.
+- **M2** MIT-BIH 격차의 변화: seed마다 g = d(M1) − d(지금). 커짐 = 평균 ≥ +0.5 %p이고 2/3 양수. 줄어듦은 그 거울.
+- **종합 (neuron마다):**
+  - strong: E1 또는 M1이 좋음이고, 어느 과제도 나쁨이 아님.
+  - weak(방향만): 좋음도 나쁨도 없고, ETT R < 0이고 MIT-BIH 평균 d > 0.
+  - 나머지: 지지 안 됨.
+- 한 칸 빼기(ETT)는 XNOR 시험과 같다.
+- **보고 전용:**
+  - library 효과(Spikformer식 SpikeDE − spikingjelly, 기준 SpikeDE − 지금).
+  - energy 비율. 기준 / Spikformer식을 SpikeDE끼리, 그리고 지금 Spikformer식 대비로 적는다. 사용자는 1.0 이하를 선호한다.
+  - MAE, 정확도, 발화율, 첫 epoch 멈춤, parameter, 재학습 확인.
+- 값이 빠지거나 중복되거나 유한하지 않으면 멈춘다. MIT-BIH run이 30 epoch가 아니어도 멈춘다. 새 run 폴더에 `_nalif`가 없거나 기준 run 폴더에 있어도 멈춘다. ETT 줄의 seq_len이 96이 아니거나 lr 필드가 있어도, 새 줄이 sha 하나가 아니어도 멈춘다.
+
+**읽는 법 (미리 적음):**
+- **두 neuron 모두 종합 strong:** SpikeDE 기준에서 기준 model이 한 과제 이상에서 Spikformer식보다 좋고, 나쁜 과제는 없다.
+- **weak:** 방향만 맞다. 논문 주장으로는 약하다.
+- **E2 / M2 커짐:** 어느 library로 비교하느냐가 결론을 바꾼다. 지금 비교는 기준 model을 낮게 본 셈이다. 논문에서 어느 기준을 쓸지는 사용자가 정한다. 두 기준의 값을 모두 보고한다.
+- **library 효과가 "나쁨":** SpikeDE로 바꾸면 그 model의 절대 성능이 떨어진다. SpikeDE 기준 수치는 지금보다 나쁘게 나온다는 것을 함께 적는다.
+- **energy:** 기준 / Spikformer식 비율을 적는다. 1.2–1.5배는 받아들일 수 있고, 1.0 이하가 선호다(사용자 결정).
+- 끝나면 결과를 보고하고 사용자 결정을 기다린다. lr 시험 재시작은 이 결과 뒤에 논의한다.
+
+**사전 예상:**
+- library 효과: Spikformer식 SpikeDE − spikingjelly는 ETT +0.5 ~ +1 %(차이 없음이거나 나쁨)이다. 기준 model도 Hippocampus만 바뀌므로 비슷한 크기로 나빠진다. MIT-BIH의 library 효과는 ±0.5 %p 안이다.
+- E1 / M1: 두 neuron 모두 차이 없음. E2 / M2: 변화 없음.
+- 종합: 많아야 한 neuron이 weak이다.
+- energy 비율은 지금과 비슷하다(ETT 1.25 / 1.5, MIT-BIH 1.2 / 1.3).
+
+**코드 / 스크립트:**
+- `classification/model.py` (한 줄): `--neuron_all`의 허용 조건에 `hippo_xattn_mode == 'query'`를 더했다. 이 분기는 `neuron_all != sj_lif`일 때만 돈다.
+- `forecasting/scripts/run_ett_dual.sh`, `classification/scripts/run_mitbih4.sh`: 조건 `nsmt4q_pop_<lif|flif>_msn_sde`.
+- 새 `classification/check_sde.py`, `classification/summarize_sde.py`, `classification/scripts/make_queue_sde.sh`(대기열 46개: 재학습 1, ETTm2 18, MIT-BIH 9, ETTh2 18).
+
+**점검 (fail-closed):**
+- **기본 경로 동일:** 고치기 전에 `fw_identity_xnor.py save`로 저장하고, 고치기 전에 한 번 더 `compare`해 같음을 먼저 확인했다(16/16). 고친 뒤 `compare`도 16/16 같다.
+  - 대상: ETTh2 / ETTm2 H96의 Spikformer식과 기준 model.
+  - 비교한 것: 초기 weight, 학습 모드 출력, 모든 기울기, checkpoint의 eval 출력.
+- **`check_sde.py` s1–s6, 36/36 통과.** 대상은 ETT 4개(ETTh2 H96 기준 pop LIF, ETTm2 H720 기준 pop f-LIF, 두 칸의 Spikformer식)와 MIT-BIH 3개다. 각각 저장된 config로 `sj_lif` model과 `lif` model을 같은 seed로 만들어 비교했다.
+  - s1: spikingjelly LIF 8개가 모두 바뀌고 0개 남음.
+  - s2: Neocortex의 population neuron 수가 그대로(ETTh2 2, ETTm2 / MIT-BIH 3)이고, 늘어난 SpikeDE LIF는 정확히 8개.
+  - s3: 기존 state_dict가 모두 같고, 새 항목은 바뀐 neuron의 `tau` / `b` buffer 16개뿐이며, parameter 수가 같음.
+  - s4: 학습 모드 forward / backward가 유한하고, attention(q_linear), head, Neocortex에 기울기가 닿으며, 출력이 기준과 다름(바꾼 것이 실제로 작동함).
+  - s5: 바뀐 neuron은 τ 2, 문턱 1, reset spikede, 4 step.
+  - s6: Neocortex가 spikingjelly인 query 형태에서는 거부됨.
+- **smoke** (1 epoch, seed 42, RESULT 6, SKIP 0, run 폴더 6개 모두 `_nalif`):
+
+| 과제 | 조건 | 값 | energy µJ | rho_hippo | parameter |
+|---|---|---|---|---|---|
+| ETTh2 H96 | `spkall_lif` | MSE 0.290513 | 13.75 → 재계산 9.29 | 0.0495 | 169,656 |
+| ETTh2 H96 | 기준 pop LIF SpikeDE | MSE 0.289596 | 15.81 → 11.37 | 0.0507 | 175,544 |
+| ETTh2 H96 | 기준 pop f-LIF SpikeDE | MSE 0.287268 | 18.07 → 13.62 | 0.0505 | 175,544 |
+| MIT-BIH | `spkall_lif` | F1 0.6995 | 8.10 | 0.0701 | 904,488 |
+| MIT-BIH | 기준 pop LIF SpikeDE | F1 0.5468 | 10.03 | 0.0722 | 1,230,888 |
+| MIT-BIH | 기준 pop f-LIF SpikeDE | F1 0.5780 | 10.95 | 0.0716 | 1,230,888 |
+
+  - ETT smoke의 energy 재계산은 "all checks passed"다(MSE 3/3 재현).
+  - `spkall_lif` ETT smoke는 10-29 smoke(`smoke-nall-ett-20261029`, sha `913b413d5`)와 MSE / MAE / validation / energy가 비트 단위로 같다.
+- **요약 스크립트 시험 (가짜 suite):** 실제 기준 줄에 정해진 배율(ETT MSE × 1.01 / 0.99 / 1.02)과 이동(MIT-BIH F1 −0.20 / +0.60 / 0.00 %p)을 넣어 만들었다.
+  - library 효과와 격차 변화(+0.80 / +0.20 %p)가 심어 둔 값 그대로 나왔다.
+  - "지금" 비교 줄은 기록된 값(ETT −0.12 / −0.21 %)을 재현했다.
+  - 실패해야 하는 8경우가 모두 멈췄다: ETT 줄 빠짐, MIT-BIH 줄 중복, sha 둘, epoch 29, F1 nan, 새 폴더의 `_nalif` 없음, 기준 폴더의 `_nalif` 있음.
+  - 처음에는 그중 둘이 통과했다. 둘 다 시험의 sed 패턴이 줄에 맞지 않은 탓이었다(폴더 이름이 줄 끝에 있음, MIT-BIH 줄에는 cond와 seed 사이에 `dataset=MITBIH`가 있음). 패턴을 고쳐 다시 돌렸다.
+
+**실행:**
+- NSMT/에서 tmux `flif_sde`로 다음을 띄운다(GPU 하나에 run 하나):
+  `bash nsmt_flif_v1/classification/scripts/make_queue_sde.sh && bash scripts/gpu_pool2.sh nsmt_flif_v1/classification/scripts/queues/sde-20261118.txt 0,1,2,3 2>&1 | tee -a nsmt_flif_v1/forecasting/results/flif-v1-sde-pool.log`
+- 다른 대화의 작업이 GPU를 함께 쓰고 있다(지금 GPU마다 사용률 98–100 %). 그 작업에는 손대지 않는다.
+- 측정한 run 시간:
+  - ETT 입력 96: 157–3352 s (XNOR 묶음).
+  - MIT-BIH: 430–553 s.
+  - 끝나는 시각은 어림하지 않는다.
+- 끝나면(classification 폴더):
+  1. pool 기록을 세 suite의 `pool_runs.txt`로 복사한다.
+  2. `python energy_recount_ett.py --suite flif-v1-ett-sde`를 돌린다.
+  3. `python summarize_sde.py`를 돌린다.
+- pool이 도는 동안 저장소의 code와 실행 스크립트를 고치지 않는다.
+
+**한계:**
+- ETT와 MIT-BIH만 본다. CinC는 돌리지 않는다. 이상 탐지는 아직 이 model로 돌릴 수 없다.
+- seed 3개, 탐색 수준이다.
+- Hippocampus의 SpikeDE LIF는 SpikeDE 기본 설정 그대로다. BN 초기값, τ, reset을 따로 맞추지 않았다.
+- 기준 run은 다른 날 학습했다. 짝은 seed로 맞추고, 재학습 확인을 보고한다.
+
+**not run:** CinC, 이상 탐지, Hippocampus에 f-LIF나 population neuron 넣기, reset 방식 바꾸기, lr 다시 고르기.
+
+**commit:** 이 항목과 code, 스크립트, 점검, smoke 결과를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 pool을 시작한다. 이 commit이 새 run들의 sha가 된다.
+
+---
