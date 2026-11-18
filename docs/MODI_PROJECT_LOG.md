@@ -9058,3 +9058,110 @@ Spikformer식보다 "좋음"인 변형은 없다.
 **commit:** 이 항목과 code, 스크립트, 점검, smoke 결과를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 pool을 시작한다. 이 commit이 새 run들의 sha가 된다.
 
 ---
+
+## 2026-11-18 23:17 KST — 결과: SpikeDE 기준 비교 (46 run, 사전 고정 `11c83b385`) — **두 model을 모두 SpikeDE neuron만으로 만들어도 기준 model과 Spikformer식의 차이는 "차이 없음"이다.** ETT에서는 기준 model이 낮은 쪽으로 기울었다(pop LIF R −0.80 %, 12쌍 중 11쌍 낮음; pop f-LIF −0.75 %, 9/12). 그러나 문턱(−1 %)에 못 미친다. MIT-BIH는 −0.04 / +0.07 %p다. 지금 비교와 견준 격차 변화도 두 과제 모두 "변화 없음"이다(ETT −0.67 / −0.54 %p, MIT-BIH +0.03 / +0.02 %p). 종합은 pop LIF "지지 안 됨", pop f-LIF "약함(방향만)"이다. energy는 Spikformer식의 1.21–1.51배로 지금과 같다
+
+**branch / 기준:** `exp/nsmt-flif-neo`, 사전 고정 commit `11c83b385`(새 run 46개 모두 이 sha). 사전 고정은 2026-11-18 20:57 항목이다.
+
+**실행:** tmux `flif_sde`, GPU 4장에 run 하나씩이다. 20:57:48에 시작했고 마지막 run은 23:12:30에 끝났다. RESULT 46(ETT 36, MIT-BIH 9, 재학습 1), SKIP 0. 앞쪽 run들은 다른 대화의 작업과 GPU를 나눠 썼다(22시 무렵부터 그 작업은 없음). run 시간은 ETT 126–2103 s, MIT-BIH 372–656 s다.
+
+**후처리 (사전 고정 순서 그대로):**
+1. pool 기록 `forecasting/results/flif-v1-sde-pool.log`를 세 suite의 `pool_runs.txt`로 복사했다(START / DONE 46쌍).
+2. `python energy_recount_ett.py --suite flif-v1-ett-sde` → 36 run, test MSE 36/36 재현, "all checks passed".
+3. `python summarize_sde.py` → `classification/results/flif-v1-sde-summary.md`. 빠지거나 중복되거나 유한하지 않은 값은 없었다. 새 폴더 46개는 모두 `_nalif`가 붙어 있고, 기준 폴더에는 없다. sha는 하나다.
+
+**나쁜 것 먼저:**
+- SpikeDE 기준에서도 사용자의 기준("Spikformer보다 평균적으로 좋음")을 판정 규칙으로 통과하는 neuron은 없다. ETT는 방향만 기준 model 쪽이고, MIT-BIH는 같다.
+- energy는 그대로 Spikformer식보다 많다. ETT 1.25 / 1.51배, MIT-BIH 1.21 / 1.35배다(pop LIF / pop f-LIF, SpikeDE끼리). 사용자가 받아들일 수 있다고 한 범위(1.2–1.5배) 안이지만 선호(1.0 이하)는 아니다. pop f-LIF ETT 1.51배는 그 범위의 끝이다.
+- MIT-BIH에서는 SpikeDE로 바꾸면 세 model 모두 F1이 0.25–0.28 %p 낮아졌다(차이 없음 범위 안).
+
+**결과 (seed 3개 평균 ± 표준편차; ETT는 test MSE, best-validation weight; MIT-BIH는 test macro-F1 %, 마지막 epoch weight):**
+
+| model | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 | MIT-BIH F1 |
+|---|---|---|---|---|---|
+| Spikformer식, spikingjelly LIF (지금) | 0.2903 ± 0.0012 | 0.4223 ± 0.0024 | 0.1775 ± 0.0007 | 0.4034 ± 0.0016 | 92.22 ± 0.21 |
+| Spikformer식, SpikeDE LIF | 0.2921 ± 0.0038 | 0.4229 ± 0.0062 | 0.1779 ± 0.0004 | 0.4048 ± 0.0023 | 91.94 ± 0.49 |
+| 기준 pop LIF (지금) | 0.2931 ± 0.0045 | 0.4157 ± 0.0011 | 0.1776 ± 0.0004 | 0.4036 ± 0.0005 | 92.16 ± 0.05 |
+| 기준 pop LIF, 전부 SpikeDE | 0.2914 ± 0.0021 | 0.4163 ± 0.0051 | 0.1763 ± 0.0009 | 0.4029 ± 0.0019 | 91.90 ± 0.26 |
+| 기준 pop f-LIF (지금) | 0.2904 ± 0.0039 | 0.4166 ± 0.0055 | 0.1782 ± 0.0011 | 0.4036 ± 0.0031 | 92.27 ± 0.43 |
+| 기준 pop f-LIF, 전부 SpikeDE | 0.2897 ± 0.0037 | 0.4181 ± 0.0065 | 0.1766 ± 0.0013 | 0.4034 ± 0.0020 | 92.01 ± 0.49 |
+
+**판정 (사전 고정 규칙):**
+
+| 비교 | 과제 | pop LIF | pop f-LIF | 두 neuron |
+|---|---|---|---|---|
+| E1 기준 − Spikformer식 (SpikeDE끼리) | ETT | R −0.80 %, 11/12 낮음, 차이 없음 | −0.75 %, 9/12, 차이 없음 | 차이 없음 |
+| E2 격차 변화 (SpikeDE − 지금) | ETT | −0.67 %p, 9/12 음수, 변화 없음 | −0.54 %p, 8/12, 변화 없음 | 변화 없음 |
+| M1 기준 − Spikformer식 (SpikeDE끼리) | MIT-BIH | −0.14 / −0.52 / +0.55, 평균 −0.04 %p, 차이 없음 | −0.30 / −0.12 / +0.62, +0.07 %p, 차이 없음 | 차이 없음 |
+| M2 격차 변화 | MIT-BIH | +0.03 %p, 변화 없음 | +0.02 %p, 변화 없음 | 변화 없음 |
+| 종합 | — | 지지 안 됨 (MIT-BIH 평균이 음수) | 약함(방향만) | — |
+
+- E1 칸별(pop LIF / pop f-LIF): ETTh2 H96 −0.23 / −0.80, ETTh2 H720 −1.55(칸: 좋음) / −1.12(칸: 좋음), ETTm2 H96 −0.95 / −0.74, ETTm2 H720 −0.46 / −0.33 %. 네 칸 모두 같은 방향이다.
+- 지금 비교(공유 부분이 spikingjelly)는 ETT −0.12 / −0.21 %(6/12, 6/12)이고 MIT-BIH −0.07 / +0.04 %p다. 기록된 값 그대로다.
+- 모든 판정이 "차이 없음 / 변화 없음"이라 한 칸 빼기는 적용되지 않는다.
+
+**보고 전용:**
+- **library 효과 (SpikeDE − spikingjelly, 같은 model):**
+
+| model | ETT R | ETT 낮은 쌍 | MIT-BIH 평균 d | 판정 |
+|---|---|---|---|---|
+| Spikformer식 | +0.34 % | 5/12 | −0.28 %p | 둘 다 차이 없음 |
+| 기준 pop LIF | −0.34 % | 9/12 | −0.25 %p | 둘 다 차이 없음 |
+| 기준 pop f-LIF | −0.20 % | 6/12 | −0.26 %p | 둘 다 차이 없음 |
+
+  - ETT에서 SpikeDE로 바꾸면 Spikformer식은 조금 나빠지고 기준 model은 조금 좋아졌다. 그래서 SpikeDE 기준의 ETT 격차가 지금보다 기준 model 쪽으로 0.5–0.7 %p 기울었다(E2). 모두 문턱 아래다.
+- **energy (µJ, 평균):**
+
+| model | ETT | / Spikformer식 SpikeDE | / Spikformer식 지금 | MIT-BIH | / Spikformer식 SpikeDE | / Spikformer식 지금 |
+|---|---|---|---|---|---|---|
+| Spikformer식 SpikeDE | 10.55 | 1.00 | 1.01 | 9.45 | 1.00 | 0.99 |
+| 기준 pop LIF SpikeDE | 13.14 | 1.25 | 1.26 | 11.42 | 1.21 | 1.20 |
+| 기준 pop f-LIF SpikeDE | 15.93 | 1.51 | 1.52 | 12.77 | 1.35 | 1.34 |
+
+  - ETT energy는 head를 spike 덧셈으로 다시 센 값이다. SpikeDE로 바꿔도 energy는 거의 그대로다(0.99–1.02배).
+- **발화율:** MIT-BIH의 Hippocampus 발화율은 SpikeDE에서 낮아졌다(Spikformer식 0.145 → 0.117, 기준 model 0.151 / 0.148 → 0.124 / 0.124). ETT는 거의 같다(0.056–0.061).
+- **첫 epoch 멈춤 (ETT, 12 run 중):** Spikformer식 2 → 2, 기준 pop LIF 1 → 3, 기준 pop f-LIF 2 → 4.
+- **MAE (ETT):** 같은 방향이다. 판정에는 쓰지 않는다.
+- **재학습 확인 (4/4 같음):**
+  - MIT-BIH Spikformer식 seed 42는 10-27 run(`26915f45b`)과 F1, 정확도, energy가 같다.
+  - ETTh2 H96 `spkall_lif` seed 3개는 10-29 run(`1aeffcc9a`)과 MSE, MAE, validation, energy, 마지막 epoch MSE가 같다.
+
+**사전 예상과 대조:**
+
+| 예상 | 결과 | 맞음? |
+|---|---|---|
+| Spikformer식 SpikeDE − spikingjelly: ETT +0.5 ~ +1 % | +0.34 %, 차이 없음 | 틀림 (더 작음) |
+| 기준 model도 비슷한 크기로 나빠짐 | ETT −0.34 / −0.20 % (조금 좋아짐) | 틀림 |
+| MIT-BIH library 효과 ±0.5 %p 안 | −0.28 / −0.25 / −0.26 %p | 맞음 |
+| E1 / M1 차이 없음, E2 / M2 변화 없음 | 그대로 | 맞음 |
+| 종합: 많아야 한 neuron이 약함 | pop f-LIF만 약함 | 맞음 |
+| energy 비율 지금과 비슷 | ETT 1.25 / 1.51, MIT-BIH 1.21 / 1.35 | 맞음 |
+
+**읽는 법 적용:**
+- 종합 strong은 없다. pop f-LIF는 "약함(방향만)"으로 논문 주장으로는 약하다.
+- E2 / M2가 "변화 없음"이므로 어느 library로 비교해도 판정은 같다. 지금 비교가 기준 model을 크게 낮게 본 것은 아니다. ETT에서는 방향이 0.5–0.7 %p 기준 model 쪽으로 움직였다(문턱 아래).
+- library 효과는 모두 "차이 없음"이다. SpikeDE로 바꾼다고 절대 성능이 크게 떨어지지 않는다.
+- energy는 받아들일 수 있는 범위 안이지만 선호 기준(Spikformer 이하)은 아니다.
+
+**결론:**
+- SpikeDE 기준으로 맞춰도, 입력 96 ETT 네 칸과 MIT-BIH에서 기준 model과 Spikformer식은 판정상 같다.
+- ETT에서는 SpikeDE끼리 비교했을 때 기준 model의 MSE가 네 칸 모두 조금 낮다(평균 −0.80 / −0.75 %). 이것은 "평균적으로 조금 낮다"는 관찰이고, 미리 정한 문턱은 넘지 못했다.
+- 전력은 Spikformer식의 1.2–1.5배다.
+
+**한계:**
+- seed 3개, 탐색 수준이다. ETT와 MIT-BIH만 봤다(CinC와 이상 탐지는 not run).
+- 두 model 모두 lr은 이전 값 그대로다(ETT 5e-4, MIT-BIH 0.01). 다른 대화(`f_lif_pop_v3`)의 메모에 따르면 그쪽에서는 SpikeDE Spikformer의 lr을 다시 골라 쓴다. 이 비교는 그렇게 하지 않았다(확인 안 함).
+- Hippocampus의 SpikeDE LIF는 기본 설정 그대로다.
+- 기준 run은 다른 날 학습했지만, 재학습 확인 4/4가 같아 다시 돌려도 같은 값일 것이다.
+
+**산출물 (Git):**
+- `nsmt_flif_v1/forecasting/results/flif-v1-ett-sde/{raw.txt, pool_runs.txt, energy_recount.csv}`
+- `nsmt_flif_v1/classification/results/flif-v1-mitbih-sde/{raw.txt, pool_runs.txt}`, `flif-v1-mitbih-sde-repro/{raw.txt, pool_runs.txt}`
+- `nsmt_flif_v1/classification/results/flif-v1-sde-summary.md`
+- checkpoint, TensorBoard, stdout, pool log 원본은 로컬에 둔다.
+
+**commit / tag:** 이 항목과 결과 파일을 commit 하고 annotated tag `exp/nsmt-flif-neo-20261118-sde`를 붙인다. `exp/nsmt-flif-neo`와 이 tag만 push 한다.
+
+**다음:** 결과를 보고하고 사용자 결정을 기다린다. lr 시험 재시작, 이상 탐지, DNN 비교표, 비교 기준 Spikformer의 lr을 맞출지가 남아 있다.
+
+---
