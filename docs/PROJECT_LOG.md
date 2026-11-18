@@ -12842,3 +12842,119 @@ head = s2                          H1(head가 membrane을 읽으면 CinC, ETT wo
 - 예상 시간(내 추정): ETT LIF run은 GPU를 덜 나눠 쓸 때 ETTh2 약 4–7분, ETTm2 약 13–16분이었다. 지금은 GPU가 다른 세션 pool과 입력 336 재실행으로 바빠 3–5배 걸릴 수 있다. ETT 72 run 약 5–8시간, MIT-BIH 15 run 약 1시간.
 
 **commit:** 이 기록, code, script, 점검·시험 학습 출력을 `exp/f-lif-pop-v3`에 commit · push한 뒤 driver를 시작한다. 해시는 결과 기록에 적는다.
+
+## 2026-11-18 10:37 KST — 결과 + 실험 완료(36 run, SKIP 0): ETT 입력 길이 336, LIF SpkMixer · population LIF SpkMixer · Spikformer식 — 입력 336에서도 population LIF는 LIF보다 나아지지 않는다(P1 R +0.53 %, 7/12, no clear difference). 격차 변화 G 세 쌍 모두 변화 없음. 입력 336 자체는 LIF(−3.98 %, 10/12)와 Spikformer식(−2.80 %, 9/12)에 better, population LIF에는 no clear difference(−2.55 %, 7/12; ETTh2 두 cell에서 나빠짐). energy는 세 model 모두 약 3.4배
+
+**직전 commit:** `9ea2adee0`(mixer 변형 사전등록 + 입력 336 중간 기록). 사전등록 commit은 `c9bd40922`이고, 새 run 36개의 `sha`가 모두 `c9bd40922`이다(재실행 5개 포함). 브랜치 `exp/f-lif-pop-v3`. 사용자 결정(11-17): "336부터 진행하자."
+
+### 실행
+- `len_driver.sh 336`: 11-17 20:30:51 시작. 첫 pool은 11-18 04:03:08에 끝났다(RESULT 31, SKIP 5). driver는 사전등록대로 판정 전에 멈췄다("STOP: incomplete").
+- SKIP 5개(모두 population LIF, 첫 epoch 전 `CUDA out of memory`)는 사전등록 규칙대로 같은 설정과 seed로 그 run만 다시 돌렸다. 경위는 바로 앞 기록(05:45 중간 기록)에 있다.
+  - queue `len336-rerun-20261118.txt`, 실행 script 사본 `run_ett_spk_rerun336.sh`(c9bd40922의 `run_ett_spk.sh`와 byte 단위로 같음), SLOTS=0,1,2,3(GPU마다 1개).
+  - 04:05:39에 4개, 05:08:31에 1개가 시작했고, 마지막 run이 09:45:47에 끝났다. `pool_log_rerun.txt`: RESULT 5, SKIP 0.
+- driver가 멈췄으므로 energy 재계산과 요약은 driver와 같은 명령으로 손으로 돌렸다(아래 "산출물과 명령"). 둘 다 `driver.log`(local)에 이어 적었다.
+- 완전성: `raw.txt`에 RESULT 36, SKIP 0, 중복 0. 36줄 모두 `sha=c9bd40922`. 옮긴 SKIP 5줄은 `skip_oom.txt`에 남아 있다.
+- energy 재계산(`energy_recount_ett.py --suite flif-v1-ett-spkmux-len336`, GPU 1): 36 run, "all checks passed". 다시 계산한 test MSE가 기록값과 같고, head 입력이 0/1이다.
+- 요약기(`summarize_len.py --len 336`)의 멈춤 조건(새 run의 best epoch = validation 최솟값 등)에 걸리지 않았다.
+- 독립 재계산(`recheck_len.py 336 --sha c9bd40922`, 요약기를 import하지 않음): 12개 비교의 R, 쌍 수, 판정, energy 비와 model별 평균이 `summary.md`와 모두 같다. 출력은 `recheck_len.txt`다.
+- 재현(보고 전용, 사전등록): 우리 Spikformer식 ETTh2 6 run이 다른 세션의 입력 336 Spikformer식 run(`exp/nsmt-flif-neo` `nsmt_flif_v1/forecasting/results/flif-v1-ett-len336/raw.txt`, 읽기만 함)과 공유 필드 27개(MSE, MAE, best validation, 연산 수, energy, 발화율 등)에서 모두 같다. script는 `results/check-len-20261117/repro_sf336.py`, 출력은 `repro_sf336.txt`다.
+- run당 시간(초, seed 42 / 7 / 2026): GPU를 다른 세션의 입력 720 pool, 그리고 11-18 05:47부터는 이 브랜치의 mixer 변형 pool과 함께 썼다. 시간끼리 비교할 수 없다.
+
+| cell | LIF | POP | SF |
+|---|---|---|---|
+| ETTh2 H96 | 1,481 / 1,520 / 1,453 | 3,556 / 3,772 / 4,011 | 198 / 241 / 216 |
+| ETTh2 H720 | 1,336 / 1,090 / 1,154 | 4,746 / 4,785 / 4,723 | 185 / 161 / 189 |
+| ETTm2 H96 | 8,346 / 11,360 / 11,419 | 26,194 / 18,344 / 20,408 | 942 / 948 / 947 |
+| ETTm2 H720 | 5,140 / 5,528 / 6,447 | 17,147 / 17,819 / 22,989 | 782 / 943 / 813 |
+
+### test MSE(3 seed 평균), validation, energy
+| model | 입력 | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 | 평균 | best validation L1 평균 | energy µJ(4 cell 평균) | params(ETTh2 H96) |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| LIF SpkMixer | 96 | 0.2952 | 0.4218 | 0.1775 | 0.4034 | 0.3245 | 0.36145 | 10.28 | 169,280 |
+| LIF SpkMixer | 336 | 0.2964 | 0.3916 | 0.1726 | 0.3778 | 0.3096 | 0.36450 | 34.69 | 537,920 |
+| population LIF SpkMixer | 96 | 0.2910 | 0.4134 | 0.1769 | 0.4033 | 0.3212 | 0.36151 | 28.50 | 170,944 |
+| population LIF SpkMixer | 336 | 0.2976 | 0.4202 | 0.1696 | 0.3631 | 0.3126 | 0.36252 | 98.68 | 539,584 |
+| Spikformer식 | 96 | 0.2903 | 0.4223 | 0.1767 | 0.4044 | 0.3234 | 0.36087 | 10.48 | 169,656 |
+| Spikformer식 | 336 | 0.3094 | 0.3983 | 0.1715 | 0.3673 | 0.3116 | 0.36412 | 35.13 | 539,256 |
+
+### 사전등록 비교(test MSE; r = 100 (A − B) / B, R = 4 cell의 seed 평균 r의 평균)
+| 비교 | R % | 낮은 쌍 | 판정 | energy A/B | cell별 r %(ETTh2 H96, H720, ETTm2 H96, H720) | MAE R % |
+|---|--:|--:|---|--:|---|--:|
+| **P1** POP 336 vs LIF 336 | +0.53 | 7/12 | no clear difference | 2.85 | +0.42, +7.31, −1.72, −3.86 | +0.41 |
+| P2 POP 336 vs SF 336 | −0.10 | 7/12 | no clear difference | 2.81 | −3.68, +5.50, −1.11, −1.12 | +0.06 |
+| P2 LIF 336 vs SF 336 | −0.57 | 6/12 | no clear difference | 0.99 | −4.08, −1.69, +0.62, +2.86 | −0.34 |
+| P3 LIF 336 vs LIF 96 | −3.98 | 10/12 | **better** | 3.38 | +0.39, −7.17, −2.78, −6.36 | −0.94 |
+| P3 POP 336 vs POP 96 | −2.55 | 7/12 | no clear difference | 3.46 | +2.27, +1.63, −4.14, −9.96 | +0.17 |
+| P3 SF 336 vs SF 96 | −2.80 | 9/12 | **better** | 3.36 | +6.59, −5.69, −2.92, −9.18 | −0.11 |
+| (입력 96, 기존) POP vs LIF | −0.94 | 10/12 | no clear difference | 2.78 | −1.41, −1.98, −0.34, −0.02 | −0.71 |
+| (입력 96, 기존) POP vs SF | −0.50 | 8/12 | no clear difference | 2.73 | +0.23, −2.11, +0.13, −0.26 | −0.27 |
+| (입력 96, 기존) LIF vs SF | +0.45 | 3/12 | no clear difference | 0.98 | +1.67, −0.12, +0.47, −0.23 | +0.45 |
+
+| 격차 변화 G(g = r(336) − r(96), %p; 음수 = 앞 model이 긴 입력에서 더 얻음) | G %p | 음수 쌍 | 판정 | cell별 g %p |
+|---|--:|--:|---|---|
+| POP vs LIF | +1.47 | 5/12 | 변화 없음 | +1.82, +9.29, −1.38, −3.84 |
+| POP vs SF | +0.40 | 7/12 | 변화 없음 | −3.91, +7.61, −1.23, −0.86 |
+| LIF vs SF | −1.02 | 7/12 | 변화 없음 | −5.75, −1.57, +0.15, +3.09 |
+
+- **P1의 seed별 r %:** ETTh2 H96 +1.03, +1.23, −1.01 / ETTh2 H720 +8.34, +5.23, +8.34 / ETTm2 H96 −0.24, −2.11, −2.82 / ETTm2 H720 −5.28, −3.35, −2.96. dataset에 따라 갈린다. ETTh2 H720은 3 seed 모두 POP가 나쁘고, ETTm2 두 cell은 6 seed 모두 POP가 좋다. 평균하면 규칙 밖이다.
+- **POP의 P3:** ETTm2는 6 seed 모두 좋아졌다(−3.15 ~ −10.88 %). ETTh2는 6 seed 중 5개가 나빠졌다(H96 +5.13, +0.96, +0.71; H720 +3.57, −0.34, +1.67). LIF는 ETTh2 H720에서 3 seed 모두 −6.5 ~ −7.7 %다.
+- **ETTh2 H96은 세 model 모두 입력 336에서 나빠졌다**(LIF +0.39, POP +2.27, SF +6.59 %). 사전 예상에 적은 가능성이고, 다른 세션의 Spikformer식 ETTh2 H96도 나빠졌다(같은 run이다, 위 재현).
+
+### 보고 전용
+| 비교 | validation L1 R % | 낮은 쌍 | 마지막 epoch test MSE R % | 낮은 쌍 |
+|---|--:|--:|--:|--:|
+| P1 POP 336 vs LIF 336 | −0.52 | 11/12 | +3.16 | 2/12 |
+| P2 POP 336 vs SF 336 | −0.47 | 10/12 | +1.82 | 3/12 |
+| P2 LIF 336 vs SF 336 | +0.05 | 6/12 | −1.29 | 10/12 |
+| P3 LIF 336 vs LIF 96 | +0.38 | 6/12 | −2.26 | 9/12 |
+| P3 POP 336 vs POP 96 | −0.16 | 6/12 | +1.48 | 6/12 |
+| P3 SF 336 vs SF 96 | +0.49 | 6/12 | −0.58 | 8/12 |
+
+- **validation과 test가 어긋난다.** 입력 336은 세 model 모두 best validation L1을 거의 바꾸지 않았다(R +0.38, −0.16, +0.49 %). 그런데 test MSE는 LIF, SF에서 3–4 % 낮아졌다. POP는 validation에서 LIF보다 11/12 낮지만 test에서는 7/12다.
+- **입력 336 run은 아주 이른 epoch을 고른다.** best epoch(seed별)이 ETTh2 H720 LIF / SF 0, 0, 0, ETTm2 H720 POP / SF 0, 0, 0이다. 입력 96의 같은 cell, model에서는 0–4였다(12 run 중 0은 1개). head parameter가 약 3.2–3.5배 커졌는데 lr은 입력 96 값 그대로다(사전등록 한계). 첫 epoch 뒤 validation이 바로 나빠진다는 뜻이다(내 해석, 원인은 측정하지 않음).
+- 발화율(rho_hippo, seed 평균)은 POP 336이 ETTh2에서 LIF 336보다 높다(H96 0.0779 대 0.0736, H720 0.0843 대 0.0732). ETTm2에서는 낮다(0.0693 대 0.0804, 0.0646 대 0.0698). cell별 표는 `summary.md`에 있다.
+
+### 사전 예상과 비교
+| 비교 | 예상 | 결과 | 맞음 |
+|---|---|---|---|
+| P3 X_336 − X_96 | 세 model 모두 better(R −2 ~ −4 %). ETTh2 H96은 나빠질 수 있다 | LIF, SF better. POP는 R −2.55 %로 범위 안이지만 7/12라 no clear difference. ETTh2 H96은 세 model 모두 나빠짐 | 2 / 3 |
+| P1 POP − LIF | no clear difference(R −2 ~ 0 %). 확신 낮음 | no clear difference. R +0.53 %로 예상 범위 밖(부호 반대) | 판정 맞음 |
+| P2 두 비교 | 둘 다 no clear difference | 둘 다 no clear difference | 맞음 |
+| G 세 쌍 | 모두 변화 없음 | 모두 변화 없음 | 맞음 |
+| energy 336 / 96 | 세 model 3.0–3.8배, POP / LIF 2.7–3.0배 | 3.36–3.46배, POP / LIF 2.85배 | 맞음 |
+| 재현(SF ETTh2) | 6 run 모두 다른 세션 값과 같음 | 같음(공유 필드 27개) | 맞음 |
+
+### 읽는 법(사전등록 표)으로 읽으면
+- "P1 no clear difference, G 변화 없음" 줄에 해당한다. **입력을 336으로 늘려도 SpkMixer에서 population의 이득은 생기지 않는다.**
+- "P3 better, G 모두 변화 없음" 줄은 LIF와 SF에 해당한다. 긴 입력은 두 model을 비슷하게 돕는다. spiking 고유의 효과가 아니다. POP는 P3가 no clear difference라 이 줄에서 빠진다.
+- P2는 better가 없다. 입력 336에서 SpkMixer가 Spikformer식을 앞서지 않는다.
+
+### 해석(내 판단; 원인은 측정하지 않았다)
+- 사전등록 가설("느린 member의 기억 길이를 쓸 공간이 생긴다")은 지지되지 않는다. POP의 이득은 ETTm2(15분 간격, 입력 336 = 3.5일)에만 있고, ETTh2(1시간 간격, 입력 336 = 14일)에서는 손해다. 두 dataset의 차이가 시간 간격 때문인지, 학습 window 수(ETTh2 약 8천 대 ETTm2 약 3만 4천) 때문인지, 입력 길이별로 다시 만든 맞춤값 때문인지는 가를 수 없다.
+- LIF와 SF의 P3 이득(−4.0 %, −2.8 %)은 다른 세션의 일곱 model(−2.45 ~ −3.92 %)과 같은 크기다.
+- 이른 best epoch과 validation / test 불일치를 보면, 입력 96에서 튜닝한 lr이 입력 336의 큰 head에 맞지 않을 가능성이 있다. 재튜닝은 not run이다.
+
+### 한계
+- 설정은 입력 96에서 튜닝했다. 입력 336에 맞춰 다시 튜닝하지 않았다.
+- head parameter가 3.2–3.5배 커져 P3에는 head 크기 변화가 섞인다. POP의 P3에는 맞춤값 변화도 섞인다.
+- seed 3개, ETT만이다. population f-LIF는 not run이다.
+- 재실행 5 run은 첫 pool과 다른 시간에 다른 GPU 배치로 돌았다. 같은 code, 같은 seed라 결과에는 영향이 없다고 본다. 입력 96 재현(11-17 사전등록 점검)과 SF 재현(위)이 이를 뒷받침하지만, 재실행 run 자체를 두 번 돌려 확인하지는 않았다.
+
+### 내 실수
+- 첫 pool의 SKIP 5개는 내 잘못이다. GPU마다 slot을 2개 두었고, POP 입력 336 run 하나가 약 14.6 GB를 쓴다는 것을 사전 확인에서 재지 않았다(05:45 중간 기록에 적음). 재실행 때문에 결과가 약 5시간 40분 늦어졌다.
+
+### 산출물과 명령
+- `cinc_mixer_v1/results/flif-v1-ett-spkmux-len336/{raw.txt,skip_oom.txt,pool_log.txt,pool_log_rerun.txt,energy_recount.csv,summary.md,recheck_len.txt}`, `results/check-len-20261117/{repro_sf336.py,repro_sf336.txt}`(새 파일; pool이 끝난 뒤 추가했다).
+- `driver.log`, queue 파일, checkpoint, TensorBoard, stdout(OOM stdout 사본 `.oom.stdout` 포함)은 local에 둔다.
+- 재계산(`cinc_mixer_v1/`에서):
+  - `python -B energy_recount_ett.py --suite flif-v1-ett-spkmux-len336`
+  - `python -B summarize_len.py --len 336`
+  - `python -B recheck_len.py 336 --sha c9bd40922`
+  - `python -B results/check-len-20261117/repro_sf336.py`
+
+### 결론
+- 입력 336에서 population LIF SpkMixer는 LIF SpkMixer보다 나아지지 않는다(P1 no clear difference, 격차 변화 없음). energy는 2.85배다.
+- 입력 336은 LIF와 Spikformer식에 better지만 둘 사이의 격차는 그대로다. energy는 약 3.4배다.
+- 입력 720은 사전등록대로 이 결과를 보고 사용자와 정한다. POP 720은 11-17에 다른 세션의 run 옆에서 메모리에 올라가지 않았다.
+
+**commit:** 이 기록의 commit을 annotated tag `exp/f-lif-pop-v3-len336-20261118`로 식별한다(학습 완료, snapshot 아님). mixer 변형 pool(MIT-BIH 단계)이 끝난 뒤 commit한다. 그 pool의 run이 시작할 때 HEAD를 `sha`로 적기 때문이다. `exp/f-lif-pop-v3`와 이 tag만 push.
