@@ -13524,3 +13524,56 @@ head = s2                          H1(head가 membrane을 읽으면 CinC, ETT wo
 - pop LIF all 행(sha 60188bdde)과 SF-de 행(sha 1bed92742)은 다른 commit에서 돌았다. 기본 경로가 비트 단위로 같다는 점검(p0)과 재현 5 run으로 뒷받침한다.
 
 **commit:** 이 기록과 `results/check-pn-20261118/popall_vs_sfde.txt`를 `exp/f-lif-pop-v3`에 commit · push한다(code 변경 없음). 해시는 다음 기록에 적는다.
+
+## 2026-11-18 21:35 KST — 사용자 목표 진술 + 기존 SpkMixer 변형을 그 기준으로 점검(보고 전용, 새 학습 없음): SF-de 대비 "평균적으로 더 좋고 energy는 더 적은" 변형은 아직 없다. LIF SpkMixer는 비김(ETT +0.30 %, MIT-BIH +0.04 %p, energy 0.96 / 1.00배)
+
+**직전 commit:** `b33c6c43c`(pop LIF all vs SF-de, 20:48 기록). 브랜치 `exp/f-lif-pop-v3`.
+
+### 사용자 진술(원문)
+> 나는 모든 측면에서 '완벽하게 나아질 수 있는 모델 구조를 고르려는 것'이 아니야.
+> - 주장하는 contribution을 만족하면서
+> - DNN 모델들보다 훨씬 적은 전력을 사용하면서
+> - DNN 모델들과 비교할만한(비슷한) 성능을 3가지 task(분류, 예측, 이상탐지)에 대해서 보이는 거지
+> - 왜냐하면 SNN 도메인의 시계열용 모델들 중 3가지 task용 공통 모델을 제안한 연구는 아직 없거든.
+> - 그래서 나는 'T=N'(즉, LIF neuron의 시간 처리능력을 적극적으로 활용하는 것이) 'temporal information'을 (다른 SNN 모델들에 비해) 더 잘 얻게 만들 가능성이 있다. 라는 contribution을 갖고 시계열 3개의 task에 대해서 "적당히" 괜찮은 성능을 보여주려고 해.
+> - 하지만, 무조건 (수정한) Spikformer 보다는 **평균적으로** 성능이 좋다고 판단할 수 있으면서, 비교적 적은 전력을 사용해야 해.
+
+- 이 대화에서 "(수정한) Spikformer"는 SF-de다. Spikformer식 model의 모든 neuron을 spikeDE LIF로 바꾸고 lr을 다시 튜닝한 판이다(11-18 1부).
+
+### 점검: 이미 학습된 SpkMixer 변형 vs SF-de(같은 비교 함수, 보고 전용)
+- 출력: `results/check-pn-20261118/criterion_vs_sfde.txt`.
+- script `criterion_vs_sfde.py`는 pool이 끝난 뒤 commit한다. pool이 도는 동안 `.py`를 commit하지 않는 규칙 때문이다.
+- 각 행은 LIF로 튜닝한 SpkMixer 설정이다(ETT muxlin IAND, MIT-BIH ADD).
+- energy 비가 1보다 작으면 SpkMixer가 덜 쓴다.
+
+| 변형(출처) | ETT R % | ETT 더 낮은 쌍 | ETT energy 비 | MIT-BIH %p | MIT-BIH 높은 seed | MIT-BIH energy 비 |
+|---|--:|--:|--:|--:|--:|--:|
+| LIF(튜닝 최종) | +0.30 | 5/12 | 0.96 | +0.04 | 2/3 | 1.00 |
+| LIF+mean pooling(11-18 mx3) | −0.36 | 7/12 | 1.22 | −0.21 | 1/3 | 2.18 |
+| LIF+max pooling(11-18 mx3) | −0.52 | 8/12 | 0.64 | −2.70 | 0/3 | 0.62 |
+| LIF reset subtract(11-18 mx3) | +0.32 | 6/12 | 0.96 | −0.18 | 1/3 | 0.99 |
+| LIF reset zero(11-18 mx3) | +0.18 | 5/12 | 0.96 | +0.08 | 1/3 | 0.95 |
+| LIF 방향 안 2층(11-18 mx3, ETT만) | +0.01 | 7/12 | 1.16 | — | — | — |
+| LIF 방향 안 2층 + membrane shortcut(11-18 mx3) | −0.00 | 5/12 | 1.18 | +0.01 | 2/3 | 1.08 |
+| pop LIF all(11-17 STFT test rep 행) | −0.64 | 5/12 | 2.68 | −0.54 | 0/3 | 2.12 |
+
+- AD(11-03, SF-de가 아니라 SF-sj 대비): muxlin(튜닝) AUC-PR R +1.05 %(muxlin 쪽이 높음, 6/9), no clear difference, energy 1.03배.
+  - 같은 기록의 사후 참고: 학습 없는 단순 점수가 MSL에서 세 model과 같은 수준이고 PSM에서는 더 높았다. 지금 AD 설정은 model 차이를 가르지 못한다.
+
+### 읽은 것
+- 성능: 두 과제 모두에서 SF-de보다 평균이 좋은 변형이 없다.
+  - LIF SpkMixer는 ETT에서 조금 나쁘고(+0.30 %) MIT-BIH에서 같다.
+  - ETT 평균이 좋은 변형(mean, max, pop LIF all)은 MIT-BIH에서 평균이 나쁘다.
+- energy: LIF SpkMixer는 SF-de와 같은 수준이다(0.95–1.00배). "비교적 적은 전력"을 보이려면 실제 절감 수단이 필요하다.
+  - 지금까지 본 유일한 큰 절감은 max pooling이다(0.62–0.64배). mixer를 반복 축 4번 대신 1번 돌린 결과다. 그런데 MIT-BIH가 무너졌다(−2.70 %p; 11-18 기록의 S class F1 −8.85 %p).
+  - population은 energy를 2–5배로 늘린다. mean pooling을 써도 시험 학습에서 LIF의 1.5배 이상이었다.
+- 지금 도는 main 단계 격자(9 arm 중 population 7개, f-LIF 2개)에 대해: 시험 학습 energy로 보면 어느 arm도 SF-de보다 energy가 적을 가능성이 낮다. 정확도가 오르는지는 알려 주지만, 위 기준의 "적은 전력" 쪽은 채우지 못한다.
+  - main 단계 진행: 21:35 기준 DONE 10 / 138(SF-de MIT-BIH 3 + 격자 7).
+  - 큐 순서상 pop f-LIF가 먼저 돌아서 진행이 느리다.
+
+### 사용자에게 물은 것(결정 대기)
+- 지금 도는 main 단계와 입력 336 단계를 어떻게 할지.
+- "평균적으로 좋다"를 어떤 규칙으로 판단할지.
+- 결정이 오기 전까지 pool은 그대로 둔다.
+
+**commit:** 이 기록과 `results/check-pn-20261118/criterion_vs_sfde.txt`를 `exp/f-lif-pop-v3`에 commit · push한다(code 변경 없음). 해시는 다음 기록에 적는다.
