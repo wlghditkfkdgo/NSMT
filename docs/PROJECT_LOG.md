@@ -12958,3 +12958,143 @@ head = s2                          H1(head가 membrane을 읽으면 CinC, ETT wo
 - 입력 720은 사전등록대로 이 결과를 보고 사용자와 정한다. POP 720은 11-17에 다른 세션의 run 옆에서 메모리에 올라가지 않았다.
 
 **commit:** 이 기록의 commit을 annotated tag `exp/f-lif-pop-v3-len336-20261118`로 식별한다(학습 완료, snapshot 아님). mixer 변형 pool(MIT-BIH 단계)이 끝난 뒤 commit한다. 그 pool의 run이 시작할 때 HEAD를 `sha`로 적기 때문이다. `exp/f-lif-pop-v3`와 이 tag만 push.
+
+## 2026-11-18 10:39 KST — 결과 + LIF 단계 완료(87 run, SKIP 0): SpkMixer mixer 변형 3묶음(반복 축 pooling, 방향 안 2층 membrane shortcut, 방향 stack LIF reset) — better는 하나도 없다. ETT는 여섯 비교 모두 no clear difference(max pooling R −0.81 %, 8/12, energy 0.67배가 기준에 가장 가까움). MIT-BIH는 max pooling만 worse(−2.75 %p, 0/3; S class F1 −8.85 %p)이고 나머지는 no clear difference
+
+**직전 commit:** `26586a191`(입력 336 결과). 사전등록 commit은 `9ea2adee0`이고, 새 run 87개의 `sha`가 모두 `9ea2adee0`이다. 브랜치 `exp/f-lif-pop-v3`. 사용자 요청(11-17): "세 묶음 모두 진행하되, LIF 로 먼저보고 이후에 population을 진행해줘." 이 기록은 LIF 단계다.
+
+### 실행
+- `mx3_driver.sh`: 11-18 05:47:04 시작.
+  - ETT pool은 09:18:18에 끝났다(RESULT 72, SKIP 0). energy 재계산 · 요약은 09:48:13에 끝났다.
+  - MIT-BIH pool은 09:48:13에 시작해 10:35:07에 끝났다(RESULT 15, SKIP 0). 재계산 · 요약은 10:37:35에 끝났다.
+  - 전체 약 4시간 50분이다. 사전등록 추정(ETT 5–8시간, MIT-BIH 약 1시간)보다 짧았다.
+- run당 시간: ETT 267–5,172 s, MIT-BIH 834–1,624 s. GPU를 다른 세션의 입력 720 pool, 그리고 09:45까지는 이 브랜치의 입력 336 재실행과 함께 썼다.
+- energy 재계산: 두 suite 모두 "all checks passed"(다시 계산한 MSE / macro-F1 = 기록값, ETT head 입력 0/1).
+- 완전성: ETT 72 key, MIT-BIH 15 key가 모두 있고 중복 0, 값이 모두 유한하다. 요약기의 멈춤 조건(ETT 새 run의 best epoch = validation 최솟값 등)에 걸리지 않았다. MIT-BIH 15 run 모두 30 epoch, `val_fold=-1`, test 32,833 beat다.
+- 독립 재계산(`recheck_mx3.py ett|mitbih --sha 9ea2adee0`, 요약기를 import하지 않음): 새 행의 sha가 모두 `9ea2adee0`이다. 모든 비교의 R / 평균 차이, 쌍 수, 판정, energy 비와 arm별 평균이 `summary.md`와 같다. 출력은 각 suite의 `recheck_mx3.txt`다.
+- base와 Spikformer식 행은 새로 돌리지 않았다. 기존 튜닝 run(`flif-v1-ett-spkmux-tune`, `flif-v1-mitbih-spkmux-tune`, Spikformer식 튜닝 행)이다.
+
+### ETT(test MSE, 3 seed 평균; energy는 4 cell 평균 µJ)
+| arm | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 | 평균 | best validation L1 평균 | energy µJ | params(ETTh2 H96) |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| base | 0.2952 | 0.4218 | 0.1775 | 0.4034 | 0.3245 | 0.36145 | 10.28 | 169,280 |
+| max | 0.2922 | 0.4141 | 0.1766 | 0.4037 | 0.3217 | 0.36188 | 6.87 | 169,280 |
+| mean | 0.2893 | 0.4199 | 0.1773 | 0.4033 | 0.3225 | 0.36242 | 13.01 | 169,280 |
+| L2 | 0.2913 | 0.4204 | 0.1782 | 0.4041 | 0.3235 | 0.36182 | 12.40 | 177,728 |
+| MS | 0.2912 | 0.4209 | 0.1778 | 0.4043 | 0.3235 | 0.36172 | 12.54 | 177,728 |
+| subtract | 0.2983 | 0.4174 | 0.1774 | 0.4040 | 0.3243 | 0.36166 | 10.24 | 169,280 |
+| zero | 0.2949 | 0.4200 | 0.1773 | 0.4041 | 0.3241 | 0.36133 | 10.21 | 169,280 |
+| Spikformer식(튜닝) | 0.2903 | 0.4223 | 0.1767 | 0.4044 | 0.3234 | 0.36087 | 10.48 | 169,656 |
+
+| 비교 | R % | 낮은 쌍 | 판정 | energy A/B | cell별 r %(ETTh2 H96, H720, ETTm2 H96, H720) | MAE R % | validation L1 R % |
+|---|--:|--:|---|--:|---|--:|--:|
+| V1 max vs base | −0.81 | 8/12 | no clear difference | 0.67 | −0.99, −1.82, −0.50, +0.06 | −0.34 | +0.09 |
+| V2 mean vs base | −0.65 | 9/12 | no clear difference | 1.27 | −1.99, −0.45, −0.12, −0.03 | −0.35 | +0.27 |
+| V3 MS vs base | −0.30 | 4/12 | no clear difference | 1.22 | −1.36, −0.22, +0.16, +0.21 | −0.18 | +0.06 |
+| V4 MS vs L2 | −0.01 | 6/12 | no clear difference | 1.01 | −0.03, +0.13, −0.21, +0.06 | −0.03 | −0.03 |
+| V5 subtract vs base | +0.01 | 4/12 | no clear difference | 1.00 | +1.06, −1.04, −0.10, +0.13 | +0.01 | +0.03 |
+| V6 zero vs base | −0.13 | 5/12 | no clear difference | 0.99 | −0.10, −0.43, −0.14, +0.16 | −0.02 | −0.04 |
+| (보고) max vs mean | −0.16 | 5/12 | no clear difference | 0.53 | +1.02, −1.37, −0.38, +0.09 | +0.02 | −0.18 |
+| (보고) L2 vs base | −0.29 | 4/12 | no clear difference | 1.21 | −1.33, −0.34, +0.37, +0.16 | −0.15 | +0.09 |
+| (보고) subtract vs zero | +0.14 | 5/12 | no clear difference | 1.00 | +1.17, −0.61, +0.04, −0.03 | +0.04 | +0.07 |
+| (보고) base vs Spikformer식 | +0.45 | 3/12 | no clear difference | 0.98 | +1.67, −0.12, +0.47, −0.23 | +0.45 | +0.17 |
+| (보고) max vs Spikformer식 | −0.37 | 6/12 | no clear difference | 0.65 | +0.66, −1.94, −0.04, −0.17 | +0.10 | +0.25 |
+| (보고) mean vs Spikformer식 | −0.21 | 5/12 | no clear difference | 1.24 | −0.35, −0.56, +0.34, −0.26 | +0.09 | +0.43 |
+| (보고) L2 vs Spikformer식 | +0.15 | 4/12 | no clear difference | 1.18 | +0.31, −0.46, +0.84, −0.08 | +0.29 | +0.26 |
+| (보고) MS vs Spikformer식 | +0.14 | 5/12 | no clear difference | 1.20 | +0.28, −0.34, +0.63, −0.02 | +0.26 | +0.23 |
+| (보고) subtract vs Spikformer식 | +0.46 | 4/12 | no clear difference | 0.98 | +2.75, −1.16, +0.37, −0.10 | +0.46 | +0.20 |
+| (보고) zero vs Spikformer식 | +0.32 | 4/12 | no clear difference | 0.97 | +1.57, −0.56, +0.33, −0.07 | +0.42 | +0.13 |
+
+- **V1 seed별 r %:** ETTh2 H96 −2.21, −0.04, −0.73 / ETTh2 H720 −1.09, −2.04, −2.35 / ETTm2 H96 +0.06, −0.44, −1.12 / ETTm2 H720 +0.05, +0.07, +0.06. ETTh2 6쌍이 모두 낮고, ETTm2 H720 3쌍은 모두 거의 0이다. 쌍 수는 기준(8/12)을 채웠고 R(−0.81 %)이 기준 −1 %에 못 미친다.
+- **V2:** 낮은 쌍 9/12지만 R −0.65 %다. 이득은 ETTh2 H96(−1.99 %)에 몰려 있다.
+- **validation은 test와 방향이 다르다.** V1 / V2의 best validation L1 R은 +0.09 / +0.27 %로 거의 같거나 조금 나쁘다.
+- 보고 전용 표(best epoch, 학습 epoch 수, 마지막 epoch MSE, 발화율, cell별 energy)는 `summary.md`에 있다.
+  - pooling arm은 대체로 더 이른 epoch을 고른다(ETTh2 H96 best epoch: base 3, 1, 6, max 1, 1, 3, mean 0, 2, 0).
+  - stack 발화율(rho_hippo)은 subtract / zero가 base와 거의 같다(예: ETTh2 H96 0.0704, 0.0697, 0.0698).
+
+### MIT-BIH(test macro-F1 %, 마지막 epoch weight, 3 seed)
+| arm | macro-F1 | seed 42, 7, 2026 | accuracy | F1 N / S / V / F / Q | rho_hippo | energy µJ | params |
+|---|--:|---|--:|---|--:|--:|--:|
+| base | 91.99 | 91.89, 92.13, 91.94 | 98.56 | 99.24 / 85.94 / 96.31 / 79.49 / 98.95 | 0.1001 | 9.44 | 1,200,768 |
+| max | 89.24 | 88.43, 89.30, 89.98 | 97.84 | 98.86 / 77.09 / 95.16 / 76.93 / 98.16 | 0.0831 | 5.84 | 1,200,768 |
+| mean | 91.73 | 91.42, 92.19, 91.58 | 98.53 | 99.22 / 85.45 / 96.27 / 78.76 / 98.96 | 0.0850 | 20.56 | 1,200,768 |
+| MS | 91.96 | 91.96, 92.11, 91.81 | 98.53 | 99.23 / 85.51 / 96.28 / 79.91 / 98.86 | 0.0945 | 10.20 | 1,200,768 |
+| subtract | 91.76 | 91.45, 91.98, 91.85 | 98.52 | 99.22 / 84.93 / 96.26 / 79.35 / 99.03 | 0.0994 | 9.35 | 1,200,768 |
+| zero | 92.03 | 91.75, 92.10, 92.22 | 98.53 | 99.23 / 85.72 / 96.05 / 80.20 / 98.94 | 0.0969 | 8.99 | 1,200,768 |
+| Spikformer식(튜닝) | 91.78 | 92.10, 91.74, 91.50 | 98.48 | 99.20 / 84.38 / 96.12 / 80.17 / 99.03 | 0.1275 | 9.61 | 904,488 |
+
+| 비교 | 평균 %p | 높은 seed | seed 42, 7, 2026 | 판정 | energy A/B |
+|---|--:|--:|---|---|--:|
+| V1 max vs base | −2.75 | 0/3 | −3.45, −2.83, −1.96 | **worse** | 0.62 |
+| V2 mean vs base | −0.26 | 1/3 | −0.46, +0.06, −0.36 | no clear difference | 2.18 |
+| V3 MS vs base | −0.03 | 1/3 | +0.07, −0.02, −0.14 | no clear difference | 1.08 |
+| V5 subtract vs base | −0.23 | 0/3 | −0.44, −0.15, −0.09 | no clear difference | 0.99 |
+| V6 zero vs base | +0.04 | 1/3 | −0.14, −0.03, +0.28 | no clear difference | 0.95 |
+| (보고) max vs mean | −2.49 | 0/3 | −2.99, −2.89, −1.60 | worse | 0.28 |
+| (보고) subtract vs zero | −0.27 | 0/3 | −0.30, −0.12, −0.37 | no clear difference | 1.04 |
+| (보고) base vs Spikformer식 | +0.20 | 2/3 | −0.22, +0.39, +0.44 | no clear difference | 0.98 |
+| (보고) max vs Spikformer식 | −2.54 | 0/3 | −3.67, −2.44, −1.52 | worse | 0.61 |
+| (보고) mean vs Spikformer식 | −0.05 | 2/3 | −0.68, +0.45, +0.08 | no clear difference | 2.14 |
+| (보고) MS vs Spikformer식 | +0.18 | 2/3 | −0.14, +0.37, +0.31 | no clear difference | 1.06 |
+| (보고) subtract vs Spikformer식 | −0.02 | 2/3 | −0.66, +0.24, +0.35 | no clear difference | 0.97 |
+| (보고) zero vs Spikformer식 | +0.24 | 2/3 | −0.35, +0.36, +0.72 | no clear difference | 0.94 |
+
+- V4(MS − L2)는 MIT-BIH에 없다(base가 이미 2층이라 V3이 같은 뜻, 사전등록 한계).
+- max pooling의 손실은 드문 class에서 크다. base 대비 class별 F1 차이(위 표 값으로 계산)는 N −0.38, S −8.85, V −1.15, F −2.56, Q −0.79 %p다.
+- mean pooling은 같은 "한 번만 돌리기"인데 −0.26 %p다. 그러니 MIT-BIH의 손실은 반복을 합친 것 자체보다 OR(0/1)로 합친 방식과 관련 있다(내 해석, 원인은 측정하지 않음).
+
+### 사전등록 판정 요약
+| 묶음 | 비교 | ETT | MIT-BIH |
+|---|---|---|---|
+| 1 pooling | V1 max − base | no clear difference(R −0.81 %, 8/12) | **worse**(−2.75 %p) |
+| 1 pooling | V2 mean − base | no clear difference | no clear difference |
+| 2 shortcut | V3 MS − base | no clear difference | no clear difference |
+| 2 shortcut | V4 MS − L2 | no clear difference | — |
+| 3 reset | V5 subtract − base | no clear difference | no clear difference |
+| 3 reset | V6 zero − base | no clear difference | no clear difference |
+
+### 사전 예상과 비교
+| 비교 | 예상 | 결과 | 맞음 |
+|---|---|---|---|
+| V1 max − base | ETT, MIT-BIH 모두 no clear difference(확신 낮음), energy 0.6–0.8배 | ETT 맞음. MIT-BIH worse(틀림). energy 0.67 / 0.62배(맞음) | 일부 |
+| V2 mean − base | 둘 다 no clear difference, energy ETT 1.2–1.4배 / MIT-BIH 약 2배 | 둘 다 no clear difference, 1.27 / 2.18배 | 맞음 |
+| V3 MS − base | 둘 다 no clear difference, energy ETT 1.2–1.3배 / MIT-BIH 1.0–1.1배 | 둘 다 no clear difference, 1.22 / 1.08배 | 맞음 |
+| V4 MS − L2 | no clear difference, 약 1.0배 | no clear difference, 1.01배 | 맞음 |
+| V5 subtract − base | 둘 다 no clear difference, 0.95–1.05배 | 둘 다 no clear difference, 1.00 / 0.99배 | 맞음 |
+| V6 zero − base | ETT no clear difference(R 음수 쪽), MIT-BIH no clear difference, 0.95–1.05배 | ETT R −0.13 %(음수, 맞음), MIT-BIH no clear difference, 0.99 / 0.95배 | 맞음 |
+
+- 틀린 것은 하나다. MIT-BIH max pooling의 손실(−2.75 %p)을 예상하지 못했다. 2 epoch(MIT-BIH 1 epoch) 시험 학습에서 max의 macro-F1이 0.6823으로 다섯 arm 중 가장 낮았지만, 1 epoch 값이라 판정에 쓰지 않기로 했고 예상에도 반영하지 않았다.
+
+### 읽는 법(사전등록 표)으로 읽으면
+- V1, V2 모두 better가 아니다. "반복을 합쳐 mixer를 한 번만 돌리는 편이 낫다"는 근거가 없다.
+- "V1 no clear difference이고 energy가 낮음 → 같은 성능을 더 적은 연산으로" 줄은 ETT에만 맞는다. MIT-BIH에서는 worse라 공통 기준 형태로 쓸 수 없다.
+- V4 better가 아니다. 방향 안 shortcut은 2층 mixer를 돕지 않는다.
+- V5, V6 모두 better가 아니다. mixer stack의 reset 방식(θ/τ 빼기, θ 빼기, 0으로)은 성능에 보이는 영향이 없다.
+- 표의 마지막 줄("모두 no clear difference")에 가깝다(예외는 MIT-BIH max worse). 사전등록대로 population 단계는 범위를 사용자와 다시 정한다.
+
+### 해석(내 판단; 원인은 측정하지 않았다)
+- 11-17 설계 검토의 다시 학습하지 않은 끼워 넣기에서 max는 ETT 평균 −0.68 %였다. 학습한 결과(R −0.81 %)도 비슷한 크기다. 학습해도 이득이 커지지 않았다.
+- reset: 다른 세션에서 0으로 되돌리기가 ETTh2 −2.10 %(better)였던 것은 반복 없는 model의 모든 layer에 적용한 결과였다. 여기서는 stack neuron 2개에만 적용해 차이가 ±0.3 % 안에 있다. 어느 neuron의 reset이 그 차이를 냈는지는 가르지 않았다.
+- MS: 2층 shortcut의 학습 전 발화율은 shortcut 없는 2층의 약 2배였다(점검 c3). 그래도 학습 뒤 성능은 같다. 11-08의 block 단위 membrane shortcut 결과(no clear difference)와 같은 방향이다.
+
+### 한계
+- 설정은 base 구조에서 튜닝했다. 변형마다 다시 튜닝하지 않았다.
+- seed 3개, arm 6개(ETT)다.
+- pooling은 "반복 정보를 버려도 되는가"와 "연산을 줄여도 되는가"가 섞여 있다(사전등록 한계).
+- MIT-BIH는 validation 없이 마지막 epoch weight를 쓴다. test 값으로 고른 것은 없다.
+- reset 변형은 stack neuron에만 적용했다.
+- population, f-LIF, CinC는 not run이다.
+
+### 산출물과 명령
+- `cinc_mixer_v1/results/flif-v1-ett-spkmux-mx3/{raw.txt,pool_log.txt,energy_recount.csv,summary.md,recheck_mx3.txt}`, `results/flif-v1-mitbih-spkmux-mx3/{같은 5개}`.
+- `driver.log`, queue 파일, checkpoint, TensorBoard, stdout은 local에 둔다.
+- 재계산(`cinc_mixer_v1/`에서):
+  - `python -B summarize_mx3.py --task ett|mitbih`
+  - `python -B recheck_mx3.py ett|mitbih --sha 9ea2adee0`
+
+### 결론
+- LIF SpkMixer에서 세 묶음 어느 것도 채택하지 않는다. 기준 형태는 그대로다(반복별 mixer, ETT 방향마다 1층, spikeDE reset).
+- max pooling은 ETT에서 energy 0.67배에 test MSE가 비슷하거나 조금 낮다(R −0.81 %, 기준 미달). 그러나 MIT-BIH에서 worse(−2.75 %p, S class −8.85 %p)다.
+- population 단계(사용자 요청)는 범위를 사용자와 정한 뒤 사전등록한다. 사전등록에 적어 둔 필요 사항: 변형마다 초기 발화율 맞춤값 표를 새로 만든다. population soma는 이미 θ를 빼므로 reset은 "지금 대 0으로"만 의미가 있다.
+
+**commit:** 이 기록의 commit을 annotated tag `exp/f-lif-pop-v3-mx3-20261118`로 식별한다(LIF 단계 학습 완료, snapshot 아님). `exp/f-lif-pop-v3`와 이 tag만 push.
