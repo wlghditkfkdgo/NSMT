@@ -13456,3 +13456,71 @@ head = s2                          H1(head가 membrane을 읽으면 CinC, ETT wo
 - 사용자 결정 대기: 입력 720.
 
 **commit:** 이 기록과 `results/flif-v1-ett-sfde/`, `results/flif-v1-mitbih-sfde/`, `results/flif-v1-ett-sfde-pool_log.txt`를 `exp/f-lif-pop-v3`에 commit · push한다(code 변경 없음, tag 없음). 해시는 다음 기록에 적는다.
+
+## 2026-11-18 20:48 KST — 사용자 질문(보고 전용, 사전등록 판정 아님, 새 학습 없음): population LIF(전체) SpkMixer vs SF-de — ETT no clear difference(R −0.64 %, 5/12, ETTh2 H720 한 cell이 끌어내림), MIT-BIH는 규칙상 worse(−0.54 %p, 0/3), energy 2.1–2.7배
+
+**직전 commit:** `6354f0c89`(1부 결과, 20:12 기록). 브랜치 `exp/f-lif-pop-v3`.
+
+**사용자 질문(원문):** "만약에 Population LIF 뉴런을 쓴 SpkMixer와 SF-de를 비교하면 어때?"
+
+### 무엇을 했나
+- 기존 행만 다시 읽어 계산했다. 새 학습은 없다.
+  - pop LIF all: 11-17 STFT test의 rep 행. ETT `flif-v1-ett-spkmux-stft`, MIT-BIH `flif-v1-mitbih-spkmux-stft`.
+  - SF-de: 1부의 선택 lr 행.
+  - LIF, SF-sj: 1부와 같다.
+- 판정 규칙은 사전등록과 같다. 다만 이 비교는 사전등록에서 "보고 전용"(모든 arm vs SF-de)이므로 판정 이름을 붙이지 않는다. 2 · 3부 요약기(`summarize_pn.py --stage ett / mitbih`)가 같은 비교를 다시 낸다.
+- 계산은 `summarize_pn`의 함수(`arms_ett_one`, `load_sfde_ett`, `load_sfde_mit`)와 `summarize_l2.compare`, `summarize_ms.cmp_mit`를 그대로 썼다.
+  - script는 scratchpad에 있다. pool이 도는 동안 `.py`를 commit하지 않는 규칙 때문이다. pool이 끝난 뒤 `results/check-pn-20261118/popall_vs_sfde.py`로 commit한다.
+  - 출력: `results/check-pn-20261118/popall_vs_sfde.txt`.
+
+### ETT(test MSE, seed 평균)
+| arm | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 | 평균 | energy µJ |
+|---|--:|--:|--:|--:|--:|--:|
+| pop LIF all SpkMixer | 0.2910 | 0.4134 | 0.1769 | 0.4033 | 0.3212 | 28.50 |
+| LIF SpkMixer | 0.2952 | 0.4218 | 0.1775 | 0.4034 | 0.3245 | 10.28 |
+| SF-de | 0.2921 | 0.4229 | 0.1768 | 0.4036 | 0.3238 | 10.67 |
+| SF-sj | 0.2903 | 0.4223 | 0.1767 | 0.4044 | 0.3234 | 10.48 |
+
+| 비교 | R % | 더 낮은 쌍 | 규칙상 | energy A / B | cell별 r % |
+|---|--:|--:|---|--:|---|
+| pop LIF all vs SF-de | −0.64 | 5/12 | no clear difference | 2.68 | −0.37, −2.22, +0.08, −0.07 |
+| pop LIF all vs SF-sj | −0.50 | 8/12 | no clear difference | 2.73 | +0.23, −2.11, +0.13, −0.26 |
+| (참고) pop LIF all vs LIF(= B2) | −0.94 | 10/12 | no clear difference | 2.78 | −1.41, −1.98, −0.34, −0.02 |
+| (참고) LIF vs SF-de(= A1) | +0.30 | 5/12 | no clear difference | 0.96 | +1.08, −0.24, +0.42, −0.04 |
+
+- pop LIF all vs SF-de의 seed별 r %:
+  - ETTh2 H96: +0.23, −1.37, +0.04
+  - ETTh2 H720: −4.16, −0.93, −1.56
+  - ETTm2 H96: +0.03, +0.09, +0.13
+  - ETTm2 H720: +0.04, −0.31, +0.06
+- 평균이 낮아진 것은 ETTh2 H720 한 cell에서 온다. 이 cell에서는 3 seed 모두 낮다. ETTm2 두 cell은 0에 가깝고 오히려 조금 높은 쪽이 많다.
+
+### MIT-BIH(test macro-F1 %, 마지막 epoch weight)
+| arm | macro-F1 | seed 42, 7, 2026 | class F1 N / S / V / F / Q | energy µJ |
+|---|--:|---|---|--:|
+| pop LIF all SpkMixer | 91.40 | 91.50, 91.73, 90.96 | 99.20 / 85.24 / 96.28 / 77.39 / 98.88 | 19.98 |
+| LIF SpkMixer | 91.99 | 91.89, 92.13, 91.94 | 99.24 / 85.94 / 96.31 / 79.49 / 98.95 | 9.44 |
+| SF-de | 91.94 | 91.76, 92.50, 91.57 | 99.23 / 85.14 / 96.09 / 80.23 / 99.03 | 9.45 |
+| SF-sj | 91.78 | 92.10, 91.74, 91.50 | 99.20 / 84.38 / 96.12 / 80.17 / 99.03 | 9.61 |
+
+| 비교 | 평균 %p | 높은 seed | seed별 %p | 규칙상 | energy A / B |
+|---|--:|--:|---|---|--:|
+| pop LIF all vs SF-de | −0.54 | 0/3 | −0.25, −0.77, −0.61 | worse | 2.12 |
+| pop LIF all vs SF-sj | −0.38 | 0/3 | −0.60, −0.01, −0.54 | no clear difference | 2.08 |
+| (참고) pop LIF all vs LIF(= B2) | −0.59 | 0/3 | −0.38, −0.39, −0.98 | worse | 2.12 |
+
+- 차이는 주로 F class(77.39 대 80.23)에서 온다. F class는 test 박동이 가장 적은 class다(241개).
+
+### 해석
+- population LIF(전체) SpkMixer는 SF-de보다 낫다고 할 수 없다.
+  - ETT는 평균이 조금 낮지만 기준(R ≤ −1 %, 8/12) 미달이고, 한 cell이 끌어내린다.
+  - MIT-BIH는 규칙상 worse다. LIF SpkMixer 대비 손해(B2)와 같은 모습이다.
+- energy는 SF-de의 약 2.1–2.7배다.
+- "mixer에만 population"(pop LIF mixer)과 pop f-LIF 형태의 SF-de 비교는 지금 도는 main 단계 결과로 나온다(보고 전용, 2 · 3부 요약에 포함).
+
+### 한계
+- 사전등록에서 판정 비교가 아니다(보고 전용). 사후에 고른 비교이므로 확증으로 쓰지 않는다.
+- pop LIF all은 LIF SpkMixer로 튜닝한 설정을 그대로 썼다. SF-de는 lr을 다시 튜닝했다. 튜닝 양이 다르다.
+- pop LIF all 행(sha 60188bdde)과 SF-de 행(sha 1bed92742)은 다른 commit에서 돌았다. 기본 경로가 비트 단위로 같다는 점검(p0)과 재현 5 run으로 뒷받침한다.
+
+**commit:** 이 기록과 `results/check-pn-20261118/popall_vs_sfde.txt`를 `exp/f-lif-pop-v3`에 commit · push한다(code 변경 없음). 해시는 다음 기록에 적는다.
