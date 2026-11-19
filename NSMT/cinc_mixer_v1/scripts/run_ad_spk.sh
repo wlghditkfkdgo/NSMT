@@ -10,6 +10,8 @@
 #         LR (0.0005) MLAYERS (mixer layers per direction, 2) HOLDOUT (0 | 1: tuning run, first 80 % / last 20 %, no test)
 #         NALL (sj_lif | lif): 2026-11-18 SF-de = the Spikformer-style model with the spikeDE LIF in every layer (spk_ssa only;
 #         --neuron_all lif, tag _nalif); unset = the earlier training line unchanged
+#         MIXPOOL (none | mean): 2026-11-19 AD energy test (A) -- the SpkMixer's T_h repeats averaged before the mixer
+#         (--spk_mixpool mean, tag _mpmean); unset = the earlier training line unchanged
 set -u
 DS=${1:?}; S=${2:?}; GPU=${3:?}
 W="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # cinc_mixer_v1
@@ -35,6 +37,8 @@ TAGC="${COND}_lr${LR}_L${ML}${HOT}"
 HM=""; [ "${HEADMEM:-0}" = 1 ] && { HM="--head_mem"; TAGC="${TAGC}_hm"; }   # 2026-11-03 H1 (head_mem.py): HEADMEM=1 -> --head_mem, tag _hm
 case ${NALL:-sj_lif} in sj_lif) ;; lif) [ "$COND" = spk_ssa ] || { echo "NALL=lif is for spk_ssa"; exit 1; }
   HM="$HM --neuron_all lif"; TAGC="${TAGC}_nalif" ;; *) echo "bad NALL"; exit 1 ;; esac   # 2026-11-18 AD SF-de
+case ${MIXPOOL:-none} in none) ;; mean) case $COND in spkmx_*) HM="$HM --spk_mixpool mean"; TAGC="${TAGC}_mpmean" ;;   # 2026-11-19 AD energy (A):
+  *) echo "MIXPOOL is for the SpkMixer"; exit 1 ;; esac ;; *) echo "bad MIXPOOL (none | mean)"; exit 1 ;; esac            # mean pooling, tag _mpmean
 E=${EPOCHS:-10}; P=${PATIENCE:-3}
 SUITE=${SUITE:-flif-v1-ad-spkmux-$(date +%Y%m%d)}
 RES=${RES:-$W/results/$SUITE}; LOG=${LOG:-$W/log/$SUITE}

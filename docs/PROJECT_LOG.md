@@ -14329,3 +14329,148 @@ head = s2                          H1(head가 membrane을 읽으면 CinC, ETT wo
 
 - 10:42 기록의 "01:19 보고와 그 앞의 '(나) 층 수를 SF-de와 같게 고정'"에서 시각이 틀렸다. "(b) 층 수를 SF-de와 같게 고정"은 01:16 기록(AD 결과, 해석 마지막 줄)에 처음 적었고, 그 뒤 사용자 보고 두 번(AD 결과 보고, 03:06 결과 보고)에서 되풀이했다. 내용은 10:42 기록 그대로다.
 - 앞 기록 commit: `9a58a0762`.
+
+## 2026-11-19 17:34 KST — 사용자 결정 3개 적용 + 분석(학습 없음) + 사전등록(본 학습 전): energy는 syops 원본 규칙으로 판정(기존 결과 다시 읽음: 논문 기준 met은 ETT 336뿐), ETT 입력 길이는 DNN 기준으로 96, AD energy 실험 (가) mean pooling 9 run + (나) 방향별 mixer 층 1 재튜닝 72–81 run
+
+**직전 commit:** `c0a17a91b`(10:46 정정 기록). 브랜치 `exp/f-lif-pop-v3`.
+
+### 사용자 결정(원문)
+> 1. energy 계산에 대해서:
+> - 기존 synops 라이브러리의 규칙을 그대로 따라줘. (혹은 해당 원본 github 저장소를 찾아서 그대로 이행)
+>
+> 2. [결정 부탁드립니다.]에 대한 답
+> 1. AD: (가) (나) 둘 다
+> 2. 위 1번 항목
+> 3. DNN 보다 평균적으로 좋은 성능을 보여주어야 함. 그러므로 이 기준으로 정할 것.
+
+("[결정 부탁드립니다.]"는 10:42 기록 뒤 사용자 보고의 질문 3개다: 1. AD에서 (가)·(나) 중 무엇을, 2. 새 energy 규칙(k/4 입력을 덧셈으로 셈)을 판정에 쓸지, 3. ETT 입력 길이 96 / 336.)
+
+### 정정(앞 기록과 보고)
+- 10:46 기록의 제목 시각이 틀렸다. `date`를 보기 전에 적었다. 실제 작성 시각은 10:43이다(그때 `date` 10:43:51).
+- 10:42 기록 뒤 사용자 보고에서 "기존 규칙: Linear 입력이 0 이상의 정수일 때만 덧셈으로 셉니다"라고 적었다. 이것은 syops 원본 규칙이 아니다. 10-29에 사용자 결정으로 더한 정수 규칙(ADD 잔차)이다. 또 ETT · AD의 head는 10-28(MODI 재계산, 이 브랜치는 10-31부터)부터 "T_h 번의 binary 단계"로 다시 세어 왔다. 이것도 syops 원본 규칙이 아니다. 보고에서 이 두 가지를 밝히지 않았다.
+
+### 1. syops 원본 규칙 확인
+- 설치본: `syops` 0.0.5(snn_recall env). 출처는 `github.com/iCGY96/syops-counter`다.
+- 공식 저장소의 HEAD는 `4232f77`이다(`git ls-remote`). 그 HEAD의 `syops/{ops,engine,utils,flops_counter,__init__}.py`를 받아 설치본과 비교했다.
+  - 세는 규칙이 있는 `ops.py`는 바이트 단위로 같다. `utils.py`, `__init__.py`도 같다.
+  - `engine.py`와 `flops_counter.py`는 다르다. 차이는 dataloader가 3 · 4개 묶음을 줄 때 푸는 부분, 진행 막대 제거, 평균 발화율을 함께 돌려주는 부분이다. 세는 규칙과는 상관없다.
+- syops 규칙(`ops.py`):
+  - Linear · BN: 입력의 서로 다른 값이 2개 이하이고 [0, 1] 안이면 spike로 보고 AC × 발화율로 센다. 아니면 입력 원소 수 × 출력 수를 전부 MAC로 센다.
+  - 뉴런(`LIF_syops_counter_hook`): 입력 원소마다 AC 1개.
+- 그래서 syops 원본 규칙으로는 다음이 모두 MAC다.
+  - ADD 잔차의 출력(0–3)을 읽는 Linear.
+  - T_h 평균 spike(0, 0.25, …)를 읽는 head(ETT · AD).
+  - mean pooling의 첫 mixer Linear.
+- 지금까지 판정에 쓴 규칙(`total_fft_uJ_corr`)과 다른 점은 둘이다.
+  - (i) ADD 몸통을 정수 누적(AC)으로 셌다(10-29 사용자 결정).
+  - (ii) 평균 spike를 읽는 head를 T_h 번의 binary 단계 AC로 다시 셌다(ETT · AD).
+- f-LIF 논문 식의 뉴런 energy(`energy.FiringRateRecorder`)는 syops 규칙이 아니다. 두 model에 같은 식으로 더하는 항이라 그대로 둔다.
+
+### 2. 결정 적용 1: energy는 syops 원본 규칙
+- 이제부터 판정 energy는 syops 원본 규칙이다. 각 run이 이미 기록한 `total_fft_uJ`(run 안에서 syops가 직접 센 값 + 뉴런 energy)를 쓴다. 지금까지의 규칙은 옆에 함께 보고한다.
+- 이 적용은 10-29의 ADD 정수 규칙 결정을 되돌린다. 사용자 원문이 "syops 라이브러리 규칙 그대로"이므로 그대로 적용했다. 다르게 뜻한 것이면 사용자 확인을 받는다(보고에 적음).
+- 기존 결과를 syops 규칙으로 다시 읽었다(학습 없음). 스크립트와 결과: `results/syops-exact-20261119/{paper_bar_syops.py,summary.md}`.
+  - 기존 요약기의 행 선택과 점검을 그대로 썼다(`summarize_pn`, `summarize_adsf`, `summarize_ad_tune`).
+  - MIT-BIH는 `total_fft_uJ − syn_energy_uJ + syn_syops_uJ`다. 쓴 LIF · SF-de 행에서 `syn_syops_uJ = syn_energy_uJ`(기록 소수 2자리까지)를 점검했다.
+
+| 과제 | 비교 | 성능(seed 평균) | energy A/B 지금까지 | 논문 기준 지금까지 | energy A/B syops | 논문 기준 syops | A / B µJ syops |
+|---|---|---|--:|---|--:|---|---|
+| ETT 입력 96 | LIF SpkMixer vs SF-de | R +0.305 %(나쁨) | 0.9637 | not met | 0.9825 | not met | 29.30 / 29.68 |
+| ETT 입력 336 | LIF SpkMixer vs SF-de | R −0.254 %(좋음) | 0.9740 | met | 0.9889 | **met** | 102.55 / 103.39 |
+| MIT-BIH | LIF SpkMixer(ADD) vs SF-de | +0.042 %p | 0.9993 | met | **4.1152** | **not met** | 38.87 / 9.44 |
+| AD | muxlin(튜닝) vs SF-de | R +1.368 % | 1.0499 | not met | 1.1937 | not met | 12.19 / 10.62 |
+| AD | muxlin(기본: OR / 5e-4 / M 2) vs SF-de | R +2.648 % | 1.0043 | not met | 1.0097 | not met | 10.69 / 10.62 |
+
+- AD 데이터셋별 energy A/B(지금까지 → syops): muxlin(튜닝) MSL 1.009 → 1.012, SMAP 0.982 → 1.221, PSM 1.158 → 1.348. 튜닝 설정의 SMAP · PSM이 ADD 잔차다.
+- 읽기:
+  - ETT는 두 model 모두 head가 MAC가 되어 총량이 약 3배가 된다(입력 96: 10.28 → 29.30 µJ). 비율은 거의 같다.
+  - MIT-BIH LIF SpkMixer는 ADD 잔차라 4.12배가 된다. 논문 기준이 met에서 not met으로 바뀐다.
+  - AD는 SMAP · PSM의 ADD 때문에 1.05배에서 1.19배가 된다.
+- syops 규칙에서 논문 기준을 만족하는 과제는 ETT 입력 336뿐이다.
+- 03:06 기록의 "mixer에만 population" MIT-BIH 4 arm은 다시 읽지 않았다. 네 arm 모두 ADD 잔차다. syops 규칙 energy는 지금 값 이상이다(입력 x ≤ 3인 정수에서 MAC 4.6 pJ × 원소 수 ≥ AC 0.9 pJ × 합). 이미 not met이라 판정은 그대로다.
+
+### 3. 결정 적용 2: ETT 입력 길이는 DNN 기준으로 96
+- 스크립트와 결과: `results/ett-length-dnn-20261119/{compare_dnn.py,summary.md}`(학습 없음).
+  - 우리 값은 `summarize_pn` loader로 읽은 test MSE seed 평균이다.
+  - DNN 값은 같은 입력 길이의 공개값이다. 출처 표 번호와 함께 `research_notes/SpikMixer 선행 연구 조사/spiking_time_series.md`와 `results/ref-dnn-l336-20261118/tables.md`에 옮겨 둔 값이다.
+  - R = 4 cell의 (우리 − DNN) / DNN % 평균이고, 음수면 우리가 좋다.
+
+| 입력 | LIF SpkMixer 4-cell 평균 MSE | 평균에서 이기는 DNN | 지는 DNN |
+|---|--:|---|---|
+| 96 | 0.3245 | **9개 중 8개**: iTransformer −1.32 %, iTransformer(MAE loss) −1.04 %, RLinear −0.10 %, PatchTST 재실행 두 판 −0.64 % · −3.12 %, TimesNet −7.01 %, FITS −1.48 %, DLinear −23.95 % | TimeMixer +2.29 % |
+| 336 | 0.3096 | **4개 중 2개**: DLinear −8.56 %, Linear −11.70 % | PatchTST/42 +4.75 %, NLinear +3.09 % |
+
+- 그래서 **입력 96**으로 정한다. 같은 입력 길이의 DNN과 비교할 때 96에서 평균으로 이기는 DNN이 더 많다. 가장 강한 DNN과의 차이도 96에서 더 작다(+2.29 % 대 +4.75 %).
+- 대가:
+  - 입력 96에서 LIF SpkMixer는 SF-de보다 평균이 나쁘다(R +0.305 %, no clear difference). 그래서 ETT의 "Spikformer보다 평균 우위" 기준은 not met이다(위 2의 표).
+  - SF-de도 같은 DNN 9개 중 8개를 평균으로 이긴다.
+- 한계:
+  - 공개 수치다. 평가 방식(test batch 처리, 정규화, loss)이 우리와 같은지 확인하지 않았다.
+  - 같은 PatchTST도 표에 따라 2–3 % 다르다. RLinear(−0.10 %), PatchTST(−0.64 %)와의 차이는 그 폭 안이다.
+- 이 결정으로 "mixer에만 population"의 ETT 부분을 입력 96으로 돌린다(01:26 기록의 계획: 4 arm × 4 cell × seed 3 = 48 run). AD energy 실험 뒤에 돌린다. 그 사전등록(판정 규칙, energy는 syops 규칙)과 queue · 요약 code는 시작 전에 따로 기록하고 commit한다.
+
+### 4. 사전등록: AD energy 실험(사용자 요청 "AD energy를 낮추는 실험을 하자", 결정 "(가) (나) 둘 다")
+**목적:** AD에서 SpkMixer(muxlin, 모든 층 LIF)의 energy를 SF-de보다 낮추면서 AUC-PR 평균 우위를 지키는 설정이 있는지 본다. 판정 energy는 syops 원본 규칙이다.
+
+**공통:** MSL / SMAP / PSM, seed 42 / 7 / 2026, 11-02 AD 절차 그대로(TSLib, window 100, 10 epoch, patience 3, batch 128, emb 64, patch 8). suite `flif-v1-ad-energy`. model code는 바꾸지 않는다.
+
+**(가) mean pooling(9 run):**
+- 11-03 튜닝 설정(MSL OR / lr 2e-3 / M 2, SMAP ADD / 2e-3 / M 1, PSM ADD / 1e-3 / M 3)에 `--spk_mixpool mean`을 더한다(tag `_mpmean`). 다시 튜닝하지 않는다.
+- mean pooling은 T_h = 4 반복을 mixer 앞에서 평균해 mixer를 한 번만 돌리고, 출력을 4 반복에 복사한다(`spk_mixer.py` 191–192, 215행).
+- syops 규칙에서 첫 mixer Linear의 입력(k/4)은 MAC로 센다.
+
+**(나) 방향별 mixer 층 M = 1(세 dataset 모두):**
+- 11-03 순서(lr → 잔차)대로 validation에서 다시 고른다. 층 단계는 뺀다.
+  - lr 단계(holdout 45 run): lr {1e-4, 2.5e-4, 5e-4*, 1e-3, 2e-3} × OR × 3 dataset × 3 seed.
+  - 잔차 단계(holdout 18 run): 고른 lr에서 {IAND, ADD} × 3 dataset × 3 seed. OR은 lr 단계 run을 쓴다.
+  - 선택 규칙(11-03과 같음): 점수 = seed 평균 최고 validation MSE / 기본값(lr 5e-4, 잔차 OR)의 값. 가장 낮은 것을 고르고, 같으면(< 1e-12) 기본값을 둔다. run이 하나라도 없거나 SKIP이면 고르지 않는다. 이미 쓴 선택 파일을 다른 선택으로 덮어쓰지 않는다. test 값은 보지 않는다(holdout run은 test를 돌리지 않는다).
+  - "res" = {OR, IAND, ADD} 중 선택. "spike" = {OR, IAND} 중 선택(0/1 spike만 내는 잔차; syops가 AC로 세는 쪽).
+- final(9–18 run): 학습 파일 전체에서 "res"로 9 run. "res"가 ADD인 dataset은 "spike" 잔차로 3 run을 더 돌린다(G5).
+
+**비교(test AUC-PR, best-validation 가중치; 규칙은 11-03 · 01:16과 같음):**
+- seed마다 r = 100 (A − B) / B, R = 세 dataset의 seed 평균 r의 평균.
+- better = R ≥ +2 %이고 9쌍 중 6쌍 이상 높음, worse는 반대, 나머지는 no clear difference.
+- energy A/B = 세 dataset의 seed 평균 비율의 평균. syops 규칙이 판정용이고, 지금까지의 규칙(`total_fft_uJ_corr`)도 함께 보고한다.
+- 논문 기준(사용자 11-18, 부호만): R > 0이고 energy A/B < 1(syops 규칙).
+
+| 질문 | A | B | 내는 것 |
+|---|---|---|---|
+| G1 | (나) M1(튜닝) | SF-de(튜닝) | 판정 + 논문 기준 |
+| G2 | (나) M1(튜닝) | muxlin(튜닝, 11-03) | 판정 + energy 비율 |
+| G3 | (가) mean | SF-de(튜닝) | 판정 + 논문 기준 |
+| G4 | (가) mean | muxlin(튜닝, 11-03) | 판정 + energy 비율 |
+| G5 | (나) M1 0/1 잔차 | SF-de(튜닝) | 판정 + 논문 기준(“res”가 ADD인 dataset이 있을 때만) |
+| 보고 | muxlin(튜닝) · muxlin(기본) | SF-de(튜닝) | 위 2의 값과 같아야 함 |
+
+- 보고(재현): 11-03에 이미 돈 설정과 같은 run(예: (나) lr 단계 OR · M 1 · 11-03 선택 lr = 11-03 층 단계 run)은 값이 같아야 한다(11-18에 학습이 비트 단위로 재현됨을 확인). 판정에는 쓰지 않는다.
+- 판정은 단계의 모든 run이 있고 SKIP이 0일 때만 낸다(fail closed, `summarize_ade.py`).
+
+**한계(미리 적음):**
+- (가)는 pooling에 맞춰 다시 튜닝하지 않았다.
+- (나)는 lr과 잔차만 다시 고른다. epoch, patience 등은 그대로다.
+- 비교가 여러 개라 우연히 better가 나올 가능성이 있다. seed는 3개다.
+- syops 규칙도 spike끼리의 곱, abs · min · max는 세지 않는다(11-18 보고서의 지적; 두 model 모두 해당).
+
+**바꾼 code(이 commit):**
+- `scripts/run_ad_spk.sh`: `MIXPOOL=mean` → `--spk_mixpool mean`, tag `_mpmean`(SpkMixer만; 다른 값은 오류). 설정하지 않으면 예전 명령 그대로다.
+- 새 파일: `scripts/make_queue_ade.sh`(단계 smoke / lrmean / res / final), `scripts/ade_driver.sh`(lrmean 54 → lr 선택 → res 18 → 잔차 선택 → final 9–18 → 요약; 실패하면 멈춤), `summarize_ade.py`.
+- 점검 스크립트: `results/check-ade-20261119/{make_dry_ade.py,check_dry_ade.py}`.
+
+### 점검(모두 통과해야 시작)
+- p0(runner 기본 경로 불변): 고치기 전(HEAD `c0a17a91b`)과 후의 runner를 인자를 출력만 하는 가짜 python으로 돌렸다. `MIXPOOL` 없는 5개 설정(muxlin OR · ADD, M 1 / 2 / 3, holdout 0 / 1, SF-de, HEADMEM)에서 `train_ad.py` 인자가 같다. `MIXPOOL=mean`이면 `--spk_mixpool mean`과 tag `_mpmean`이 붙는다. `spk_ssa`에 쓰거나 `max`를 주면 오류로 멈춘다. 결과: `results/check-ade-20261119/p0_runner.txt`.
+- dry(요약기, 13개 PASS, `results/check-ade-20261119/check_dry_ade.txt`): 11-03 행의 이름만 바꾼 가짜 suite에서
+  - d1: lr 단계가 11-03 muxlin 선택(MSL 0.002, SMAP 0.002, PSM 0.001)을 다시 고른다.
+  - d2: 잔차 선택이 숫자로 직접 다시 계산한 선택과 같다.
+  - d3: G1 = G3 = 01:16 기록의 E1(R +1.368 %, 6/9, energy syops 1.1937 · 지금까지 1.0499), G2 = G4 = R 0 · energy 1.0000, G5가 나온다.
+  - d4: SKIP 줄, 빠진 run, 다른 선택으로 덮어쓰기는 exit 2로 멈추고 아무것도 쓰지 않는다.
+- smoke(7 run, 1 epoch, seed 42, suite `smoke-ade-20261119`): 7/7 RESULT, SKIP 0.
+  - 학습 파일 전체 run 4개(MSL IAND M 1, (가) MSL OR M 2 mean, (가) PSM ADD M 3 mean, (가) SMAP ADD M 1 mean)가 모두 `energy_check=ok`다. mean pooling의 ADD run은 `rule=integer`로 기록된다(지금까지의 규칙 열). holdout run 3개(OR M 1)는 validation MSE가 유한하다.
+  - 1 epoch 값이라 결과가 아니다. 예: (가) MSL OR M 2 mean은 energy syops 16.20 µJ, 지금까지의 규칙 14.73 µJ다.
+  - run당 GPU 메모리 최대 1,398 MiB(5초 간격 측정, GPU당 49 GB) → SLOTS `0,1,2,3,0,1,2,3`(GPU당 2개).
+- 실수 기록: smoke 뒤 메모리 측정 스크립트(내 scratchpad 프로세스)를 `pkill -f`로 멈췄다. PID로만 멈춘다는 규칙을 어겼다. 다른 세션의 프로세스(tmux `flif_of`)는 그대로임을 확인했다.
+
+### 예상 시간
+- 11-03 실행 시간(같은 dataset · 층 수의 평균)으로 추정: holdout M 1 run MSL 763 s, SMAP 1,303 s, PSM 1,252 s; 전체 파일 SMAP M 1 3,156 s, MSL M 2 666 s, PSM M 3 1,601 s.
+- 합계 약 28–33 GPU 시간(lrmean 54 ≈ 18 h, res 18 ≈ 5.5 h, final 9–18 ≈ 4.3–8.6 h). 8 slot에서 단계마다 가장 느린 SMAP run을 기다리므로 약 5–7시간이다(끝 예상 11-19 23시 – 11-20 01시). 다른 세션이 GPU를 함께 쓰면 늦어진다.
+
+**commit:** 이 기록, 위 code · 점검 결과, `results/syops-exact-20261119/`, `results/ett-length-dnn-20261119/`, `results/smoke-ade-20261119/raw.txt`를 `exp/f-lif-pop-v3`에 commit · push한다(queue 파일, driver.log, checkpoint는 local). 해시는 다음 기록에 적는다. 그 commit에서 `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/ade_driver.sh`(NSMT/에서)로 시작한다.

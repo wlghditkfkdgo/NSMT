@@ -1,0 +1,7 @@
+p0 (2026-11-19): run_ad_spk.sh before (HEAD c0a17a91b) vs after the MIXPOOL edit, run with a stand-in python that prints its arguments; 5 configurations without MIXPOOL:
+  COND=spkmx_lif_muxlin_or LR=0.002 MLAYERS=2 HOLDOUT=0 MSL 42 | COND=spkmx_lif_muxlin_add LR=0.002 MLAYERS=1 HOLDOUT=1 SMAP 7 | COND=spkmx_lif_muxlin_add LR=0.001 MLAYERS=3 HOLDOUT=0 PSM 2026 | COND=spk_ssa NALL=lif LR=0.0005 HOLDOUT=1 PSM 42 | COND=spkmx_lif_muxlin_or HEADMEM=1 MSL 7
+result: train_ad.py argument lists identical (cmp of the 5 sorted lines, tree paths masked):
+  identical
+MIXPOOL=mean (SMAP ADD lr 0.002 M 1): adds '--spk_mixpool mean', tag spkmx_lif_muxlin_add_lr0.002_L1_mpmean:
+  spk_mixpool mean --tag spkmx_lif_muxlin_add_lr0.002_L1_mpmean
+MIXPOOL=mean with COND=spk_ssa -> 'MIXPOOL is for the SpkMixer' (exit 1); MIXPOOL=max -> 'bad MIXPOOL (none | mean)' (exit 1)
