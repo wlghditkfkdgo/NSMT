@@ -15178,3 +15178,133 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 
 **commit:** 이 기록, 위 code, 점검(`check-ettune-20261120/`의 script · txt, `smoke-ettune-20261119/raw.txt`, `check-ettune-repro-20261120/raw.txt`)을 `exp/f-lif-pop-v3`에 commit · push한다.
 - local: dry 폴더, `mem_all.txt`, `pool_log.txt`, run 폴더, queue 파일.
+
+## 2026-11-20 04:02 KST — 결과 + 실험 완료(ETT 튜닝, LIF SpkMixer, 새 run 156개, 사전등록 `8a6220ce8`, SKIP 0): 통과 기준 (1) SpikF와 (2) SF-de + energy는 넘었지만 (3) DNN 9개 중 TimeMixer의 MSE를 넘지 못해 **통과하지 못했다**. 튜닝 효과는 대부분 patch 16에서 나왔다
+
+**목적:** 바로 앞 00:14 사전등록의 실행 결과다. 사용자 결정(11-19 21:09 기록) "1. C", "3. C에 patch 길이 탐색도 포함"에 따라, 채택된 구조(LIF SpkMixer)를 단계별로 튜닝했다. 그 뒤 사용자 통과 기준으로 판정했다.
+
+**branch / base / code:** `exp/f-lif-pop-v3`. 학습 code는 `8a6220ce8`이다(새 RESULT 156행 모두 `sha=8a6220ce8`). 학습 중 이 worktree의 .py / .sh는 바뀌지 않았다(`git status`에 수정된 tracked 파일 없음, 아래 재계산 `--sha` 확인).
+
+**환경:** lab server, A6000 4장, GPU당 2개(`SLOTS=0,1,2,3,0,1,2,3`). python `snn_recall`. 다른 세션 pool은 없었다.
+
+**명령(NSMT/에서):** `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/ettune_driver.sh > /dev/null 2>&1 &`. 독립 재계산은 끝난 뒤 따로 `python -B recheck_ettune.py --stage final --sha 8a6220ce8`로 다시 돌렸다(`recheck_final.txt`).
+
+**데이터 / 설정:** ETTh2 · ETTm2 × H96 · H720(사용자 결정 12), 입력 96, seed 42 / 7 / 2026. 고정값과 후보, 선택 규칙은 00:14 기록 그대로다.
+
+### 실행 기록(driver.log, local)
+| 단계 | 시작 → 끝 | 새 run | 누적 RESULT / SKIP |
+|---|---|--:|---|
+| patch | 00:15:59 → 01:02:14 | 24 | 24 / 0 |
+| dmodel | 01:02:14 → 01:44:49 | 36 | 60 / 0 |
+| mlp | 01:44:49 → 02:28:04 | 36 | 96 / 0 |
+| blocks | 02:28:05 → 03:06:08 | 24 | 120 / 0 |
+| wd | 03:06:08 → 03:49:02 | 36 | 156 / 0 |
+| energy 재계산 + final + 재계산 | 03:49:03 → 03:59:17 | – | `driver end` |
+
+- 156 run의 학습 시간 합은 27.5 GPU 시간이고, run 중앙값은 514.5 s다. 전체 3시간 43분 걸렸다.
+- 단계마다 독립 재계산(`recheck_ettune.py --stage <stage>`)이 통과했다(driver.log). pool log 다섯 개 모두 rc 줄 수 = run 수, SKIP 0이다.
+- driver.log의 경고는 timm import FutureWarning 4줄뿐이다.
+
+### 선택 경로(validation만; score = 지금 값 대비 비율, 1 = 지금 값 유지)
+| 단계 | ETTh2 | ETTm2 |
+|---|---|---|
+| patch | 8 → **16** (0.9976) | 8 → **16** (0.9995) |
+| d_model | 64 → **64** (1.0000; 32 1.0010, 128 1.0016, 256 1.0066) | 64 → **64** (1.0000; 32 1.0014, 128 1.0006, 256 1.0005) |
+| MLP 비율 | 0.5 → **0.5** (1.0000; 다른 값 1.0004–1.0009) | 1 → **2** (0.9997) |
+| block 수 | 1 → **1** (1.0000; 2 1.0006, 3 1.0012) | 1 → **1** (1.0000; 2 1.0003, 3 1.0007) |
+| weight decay | 0.06 → **0.1** (0.9998) | 0.06 → **0.1** (0.9999) |
+
+- 최종 설정: ETTh2 patch 16, weight decay 0.1(tag `spkmx_lif_muxlin_iand_lr0.0005_L1_pt16_wd0.1`); ETTm2 patch 16, MLP 2, weight decay 0.1(tag `spkmx_lif_muxlin_iand_lr0.0001_L1_pt16_mlp2_wd0.1`). d_model 64, block 1은 그대로다.
+- **validation 차이는 아주 작았다.** 이긴 값의 score는 모두 지금 값의 0.25 % 안이다(가장 큰 차이가 ETTh2 patch 16의 −0.24 %). MLP와 weight decay는 0.03 % 안의 차이로 골랐다. 이 정도면 seed 차이 안일 수 있다.
+- patch 16과 weight decay 0.1은 둘 다 **후보 목록의 끝 값**이다. 더 큰 patch(32)나 더 큰 weight decay는 시험하지 않았다.
+
+### 최종 test 값(seed 평균 MSE; 4칸 평균)
+| model | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 | 평균 MSE | 평균 MAE | syops energy µJ | parameter ETTh2 / ETTm2 H96 |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| **튜닝 후 LIF SpkMixer** | 0.2902 | 0.4151 | 0.1748 | 0.4018 | **0.320463** | **0.353479** | 15.75 | 96,064 / 108,544 |
+| 튜닝 전 LIF SpkMixer(11-01) | 0.2952 | 0.4218 | 0.1775 | 0.4034 | 0.324497 | 0.356692 | 29.30 | 169,280 / 173,440 |
+| SF-de(lr만 튜닝) | 0.2921 | 0.4229 | 0.1768 | 0.4036 | 0.323845 | 0.355711 | 29.68 | 169,656 / 174,192 |
+
+- 튜닝 후 seed 표준편차: ETTh2 H96 0.0006, ETTh2 H720 0.0028, ETTm2 H96 0.0002, ETTm2 H720 0.0005.
+- 단계마다의 설정으로 본 test(보고만, 선택에 안 씀; `summary_final.md`):
+  - patch 단계 뒤 4칸 MSE 0.3198 / MAE 0.3531.
+  - d_model, block 단계는 바뀐 것이 없다. MLP 단계 뒤 0.319901 / 0.353140.
+  - **weight decay 단계 뒤 0.320463 / 0.353479로 test는 조금 나빠졌다**(ETTh2 H96 0.2871 → 0.2902). validation 차이(0.9998 / 0.9999)는 거의 없었다.
+- energy(syops 규칙)는 튜닝 전의 0.55배, SF-de의 0.54배다. 대부분 patch 16으로 token이 24 → 12개로 줄어 forecast head가 작아진 몫이다(00:14 기록의 1 epoch 표: patch 16 0.52배).
+
+### 비교(ETT 규칙: test MSE, seed별 r, R = 4칸 평균; better = R ≤ −1 %이고 8/12 이상 낮음)
+| 비교 | R % | 낮은 쌍 | 판정 | 칸별 r %(ETTh2 96, 720, ETTm2 96, 720) | MAE R % | energy A/B syops | energy A/B 이전 규칙 |
+|---|--:|--:|---|---|--:|--:|--:|
+| 튜닝 후 vs 튜닝 전 LIF SpkMixer | −1.31 | 12/12 | **better** | −1.69, −1.58, −1.56, −0.41 | −0.89 | 0.551 | 0.616 |
+| 튜닝 후 LIF SpkMixer vs SF-de | −1.02 | 11/12 | **better**(경계) | −0.65, −1.82, −1.14, −0.46 | −0.59 | 0.541 | 0.593 |
+| (보고) 튜닝 전 vs SF-de | +0.30 | 5/12 | no clear difference | +1.08, −0.24, +0.42, −0.04 | +0.30 | 0.983 | 0.964 |
+
+- **튜닝 후 vs SF-de의 better는 공정한 비교가 아니다.** 사용자 결정 2에 따라 SF-de는 lr만 골랐고 patch는 8 그대로다.
+  - 이득 대부분이 patch 16에서 왔다. SF-de에 patch 16을 주면 같은 이득과 같은 energy 감소를 얻을 수도 있다. 시험하지 않았다.
+  - R −1.02 %는 better 경계(−1 %)에 바로 붙어 있다.
+
+### 사용자 통과 기준(`pass_ett.py`의 `judge`; 4칸 평균; MSE와 MAE 둘 다 0.001 이상 낮아야 함)
+| 기준 | 기준값 MSE / MAE | 기준값 − 우리 MSE / MAE | 통과 |
+|---|---|---|---|
+| (1) SpikF | 0.3215 / 0.3550 | +0.00104 / +0.0015 | **예**(MSE 여유 0.000037) |
+| (2) SF-de | 0.3238 / 0.3557 | +0.0034 / +0.0022 | 예 |
+| (2) energy A/B vs SF-de(syops, ≤ 1.05) | 0.541 | | 예 |
+| (3) DNN 9개 | | | **아니오**(8/9) |
+| — TimeMixer | 0.3167 / 0.3572 | **−0.0037** / +0.0038 | **아니오** |
+| — RLinear(다음으로 가까운 행) | 0.3242 / 0.3603 | +0.0038 / +0.0068 | 예 |
+| — 나머지 7개 행 | | MSE +0.0070 이상, MAE +0.0088 이상 | 예 |
+
+- **최종: NOT PASSED.** 세 기준을 모두 넘으려면 4칸 평균 MSE가 0.3157 이하여야 한다. 지금 0.3205로 0.0047(1.5 %) 모자란다. MAE는 이미 넘었다(0.3535 ≤ 0.3540).
+- **(1) SpikF 통과는 아슬아슬하다.** MSE 여유가 0.001037로, 기준 0.001보다 0.000037 크다. 한 칸에서 0.00015만 나빠져도 떨어진다. ETTh2 H720의 seed 표준편차(0.0028)보다 훨씬 작다.
+  - weight decay 단계 전 설정(0.319901)이었다면 여유는 0.0016이었다. 선택 규칙은 사전등록대로 따랐다.
+- **TimeMixer와의 MSE 차이는 대부분 ETTm2 H720 한 칸이다.**
+  - 칸별 우리 − TimeMixer: ETTh2 H96 +0.0012, ETTh2 H720 +0.0031, ETTm2 H96 −0.0002, ETTm2 H720 **+0.0108**.
+  - 4칸 평균 차이 0.0037 중 0.0027(73 %)이 ETTm2 H720이다.
+- 보고(기준 아님): NSMT 0.3177 / 0.3518보다 0.0027 / 0.0017 높다(나쁘다).
+- 튜닝 전 LIF SpkMixer는 세 기준 모두 실패였다(21:09 기록과 같음).
+- **표시 문구 정정(값은 바뀌지 않음):** `summary_final.md`의 "MAE ≤ 0.3540 (now 0.3535, short by 0.0000)"는 MAE가 모자란 것처럼 읽힌다. 실제로는 이미 넘었다. `pass_ett.py`가 모자람을 0으로 자르는 문구다. code는 고치지 않았다.
+
+### 점검
+- 단계마다 driver 안에서 독립 재계산 통과(5/5).
+- 끝난 뒤 `recheck_ettune.py --stage final --sha 8a6220ce8`: ALL CHECKS PASSED(`recheck_final.txt`).
+  - 새 행 sha `8a6220ce8` 156개.
+  - 선택 사슬 10개(5단계 × 2 데이터셋)가 json과 같다.
+  - final 설정, 튜닝 후 · 튜닝 전 · SF-de 4칸 평균, 기준 세 개와 최종 판정이 같다.
+- final 단계의 요약기 멈춤 조건(재계산 행 존재, MSE 1e-5, syops 몸통 + head 1e-3)도 통과했다(멈추지 않음).
+
+### 사전 예상과 비교
+| 예상(00:14) | 결과 | 맞음? |
+|---|---|---|
+| 세 기준을 모두 넘기는 어려울 것(확신 중간) | TimeMixer MSE에서 실패 | 맞음 |
+| energy를 키우는 값이 뽑히면 (2)가 energy로 실패할 위험 | 반대로 energy를 반으로 줄이는 patch 16이 뽑혔다. energy 0.54배 | 위험은 실현되지 않음 |
+| patch와 d_model이 가장 큰 차이 | patch는 맞음. d_model은 64 유지 | 절반 |
+| MLP와 weight decay score 차이 0.5 % 안 | 0.09 % 안 | 맞음 |
+| 튜닝 후 vs 튜닝 전 R −1 ~ −3 %, better 경계 근처 | −1.31 %, 12/12 better | 맞음 |
+| 시간 40–70 GPU 시간, 끝 07–13시 | 27.5 GPU 시간, 03:59 끝 | **틀림**(과대 추정) |
+
+- 시간 추정이 틀린 이유: 첫 단계에서 patch 16이 뽑혀 뒤 네 단계가 모두 token 12개로 돌았다. 나는 11-01의 느린 ETTm2 H96 run(2,162–3,829 s)을 기준으로 잡았는데, 이번 run 중앙값은 514.5 s였다.
+
+### 한계
+- SF-de는 튜닝하지 않았다(사용자 결정 2). 이득 대부분이 SF-de에도 줄 수 있는 patch 16에서 왔으므로, "SF-de보다 낫다"는 결론은 이 조건에서만 성립한다.
+- 이긴 값의 validation 차이가 0.25 % 안이다. 선택 일부는 seed 차이일 수 있다. weight decay 단계는 test를 조금 나쁘게 했다.
+- patch 16과 weight decay 0.1이 후보 목록 끝이라, 최적점이 목록 밖에 있을 수 있다.
+- 단계별 선택이라 손잡이 사이의 상호작용을 놓친다. 모양이 바뀌어도 lr과 mixer 층 수는 다시 고르지 않았다.
+- 4칸 × seed 3. (1) SpikF 통과 여유(0.000037)는 seed 차이보다 훨씬 작다.
+- 기준값(SpikF, DNN)은 논문 표의 숫자(소수 셋째 자리)이고, 우리 값은 같은 split과 입력 96으로 돌린 것이다. 학습 설정 차이는 맞추지 않았다.
+- 최종 행은 선택에 쓴 run 그 자체다. test는 선택에 쓰지 않았지만, 후보 13개 중 validation으로 고른 값이라 test가 조금 낙관적일 수 있다.
+
+### 결론
+- 튜닝 후 LIF SpkMixer: 4칸 평균 MSE / MAE 0.3205 / 0.3535, syops energy SF-de의 0.54배.
+- 통과 기준: (1) SpikF 통과(MSE 여유 0.000037로 아슬아슬), (2) SF-de + energy 통과, (3) DNN은 TimeMixer MSE에서 실패(−0.0037). **최종 NOT PASSED.**
+- 튜닝 효과(튜닝 전 대비 −1.31 %, 12/12)와 energy 감소는 거의 patch 16 하나에서 나왔다. d_model, block은 바뀌지 않았고, MLP와 weight decay는 아주 작은 validation 차이로 골랐다.
+- 다음 단계는 사용자 결정을 기다린다. 선택지(내 정리, 실행하지 않음):
+  - 이 설정을 ETT 예측 model로 확정하고 (3) 미달을 보고한다.
+  - TimeMixer 차이의 73 %인 ETTm2 H720을 겨냥한다.
+  - 후보 목록 끝(patch 32, 더 큰 weight decay)을 넓힌다.
+  - SF-de에도 patch 16을 주어 공정 비교를 한다(결정 2를 바꾸는 것이라 사용자 판단).
+
+### artifact
+- commit(`NSMT/cinc_mixer_v1/results/flif-v1-ett-spkmux-ettune/`): `raw.txt`(156 RESULT), `selected_{patch,dmodel,mlp,blocks,wd}.json`, `selection_{...}.md`, `summary_final.md`, `final.json`, `energy_recount.csv`, `pool_log_{patch,dmodel,mlp,blocks,wd}.txt`, `recheck_final.txt`.
+- local: `driver.log`, run 폴더(`ETT*/.../log`, `model_state`), queue 파일 `scripts/queues/ettune-*-20261120.txt`, `check-ettune-20261120/`의 dry 폴더 · `mem_all.txt` · `pool_log.txt`.
+
+**commit / tag:** 이 기록과 위 결과를 `exp/f-lif-pop-v3`에 commit · push한다. annotated tag `exp/f-lif-pop-v3-etttune-20261120`(완료된 학습 run). 이 기록이 들어간 commit은 이 tag로 가리킨다.
