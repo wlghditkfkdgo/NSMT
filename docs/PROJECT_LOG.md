@@ -14616,3 +14616,95 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 5. "mixer에만 population" ETT 부분을 튜닝 뒤로 미룰지.
 
 **commit:** 이 기록을 `exp/f-lif-pop-v3`에 commit · push한다(code 변경 없음, 학습 없음). 해시는 다음 기록에 적는다.
+
+## 2026-11-19 21:05 KST — 결과 + 실험 완료(AD energy 실험, 90 run, 사전등록 `befc769f2`, SKIP 0): (나) 방향별 mixer 층 1 재튜닝(G1)과 (가) mean pooling(G3)은 둘 다 논문 기준 not met이다(syops energy가 SF-de의 1.19배 · 1.18배). 사전등록한 G5(층 1 + 0/1 잔차)만 met이다(R +1.45 %, energy 0.988). 다만 판정은 no clear difference이고 PSM은 energy 1.002배다. lr은 세 dataset 모두 후보의 가장 큰 값(2e-3)에서 골라졌다
+
+**목적:** 사용자 요청 11-19 "AD energy를 낮추는 실험을 하자", 결정 "(가) (나) 둘 다". AD에서 SpkMixer(muxlin, 모든 층 LIF)의 energy를 SF-de보다 낮추면서 AUC-PR 평균 우위를 지키는 설정이 있는지 본다. 판정 energy는 syops 원본 규칙이다(사용자 결정 11-19). 설계 · 규칙은 17:34 사전등록 그대로이고 바꾼 것이 없다.
+
+**branch / base:** `exp/f-lif-pop-v3`. 사전등록 · code commit `befc769f2`.
+- run의 `sha` 열: `befc769f2` 10개, `66221788a` 6개, `c9acfef69` 74개. 실행 중에 기록 commit 두 개(17:51, 17:58)가 생겼기 때문이다.
+- `git diff --stat befc769f2 c9acfef69 -- '*.py' '*.sh'`에는 `results/ref-snn-lb96-20261119/compare_snn_lb96.py`(새 파일, 학습이 import하지 않음)만 있다. 그래서 90 run 모두 같은 runner · model code로 돌았다.
+
+**실행**
+- NSMT/에서 `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/ade_driver.sh`. GPU 4장(A6000)에 job 8개를 돌렸다. 다른 세션의 pool(tmux `flif_of`)과 GPU를 함께 썼다.
+- driver.log:
+  - 17:35:11 시작.
+  - 18:59:31 lrmean 끝(RESULT 54, SKIP 0) → lr 선택.
+  - 19:25:50 res 끝(RESULT 72, SKIP 0) → 잔차 선택.
+  - 20:07:03 final 끝(RESULT 90, SKIP 0) → 요약 → `driver end`.
+- 90 run의 `time_s` 합은 67,421 s(18.7 GPU 시간)다. 벽시계로 2시간 32분 걸렸다. 예상(5–7시간, 28–33 GPU 시간)보다 짧았다.
+- 환경: `snn_recall`(python `/home/yschoi/.conda/envs/snn_recall/bin/python`). seed 42 / 7 / 2026. 11-02 AD 절차(TSLib, window 100, 10 epoch, patience 3, batch 128, emb 64, patch 8).
+
+**선택(validation만; holdout = 학습 파일 앞 80 % 학습, 뒤 20 % validation; `selection_lr.md`, `selection_res.md`)**
+- (나) lr(OR, M 1): 세 dataset 모두 **2e-3**. 점수(기본 5e-4 대비 validation MSE)는 MSL 0.465, SMAP 0.533, PSM 0.930이다.
+  - **2e-3은 후보의 가장 큰 값이다.** MSL · SMAP은 점수가 lr을 올릴수록 계속 줄었다. 더 큰 lr이 더 나을 수 있지만 시험하지 않았다.
+- (나) 잔차(lr 2e-3):
+  - "res"({OR, IAND, ADD} 중)는 세 dataset 모두 **ADD**다(점수 MSL 0.949, SMAP 0.820, PSM 0.792).
+  - "spike"({OR, IAND} 중; 0/1만 내는 잔차)는 MSL OR, SMAP OR, PSM IAND다.
+  - "res"가 모두 ADD라 G5 run 9개(0/1 잔차)를 더 돌렸다(final 18 run).
+
+**결과(test AUC-PR, best-validation 가중치; `summary.md`)**
+
+| 비교 | R(AUC-PR, %) | 높은 쌍 | 판정 | energy A/B syops | 논문 기준(syops) | energy A/B 이전 규칙 |
+|---|--:|--:|---|--:|---|--:|
+| **G1** (나) 층 1(튜닝: ADD, 2e-3) vs SF-de(튜닝) | +0.427 | 5/9 | no clear difference | 1.1857 | **not met** | 1.0111 |
+| **G2** (나) 층 1(튜닝) vs muxlin(튜닝, 11-03) | −0.908 | 2/9 | no clear difference | 1.0013 | — | 0.9658 |
+| **G3** (가) mean pooling vs SF-de(튜닝) | +1.164 | 6/9 | no clear difference | 1.1789 | **not met** | 1.0500 |
+| **G4** (가) mean pooling vs muxlin(튜닝, 11-03) | −0.197 | 3/9 | no clear difference | 0.9898 | — | 1.0037 |
+| **G5** (나) 층 1 + 0/1 잔차 vs SF-de(튜닝) | +1.452 | 8/9 | no clear difference | **0.9880** | **met** | 0.9805 |
+| (보고) muxlin(튜닝, 11-03) vs SF-de | +1.368 | 6/9 | no clear difference | 1.1937 | not met | 1.0499 |
+| (보고) muxlin(기본: OR, 5e-4, M 2) vs SF-de | +2.648 | 9/9 | better | 1.0097 | not met | 1.0043 |
+
+- 판정 규칙(11-03 · 01:16과 같음): seed마다 r = 100 (A − B) / B, R = 세 dataset의 seed 평균 r의 평균. better = R ≥ +2 %이고 9쌍 중 6쌍 이상 높음, worse는 반대.
+- 논문 기준(사용자 11-18, 부호만): R > 0이고 syops energy A/B < 1.
+- 보고 행 두 개는 17:34 기록의 syops 다시 읽기 값(R +1.368 % · 1.1937, R +2.648 % · 1.0097)과 같다.
+
+**dataset별(seed 평균; AUC-PR % / syops energy µJ)**
+
+| arm | MSL | SMAP | PSM |
+|---|---|---|---|
+| (가) mean pooling | 14.65 / 16.23 | 11.77 / 9.66 | 38.63 / 10.35 |
+| (나) 층 1(ADD) | 14.25 / 17.59 | 11.81 / 9.50 | 38.75 / 10.00 |
+| (나) 층 1 + 0/1 잔차(G5) | 14.53 / 15.66 | 11.82 / 7.64 | 39.14 / 8.10 |
+| muxlin(튜닝, 11-03) | 14.67 / 16.18 | 11.81 / 9.50 | 38.69 / 10.90 |
+| muxlin(기본) | 14.89 / 15.99 | 11.88 / 7.89 | 39.34 / 8.21 |
+| SF-de(튜닝) | 14.21 / 15.99 | 11.57 / 7.78 | 39.15 / 8.09 |
+
+- G5의 dataset별 r: MSL +2.25 %(3/3), SMAP +2.12 %(3/3), PSM −0.02 %(2/3). energy A/B: MSL 0.980, SMAP 0.982, PSM **1.002**.
+- AUC-ROC, F1(raw · point-adjusted), best epoch, run 시간은 `summary.md`에 있다.
+
+**해석(탐색 수준, seed 3)**
+- **syops 규칙에서 AD energy를 키운 것은 mixer 층 수가 아니라 ADD 잔차다.**
+  - ADD 잔차의 출력(0–3)을 읽는 Linear는 syops가 곱셈(MAC)으로 센다.
+  - ADD를 쓰는 arm은 SMAP · PSM에서 9.5–10.9 µJ다. 0/1 잔차 arm은 7.64 · 8.10 µJ로 SF-de(7.78 · 8.09 µJ)와 비슷하다.
+  - 층을 1로 줄여도 validation이 ADD를 고르면 energy는 그대로다(G2 1.0013배; SMAP은 11-03 선택과 같은 설정이라 같은 run).
+- **mean pooling은 syops 규칙에서 energy를 거의 줄이지 못한다**(G4 0.99배). 평균한 입력(k/4)을 읽는 첫 mixer Linear를 syops가 MAC로 세기 때문이다.
+- **G5가 논문 기준을 넘은 것은 energy를 SF-de 수준으로 맞추고, 성능 우위를 MSL · SMAP에서 지켰기 때문이다.** PSM에서는 성능(−0.02 %)과 energy(1.002배) 모두 SF-de와 사실상 같다.
+- 판정 규칙(R ≥ +2 %)으로는 다섯 비교 모두 SF-de나 11-03 muxlin과 "차이 없음"이다. 논문 기준의 met · not met은 부호만 보는 기준이고, 차이는 작다(G5 energy 0.988배).
+
+**이 결과가 말하지 않는 것**
+- G5 설정(층 1, lr 2e-3, 0/1 잔차)을 AD의 기본 설정으로 쓰자는 결론은 아직 아니다.
+  - validation이 고른 잔차는 세 dataset 모두 ADD였다. 0/1 잔차는 "0/1 잔차 안에서 validation이 고른 것"이다(사전등록한 G5 정의).
+  - test를 본 뒤 G5 설정을 AD 기본값으로 정하면 test로 고르는 것이 된다. 채택할지는 사용자 결정이다.
+- 비교가 다섯 개라 그중 하나가 기준을 넘을 가능성이 원래 있다.
+
+**점검**
+- 요약기 자체 점검(fail closed): 90 RESULT, SKIP 0, 빠지거나 중복된 run 없음, 모든 행 `energy_check=ok`.
+- 독립 재계산 `results/check-ade-20261119/recheck_ade.py`(요약기를 import하지 않음; `recheck_ade.txt`): G1–G5와 보고 2행의 R, 높은 쌍, 판정, 두 규칙 energy A/B, 논문 기준이 `summary.md`와 모두 같다. "ALL CHECKS PASSED".
+- 재현(보고): 이번 suite에서 11-03과 같은 설정으로 돈 18 run(SMAP ADD 2e-3 M 1 전체 파일 3개, holdout 15개)의 값이 11-03 값과 모두 같다(`summary.md` 끝 표). 11-18에 확인한 대로 학습이 비트 단위로 재현된다.
+
+**한계**
+- lr 선택이 후보 끝값(2e-3)에 걸렸다(위).
+- (가)는 pooling에 맞춰 다시 튜닝하지 않았다. (나)는 lr과 잔차만 다시 골랐다.
+- seed 3이다. 비교가 여러 개다.
+- syops 규칙은 spike끼리의 곱, abs · min · max를 세지 않는다(두 model 모두 해당). f-LIF 논문 식의 뉴런 energy는 syops 규칙이 아니지만 두 model에 같은 식으로 더했다.
+- AD 설정 자체(10 epoch, patience 3, anomaly ratio 1)의 약점은 그대로다.
+
+**artifact:** `NSMT/cinc_mixer_v1/results/flif-v1-ad-energy/`
+- commit: raw.txt(sha256 앞 16자리 `72dc03569a6f890b`), summary.md, selection_lr.md, selection_res.md, selected_lr.json, selected_res.json, pool_log_{lrmean,res,final}.txt.
+- 점검: `results/check-ade-20261119/recheck_ade.{py,txt}`.
+- local: driver.log, queue 파일(`scripts/queues/ade-*-20261119.txt`), run 폴더 · checkpoint · TensorBoard(`NSMT/cinc_mixer_v1/log/flif-v1-ad-energy/`).
+
+**다음:** 사용자 결정(11-19 저녁)에 따라 예측 과제(ETT)로 넘어간다. 순서는 "mixer에만 population" ETT 48 run → 채택 판정 → 튜닝(C + patch 길이)이다. 결정 원문과 통과 기준은 다음 기록에 적는다. AD에서 G5 설정을 채택할지는 사용자 결정을 기다린다.
+
+**commit / tag:** 이 기록과 결과를 `exp/f-lif-pop-v3`에 commit · push한다. annotated tag `exp/f-lif-pop-v3-ade-20261119`를 붙인다. 이 tag는 AD energy 실험의 완료된 학습 run이다(snapshot 아님). 이 기록이 들어간 commit은 이 tag로 가리킨다.
