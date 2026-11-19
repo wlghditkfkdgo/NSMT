@@ -11,6 +11,10 @@
 #         LR (0.0005) LAYERS (mixer layers per direction; ETTh2 1, ETTm2 2) -- 2026-11-01 tuning (Table 13 values by default; the
 #         training arguments are then the same as before, only the tag / folder name and the RESULT fields tag= lr= layers= are new)
 #         SEQ (96) input length -- 2026-11-17 input-length test
+#         PATCH (8) EMB (64) MLPR (ETTh2 0.5, ETTm2 1) BLOCKS (1) WD (0.06) -- 2026-11-19 ETT tuning of the LIF SpkMixer (PROJECT_LOG step-2
+#         pre-registration): --patch_size, -emb, --mlp_ratios, --layers (blocks), --weight_decay; only the listed values are accepted, a
+#         value equal to the default counts as unset (the same training line and tag), any other value adds _pt<v> / _e<v> / _mlp<v> /
+#         _blk<v> / _wd<v> to the tag; LIF SpkMixer conditions only (population models would need a gain table per shape)
 set -u
 DS=${1:?}; PL=${2:?}; S=${3:?}; GPU=${4:?}
 W="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # cinc_mixer_v1: model code, train_forecast.py, results/, log/
@@ -80,11 +84,25 @@ case $DS in                       # patch emb heads mlp M lr bs epochs   (as run
   *) echo "bad dataset $DS (ETTh2 / ETTm2 only)"; exit 1 ;;
 esac
 LR=${LR:-0.0005}; LAYERS=${LAYERS:-$L0}                                  # 2026-11-01 tuning knobs
+case $DS in ETTh2) MLP0=0.5 ;; ETTm2) MLP0=1 ;; esac                      # 2026-11-19 ETT tuning knobs (defaults = Table 13 values)
+PATCH=${PATCH:-8}; EMB=${EMB:-64}; MLPR=${MLPR:-$MLP0}; BLOCKS=${BLOCKS:-1}; WD=${WD:-0.06}
+case $PATCH in 4|8|16) ;; *) echo "bad PATCH $PATCH (4|8|16)"; exit 1 ;; esac
+case $EMB in 32|64|128|256) ;; *) echo "bad EMB $EMB (32|64|128|256)"; exit 1 ;; esac
+case $MLPR in 0.5|1|2|4) ;; *) echo "bad MLPR $MLPR (0.5|1|2|4)"; exit 1 ;; esac
+case $BLOCKS in 1|2|3) ;; *) echo "bad BLOCKS $BLOCKS (1|2|3)"; exit 1 ;; esac
+case $WD in 0|0.01|0.06|0.1) ;; *) echo "bad WD $WD (0|0.01|0.06|0.1)"; exit 1 ;; esac
+KTAG=""
+[ "$PATCH" != 8 ] && KTAG="${KTAG}_pt$PATCH"
+[ "$EMB" != 64 ] && KTAG="${KTAG}_e$EMB"
+[ "$MLPR" != "$MLP0" ] && KTAG="${KTAG}_mlp$MLPR"
+[ "$BLOCKS" != 1 ] && KTAG="${KTAG}_blk$BLOCKS"
+[ "$WD" != 0.06 ] && KTAG="${KTAG}_wd$WD"
+[ -n "$KTAG" ] && case $COND in spkmx_lif_*) ;; *) echo "PATCH / EMB / MLPR / BLOCKS / WD: LIF SpkMixer conditions only"; exit 1 ;; esac
 case $DS in
-  ETTh2) HP="--patch_size 8 -emb 64 -nh 8  --mlp_ratios 0.5 --time_layers $LAYERS -lr $LR -bs 64" ;;
-  ETTm2) HP="--patch_size 8 -emb 64 -nh 16 --mlp_ratios 1   --time_layers $LAYERS -lr $LR -bs 64" ;;
+  ETTh2) HP="--patch_size $PATCH -emb $EMB -nh 8  --mlp_ratios $MLPR --time_layers $LAYERS -lr $LR -bs 64" ;;
+  ETTm2) HP="--patch_size $PATCH -emb $EMB -nh 16 --mlp_ratios $MLPR   --time_layers $LAYERS -lr $LR -bs 64" ;;
 esac
-TAGC="${COND}_lr${LR}_L${LAYERS}${BTAG}${STAG}"
+TAGC="${COND}_lr${LR}_L${LAYERS}${BTAG}${STAG}${KTAG}"
 HM=""; [ "${HEADMEM:-0}" = 1 ] && { HM="--head_mem"; TAGC="${TAGC}_hm"; }   # 2026-11-03 H1 (head_mem.py): HEADMEM=1 -> --head_mem, tag _hm
 [ "${MS:-0}" = 1 ] && { [ "$COND" = spk_ssa ] || { echo "MS=1 is for spk_ssa (the SpkMixer uses cond spkmx_lif_<comb>_ms)"; exit 1; }; HM="$HM --ms_shortcut"; TAGC="${TAGC}_ms"; }   # 2026-11-08 membrane shortcut
 case ${NALL:-sj_lif} in sj_lif) ;; lif) { [ "$COND" = spk_ssa ] && [ "${MS:-0}" != 1 ]; } || { echo "NALL=lif is for spk_ssa without MS"; exit 1; }
@@ -98,7 +116,7 @@ SHA=$(cd "$R" && git rev-parse --short HEAD); TS=$(date +%Y%m%d)
 OUT=$LOG/ett_${DS}_p${PL}_${TAGC}_seed${S}_${TS}_${SHA}.stdout; t0=$(date +%s)
 (cd "$W" && CUDA_VISIBLE_DEVICES=$GPU OMP_NUM_THREADS=${THREADS:-4} $PY ./train_forecast.py \
   --log_dir "$LOG/$DS/p$PL" --seed $S -s -nd 0 --gating attn --no-bias --scheduler reduce -e $E --warm_up_epoch 0 \
-  --layers 1 --tau 2.0 --weight_decay 0.06 --patience $P \
+  --layers $BLOCKS --tau 2.0 --weight_decay $WD --patience $P \
   --data $DS --data_path $DS.csv --root_path "$W/../forecasting/dataset/ETT-small" --seq_len $SEQ --pred_len $PL --features M --target OT \
   $HP $CF $BX $HM $TL --tag $TAGC seed$S > "$OUT" 2>&1)
 RC=$?
@@ -115,4 +133,4 @@ EOF
 [ -z "$VALS" ] && { echo "SKIP(result parse failed) ds=$DS pl=$PL cond=$COND seed=$S out=$OUT" | tee -a "$RES/raw.txt"; exit 1; }
 BE=$(cat "$D/log/best_epoch.txt" 2>/dev/null | tr ' ' ':')
 PAR=$(grep -a 'number of parameters' "$OUT" | grep -oE 'parameters : [0-9]+' | grep -oE '[0-9]+'); t1=$(date +%s)
-echo "RESULT exp=cinc_mixer_v1_ett_spkmux ds=$DS pl=$PL cond=$COND tag=$TAGC lr=$LR layers=$LAYERS seed=$S $VALS best_epoch_val_epochs=$BE params=$PAR time_s=$((t1-t0)) sha=$SHA dir=$D" | tee -a "$RES/raw.txt"
+echo "RESULT exp=cinc_mixer_v1_ett_spkmux ds=$DS pl=$PL cond=$COND tag=$TAGC lr=$LR layers=$LAYERS patch=$PATCH emb=$EMB mlpr=$MLPR blocks=$BLOCKS wd=$WD seed=$S $VALS best_epoch_val_epochs=$BE params=$PAR time_s=$((t1-t0)) sha=$SHA dir=$D" | tee -a "$RES/raw.txt"

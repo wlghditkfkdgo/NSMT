@@ -1,0 +1,52 @@
+PASS A1 default path, same argv (66 tokens): COND=spkmx_lif_muxlin_iand LR=0.0005 LAYERS=1 -- ETTh2 96 42
+PASS A2 default path, same argv (66 tokens): COND=spkmx_lif_muxlin_iand LR=0.0005 LAYERS=1 -- ETTh2 720 7
+PASS A3 default path, same argv (66 tokens): COND=spkmx_lif_muxlin_iand LR=0.0001 LAYERS=1 -- ETTm2 96 2026
+PASS A4 default path, same argv (66 tokens): COND=spkmx_lif_muxlin_iand LR=0.0001 LAYERS=1 -- ETTm2 720 42
+PASS A5 default path, same argv (63 tokens): COND=spk_ssa NALL=lif LR=0.0005 LAYERS=1 -- ETTh2 96 42
+PASS A6 default path, same argv (63 tokens): COND=spk_ssa NALL=lif LR=0.0001 LAYERS=2 -- ETTm2 720 42
+PASS A7 default path, same argv (72 tokens): COND=spkmx_pop_lif_muxlin_iand NSCOPE=mixer LR=0.0005 LAYERS=1 -- ETTh2 96 42
+PASS A8 default path, same argv (74 tokens): COND=spkmx_pop_flif_muxlin_iand NSCOPE=mixer MIXPOOL=mean LR=0.0001 LAYERS=1 -- ETTm2 720 7
+PASS A9 default path, same argv (70 tokens): COND=spkmx_pop_lif_muxlin_iand LR=0.0005 LAYERS=1 -- ETTh2 720 42
+PASS A10 default path, same argv (63 tokens): COND=spk_ssa NALL=lif SEQ=336 LR=0.0005 LAYERS=1 -- ETTh2 96 42
+PASS A11 default path, same argv (68 tokens): COND=spkmx_lif_muxlin_iand MIXRESET=zero LR=0.0005 LAYERS=1 -- ETTh2 96 42
+PASS B ETTh2 every knob at its default (PATCH=8 EMB=64 MLPR=0.5 BLOCKS=1 WD=0.06) = old default argv
+PASS B ETTm2 every knob at its default (PATCH=8 EMB=64 MLPR=1 BLOCKS=1 WD=0.06) = old default argv
+PASS C ETTh2 PATCH=4 -> --patch_size 4, tag +_pt4, nothing else changed
+PASS C ETTh2 PATCH=16 -> --patch_size 16, tag +_pt16, nothing else changed
+PASS C ETTh2 EMB=32 -> -emb 32, tag +_e32, nothing else changed
+PASS C ETTh2 EMB=128 -> -emb 128, tag +_e128, nothing else changed
+PASS C ETTh2 EMB=256 -> -emb 256, tag +_e256, nothing else changed
+PASS C ETTh2 MLPR=1 -> --mlp_ratios 1, tag +_mlp1, nothing else changed
+PASS C ETTh2 MLPR=2 -> --mlp_ratios 2, tag +_mlp2, nothing else changed
+PASS C ETTh2 MLPR=4 -> --mlp_ratios 4, tag +_mlp4, nothing else changed
+PASS C ETTh2 BLOCKS=2 -> --layers 2, tag +_blk2, nothing else changed
+PASS C ETTh2 BLOCKS=3 -> --layers 3, tag +_blk3, nothing else changed
+PASS C ETTh2 WD=0 -> --weight_decay 0, tag +_wd0, nothing else changed
+PASS C ETTh2 WD=0.01 -> --weight_decay 0.01, tag +_wd0.01, nothing else changed
+PASS C ETTh2 WD=0.1 -> --weight_decay 0.1, tag +_wd0.1, nothing else changed
+PASS C ETTm2 PATCH=4 -> --patch_size 4, tag +_pt4, nothing else changed
+PASS C ETTm2 PATCH=16 -> --patch_size 16, tag +_pt16, nothing else changed
+PASS C ETTm2 EMB=32 -> -emb 32, tag +_e32, nothing else changed
+PASS C ETTm2 EMB=128 -> -emb 128, tag +_e128, nothing else changed
+PASS C ETTm2 EMB=256 -> -emb 256, tag +_e256, nothing else changed
+PASS C ETTm2 MLPR=0.5 -> --mlp_ratios 0.5, tag +_mlp0.5, nothing else changed
+PASS C ETTm2 MLPR=2 -> --mlp_ratios 2, tag +_mlp2, nothing else changed
+PASS C ETTm2 MLPR=4 -> --mlp_ratios 4, tag +_mlp4, nothing else changed
+PASS C ETTm2 BLOCKS=2 -> --layers 2, tag +_blk2, nothing else changed
+PASS C ETTm2 BLOCKS=3 -> --layers 3, tag +_blk3, nothing else changed
+PASS C ETTm2 WD=0 -> --weight_decay 0, tag +_wd0, nothing else changed
+PASS C ETTm2 WD=0.01 -> --weight_decay 0.01, tag +_wd0.01, nothing else changed
+PASS C ETTm2 WD=0.1 -> --weight_decay 0.1, tag +_wd0.1, nothing else changed
+PASS C combined tag spkmx_lif_muxlin_iand_lr0.0005_L1_pt4_e256_mlp4_blk3_wd0
+PASS D invalid PATCH=5: exit 1, no training call (bad PATCH 5 (4|8|16))
+PASS D invalid EMB=48: exit 1, no training call (bad EMB 48 (32|64|128|256))
+PASS D invalid MLPR=3: exit 1, no training call (bad MLPR 3 (0.5|1|2|4))
+PASS D invalid MLPR=0.50: exit 1, no training call (bad MLPR 0.50 (0.5|1|2|4))
+PASS D invalid BLOCKS=4: exit 1, no training call (bad BLOCKS 4 (1|2|3))
+PASS D invalid WD=0.05: exit 1, no training call (bad WD 0.05 (0|0.01|0.06|0.1))
+PASS D invalid WD=0.060: exit 1, no training call (bad WD 0.060 (0|0.01|0.06|0.1))
+PASS D knob on a non-LIF condition (COND=spk_ssa NALL=lif PATCH=4): exit 1, no training call
+PASS D knob on a non-LIF condition (COND=spkmx_pop_lif_muxlin_iand NSCOPE=mixer EMB=128): exit 1, no training call
+PASS D knob on a non-LIF condition (COND=spkmx_flif_muxlin_iand WD=0): exit 1, no training call
+50/50 PASS
+P0 RUNNER OK

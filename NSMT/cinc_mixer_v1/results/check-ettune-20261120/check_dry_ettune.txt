@@ -1,0 +1,33 @@
+PASS A patch: 24 queue lines, summarizer ok, recheck agrees: ALL CHECKS PASSED
+PASS A dmodel: 36 queue lines, summarizer ok, recheck agrees: ALL CHECKS PASSED
+PASS A mlp: 36 queue lines, summarizer ok, recheck agrees: ALL CHECKS PASSED
+PASS A blocks: 24 queue lines, summarizer ok, recheck agrees: ALL CHECKS PASSED
+PASS A wd: 36 queue lines, summarizer ok, recheck agrees: ALL CHECKS PASSED
+PASS A final: summarizer exit 0
+PASS A final: recheck agrees: ALL CHECKS PASSED
+PASS A: every stage keeps the current value
+PASS A: final config = default
+PASS A: tuned vs untuned R 0, 0/12: 0.0 0
+PASS A: tuned 4-cell MSE / MAE = 0.324497 / 0.356692 (mxett 23:51), NOT PASSED: 0.324496583 / 0.356691750
+PASS A: tuned vs SF-de = (report) LIF vs SF-de of 23:51 (R +0.30, 5/12, energy 0.98): +0.3045 5 0.9825
+PASS B patch: 24 queue lines, summarizer ok, recheck agrees: ALL CHECKS PASSED
+PASS B dmodel: 36 queue lines, summarizer ok, recheck agrees: ALL CHECKS PASSED
+PASS B mlp: 36 queue lines, summarizer ok, recheck agrees: ALL CHECKS PASSED
+PASS B blocks: 24 queue lines, summarizer ok, recheck agrees: ALL CHECKS PASSED
+PASS B wd: 36 queue lines, summarizer ok, recheck agrees: ALL CHECKS PASSED
+PASS B final: summarizer exit 0
+PASS B final: recheck agrees: ALL CHECKS PASSED
+PASS B: selections follow the factors: {'ETTh2': {'PATCH': '16', 'EMB': '128', 'MLPR': '0.5', 'BLOCKS': '2', 'WD': '0.1'}, 'ETTm2': {'PATCH': '4', 'EMB': '64', 'MLPR': '2', 'BLOCKS': '1', 'WD': '0'}}
+PASS B: the wd queue carries the earlier winners (ETTh2 PATCH=16 EMB=128 BLOCKS=2; ETTm2 PATCH=4 MLPR=2)
+PASS B: final config: {'ETTh2': {'PATCH': '16', 'EMB': '128', 'MLPR': '0.5', 'BLOCKS': '2', 'WD': '0.1'}, 'ETTm2': {'PATCH': '4', 'EMB': '64', 'MLPR': '2', 'BLOCKS': '1', 'WD': '0'}}
+PASS B: final tuned 4-cell MSE = factor-weighted default rows (1e-5, 6-decimal rounding): 0.313297 vs 0.313297
+PASS C patch: 24 queue lines, summarizer ok, recheck agrees: ALL CHECKS PASSED
+PASS C: ETTh2 PATCH 4 and 16 tie -> 4 (earlier candidate); ETTm2 keeps 8: {'ETTh2': '4', 'ETTm2': '8'}
+PASS D1: exit 2 for "SKIP line", selection untouched: STOP: SKIP line in /home/yschoi/CLS_spiking_transformer/wt-flif-pop-v3/NSMT/cinc_mixer_v1/results/check-ettune-20261120/dry_D1/flif-v1-ett-spkmux-ettune/raw.txt
+PASS D2: exit 2 for "missing runs", selection untouched: STOP: missing runs: ETTh2 H96 PATCH=16 (spkmx_lif_muxlin_iand_lr0.0005_L1_pt16)
+PASS D3: exit 2 for "not overwritten", selection untouched: STOP: /home/yschoi/CLS_spiking_transformer/wt-flif-pop-v3/NSMT/cinc_mixer_v1/results/check-ettune-20261120/dry_D3/flif-v1-ett-spkmux-ettune/selected_patch.json 
+PASS D4: exit 2 for "no stage asked for", selection untouched: STOP: flif-v1-ett-spkmux-ettune row of a configuration no stage asked for: spkmx_lif_muxlin_iand_lr0.0005_L1_e128 ETTh2 96 42
+PASS D5: exit 2 for "tag", selection untouched: STOP: flif-v1-ett-spkmux-ettune row tag spkmx_lif_muxlin_iand_lr0.0001_L1_pt4 != spkmx_lif_muxlin_iand_lr0.0001_L1_pt16 from its fields
+PASS D6: make_queue dmodel without selected_patch.json -> exit 1, STOP: esults/check-ettune-20261120/dry_D6/flif-v1-ett-spkmux-ettune/selected_patch.json missing (stage patch not selected yet)
+PASS D7: final with a recount row missing -> exit 2, no final.json: STOP: no energy recount row for ettune spkmx_lif_muxlin_iand_lr0.0005_L1_wd0.1 ETTh2 96 2026
+ALL DRY CHECKS PASSED
