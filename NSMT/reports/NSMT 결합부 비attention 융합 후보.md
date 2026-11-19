@@ -118,6 +118,7 @@ SNN 선행 연구에서 cross-attention 없이 두 tensor를 합친 방법은 24
 - **Spikformer식 비교 model 처리.** 두 note의 의견이 갈린다. note 1은 Spikformer식의 IAND gate도 같은 연산자로 바꾸라고 하고, note 2는 Spikformer식을 그대로 두라고 한다. 이 보고서의 1·2순위 배치는 Spikformer식 block에 Neocortex 항만 더하는 형태라 둘이 일치한다. Neocortex 항을 0으로 두면 그것이 곧 Spikformer식 대조다. 3순위는 Spikformer식에 바꿀 Neocortex가 없으므로 그대로 기준으로 둔다.
 - **run마다 기록할 것.** Neocortex 출력과 결합 neuron의 발화율, 첫 token과 token 위치별 Neocortex 발화율, 시험 때 Neocortex 항을 0으로 바꿨을 때의 ΔMSE(지금은 1 % 미만), 그때 뒤집히는 결합 neuron spike의 비율, 학습된 α 또는 평균 gate 값, Neocortex 쪽과 Hippocampus 쪽으로 가는 gradient 크기의 비.
 - **neo_grad.** 지금 code는 결합을 통해 Neocortex로 가는 task gradient를 절반으로 줄인다(`neo_grad = 0.5`). 이 값을 그대로 두고 적는다. 1순위에서 가장 좋은 arm만 1.0으로도 돌린다. 그러지 않으면 "차이 없음"의 일부가 절반 gradient 때문일 수 있다.
+  - **정정 (11-19 저녁):** 위 문장은 틀렸다. `neo_grad = 0.5`는 code의 기본값일 뿐이고, 기준 model의 실행 스크립트(`run_ett_dual.sh`, `run_mitbih4.sh`의 `nsmt4q_*` 조건)는 `--neo_grad 1.0`을 준다. 저장된 run 설정에서도 1.0이다(ETTh2 H96 seed 42, 기준 pop LIF / pop f-LIF). 즉 지금까지의 기준 model run은 gradient를 줄이지 않았다. 따라서 "절반 gradient 때문일 수 있다"는 우려와 "1.0으로도 돌린다"는 계획은 해당 없다.
 - **energy.** 기존 syops 숫자와, 새 연산을 명시적으로 센 숫자를 함께 적는다. syops는 neuron 안에서 곱하는 gain을 보지 못한다. sigmoid와 gate 곱은 MAC로 센다. Neocortex 쪽 계산(W_n·Z 등)은 Z가 4 step 동안 같으므로 token마다 한 번만 센다. 이전 보고서대로, 지금 syops는 cross-attention의 q·k 곱과 bias 덧셈도 세지 않는다. 그래서 cross-attention을 없애도 energy가 줄어든 것으로 나오지 않는다. 이 부분도 따로 센다.
 - **memory·순서 대조.** 판정을 통과한 arm에만 Neocortex memory 끔과 token 순서 섞기 대조를 돌린다(arm당 60 run). 이 대조는 Hippocampus 쪽이 아니라 Neocortex 자기 token 입력과 상태에 건다.
 

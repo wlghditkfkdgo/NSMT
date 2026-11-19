@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# MODI 2026-11-19 (positional encoding off, user request 11-19): env PE=0 appends '--ssa_pe 0' (no relative position bias in the
+#   attention; the run folder gets the suffix _nope) and RESULT gains pe=0. Unset: command line and RESULT unchanged. Only 0 is accepted.
 # MODI 2026-11-19 (full-signal aux, user request 11-19): + nsmt4q_pop_<lif|flif>_{msn,msn_sde}_auxf = the _aux conditions with
 #   --keep_ratio 0 (raw patches as the target; it comes after the fixed --keep_ratio 0.15, argparse keeps the last).
 # MODI 2026-11-19 (aux loss, user request 11-19): + nsmt4q_pop_<lif|flif>_{msn,msn_sde}_aux = the same flags with AUX = 0.1
@@ -121,6 +123,7 @@ case $COND in
   *) echo "bad cond $COND"; exit 1 ;;
 esac
 LAYERS=${LAYERS:-1}
+if [ -n "${PE:-}" ] && [ "$PE" != 0 ]; then echo "PE: only 0 is accepted (unset = relative position bias on)"; exit 1; fi
 SUITE=${SUITE:-flif-v1-mitbih-query-$(date +%Y%m%d)}
 EPOCHS=${EPOCHS:-30}
 LR=${LR:-0.01}; VAL=${VAL:-0}; VF=""; [ "$VAL" = 1 ] && VF="--mitbih_val"
@@ -135,7 +138,7 @@ OUT=$LOG/mitbih_${TG}_seed${S}_${TS}_${SHA}.stdout; t0=$(date +%s)
   --model myModel --seed $S --log_dir "$LOG/MITBIH" --gating attn --attn SSA -s --test --print_epoch 1 -nd 0 \
   -e $EPOCHS --warm_up_epoch 0 --num_channels 1 -bs 512 -lr $LR --max_lr 0.005 -emb 384 -nh 8 --mlp_ratios 1 \
   --layers $LAYERS --keep_ratio 0.15 --time_layers 2 --alpha $AUX --patch_size 32 --no-bias --scheduler cosine \
-  --data UEA --data_path ECG --seq_len 187 --root_path "$DATA" $CF $VF --tag $TG seed$S > "$OUT" 2>&1)
+  --data UEA --data_path ECG --seq_len 187 --root_path "$DATA" $CF $VF ${PE:+--ssa_pe $PE} --tag $TG seed$S > "$OUT" 2>&1)
 RC=$?
 D=$(ls -td "$LOG/MITBIH"/*/*"+${TG}+seed${S}+model+"*/seed${S}_* 2>/dev/null | head -1)   # the mixer's rho_neo column covers its mixer stacks
 CSV="$D/log/final+result.csv"
@@ -169,4 +172,4 @@ fi
 LRS=$(grep -aoE '^epoch +[0-9]+ \(lr=[0-9.e-]+\)' "$OUT" | grep -oE 'lr=[0-9.e-]+' | cut -d= -f2)
 EP=$(echo "$LRS" | grep -c .); LR_FINAL=$(echo "$LRS" | tail -1)
 PAR=$(grep -a 'number of parameters' "$OUT" | grep -oE '[0-9]+' | tail -1); t1=$(date +%s)
-echo "RESULT exp=nsmt_flif_v1_cls cond=$COND dataset=MITBIH seed=$S lr=$LR val=$VAL $VV $VALS epochs=$EPOCHS epochs_run=$EP lr_final=$LR_FINAL params=$PAR time_s=$((t1-t0)) sha=$SHA alpha=$ALPHA aux=$AUX dir=$D" | tee -a "$RES/raw.txt"
+echo "RESULT exp=nsmt_flif_v1_cls cond=$COND dataset=MITBIH seed=$S lr=$LR val=$VAL $VV $VALS epochs=$EPOCHS epochs_run=$EP lr_final=$LR_FINAL params=$PAR time_s=$((t1-t0))${PE:+ pe=$PE} sha=$SHA alpha=$ALPHA aux=$AUX dir=$D" | tee -a "$RES/raw.txt"

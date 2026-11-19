@@ -9811,3 +9811,96 @@ Spikformer식보다 "좋음"인 변형은 없다.
 **commit / tag:** 이 항목과 결과 파일을 commit 하고 tag `exp/nsmt-flif-neo-20261119-of`를 붙인다(이 항목은 자기 commit을 tag로 가리킨다).
 
 ---
+
+## 2026-11-19 20:04 KST — 사전 고정 + 구현 (학습 전): positional encoding 끔 시험 (사용자 요청 11-19 저녁) — attention의 학습되는 relative position bias를 빼고(`--ssa_pe 0`) Spikformer(DE)와 기준 model(pop LIF / pop f-LIF, 전부 SpikeDE)을 다시 학습한다. embedding의 absolute position은 지금도 꺼져 있어서, 이것으로 두 positional encoding이 모두 꺼진다. ETT 4칸 × seed 3 × 3 model = 36 run, MIT-BIH seed 3 × 3 model = 9 run, 모두 45 run. 켠 쪽은 기존 run을 쓴다. 실행 스크립트 명령줄은 스위치를 안 주면 11/11 같고, 점검 24/24, smoke 6/6, 판정 script 가짜 data 시험 통과
+
+**직전 commit:** `228850c4a` ((나) 과적합 시험 결과, tag `exp/nsmt-flif-neo-20261119-of`). branch `exp/nsmt-flif-neo`.
+
+**사용자 요청 (11-19 저녁, 원문):** "relative positional encoding을 끄고 실험을 해줘. (Spikformer 도 마찬가지)". 같은 메시지의 앞 질문은 "attention에서 적용되는 relative positional encoding 과 embedding 단에서 더해지는 absolute positional encoding을 둘 다 OFF하게 되면 결과가 어떻게 달라져?"(11-19 오후)에서 이어진 것이다.
+
+**질문:**
+1. bias를 빼면 각 model의 성능이 어떻게 달라지는가.
+2. bias가 없을 때 기준 model이 Spikformer(DE)보다 나은가. Spikformer(DE)는 token 순서 정보를 bias에서만 얻고, 기준 model은 Neocortex가 token을 순서대로 읽으므로(T = N) 순서 정보가 남는다.
+
+**지금 상태 (code와 저장된 run 설정으로 확인):**
+- embedding의 absolute position(`--pos_emb`)은 기준 model과 Spikformer(DE) 모두 꺼져 있다(`pos_emb False`).
+- 켜져 있는 것은 attention의 relative position bias 하나다(`ssa_pe 1`; 거리 j − i마다 head별 값 하나를 학습해 attention 점수에 더함).
+- Neocortex에는 positional encoding이 없다.
+- 예측 head의 차이: ETT는 N개 token을 순서대로 이어 붙여 Linear에 넣는다(위치를 head가 앎). MIT-BIH는 token 평균을 읽는다(위치를 head가 모름).
+
+**설계:**
+- **model (모든 neuron SpikeDE, 사용자 결정 11-18 "(가)"):** Spikformer(DE) `spkall_lif`, 기준 model `nsmt4q_pop_lif_msn_sde` / `nsmt4q_pop_flif_msn_sde`. aux loss 없음.
+- **학습 설정:** 지금 설정 그대로다(ETT lr 0.0005, head dropout 0, weight decay 0.06; MIT-BIH 30 epoch, lr 0.01). (나)에서 고른 최종 설정은 쓰지 않는다. 이유: 켠 쪽의 seed 3개 run이 지금 설정으로 있고, 이후 비교에 쓸 설정은 사용자 결정이 아직 없다.
+- **끈 쪽 (새 run):** 실행 스크립트에 env `PE=0`을 주면 `--ssa_pe 0`이 붙는다. suite `flif-v1-ett-nope`(36 run), `flif-v1-mitbih-nope`(9 run).
+- **켠 쪽 (기존 run):** `flif-v1-ett-sde`, `flif-v1-mitbih-sde`(11-18, sha `11c83b385`).
+- seed 42 / 7 / 2026. ETT는 ETTh2 / ETTm2 × H96 / H720, 입력 96.
+
+**판정 (`summarize_nope.py`; 문턱은 지금까지와 같음):**
+- **N1 끔 − 켬 (model마다):** ETT는 12쌍의 test MSE 상대 차이 평균 R. 나쁨 = R ≥ +1 %이고 8/12 높음, 좋음은 그 거울. MIT-BIH는 seed별 macro-F1 차이 d. 나쁨 = 평균 ≤ −0.5 %p이고 2/3 음수.
+- **N2 (주 비교) 기준(끔) − Spikformer(DE)(끔), neuron마다.** 참고 줄은 둘 다 켠 비교다(ETT −0.80 / −0.75 %, MIT-BIH −0.04 / +0.07 %p; 11-18 기록값).
+- **N3 격차 변화 = N2 − 켠 비교.** ETT 커짐 = 평균 ≤ −1 %p이고 8/12 음수. MIT-BIH 커짐 = 평균 ≥ +0.5 %p이고 2/3 양수.
+- **종합 (neuron마다, `summarize_sde.overall`):** N2의 ETT와 MIT-BIH로 strong / 약함(방향만) / 지지 안 됨.
+- **보고 전용:** energy, 발화율, epoch 수, 첫 epoch 멈춤, MIT-BIH accuracy.
+
+**읽는 법 (미리 정함):**
+- N1에서 Spikformer(DE)가 "나쁨"이고 기준 model은 "나쁨"이 아니며 N2가 "좋음"이면: bias가 없을 때 Neocortex의 순서 처리가 Spikformer(DE)에 없는 순서 정보를 준다는 근거다. 다만 이것은 **"positional encoding이 없는 조건에서"**의 우위다. bias를 켠 Spikformer(DE)보다 낫다는 뜻이 아니므로, 논문 목표("Spikformer보다 평균적으로 낫다")의 근거로는 쓰지 않고 T = N contribution의 보조 근거로만 쓴다.
+- N1이 세 model 모두 "차이 없음"이면: 이 두 과제에서는 relative position bias가 필요 없다. T = N 근거는 되지 않는다.
+- 기준 model도 "나쁨"이면: 기준 model도 순서 정보를 bias에 기대고 있다.
+
+**사전 예상:**
+- ETT N1: 세 model 모두 차이 없음. head가 위치를 알고, 학습된 bias도 작다(평균 |b| 0.015–0.018). Spikformer(DE)는 ETTm2 H96에서 조금 나빠질 수 있다(11-18에 시험 때만 뺐을 때 +3.29 %).
+- MIT-BIH N1: Spikformer(DE)는 음수 쪽이지만 −0.5 %p에 못 미칠 수 있다(차이 없음). 근거는 둘이다. beat가 창 가운데 맞춰져 있어 patch 내용만으로 위치가 대체로 드러난다. 아래 점검 n3에서 학습된 bias를 가진 Spikformer(DE)도 token을 섞었을 때 예측이 64개 중 2개만 바뀌었다(입력은 무작위 잡음). 기준 model은 차이 없음.
+- N2 / N3: ETT 차이 없음 / 변화 없음. MIT-BIH는 기준 model 쪽으로 기울지만 "좋음"은 많아야 한 neuron.
+- 종합: 많아야 한 neuron이 strong, 아니면 약함(방향만).
+
+### 코드 / 스크립트
+- model code는 고치지 않았다. `--ssa_pe`는 10-21부터 있던 옵션이다.
+- `forecasting/scripts/run_ett_dual.sh`, `run_ett_mixer.sh`, `classification/scripts/run_mitbih4.sh`: env `PE`를 더했다. `PE=0`이면 `--ssa_pe 0`이 붙고 RESULT 줄에 `pe=0`이 붙는다. 0이 아닌 값은 거부한다. 안 주면 명령줄과 RESULT가 이전과 같다.
+- run 폴더에는 기존 규칙대로 `_nope` 접미사가 붙는다(`config.py`).
+- 새 파일: `classification/check_nope.py`, `classification/summarize_nope.py`, `classification/scripts/make_queue_nope.sh`(대기열 45줄: ETTm2 18, MIT-BIH 9, ETTh2 18).
+- 보고서 정정: `reports/NSMT 결합부 비attention 융합 후보.md`의 "neo_grad = 0.5" 문장에 정정 줄을 더했다(아래 "내 실수").
+
+### 점검 (fail-closed)
+- **실행 스크립트 명령줄:** 고치기 전 사본과 고친 뒤를 가짜 python(모든 `*.py` 호출의 인자를 기록)으로 비교했다. `PE`를 안 주면 11/11 같다(ETT dual 4, mixer 2, LR / DROP / WD를 준 mixer 1, MIT-BIH 4). `PE=0`이면 `--ssa_pe 0` 두 인자만 늘어난다(4/4). `PE=1`은 두 스크립트 모두 python을 부르기 전에 rc 1로 멈춘다.
+- **`check_nope.py` 24/24 통과** (ETT ETTh2 H96과 MIT-BIH의 seed 42 기준 run 설정, 3 model씩):
+  - n0: 기준 run 설정이 `ssa_pe 1`, `pos_emb False`다(6/6).
+  - n1: `ssa_pe 0`은 bias 표와 그 index buffer 두 항목만 없앤다. 나머지 state_dict 59–87 항목은 같은 seed의 `ssa_pe 1` model과 같다.
+  - n2: 초기 상태(표 = 0)의 학습 모드 출력이 `ssa_pe 1`과 비트 단위로 같다.
+  - n3 (MIT-BIH, 학습된 마지막 epoch weight, eval; Hippocampus와 Neocortex 입력의 token을 같은 순열로 섞음, 입력은 무작위 잡음 64개):
+
+    | model | 학습된 bias 그대로 | bias 표 제거 |
+    |---|---|---|
+    | Spikformer(DE) | 출력 최대 차이 6.52, 예측 2/64 바뀜 | **최대 차이 0.00, 예측 0/64 바뀜 (순서를 못 봄)** |
+    | 기준 pop LIF | 최대 차이 16.2, 13/64 | 최대 차이 17.1, 11/64 (순서를 봄) |
+    | 기준 pop f-LIF | 최대 차이 10.1, 0/64 | 최대 차이 12.7, 3/64 (순서를 봄) |
+
+    학습된 bias 평균 |b|는 0.37–0.42다.
+  - n4 (ETT, 학습된 best-validation weight, bias 표 제거): 세 model 모두 token을 섞으면 출력이 바뀐다(최대 차이 1.57–1.79, 출력 평균 크기 0.26). head가 위치를 읽기 때문이다. ETT에서는 bias 없이도 순서를 못 보는 model이 없다. 학습된 bias 평균 |b|는 0.015–0.018이다.
+- **smoke (1 epoch, seed 42, `PE=0`; RESULT 6, SKIP 0):**
+  - ETT: `spkall_lif` ETTh2 H96 test MSE 0.290354, 기준 pop LIF ETTh2 H96 0.289104, 기준 pop f-LIF ETTm2 H720 0.401062.
+  - MIT-BIH: macro-F1 0.6518 / 0.5452 / 0.6517(`spkall_lif` / pop LIF / pop f-LIF).
+  - 6개 모두 run 폴더에 `_nope`, `logargs.txt`에 `ssa_pe 0`, RESULT에 `pe=0`이 있다.
+  - ETT smoke의 energy 재계산은 3 run "all checks passed"다.
+  - GPU 최대 사용 memory는 0.66 GB다.
+- **판정 script 시험 (가짜 suite, `scratchpad/nope/fake_test.py`):**
+  - 켠 쪽 줄을 복사해 끈 쪽을 만들고 차이를 심었다(ETT MSE × 1.05 / 1.01 / 1.03, MIT-BIH F1 −2.0 / −0.4 / +0.2 %p).
+  - N1이 심은 값(+5.00 / +1.00 / +3.00 %, −2.00 / −0.40 / +0.20 %p)을 그대로 냈다. N2는 −4.58 / −2.64 %, +1.56 / +2.27 %p로 손계산과 같고, 참고 줄은 기록값(−0.80 %, 11/12; −0.75 %, 9/12; −0.04 / +0.07 %p)을 재현했다.
+  - 실패해야 하는 7경우가 모두 멈췄다: RESULT에 `pe` 없음, 폴더에 `_nope` 없음, nan, sha 둘, 줄 빠짐, 줄 중복, 켠 쪽 줄에 `pe=0`.
+
+### 실행
+- NSMT/에서 tmux `flif_nope`로 `bash scripts/gpu_pool2.sh nsmt_flif_v1/classification/scripts/queues/nope-20261119.txt 0,1,2,3`을 띄운다(GPU 하나에 run 하나). 기록은 `nsmt_flif_v1/forecasting/results/flif-v1-nope-pool.log`다.
+- 다른 대화(`wt-flif-pop-v3`)의 이상 탐지 run 8개가 같은 GPU 4장에서 돌고 있다(GPU당 2개, 각 약 1.3 GB). 건드리지 않는다. run 시간이 낮의 측정(ETT 126–1605 s, MIT-BIH 372–674 s)보다 길어질 수 있다. 끝나는 시각은 어림하지 않는다.
+- 끝나면: RESULT 36 + 9, SKIP 0 확인 → pool 기록 복사 → `energy_recount_ett.py --suite flif-v1-ett-nope` → `summarize_nope.py` → 결과 기록, tag `exp/nsmt-flif-neo-20261119-nope`, 보고.
+- pool이 도는 동안 저장소의 code와 실행 스크립트를 고치지 않고, commit 하지 않는다(run의 sha가 바뀌지 않게).
+
+**내 실수 (이 항목에서 바로잡음):**
+- 11-19 오후 설명과 문헌 보고서에 "지금 code는 Neocortex로 가는 gradient를 절반으로 줄인다(`neo_grad = 0.5`)"고 적었다. 틀렸다. 0.5는 code 기본값이고, 기준 model의 실행 스크립트는 `--neo_grad 1.0`을 준다. 저장된 run 설정도 1.0이다. 보고서에 정정 줄을 더했다.
+- smoke를 기다리는 명령이 자기 자신의 명령줄을 찾아서 끝나지 않았다(낮의 감시 작업과 같은 실수). 그 명령만 멈췄고 run에는 영향이 없다. 앞으로 기다릴 때는 pool 기록의 끝 줄을 본다.
+
+**한계 (미리 적음):** 지금 학습 설정 하나만 본다. seed 3개다. MIT-BIH의 "순서를 못 봄"은 head가 평균을 읽는 구조에서 나온 것이라 다른 head에서는 성립하지 않는다. ETT는 head가 위치를 읽으므로 이 시험이 T = N을 가리지 못한다.
+
+**not run:** absolute position 켬, (나)의 최종 설정에서의 같은 시험, spikingjelly 기준, Neocortex memory 끔 / 순서 섞기 대조, 입력 336 / 720, CinC, 이상 탐지.
+
+**commit:** 이 항목과 스크립트, 점검, 판정 script, smoke 결과, 보고서 정정을 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 pool을 시작한다. 이 commit이 새 run들의 sha가 된다.
+
+---
