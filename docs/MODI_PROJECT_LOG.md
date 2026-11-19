@@ -9387,3 +9387,95 @@ Spikformer식보다 "좋음"인 변형은 없다.
 **commit:** 앞 항목(loss 경향 분석)과 이 항목, code, 스크립트, 점검, smoke 결과를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 pool을 시작한다. 이 commit이 새 run들의 sha가 된다.
 
 ---
+
+## 2026-11-19 10:51 KST — 결과: auxiliary loss 시험, 저주파 복원 (60 run, 사전 고정 `d9a3e35ab`) — **켜도 기준 model은 좋아지지 않았다.** 두 기준 model(spikingjelly / 전부 SpikeDE) × pop LIF / pop f-LIF × ETT / MIT-BIH 모두 켬 − 끔이 "차이 없음"이다(ETT R +0.11 ~ +0.46 %, MIT-BIH −0.34 ~ +0.07 %p). Spikformer식 대비 판정과 격차도 바뀌지 않았다. 종합은 spikingjelly 기준 두 neuron 모두 "지지 안 됨", SpikeDE 기준 pop LIF "약함(방향만)", pop f-LIF "지지 안 됨"이다. 대신 Neocortex의 쓰임새는 바뀌었다. ETT에서 Neocortex 발화율이 약 4배가 됐고(0.033 → 0.13–0.14), 시험 때 Neocortex를 0으로 바꾼 손해가 pop LIF에서 −0.07 → +1.02 %로 커졌다
+
+**branch / 기준:** `exp/nsmt-flif-neo`, 사전 고정 commit `d9a3e35ab`(새 run 60개 모두 이 sha). 사전 고정은 2026-11-18 23:59 항목이다.
+
+**실행:** tmux `flif_aux`, GPU 4장에 run 하나씩이다. 11-18 23:59:30에 시작했고 마지막 run은 11-19 03:44에 끝났다. RESULT 60(ETT 48, MIT-BIH 12), SKIP 0.
+
+**후처리 (사전 고정 순서 그대로):**
+1. pool 기록을 두 suite의 `pool_runs.txt`로 복사했다(START / DONE 60쌍).
+2. `energy_recount_ett.py --suite flif-v1-ett-aux` → 48 run, test MSE 48/48 재현, "all checks passed".
+3. `coupling_diag.py --arms aux` → 24 run(spikingjelly 기준 두 neuron × 4칸 × seed 3). 기록된 test MSE를 재현했고 batch 불변성도 통과했다.
+4. `summarize_aux.py --diag results/flif-v1-aux-diag.json` → `classification/results/flif-v1-aux-summary.md`.
+
+**나쁜 것 먼저:**
+- 재구성 손실은 성능을 올리지 못했다. 판정 16개(2 기준 × 2 neuron × 2 과제 × 켬−끔과 Spikformer식 대비)가 모두 "차이 없음 / 변화 없음"이다.
+- ETTh2 H720 칸은 넷 중 셋이 나빠졌다(칸 판정 "나쁨" +1.27 ~ +1.47 %). 이 칸은 예측 손실의 비중이 0.2뿐이다(r 0.8).
+- 추론 energy가 ETT에서 3–4 % 늘었다(Neocortex 발화가 늘어서다). 사전 예상(0.98–1.02배)은 틀렸다.
+
+**결과 (seed 3개 평균; ETT test MSE, MIT-BIH macro-F1 %):**
+
+| 기준 | model | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 | MIT-BIH |
+|---|---|---|---|---|---|---|
+| spikingjelly | Spikformer식 | 0.2903 | 0.4223 | 0.1775 | 0.4034 | 92.22 |
+| spikingjelly | pop LIF 끔 / 켬 | 0.2931 / 0.2927 | 0.4157 / 0.4218 | 0.1776 / 0.1766 | 0.4036 / 0.4023 | 92.16 / 92.06 |
+| spikingjelly | pop f-LIF 끔 / 켬 | 0.2904 / 0.2899 | 0.4166 / 0.4224 | 0.1782 / 0.1773 | 0.4036 / 0.4030 | 92.27 / 91.92 |
+| SpikeDE | Spikformer식 | 0.2921 | 0.4229 | 0.1779 | 0.4048 | 91.94 |
+| SpikeDE | pop LIF 끔 / 켬 | 0.2914 / 0.2915 | 0.4163 / 0.4216 | 0.1763 / 0.1769 | 0.4029 / 0.4036 | 91.90 / 91.97 |
+| SpikeDE | pop f-LIF 끔 / 켬 | 0.2897 / 0.2913 | 0.4181 / 0.4168 | 0.1766 / 0.1773 | 0.4034 / 0.4043 | 92.01 / 91.89 |
+
+**판정 (사전 고정 규칙):**
+
+| 기준 | 비교 | ETT pop LIF | ETT pop f-LIF | MIT-BIH pop LIF | MIT-BIH pop f-LIF |
+|---|---|---|---|---|---|
+| spikingjelly | A1 켬 − 끔 | +0.11 %, 6/12, 차이 없음 | +0.13 %, 6/12, 차이 없음 | −0.09 %p, 차이 없음 | −0.34 %p, 차이 없음 |
+| spikingjelly | A2 켬 − Spikformer식 | −0.03 %, 8/12, 차이 없음 | −0.09 %, 7/12, 차이 없음 | −0.16 %p, 차이 없음 | −0.30 %p, 차이 없음 |
+| spikingjelly | A3 격차 변화 | +0.10 %p, 변화 없음 | +0.12 %p, 변화 없음 | −0.09 %p, 변화 없음 | −0.34 %p, 변화 없음 |
+| SpikeDE | A1 켬 − 끔 | +0.46 %, 4/12, 차이 없음 | +0.21 %, 4/12, 차이 없음 | +0.07 %p, 차이 없음 | −0.12 %p, 차이 없음 |
+| SpikeDE | A2 켬 − Spikformer식 | −0.34 %, 8/12, 차이 없음 | −0.54 %, 9/12, 차이 없음 | +0.03 %p, 차이 없음 | −0.05 %p, 차이 없음 |
+| SpikeDE | A3 격차 변화 | +0.46 %p, 변화 없음 | +0.21 %p, 변화 없음 | +0.07 %p, 변화 없음 | −0.12 %p, 변화 없음 |
+
+- **종합:**
+  - spikingjelly 기준: pop LIF, pop f-LIF 모두 지지 안 됨.
+  - SpikeDE 기준: pop LIF 약함(방향만), pop f-LIF 지지 안 됨.
+  - 끈 때(SpikeDE 기준)는 둘 다 ETT −0.80 / −0.75 %였다. 켜면 −0.34 / −0.54 %로 Spikformer식 쪽으로 조금 돌아갔다(모두 문턱 아래).
+- 모든 판정이 "차이 없음 / 변화 없음"이라 한 칸 빼기는 적용되지 않는다.
+
+**보고 전용:**
+- **Neocortex 발화율 (ETT, 끔 → 켬):** spikingjelly pop LIF 0.0328 → 0.1426, pop f-LIF 0.0371 → 0.1407; SpikeDE 0.0332 → 0.1296, 0.0323 → 0.1360. MIT-BIH는 0.06–0.10 범위에서 조금 변했다.
+- **energy (켬 / 끔):** ETT 1.03–1.04, MIT-BIH 1.00–1.02. Spikformer식 대비 기준 model은 ETT 1.29–1.56배, MIT-BIH 1.20–1.35배다.
+- **재구성 MSE (마지막 epoch):**
+  - ETT: spikingjelly 0.1687 / 0.0859, SpikeDE 0.1763 / 0.0877(pop LIF / pop f-LIF).
+  - MIT-BIH: 켬 0.0035–0.0077, 끔 0.0955–0.1066(끈 run에서는 decoder가 학습되지 않음).
+- **학습 뒤 진단** (spikingjelly 기준, 시험 때 Neocortex를 0으로 바꾼 ΔMSE, 네 칸 평균):
+
+| neuron | 끔 (`flif-v1-xnor-diag-now.json`) | 켬 | 칸별 (켬: ETTh2 H96 / H720 / ETTm2 H96 / H720) |
+|---|---|---|---|
+| pop LIF | −0.07 % | +1.02 % | −1.07 / −0.55 / +3.68 / +2.01 % |
+| pop f-LIF | +0.84 % | +0.69 % | +0.09 / −0.15 / +1.58 / +1.23 % |
+
+  - Neocortex가 바꾸는 점수 비중은 0.42 → 0.45–0.46으로 거의 같다.
+  - pop LIF는 ETTm2에서 Neocortex를 조금 더 쓰게 됐지만(지우면 +2–4 % 손해), 그 차이가 test 성능 향상으로 이어지지 않았다.
+- **첫 epoch 멈춤 (ETT, 12 run 중):** 끔 1–4, 켬 1–4로 비슷하다.
+
+**사전 예상과 대조:**
+
+| 예상 | 결과 | 맞음? |
+|---|---|---|
+| A1: 모두 차이 없음, ETT H720 칸은 조금 나빠질 수 있음 | 모두 차이 없음; ETTh2 H720 칸 넷 중 셋 "나쁨" | 맞음 |
+| A2 / A3: spikingjelly 지지 안 됨, SpikeDE 많아야 weak | 그대로 | 맞음 |
+| 재구성 MSE가 끈 run보다 크게 낮음 | MIT-BIH 0.0035–0.0077 대 0.0955–0.1066 | 맞음 |
+| Neocortex 0의 손해가 조금 커짐, 1–2 % 안쪽 | pop LIF −0.07 → +1.02 %(칸 최대 +3.68 %); pop f-LIF +0.84 → +0.69 % | 반만 맞음 |
+| 추론 energy 0.98–1.02배 | ETT 1.03–1.04배 | 틀림 |
+
+**읽는 법 적용:**
+- A1 "좋음"이 없으므로 재구성 손실을 기본으로 켤 근거가 없다.
+- 진단에서 pop LIF의 Neocortex 쓰임이 조금 늘었다. 하지만 성능 판정이 차이 없음이므로, 미리 적은 대로 T = N contribution의 근거로 쓰지 않는다.
+
+**결론:**
+- NSMT의 저주파 재구성 손실은 Neocortex를 더 발화하게 만들고(약 4배), pop LIF에서는 Neocortex를 조금 더 쓰게 만든다. 그러나 ETT와 MIT-BIH의 test 성능은 그대로이고, Spikformer식과의 차이도 그대로다.
+
+**한계:** aux 설정은 NSMT 값 그대로다. seed 3개다. 진단은 spikingjelly 기준만 했다.
+
+**다음 (사전 고정된 계획, 사용자 승인 11-19):** 원 시계열 복원 aux(`_auxf`)와 과적합 조치 시험을 다음 항목에서 사전 고정하고 driver 하나로 이어 돌린다.
+
+**산출물 (Git):**
+- `nsmt_flif_v1/forecasting/results/flif-v1-ett-aux/{raw.txt, pool_runs.txt, energy_recount.csv}`
+- `nsmt_flif_v1/classification/results/flif-v1-mitbih-aux/{raw.txt, pool_runs.txt}`
+- `nsmt_flif_v1/classification/results/flif-v1-aux-diag.{json,md}`, `flif-v1-aux-summary.md`
+
+**commit / tag:** 이 항목과 결과 파일을 commit 하고 annotated tag `exp/nsmt-flif-neo-20261119-aux`를 붙인다. `exp/nsmt-flif-neo`와 이 tag만 push 한다.
+
+---
