@@ -14814,3 +14814,108 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 ## 2026-11-19 21:10 KST — 정정(바로 앞 기록의 제목 시각)
 - 바로 앞 기록(commit `2bbb888d9`)의 제목 시각 "21:24 KST"는 틀렸다. 실제 작성 시각은 21:09다(같은 명령의 `date` 출력 21:09:50). `date`를 기록과 같은 명령에서 실행해서, 출력을 보기 전에 시각을 적었다.
 - 내용은 바뀌지 않는다. 앞으로는 `date`를 먼저 따로 실행하고 그 값을 제목에 쓴다.
+
+## 2026-11-19 21:19 KST — 사전등록(본 학습 전): "mixer에만 population" ETT 부분(4 arm × 4칸 × seed 3 = 48 run, 입력 96)과 채택 규칙. 결과로 튜닝할 구조를 정한다
+
+**목적:** 사용자 결정(21:09 기록) 5번 "우선 'mixer에만 population' 실험을 먼저 진행하고 기존 구조보다 개선됨이 확인되면 'mixer에만 population' 구조를 채택하여 튜닝". 그 첫 단계다. MIT-BIH 부분은 03:06 기록에서 끝났다.
+
+**branch / base:** `exp/f-lif-pop-v3`, base `abdb67184`(21:10 정정 기록). 이 기록의 commit이 본 학습 code다. 해시는 결과 기록에 적는다.
+
+### 설계(01:26 사전등록의 arm 정의 그대로; 다시 튜닝하지 않음)
+- arm 4개(`NSCOPE=mixer`: population neuron은 두 방향 stack과 fusion에만 두고, embedding · MLP는 같은 계열의 단일 neuron):
+  - pop LIF mixer, pop LIF mixer + mean, pop f-LIF mixer, pop f-LIF mixer + mean.
+- 설정은 튜닝한 LIF SpkMixer와 같다.
+  - muxlin, IAND, 방향별 mixer 층 1, lr ETTh2 5e-4 / ETTm2 1e-4, 입력 96.
+  - patience 10, epoch ETTh2 100 / ETTm2 50, best-validation 가중치로 test한다.
+- gain table(18:07에 만든 것): `calib/pn/gains_<ETTh2|ETTm2>_<pop_lif|pop_flif>_muxlin_IAND_scmixer_mp<none|mean>.json`.
+- 4칸(ETTh2 · ETTm2 × H96 · H720), seed 42 / 7 / 2026. 새 suite `flif-v1-ett-spkmux-mxpop`.
+  - 멈춘 18:07 격자 suite(`flif-v1-ett-spkmux-pn`)의 pop f-LIF mixer 2행은 쓰지 않는다.
+- 비교 대상(이미 있는 run):
+  - LIF(`flif-v1-ett-spkmux-tune`).
+  - LIF + mean(`flif-v1-ett-spkmux-mx3`).
+  - pop LIF all(`flif-v1-ett-spkmux-stft`, 11-17 rep 행).
+  - SF-de(`flif-v1-ett-sfde`, 고른 lr).
+
+### 채택 규칙(사용자 결정 21:09; 튜닝할 구조 S를 정함)
+- arm이 다음을 모두 만족하면 채택 후보다.
+  - 4칸 평균 test MSE와 MAE가 둘 다 LIF SpkMixer보다 0.001 이상 낮다.
+  - syops energy A/B(SF-de 대비)가 1.05 이하다.
+- 후보가 여럿이면 4칸 평균 MSE가 가장 낮은 arm을 고른다(차이 < 1e-12이면 energy가 낮은 쪽). 후보가 없으면 S = LIF SpkMixer다.
+- 결과는 `results/flif-v1-ett-spkmux-mxpop/selected_structure.json`에 쓴다. 다른 선택으로 덮어쓰지 않는다.
+- 이 채택은 test 값으로 정한다(사용자 규칙). 그 뒤의 튜닝은 validation만 쓴다.
+
+### 판정(11-18 18:07 사전등록 그대로; ETT 규칙: test MSE, seed별 r = 100 (A − B) / B, R = 4칸 평균, better = R ≤ −1 %이고 12쌍 중 8쌍 이상 낮음, worse는 반대)
+- B1 pop LIF mixer vs LIF
+- B3 pop LIF mixer vs pop LIF all
+- C3 pop LIF mixer + mean vs pop LIF mixer
+- C5 pop f-LIF mixer + mean vs pop f-LIF mixer
+- 보고: pop f-LIF mixer vs pop LIF mixer, pop LIF mixer + mean vs LIF + mean, 모든 arm vs SF-de.
+  - SF-sj(spikingjelly 판) 보고는 뺀다. 지금 기준은 SF-de다.
+- arm마다 사용자 통과 기준 표(`pass_ett.judge`)도 보고한다.
+
+### energy(syops 원본 규칙, 사용자 결정 11-19)
+- syops는 population neuron class를 등록하지 않는다. 그래서 run이 기록한 `total_fft_uJ`에는 그 neuron의 입력 AC(입력 원소당 AC 1, syops의 neuron 규칙)가 빠져 있다.
+- 그래서 population arm의 energy는 다음으로 계산한다.
+  - Es = `total_fft_uJ` − `syn_energy_uJ` + head MAC × 4.6 pJ + `body_syn_uJ`.
+  - `body_syn_uJ`는 `energy_recount_ett.py`의 recorder 몸통이다. 재계산기는 이 값이 syops 몸통 + population neuron AC와 같은지 이미 점검한다.
+- 점검(요약기와 재계산기 둘 다):
+  - population이 아닌 행: Es = `total_fft_uJ`(오차 syn의 1e-3 안).
+  - population 행: Es ≥ `total_fft_uJ`.
+- 이전 규칙(`total_fft_uJ_corr`) energy A/B도 보고한다.
+
+### code(이 commit; model · runner는 바꾸지 않음)
+- `scripts/make_queue_pn.sh`: 단계 `mxett`(48줄, 느린 arm과 ETTm2 H96 먼저) → `scripts/queues/pn-mxett-20261119.txt`(local).
+- `summarize_pn.py`: 단계 `mxett`.
+  - 내용: 판정 · 보고(syops energy), 두 규칙 energy 표, 채택 표와 `selected_structure.json`, 통과 기준.
+  - 멈춤 조건: 48 RESULT가 아님, SKIP, 빠진 · 중복 행, 재계산 MSE 불일치, 새 run의 best epoch가 validation 최솟값이 아님, energy 점검 실패.
+- 새 `recheck_mxett.py`: 독립 재계산(`summarize_*` · `pass_ett`를 import하지 않음). 판정 4개와 채택을 다시 계산해 `summary.md` · `selected_structure.json`과 비교한다.
+  - 계획에서는 `recheck_pn.py`에 단계를 더하려 했다. 그 파일은 단계별 분기가 길어져 있어서 새 파일로 바꿨다.
+- 새 `scripts/mxpop_ett_driver.sh`: pool(48) → 48 RESULT · SKIP 0 → `energy_recount_ett.py` → `summarize_pn.py --stage mxett` → `recheck_mxett.py` → `driver end`. 실패하면 멈춘다.
+
+### 점검(모두 통과; `NSMT/cinc_mixer_v1/results/check-mxett-20261119/`)
+- **p0**(`p0_mxett.sh abdb67184` → `p0_mxett.txt`):
+  - `make_queue_pn.sh`의 기존 7개 단계(repro, smoke, sf, main, len336, sf336, mxmit)가 고치기 전과 같은 queue를 쓴다.
+  - `mxett` 48줄은 18:07 main 단계 전체의 ETT mixer-only 48줄과 SUITE만 다르고 같다.
+    - 실제 18:07 queue 파일에는 42줄만 남아 있다. 빠진 6줄(ETTm2 H96의 pop f-LIF mixer · pop f-LIF mixer + mean)은 멈춘 격자가 이미 가져간 줄이다.
+  - `summarize_pn.py`의 기존 단계 sf_ett, sf_mit, sf336, mxmit 출력이 고치기 전과 글자까지 같다.
+- **재현**(`compare_repro.{py,txt}`, suite `check-mxett-repro-20261119`):
+  - 오늘 code로 pop LIF mixer와 pop f-LIF mixer(ETTh2 H96, seed 42, 2 epoch)를 돌렸다.
+  - 18:07 시험 학습 행(code `5701db48c`)과 공유 필드 31개가 모두 같다(MSE 0.288099 · 0.289338, `total_fft_uJ` 24.161616 · 42.028726).
+- **dry run**(`check_dry_mxett.{py,txt}`; LIF 튜닝 행 12개를 네 arm 이름으로 넣은 가짜 suite, 요약기와 독립 재계산기를 둘 다 돌림): 21개 모두 PASS.
+  - A(모든 arm = LIF):
+    - B1 = C3 = C5 = R 0, 0/12, energy 1.00.
+    - B3 = LIF vs pop LIF all(+0.96 %; 11-17 B2 −0.94 %의 거울).
+    - 통과 arm 없음 → LIF 유지.
+    - (보고) LIF vs SF-de syops energy 0.98(17:34 다시 읽기 0.9825와 같음).
+  - B(두 arm이 통과하도록 값을 줄임): MSE가 더 낮은 pop f-LIF mixer를 고른다.
+  - C(성능은 통과하지만 energy를 1.2배로 늘림): energy A/B 1.179 > 1.05라서 채택하지 않고 LIF 유지.
+  - D(멈춤): SKIP 줄, 47행, 이미 다른 선택이 있는 `selected_structure.json`에서 모두 exit 2로 멈춘다. 그 이유로 멈췄는지, summary · 선택 파일을 쓰지 않았는지도 확인했다.
+  - dry run이 처음에는 3개 FAIL이었다. population 행 energy 점검의 허용치(1e-9)가 기록값의 소수 6자리 반올림보다 작았다. non-population 행과 같은 허용치(syn의 1e-3)로 고쳤다. D3이 다른 이유(energy 점검)로 멈추고 PASS로 나온 것도 발견해, 멈춘 이유까지 확인하도록 고쳤다.
+- **GPU 메모리**(재현 run, process별 1초 간격): 최대 pop LIF mixer 2,658 MiB, pop f-LIF mixer 2,670 MiB다.
+  - 다른 세션의 pool(tmux `flif_nope`)이 GPU마다 약 3.1 GB를 쓴다.
+  - 그래서 GPU당 2개(SLOTS `0,1,2,3,0,1,2,3`)로 정했다. 2 × 2.7 + 3.1 ≈ 8.5 GB < 49 GB다.
+
+### 사전 예상(확신 낮음)
+- **채택: 네 arm 모두 energy 조건에서 걸려 S = LIF SpkMixer가 될 가능성이 크다.**
+  - 18:07 시험 학습(2 epoch, seed 42) 행의 syops energy를 SF-de 최종 run(seed 42)과 비교했다.
+  - ETTh2 H96: pop LIF mixer 1.76배, + mean 1.37배, pop f-LIF mixer 3.05배, + mean 1.69배.
+  - ETTm2 H720: 각각 1.23 · 1.11 · 1.62 · 1.21배.
+  - 학습이 끝나면 발화율이 바뀌지만 1.05배 아래로 내려갈 것으로 보지 않는다.
+- B1 · B3: no clear difference.
+  - 11-17 pop LIF all vs LIF가 −0.94 %(10/12)로 기준에 가까웠다. MIT-BIH의 B1은 +0.18 %p였다.
+- C3 · C5: no clear difference.
+- 성능만 보면(MSE · MAE 0.001 규칙) 통과하는 arm이 있을지는 예상하지 않는다.
+
+### 예상 시간(내 추정)
+- 예전 population run 시간(GPU 공유, GPU당 2개): ETTm2 H96 3,600–5,100 s, ETTm2 H720 2,500–3,500 s, ETTh2 각 750–1,100 s.
+- 48 run은 약 30 GPU 시간이다. 8칸이면 약 4–6시간이다(끝 예상 11-20 01–03시). 다른 세션과 GPU를 함께 쓰면 늦어진다.
+
+### 한계(미리 적음)
+- 설정은 LIF SpkMixer로 튜닝한 값이다. population arm에 맞춰 다시 튜닝하지 않는다.
+- 채택은 test 값으로 정한다(사용자 규칙). 그 위에서 튜닝하므로, 마지막 통과 기준 판정에는 이 선택이 섞인다.
+- seed 3이다. 0.001은 ETTh2 MSE의 seed 표준편차(약 0.003)보다 작다.
+- syops는 spike끼리의 곱, abs · min · max를 세지 않는다. f-LIF 논문 식의 neuron energy는 syops 규칙이 아니지만 모든 model에 같은 식으로 더했다.
+
+**실행:** 이 commit · push 뒤 NSMT/에서 `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/mxpop_ett_driver.sh > /dev/null 2>&1 &`로 시작한다. driver.log는 `results/flif-v1-ett-spkmux-mxpop/driver.log`(local)다.
+
+**commit:** 이 기록, 위 code, 점검 출력(`check-mxett-20261119/`의 script · txt, `check-mxett-repro-20261119/raw.txt`)을 `exp/f-lif-pop-v3`에 commit · push한다. dry 폴더, 메모리 기록, run 폴더는 local이다.

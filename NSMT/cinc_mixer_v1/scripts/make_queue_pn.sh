@@ -20,7 +20,9 @@
 #   sf336    (user decision 11-18 21:4x: grid stopped, pop LIF mixer-only 336 dropped) SF-de 336 only = 12 (flif-v1-ett-spkmux-pn336)
 #   mxmit    (2026-11-19, user request 11-19 "[mixer에만 population] 실험을 AD 이후에 진행") MIT-BIH, the 4 mixer-only arms of GRID x 3 seeds
 #            = 12 (fresh suite flif-v1-mitbih-spkmux-mxpop; slowest arms first); the ETT part waits for the user's input-length decision
-# usage (from anywhere): bash make_queue_pn.sh repro|smoke|sf|main|len336|sf336|mxmit ; prints <queue file>:<jobs>
+#   mxett    (2026-11-19 evening, user decisions 11-19: ETT input 96; "mixer에만 population" first, then tuning) ETT, the 4 mixer-only arms of
+#            GRID x 4 cells x 3 seeds = 48 (fresh suite flif-v1-ett-spkmux-mxpop; the lines of the main stage with SUITE changed; slowest first)
+# usage (from anywhere): bash make_queue_pn.sh repro|smoke|sf|main|len336|sf336|mxmit|mxett ; prints <queue file>:<jobs>
 set -u
 W="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 Q="$W/scripts/queues"; mkdir -p "$Q"
@@ -43,7 +45,7 @@ sel() {                                                                         
 }
 MXP=("COND=spkmx_pop_flif_muxlin_X NSCOPE=mixer" "COND=spkmx_pop_lif_muxlin_X NSCOPE=mixer" "COND=spkmx_pop_flif_muxlin_X NSCOPE=mixer MIXPOOL=mean"
      "COND=spkmx_pop_lif_muxlin_X NSCOPE=mixer MIXPOOL=mean")                     # 2026-11-19 mixer-only population (GRID entries 3, 6, 4, 7)
-case ${1:?repro|smoke|sf|main|len336|sf336|mxmit} in
+case ${1:?repro|smoke|sf|main|len336|sf336|mxmit|mxett} in
   repro) f="$Q/pn-repro-$D.txt"; : > "$f"
          echo "SUITE=check-pn-repro-$D-ett COND=spkmx_lif_muxlin_iand LR=0.0005 LAYERS=1 $E ETTh2 96 42" >> "$f"
          echo "SUITE=check-pn-repro-$D-ett COND=spkmx_pop_lif_muxlin_iand LR=0.0005 LAYERS=1 $E ETTh2 96 42" >> "$f"
@@ -82,6 +84,10 @@ case ${1:?repro|smoke|sf|main|len336|sf336|mxmit} in
          done ;;
   mxmit) f="$Q/pn-mxmit-20261119.txt"; : > "$f"
          for c in "${MXP[@]}"; do for s in 42 7 2026; do g_mit "SUITE=flif-v1-mitbih-spkmux-mxpop" "$c" $s >> "$f"; done; done ;;
+  mxett) f="$Q/pn-mxett-20261119.txt"; : > "$f"
+         for dp in "ETTm2 96" "ETTm2 720" "ETTh2 720" "ETTh2 96"; do
+           for c in "${MXP[@]}"; do for s in 42 7 2026; do g_ett "SUITE=flif-v1-ett-spkmux-mxpop" "$c" $dp $s >> "$f"; done; done
+         done ;;
   *) echo "bad stage $1"; exit 1 ;;
 esac
 echo "$f:$(wc -l < "$f")"

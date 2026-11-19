@@ -22,6 +22,15 @@ Stages:
                       pop LIF mixer, C5 pop f-LIF mixer+mean vs pop f-LIF mixer (verdicts); report: pop f-LIF mixer vs pop LIF mixer,
                       pop LIF mixer+mean vs LIF+mean, every arm vs SF-de, SF-de vs SF-sj; paper bar vs SF-de under the existing energy and,
                       for the mean arms, under the pooled-integer rule (energy_pool.csv; proposal awaiting the user's approval)
+    mxett             (2026-11-19 evening, user decisions 11-19: input 96; "mixer에만 population" first, then tuning) ETT, the 4 mixer-only arms in
+                      the fresh suite flif-v1-ett-spkmux-mxpop: B1, B3, C3, C5 (verdicts, rule below); report: pop f-LIF mixer vs pop LIF mixer,
+                      pop LIF mixer+mean vs LIF+mean, every arm vs SF-de. Energy = the syops rule as published (user 11-19): logged total_fft_uJ,
+                      plus, for population neurons, the input ACs syops does not register (energy_recount body_syn_uJ minus syops' own body
+                      = syn_energy_uJ - head MAC x 4.6 pJ; for non-population rows the two must agree, rel 1e-3); the old rule is reported.
+                      Adoption (user rule 11-19): an arm is adopted when its 4-cell mean test MSE and MAE are both >= 0.001 below the LIF
+                      SpkMixer's and its syops energy A/B vs SF-de <= 1.05; several -> lowest 4-cell mean MSE (ties < 1e-12: lower energy);
+                      none -> LIF SpkMixer. -> results/flif-v1-ett-spkmux-mxpop/selected_structure.json (never overwritten with a different
+                      choice). The user's pass criteria (results/ett-pass-20261119/pass_ett.py) are reported for every arm.
 Paper bar (user decision 11-18 21:4x, per task, sign only): a SpkMixer arm meets it against SF-de when its mean is better (ETT R < 0; MIT-BIH mean
 difference > 0) AND its energy is lower (energy A/B < 1). Reported next to the verdicts; the verdict rules below are unchanged.
 Rules (each task's existing one): ETT test MSE, r = 100 (A - B) / B per seed, R = mean over the 4 cells of the seed-mean r, better = R <= -1 % and
@@ -29,7 +38,7 @@ Rules (each task's existing one): ETT test MSE, r = 100 (A - B) / B per seed, R 
 seeds higher, worse = mirror. Energy: total_fft_uJ_corr of energy_recount (per window / beat).
 Fail closed (exit 2, nothing written): a missing run, a SKIP line of a used condition, a duplicate, a non-finite value, a recount that does not reproduce
 the logged metric, a non-binary ETT head input, or (ETT) a new run whose best epoch is not the argmin of its validation loss.
-usage: python -B summarize_pn.py --stage select|sf_ett|sf_mit|ett|mitbih|len336|sf336|mxmit [--out <file>]
+usage: python -B summarize_pn.py --stage select|sf_ett|sf_mit|ett|mitbih|len336|sf336|mxmit|mxett [--out <file>]
 """
 import argparse
 import csv
@@ -47,11 +56,13 @@ MX3E, MX3M = os.path.join(RES, 'flif-v1-ett-spkmux-mx3'), os.path.join(RES, 'fli
 STE, STM = os.path.join(RES, 'flif-v1-ett-spkmux-stft'), os.path.join(RES, 'flif-v1-mitbih-spkmux-stft')
 L336 = os.path.join(RES, 'flif-v1-ett-spkmux-len336')
 MXM = os.path.join(RES, 'flif-v1-mitbih-spkmux-mxpop')                    # 2026-11-19 mixer-only population, MIT-BIH
+MXE = os.path.join(RES, 'flif-v1-ett-spkmux-mxpop')                       # 2026-11-19 evening mixer-only population, ETT (input 96)
 POOL0 = os.path.join(RES, 'check-pool-energy-20261119', 'energy_pool.csv')  # 00:08 pooled-integer recount (LIF, LIF+mean)
 if os.environ.get('PN_DRY'):                                              # dry runs: the new suites from <PN_DRY>/<suite>
     _d = os.environ['PN_DRY']
     SFE, SFM, PNE, PNM, P336 = (os.path.join(_d, os.path.basename(x)) for x in (SFE, SFM, PNE, PNM, P336))
     MXM = os.path.join(_d, os.path.basename(MXM))
+    MXE = os.path.join(_d, os.path.basename(MXE))
 ETT_LR = ('0.0001', '0.00025', '0.0005', '0.001', '0.002')
 MIT_LR = ('0.0025', '0.005', '0.01', '0.02')
 # arm -> (suite folder, cond, tag suffix after _lr<LR>_L<layers>); ETT LR = LR_MX, layers 1; MIT-BIH lr 0.02, layers 2
@@ -387,12 +398,118 @@ def stage_mxmit():
     return os.path.join(MXM, 'summary.md'), L
 
 
+E_MAC_UJ = 4.6e-6                                                         # µJ per MAC (45 nm, as the energy code)
+ENV = {'LIF': 'COND=spkmx_lif_muxlin_iand', 'pop LIF mixer': 'COND=spkmx_pop_lif_muxlin_iand NSCOPE=mixer',      # runner settings of each arm
+       'pop LIF mixer+mean': 'COND=spkmx_pop_lif_muxlin_iand NSCOPE=mixer MIXPOOL=mean',
+       'pop f-LIF mixer': 'COND=spkmx_pop_flif_muxlin_iand NSCOPE=mixer', 'pop f-LIF mixer+mean': 'COND=spkmx_pop_flif_muxlin_iand NSCOPE=mixer MIXPOOL=mean'}
+
+
+def syops_e(T, en):
+    """r['Es'] = energy under the syops rule as published (user 11-19). syops' own count is the logged total_fft_uJ; it does not register the
+    population neuron classes, so their input ACs (one per input element, syops' neuron rule) are added from the recorder:
+    Es = total_fft_uJ - syn_energy_uJ + head_MAC x E_MAC + body_syn_uJ (energy_recount checked body_syn_uJ = syops body + population ACs).
+    Non-population rows: Es must equal total_fft_uJ (to 1e-3 x syn_energy_uJ); population rows: Es >= total_fft_uJ - 1e-3 x syn_energy_uJ
+    (logged values carry 6 decimals). Fail closed."""
+    E = {}
+    for e in csv.DictReader(open(en)):
+        E[(e.get('tag', ''), e['ds'], int(e['pl']), int(e['seed']))] = e
+    for k, r in T.items():
+        e = E.get((r['tag'], r['ds'], int(r['pl']), int(r['seed'])))
+        if e is None or e.get('body_syn_uJ', '') == '' or e.get('head_MAC', '') == '':
+            stop(f'no recorder body energy for {k} in {en}')
+        tot, syn = float(r['total_fft_uJ']), float(r['syn_energy_uJ'])
+        es = tot - syn + float(e['head_MAC']) * E_MAC_UJ + float(e['body_syn_uJ'])
+        pop = r['cond'].startswith('spkmx_pop_')
+        if not (math.isfinite(es) and es > 0) or (not pop and abs(es - tot) > 1e-3 * syn) or (pop and es < tot - 1e-3 * syn):
+            stop(f'syops energy check fails for {k} ({r["cond"]}): {es} vs logged {tot}')
+        r['Es'] = es
+    return T
+
+
+def as_e(T, key):
+    """a copy whose 'E' (the energy compare() / ett_tables() read) is r[key]."""
+    return {k: dict(r, E=r[key]) for k, r in T.items()}
+
+
+def stage_mxett():
+    sys.path.insert(0, os.path.join(RES, 'ett-pass-20261119'))
+    import pass_ett as pe                                                  # noqa: E402  (user pass criteria, shared checker)
+    raw = os.path.join(MXE, 'raw.txt')
+    if not os.path.exists(raw):
+        stop(f'no {raw}')
+    if any(l.startswith('SKIP') for l in open(raw)):
+        stop(f'SKIP line in {raw}')
+    n = sum(1 for l in open(raw) if l.startswith('RESULT'))
+    if n != 48:
+        stop(f'{raw}: {n} RESULT rows, want 48')
+    T = {}
+    for name in ('LIF', 'LIF+mean', 'pop LIF all') + MXARMS:
+        _, _, mixer, suf = next(a for a in ARMS if a[0] == name)
+        S = MXE if name in MXARMS else where(name, 'ett')
+        en = os.path.join(S, 'energy_recount.csv')
+        T[name] = syops_e(load_ett(os.path.join(S, 'raw.txt'), en, lambda ds, m=mixer, s=suf: f'spkmx_{m}_muxlin_iand_lr{LR_MX[ds]}_L1{s}',
+                                   f'spkmx_{mixer}_muxlin_iand'), en)
+        if name in MXARMS:
+            for k, r in T[name].items():
+                best_ok(k, r)
+    SFD = syops_e(load_sfde_ett(), os.path.join(SFE, 'energy_recount.csv'))
+    Q = [('B1 pop LIF mixer vs LIF', 'pop LIF mixer', 'LIF'), ('B3 pop LIF mixer vs pop LIF all', 'pop LIF mixer', 'pop LIF all'),
+         ('C3 pop LIF mixer+mean vs pop LIF mixer', 'pop LIF mixer+mean', 'pop LIF mixer'),
+         ('C5 pop f-LIF mixer+mean vs pop f-LIF mixer', 'pop f-LIF mixer+mean', 'pop f-LIF mixer')]
+    R = [('(report) pop f-LIF mixer vs pop LIF mixer', 'pop f-LIF mixer', 'pop LIF mixer'),
+         ('(report, mean) pop LIF mixer+mean vs LIF+mean', 'pop LIF mixer+mean', 'LIF+mean')]
+    R += [(f'(report) {n} vs SF-de', n, 'SF-de') for n in ('LIF', 'LIF+mean', 'pop LIF all') + MXARMS]
+    full = dict(T, **{'SF-de': SFD})
+    TS, TO = {n: as_e(X, 'Es') for n, X in full.items()}, full                 # syops energy (verdict tables) / old rule (report)
+    L = ett_tables(TS, 'Mixer-only population, ETT input 96 (user decisions 11-19): population neuron only in the directional stacks + fusion',
+                   [(q, TS[a], TS[b]) for q, a, b in Q], [(q, TS[a], TS[b]) for q, a, b in R])
+    L[2] += ' Energy columns: the syops rule as published (user 11-19; population neuron input ACs added from the recorder).'
+    L += ['', '## Energy A/B under both rules (report)', '', '| comparison | syops rule | old rule (total_fft_uJ_corr) |', '|---|--:|--:|']
+    for q, a, b in Q + R:
+        L.append(f"| {q} | {compare(TS[a], TS[b], 'mse')['energy']:.4f} | {compare(TO[a], TO[b], 'mse')['energy']:.4f} |")
+    vals = lambda X: ({c: {k: [num(X[(c[0], c[1], s)], k) for s in SEEDS] for k in ('mse', 'mae')} for c in CELLS},
+                      {c: [X[(c[0], c[1], s)]['Es'] for s in SEEDS] for c in CELLS})
+    V = {n: vals(X) for n, X in full.items()}
+    lm = pe.cellmeans(V['LIF'][0])
+    L += ['', '## Adoption (user rule 11-19): 4-cell mean test MSE and MAE both >= 0.001 below the LIF SpkMixer, and syops energy A/B vs SF-de <= 1.05', '',
+          f'LIF SpkMixer 4-cell mean MSE / MAE: {lm[0]:.6f} / {lm[1]:.6f}', '',
+          '| arm | 4-cell mean MSE / MAE | LIF − arm MSE / MAE | energy A/B vs SF-de (syops) | MSE ok | MAE ok | energy ok | adopted candidate |', '|---|---|---|--:|---|---|---|---|']
+    sc, cand = {}, []
+    for n in MXARMS:
+        am, er = pe.cellmeans(V[n][0]), pe.eratio(V[n][1], V['SF-de'][1])
+        d = (lm[0] - am[0], lm[1] - am[1])
+        ok = (d[0] >= pe.MARGIN - pe.EPS, d[1] >= pe.MARGIN - pe.EPS, er <= pe.EBOUND + pe.EPS)
+        sc[n] = dict(mse=am[0], mae=am[1], d_mse=d[0], d_mae=d[1], energy_ratio_sfde=er, passes=all(ok))
+        if all(ok):
+            cand.append((am[0], er, n))
+        L.append(f"| {n} | {am[0]:.4f} / {am[1]:.4f} | {d[0]:+.4f} / {d[1]:+.4f} | {er:.4f} | " + ' | '.join('yes' if x else 'no' for x in ok) + f" | {'yes' if all(ok) else 'no'} |")
+    cand.sort()
+    pick = cand[0][2] if cand else 'LIF'
+    if len(cand) > 1 and abs(cand[0][0] - cand[1][0]) < 1e-12:
+        pick = min(cand[:2], key=lambda z: z[1])[2]
+    L += ['', f'**Adopted structure for the tuning: {pick}** ({"passes the rule" if cand else "no arm passes the rule, so the LIF SpkMixer stays"}).']
+    sel = dict(stage='mixer-only population ETT adoption (user rule 11-19, validation not used; test values)', selected=pick, env=ENV[pick],
+               lif=dict(mse=lm[0], mae=lm[1]), scores=sc)
+    p = os.path.join(MXE, 'selected_structure.json')
+    if os.path.exists(p):
+        old = json.load(open(p))
+        if old.get('selected') != pick:
+            stop(f'{p} already holds {old.get("selected")}, now {pick}; not overwritten')
+    else:
+        json.dump(sel, open(p, 'w'), indent=1)
+    L += ['', '## User pass criteria (report; results/ett-pass-20261119/pass_ett.py)', '']
+    for n in ('LIF',) + MXARMS:
+        res, Lj = pe.judge(n, V[n][0], V['SF-de'][0], V[n][1], V['SF-de'][1])
+        L += Lj
+    return os.path.join(MXE, 'summary.md'), L
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--stage', required=True, choices=['select', 'sf_ett', 'sf_mit', 'ett', 'mitbih', 'len336', 'sf336', 'mxmit']); ap.add_argument('--out')
+    ap.add_argument('--stage', required=True, choices=['select', 'sf_ett', 'sf_mit', 'ett', 'mitbih', 'len336', 'sf336', 'mxmit', 'mxett']); ap.add_argument('--out')
     a = ap.parse_args()
     p, L = {'select': stage_select, 'sf_ett': stage_sf_ett, 'sf_mit': stage_sf_mit, 'ett': stage_ett, 'mitbih': stage_mit, 'len336': stage_len336, 'sf336': stage_sf336,
-            'mxmit': stage_mxmit}[a.stage]()
+            'mxmit': stage_mxmit, 'mxett': stage_mxett}[a.stage]()
     p = a.out or p
     with open(p, 'w') as f:
         f.write('\n'.join(L) + '\n')
