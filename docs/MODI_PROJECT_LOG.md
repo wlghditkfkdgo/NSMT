@@ -9613,3 +9613,98 @@ Spikformer식보다 "좋음"인 변형은 없다.
 **commit:** 이 항목과 code, 스크립트, 점검, smoke 결과를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 driver를 시작한다. 이 commit이 새 run들의 sha가 된다.
 
 ---
+
+## 2026-11-19 13:37 KST — 결과: (가) 원 시계열 복원 auxiliary loss (60 run, 사전 고정 `9c1262613`) — **복원 목표를 원 patch로 바꿔도 기준 model은 좋아지지 않았다.** 두 기준 model(spikingjelly / 전부 SpikeDE) × pop LIF / pop f-LIF × ETT / MIT-BIH에서 원 시계열 − 끔(F1), 원 시계열 − 저주파(F2), Spikformer식 대비(F3)와 격차 변화가 모두 "차이 없음 / 변화 없음"이다(F1 ETT R −0.05 ~ +0.47 %, MIT-BIH −0.26 ~ +0.10 %p). 종합은 spikingjelly 기준 pop LIF "약함(방향만)", 나머지 셋은 "지지 안 됨"이다. SpikeDE 기준의 Spikformer식 대비 R은 끈 때 −0.80 / −0.75 %에서 −0.59 / −0.29 %로 Spikformer식 쪽으로 돌아갔다(문턱 아래). Neocortex 발화율과 Neocortex를 0으로 바꾼 손해는 저주파 aux와 거의 같다
+
+**branch / 기준:** `exp/nsmt-flif-neo`, 사전 고정 commit `9c1262613`(새 run 60개 모두 이 sha). 사전 고정은 2026-11-19 10:53 항목이다.
+
+**실행:** tmux `flif_of`(`of_driver.sh`의 F단계), GPU 4장에 run 하나씩이다. 10:53:41에 시작했고 13:09:44에 끝났다. RESULT 60(ETT 48, MIT-BIH 12), SKIP 0, START / DONE 60쌍. run 시간은 ETT 182–1398 s, MIT-BIH 479–674 s다. driver는 확인 줄("phase F: ETT 48 RESULT, MIT-BIH 12 RESULT, 0 SKIP")을 남기고 (나)의 S단계와 A1단계로 넘어갔다(아래 "S단계" 참고).
+
+**후처리 (사전 고정 순서 그대로):**
+1. pool 기록(`forecasting/results/flif-v1-of-pool.log` 4–255행, F단계 부분)을 두 suite의 `pool_runs.txt`로 복사했다.
+2. `energy_recount_ett.py --suite flif-v1-ett-auxf` → 48 run, test MSE 48/48 재현, "all checks passed".
+3. `coupling_diag.py --arms auxf --out_json results/flif-v1-auxf-diag.json --out_md results/flif-v1-auxf-diag.md` → 24 run(spikingjelly 기준 두 neuron × 4칸 × seed 3). 기록된 test MSE와 최대 4.8e-7 차이로 같고, batch 불변성 24/24 통과.
+4. `summarize_auxf.py --diag results/flif-v1-auxf-diag.json` → `classification/results/flif-v1-auxf-summary.md`.
+
+**나쁜 것 먼저:**
+- 원 시계열 복원도 성능을 올리지 못했다. 판정 24개(2 기준 × 2 neuron × 2 과제 × F1 / F2 / F3 / 격차 변화)가 모두 "차이 없음 / 변화 없음"이다.
+- SpikeDE 기준에서 F1이 오히려 높은 쪽(나쁜 쪽)이다: pop LIF +0.21 %(5/12 낮음), pop f-LIF +0.47 %(4/12 낮음). pop f-LIF ETTh2 H96 칸은 칸 판정 "나쁨"(+1.04 %)이다.
+- ETTh2 H720 칸은 F1 넷이 모두 높은 쪽이다(+0.53 ~ +0.94 %). 칸 판정 "나쁨"에는 못 미쳐 저주파 때(넷 중 셋 "나쁨", +1.27 ~ +1.47 %)보다는 덜하다.
+- 추론 energy가 ETT에서 3–5 % 늘었다(F1 energy 비 1.03–1.05). Spikformer식 대비 기준 model은 ETT 1.30–1.57배, MIT-BIH 1.19–1.33배다.
+
+**결과 (seed 3개 평균; ETT test MSE, MIT-BIH macro-F1 %):**
+
+| 기준 | model | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 | MIT-BIH |
+|---|---|---|---|---|---|---|
+| spikingjelly | Spikformer식 | 0.2903 | 0.4223 | 0.1775 | 0.4034 | 92.22 |
+| spikingjelly | pop LIF 끔 / 저주파 / 원 시계열 | 0.2931 / 0.2927 / 0.2915 | 0.4157 / 0.4218 / 0.4179 | 0.1776 / 0.1766 / 0.1775 | 0.4036 / 0.4023 / 0.4031 | 92.16 / 92.06 / 92.26 |
+| spikingjelly | pop f-LIF 끔 / 저주파 / 원 시계열 | 0.2904 / 0.2899 / 0.2900 | 0.4166 / 0.4224 / 0.4193 | 0.1782 / 0.1773 / 0.1774 | 0.4036 / 0.4030 / 0.4032 | 92.27 / 91.92 / 92.08 |
+| SpikeDE | Spikformer식 | 0.2921 | 0.4229 | 0.1779 | 0.4048 | 91.94 |
+| SpikeDE | pop LIF 끔 / 저주파 / 원 시계열 | 0.2914 / 0.2915 / 0.2916 | 0.4163 / 0.4216 / 0.4202 | 0.1763 / 0.1769 / 0.1762 | 0.4029 / 0.4036 / 0.4023 | 91.90 / 91.97 / 91.81 |
+| SpikeDE | pop f-LIF 끔 / 저주파 / 원 시계열 | 0.2897 / 0.2913 / 0.2927 | 0.4181 / 0.4168 / 0.4209 | 0.1766 / 0.1773 / 0.1767 | 0.4034 / 0.4043 / 0.4040 | 92.01 / 91.89 / 91.75 |
+
+**판정 (사전 고정 규칙; ETT는 R과 12쌍 중 A가 낮은 쌍 수, MIT-BIH는 seed 평균 d):**
+
+| 기준 | 비교 | ETT pop LIF | ETT pop f-LIF | MIT-BIH pop LIF | MIT-BIH pop f-LIF |
+|---|---|---|---|---|---|
+| spikingjelly | F1 원 시계열 − 끔 | −0.05 %, 5/12, 차이 없음 | −0.02 %, 7/12, 차이 없음 | +0.10 %p, 차이 없음 | −0.18 %p, 차이 없음 |
+| spikingjelly | F2 원 시계열 − 저주파 | −0.14 %, 7/12, 차이 없음 | −0.14 %, 6/12, 차이 없음 | +0.20 %p, 차이 없음 | +0.16 %p, 차이 없음 |
+| spikingjelly | F3 원 시계열 − Spikformer식 | −0.17 %, 7/12, 차이 없음 | −0.23 %, 7/12, 차이 없음 | +0.04 %p, 차이 없음 | −0.14 %p, 차이 없음 |
+| spikingjelly | F3 격차 변화 | −0.05 %p, 변화 없음 | −0.02 %p, 변화 없음 | +0.10 %p, 변화 없음 | −0.18 %p, 변화 없음 |
+| SpikeDE | F1 원 시계열 − 끔 | +0.21 %, 5/12, 차이 없음 | +0.47 %, 4/12, 차이 없음 | −0.09 %p, 차이 없음 | −0.26 %p, 차이 없음 |
+| SpikeDE | F2 원 시계열 − 저주파 | −0.24 %, 9/12, 차이 없음 | +0.26 %, 6/12, 차이 없음 | −0.16 %p, 차이 없음 | −0.14 %p, 차이 없음 |
+| SpikeDE | F3 원 시계열 − Spikformer식 | −0.59 %, 10/12, 차이 없음 | −0.29 %, 8/12, 차이 없음 | −0.13 %p, 차이 없음 | −0.19 %p, 차이 없음 |
+| SpikeDE | F3 격차 변화 | +0.21 %p, 변화 없음 | +0.46 %p, 변화 없음 | −0.09 %p, 변화 없음 | −0.26 %p, 변화 없음 |
+
+- **종합 (Spikformer식보다 낫다는 주장):**
+  - spikingjelly 기준: pop LIF 약함(방향만), pop f-LIF 지지 안 됨. pop LIF가 저주파 때 "지지 안 됨"에서 "약함"으로 바뀐 것은 ETT −0.17 %, MIT-BIH +0.04 %p라는 아주 작은 값의 방향 때문이다.
+  - SpikeDE 기준: 두 neuron 모두 지지 안 됨. 끈 때는 pop f-LIF가 "약함"이었다.
+- 모든 판정이 "차이 없음 / 변화 없음"이라 한 칸 빼기는 적용되지 않는다.
+
+**보고 전용:**
+- **Neocortex 발화율 (ETT, 끔 → 저주파 → 원 시계열):** spikingjelly pop LIF 0.0328 → 0.1426 → 0.1491, pop f-LIF 0.0371 → 0.1407 → 0.1542; SpikeDE 0.0332 → 0.1296 → 0.1378, 0.0323 → 0.1360 → 0.1456. MIT-BIH는 0.06–0.10 범위다.
+- **재구성 MSE (마지막 epoch, pop LIF / pop f-LIF):**
+  - ETT: spikingjelly 0.2818 / 0.1444, SpikeDE 0.2900 / 0.1484. 저주파는 0.1687 / 0.0859, 0.1763 / 0.0877이었다.
+  - MIT-BIH: 0.0053–0.0109(저주파 0.0035–0.0077).
+- **학습 뒤 진단** (spikingjelly 기준, 시험 때 Neocortex를 0으로 바꾼 ΔMSE, 네 칸 평균):
+
+| neuron | 끔 | 저주파 | 원 시계열 | 칸별 (원 시계열: ETTh2 H96 / H720 / ETTm2 H96 / H720) |
+|---|---|---|---|---|
+| pop LIF | −0.07 % | +1.02 % | +0.92 % | −0.88 / −0.05 / +2.91 / +1.69 % |
+| pop f-LIF | +0.84 % | +0.69 % | +0.72 % | −0.00 / +0.40 / +1.03 / +1.47 % |
+
+  - Neocortex가 바꾸는 점수 비중은 네 칸 평균 0.43(pop LIF) / 0.44(pop f-LIF)다. 끔 0.42, 저주파 0.45–0.46과 거의 같다.
+- **첫 epoch 멈춤 (ETT, 12 run 중 validation 최저가 epoch 0):** 원 시계열 3–4, 끔 1–4, 저주파 1–4. epoch 수는 11–26이다.
+
+**사전 예상과 대조:**
+
+| 예상 | 결과 | 맞음? |
+|---|---|---|
+| F1 / F2 / F3 모두 차이 없음 | 모두 차이 없음 / 변화 없음 | 맞음 |
+| ETTh2 H720은 저주파 때처럼 나빠질 수 있음 | 넷 모두 높은 쪽(+0.53 ~ +0.94 %), 칸 판정 "나쁨"은 없음 | 방향만 맞음 |
+| 재구성 MSE는 저주파보다 높음 | ETT 약 1.6–1.7배, MIT-BIH 약 1.4–1.7배 | 맞음 |
+| Neocortex 발화율은 저주파와 비슷하게 늚 | 0.138–0.154 대 0.130–0.143 | 맞음 |
+
+**(나)의 S단계 (driver가 자동으로 고름, validation만; 보고 전용):**
+- 전부 SpikeDE 기준 model의 aux 형태는 두 neuron 모두 **원 시계열**이 뽑혔다. 4칸 × seed 3의 "끔 대비 validation L1" 평균이 pop LIF 저주파 −0.07 %, 원 시계열 −0.10 %; pop f-LIF 저주파 +0.05 %, 원 시계열 −0.02 %다.
+- 사전 예상("끔 또는 저주파가 근소한 차이로 뽑힌다")은 틀렸다. 다만 차이는 0.1 % 안쪽으로 아주 작다.
+- 같은 비교의 test는 반대쪽이다(위 F1 SpikeDE +0.21 / +0.47 %). 그래서 (나)의 기준 model은 test에서 끔보다 조금 나쁜 쪽에서 출발한다. 규칙은 사전 고정대로 두고 바꾸지 않았다.
+- 상태는 `classification/results/flif-v1-of-selected.json`에 있다. A1단계(lr) 24 run이 13:09:44에 시작했다.
+
+**읽는 법 적용:**
+- F1에 "좋음"이 없으므로, 저주파와 마찬가지로 원 시계열 재구성 손실을 기본으로 켤 근거가 없다.
+- 진단의 Neocortex 쓰임 변화는 저주파와 같은 크기다. 성능 판정이 차이 없음이므로 T = N contribution의 근거로 쓰지 않는다.
+
+**결론:**
+- 복원 목표를 저주파에서 원 patch로 바꿔도 결과는 같다. Neocortex는 더 발화하고(약 4배) pop LIF에서 조금 더 쓰이지만, ETT와 MIT-BIH의 test 성능과 Spikformer식과의 차이는 그대로다.
+
+**한계:** aux 설정(α, AUX 0.1)은 NSMT 값 그대로이고 탐색하지 않았다. seed 3개다. 진단은 spikingjelly 기준만 했다.
+
+**plan과 다른 점 (commit 시점):** plan은 "F단계가 끝나면 (가)를 기록, tag, 보고"였다. 그러나 지금 commit 하면 (나)에서 아직 돌 run들이 다른 sha를 기록하고, `summarize_of.py`의 "새 run은 sha 하나" 검사가 멈춘다. 그래서 이 항목과 (가)의 결과 파일은 지금 작업 트리에만 두고, (나)의 driver가 끝난 뒤 (나)의 결과보다 먼저 따로 commit 하고 tag `exp/nsmt-flif-neo-20261119-auxf`를 붙인다. 보고는 지금 한다.
+
+**산출물 (Git, 위 commit 때 넣음):**
+- `nsmt_flif_v1/forecasting/results/flif-v1-ett-auxf/{raw.txt, pool_runs.txt, energy_recount.csv}`
+- `nsmt_flif_v1/classification/results/flif-v1-mitbih-auxf/{raw.txt, pool_runs.txt}`
+- `nsmt_flif_v1/classification/results/flif-v1-auxf-diag.{json,md}`, `flif-v1-auxf-summary.md`
+
+---
