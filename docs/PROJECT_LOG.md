@@ -14260,3 +14260,67 @@ head = s2                          H1(head가 membrane을 읽으면 CinC, ETT wo
 **다음:** ETT 부분(입력 96이면 48 run, 336이면 BN gain 맞춤값 표가 먼저 필요하다)은 사용자의 입력 길이 결정을 기다린다. 다음 사용자 결정도 그대로 남아 있다: pooled 규칙 승인, AD energy를 낮추는 실험 여부.
 
 **commit / tag:** 이 기록과 결과를 `exp/f-lif-pop-v3`에 commit · push한다. annotated tag `exp/f-lif-pop-v3-mxpopmit-20261119`를 붙인다. 이 tag는 "mixer에만 population" 실험의 **MIT-BIH 부분**에 대한 완료된 학습 run이다(snapshot 아님). ETT 부분은 포함하지 않는다. 이 기록이 들어간 commit은 이 tag로 가리킨다.
+
+## 2026-11-19 10:42 KST — 사용자 질문 3개에 대한 답(학습 없음): 새 energy 계산 규칙의 뜻, Spikformer 계열 논문의 입력 길이와 96 대 336 격차, AD energy 실험의 (나) 설정. 정정 2개: SF-de에는 "mixer 층 수"가 없다(`--time_layers`를 쓰지 않음), SpikF 폴더의 입력 336 결과는 공식 저장소가 아니라 local run이다
+
+**직전 commit:** `d7f41e21d`(mixer-only MIT-BIH 결과, tag `exp/f-lif-pop-v3-mxpopmit-20261119`). 브랜치 `exp/f-lif-pop-v3`. 이 브랜치에서 도는 pool은 없다.
+
+### 사용자 질문(원문)
+> 1. energy 계산 규칙(k/4 입력을 덧셈으로 셈)이 무슨 뜻이야? 어떻게 계산 규칙이 변경된다는 거야?
+> 2. Spikformer도 336을 택하고 있어?
+> - 96 vs. 336에 대해서 Spikformer와 비교했을 때 더 큰 gap을 갖는 설정은 뭐야?
+> 3. AD energy를 낮추는 실험을 하자.
+> - 이때, (나) 층 수를 SF-de와 같게 고정한다는 것이 무슨 설정이야?
+
+### 1. 새 energy 계산 규칙(pooled-integer 규칙)
+- energy는 연산 수 × 연산당 energy다(`energy.py`: 덧셈 AC 0.9 pJ, 곱셈-덧셈 MAC 4.6 pJ, 45 nm).
+- 기존 규칙(`energy.py` `SynOpRecorder._lin_hook` 206–209행, "integer 규칙"): Linear 입력 x가 0 이상의 정수이면 덧셈만 센다(sum(x) × 출력 수). 아니면 모든 입력 원소(0 포함) × 출력 수를 MAC으로 센다.
+  - spike(0/1)는 "1인 입력의 weight 열을 더하기"라서 덧셈이다. ADD 잔차의 정수 입력(0, 1, 2)도 같은 이유로 덧셈으로 센다.
+- mean pooling의 입력: mixer 앞에서 4번 반복의 spike를 평균한다. 값은 k/4(k = 4번 중 발화 횟수, 0–4) = 0, 0.25, 0.5, 0.75, 1이다. 정수가 아니므로 기존 규칙은 그 Linear 전체를 MAC으로 센다.
+- 새 규칙: W·(k/4) = (1/4)·(W·k)다.
+  - W·k는 weight 열을 k번 더하는 것이다(덧셈 k번).
+  - 1/4은 모든 출력에 같은 상수를 곱하는 것이다. 바로 뒤의 BN은 추론 때 채널마다 y = a·z + b이므로 a/4를 새 a로 미리 합칠 수 있다(추가 연산 0).
+  - 그래서 4x가 정수이면 sum(4x) × 출력 수를 덧셈으로 센다. 이 규칙이 적용된 층은 두 방향 stack의 첫 Linear 2개뿐이다(`energy_pool_mitbih.py` 점검). 그 뒤 BN이 바로 온다(stack은 Linear → BN → LIF).
+- 숫자 예(D = 64, 발화율 0.1 가정, 한 token): 반복 4번의 입력 spike 수 합 ≈ 0.1 × 64 × 4 = 25.6이다.
+  - pooling 없음: 25.6 × 64 = 1,638 AC ≈ 1.5 nJ.
+  - mean pooling + 기존 규칙: 64 × 64 = 4,096 MAC ≈ 18.8 nJ(0 입력도 곱셈으로 셈).
+  - mean pooling + 새 규칙: 1,638 AC ≈ 1.5 nJ. 첫 Linear는 pooling 없음과 같고, 그 뒤 mixer neuron · 둘째 층 · fusion은 4번 대신 1번 돈다.
+- 실측(MIT-BIH, 03:06 기록): LIF + mean의 synapse energy가 기존 규칙 19.66 µJ, 새 규칙으로 전체 6.00 µJ(SF-de의 0.64배)다.
+- 주의: 새 규칙은 "정수 개수를 받는 덧셈 회로"를 가정한다. 이미 ADD 잔차에 쓰는 가정과 같지만, 입력이 0/1 spike가 아니다. 논문에서는 이 가정을 밝혀야 한다. SF-de와 pooling 없는 SpkMixer는 두 규칙 값이 같다(점검함).
+
+### 2. Spikformer 계열 논문의 입력 길이(`results/ref-snn-lookback-20261119/notes.md`, PDF 원문 인용; PDF는 local)
+- Spikformer 원 논문(Zhou et al., ICLR 2023)은 이미지 분류 model이라 입력 길이 개념이 없다.
+- SpikF(ICML 2025): 주 결과표의 모든 model이 입력 96이다(Table 1 설명, 부록 B.1 "consistent with iTransformer"). 부록 Table 12의 iSpikformer(Spikformer식 SNN)도 이 설정이다. 입력 48–720을 바꿔 본 것(Figure 5, ETTh2 · ETTm2)은 SpikF 자신뿐이다.
+- SeqSNN(iSpikformer 원 논문, ICML 2024): ETT를 쓰지 않는다. 입력 길이는 Metr-la · Pems-bay 12, Solar · Electricity 168이다(부록 Table 4).
+- 그래서 SNN 문헌에서 ETT의 표준은 입력 96이다. 336은 DNN 문헌(PatchTST, DLinear, 23:48 기록)의 설정이다.
+- 이 브랜치의 비교는 같은 입력으로 했다. SF-de도 336으로 돌렸다(22:17 기록, 12 run).
+
+### 2-1. 96 대 336에서 Spikformer와의 격차(기존 결과, 새 학습 없음; R은 4 cell 평균 MSE 차이 %, 음수 = SpkMixer가 좋음)
+
+| 입력 | LIF SpkMixer vs SF-de | 더 낮은 쌍 | LIF SpkMixer vs SF-sj | 더 낮은 쌍 | 출처 |
+|---|--:|--:|--:|--:|---|
+| 96 | +0.31 %(SpkMixer가 나쁨) | 5/12 | +0.45 % | 3/12 | 22:52 기록, 10:37 기록 |
+| 336 | **−0.25 %**(SpkMixer가 좋음) | 7/12 | **−0.57 %** | 6/12 | 같음 |
+
+- SpkMixer가 Spikformer보다 앞서는 설정은 336뿐이다. 96에서는 조금 뒤진다.
+- 모든 차이가 판정 기준(±1 %, 8/12) 안이라 no clear difference다. SF-sj와의 격차 변화(336 − 96)도 사전등록 규칙으로 "변화 없음"이었다(−1.02 %p, 7/12; 10:37 기록).
+- 336의 우위는 주로 ETTh2 H96에서 온다(SF-de 대비 −2.64 %). 이 cell에서 Spikformer 두 판은 입력이 길어지면 나빠진다(+4.2 %, +6.6 %). ETTm2 H720에서는 SpkMixer가 뒤진다(+2.19 %).
+
+### 3. AD energy 실험의 (나)와 정정
+- **정정(내 잘못):** 01:19 보고와 그 앞의 "(나) 층 수를 SF-de와 같게 고정"은 잘못된 표현이다.
+  - SF-de(`spk_ssa`, `--hippo_ssa`)는 `--time_layers`를 쓰지 않는다. `model.py` 583–584행("hippo_ssa has no neocortex path"), 628 · 657행(hippo_ssa이면 neocortex와 `time_block`을 만들지 않음), 645–651행(SSA `Block`을 만들 때 `time_num_layers`를 넘기지 않음; `Block`의 기본값 1은 쓰이지 않음).
+  - 그래서 SF-de tag의 `_L2`와 00:08 · 01:16 기록의 "층 2(SF-sj 11-03과 같음)"는 구조에 영향이 없는 이름표다. SF-de는 AD에서 SSA block 하나다(`--layers 1`). 결과 값은 바뀌지 않는다.
+  - 내가 뜻한 것은 "SpkMixer의 방향별 mixer 층 M을 세 dataset 모두 2로 고정"(PSM의 3 대신)이었다. 그런데 M = 2는 이미 측정됐다. muxlin(기본 설정: OR, lr 5e-4, M = 2)의 energy가 SF-de의 1.0043배였다(01:16 기록). 그래서 이 안은 energy를 1 아래로 확실히 내리지 못한다.
+- AD 튜닝(11-03, `results/flif-v1-ad-spkmux-tune/`)은 lr(OR, M = 2) → M(1 / 2 / 3) → 잔차 순서로 validation에서 골랐다. 선택은 MSL OR / 2e-3 / M 2, SMAP ADD / 2e-3 / M 1, PSM ADD / 1e-3 / M 3이다. M = 1인 SMAP의 energy가 SF-de의 0.983배로 세 dataset 중 유일하게 1 아래다.
+- 그래서 AD energy를 낮추는 후보를 다시 적는다(실행 안 함, 사용자 결정):
+  - (가) mean pooling: 새 계산 규칙 승인이 필요하다. 기존 규칙에서는 mean pooling이 energy를 늘린다(MIT-BIH 2.18배). AD runner(`run_ad_spk.sh`)에는 `MIXPOOL`이 아직 없다. runner 연결과 AD용 새 규칙 재계산기를 만들어야 한다.
+  - (나, 정정) M = 1 고정: 세 dataset 모두 방향마다 Linear → BN → LIF 한 층이다. lr과 잔차는 11-03과 같은 순서로 validation에서 다시 고른다(M 단계는 뺀다). model code는 바꾸지 않는다. 대략 holdout 63 run + final 9 run이다.
+- 결과는 예상하지 않는다.
+
+### 정정(23:48 기록의 SpikF 항목)
+- "그 폴더의 `test_results`는 ETT를 L = 336으로 돌린 이름이다"는 사실이지만, 공식 저장소의 결과가 아니다.
+  - `/home/yschoi/SpikF`에서 `git ls-files test_results`가 비어 있다. `scripts/*iSpikformer*.sh`도 추적되지 않는 local 파일이다.
+  - 공식 `scripts/run_ETTh2.sh`는 `seq_len 96`이고, 논문도 96이다(위 2).
+  - 그때 추적 여부를 확인하지 않았다.
+
+**commit:** 이 기록과 `results/ref-snn-lookback-20261119/notes.md`를 `exp/f-lif-pop-v3`에 commit · push한다(code 변경 없음, 학습 없음). 해시는 다음 기록에 적는다.
