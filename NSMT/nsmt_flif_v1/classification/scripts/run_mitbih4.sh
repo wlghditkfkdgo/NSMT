@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# MODI 2026-11-19 (full-signal aux, user request 11-19): + nsmt4q_pop_<lif|flif>_{msn,msn_sde}_auxf = the _aux conditions with
+#   --keep_ratio 0 (raw patches as the target; it comes after the fixed --keep_ratio 0.15, argparse keeps the last).
 # MODI 2026-11-19 (aux loss, user request 11-19): + nsmt4q_pop_<lif|flif>_{msn,msn_sde}_aux = the same flags with AUX = 0.1
 #   (loss 0.9 CE + 0.1 reconstruction MSE, keep_ratio 0.15: the ECG framework / NSMT classification default).
 # MODI 2026-11-18 (SpikeDE-basis comparison, user decision 11-18 "(가)"): + nsmt4q_pop_<lif|flif>_msn_sde = the msn base with
@@ -89,6 +91,10 @@ case $COND in
   nsmt4q_pop_lif_msn_sde_aux)   AUX=0.1; CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neuron_all lif" ;;   # MODI 2026-11-19 (aux loss): NSMT default 0.9 CE + 0.1 MSE
   nsmt4q_pop_flif_msn_aux)  AUX=0.1; CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha $ALPHA --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms" ;;   # MODI 2026-11-19 (aux loss): NSMT default 0.9 CE + 0.1 MSE
   nsmt4q_pop_flif_msn_sde_aux)  AUX=0.1; CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha $ALPHA --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neuron_all lif" ;;   # MODI 2026-11-19 (aux loss): NSMT default 0.9 CE + 0.1 MSE
+  nsmt4q_pop_lif_msn_auxf)   AUX=0.1; CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --keep_ratio 0" ;;   # MODI 2026-11-19 (full-signal aux): AUX 0.1, raw patches (overrides the fixed 0.15)
+  nsmt4q_pop_lif_msn_sde_auxf)   AUX=0.1; CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neuron_all lif --keep_ratio 0" ;;   # MODI 2026-11-19 (full-signal aux): AUX 0.1, raw patches (overrides the fixed 0.15)
+  nsmt4q_pop_flif_msn_auxf)  AUX=0.1; CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha $ALPHA --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --keep_ratio 0" ;;   # MODI 2026-11-19 (full-signal aux): AUX 0.1, raw patches (overrides the fixed 0.15)
+  nsmt4q_pop_flif_msn_sde_auxf)  AUX=0.1; CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha $ALPHA --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neuron_all lif --keep_ratio 0" ;;   # MODI 2026-11-19 (full-signal aux): AUX 0.1, raw patches (overrides the fixed 0.15)
   nsmt4q_pop_flif_mshn) AUX=0; CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha $ALPHA --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --res_mode ms --neo_res ms" ;;
   nsmt4q_pop_lif_msn_freq)AUX=0; CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band freq" ;;   # MODI 2026-11-13 (frequency bands)
   nsmt4q_pop_lif_msn_same)AUX=0; CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band same" ;;

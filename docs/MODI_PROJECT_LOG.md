@@ -9479,3 +9479,137 @@ Spikformer식보다 "좋음"인 변형은 없다.
 **commit / tag:** 이 항목과 결과 파일을 commit 하고 annotated tag `exp/nsmt-flif-neo-20261119-aux`를 붙인다. `exp/nsmt-flif-neo`와 이 tag만 push 한다.
 
 ---
+
+## 2026-11-19 10:53 KST — 사전 고정 + 구현 (학습 전): (가) 원 시계열 복원 auxiliary loss, (나) 과적합 조치 후 Spikformer(DE)와 비교 (사용자 요청 11-19, plan 승인) — driver 하나로 이어 돌린다: F(원 시계열 aux 60 run) → S(기준 model의 aux 형태 고르기) → A1 learning rate → A2 head dropout → A3 weight decay(단계마다 seed 42 × 24 run) → B(최종 설정의 seed 7 / 2026, 최대 24 run). 고르기는 모두 validation으로 자동으로 하고, test는 판정에만 쓴다. 기본 경로 16/16 같음, 명령줄 9/9 같음, 1 epoch 기본 smoke 0.286664 재현, 점검 10/10, smoke 12/12
+
+**직전 commit:** `2bb162037` (문헌 보고서). 그 앞은 `eb9807c86` (저주파 aux 결과, tag `exp/nsmt-flif-neo-20261119-aux`). branch `exp/nsmt-flif-neo`.
+
+**사용자 요청 (11-19, 원문):**
+1. "과적합에 대한 여러 조치를 취해서 해결한 상태에서의 test 값을 Spikformer(DE)와 비교해줘."
+2. "저주파 auxiliary loss가 끝나면 이어서 원 시계열을 복원하는 auxiliary loss로 교체 후 실험해줘."
+3. "우선, 문헌 조사가 끝나기 전에 위 1, 2번 항목에 대해서 plan 파일에 작성해줘."
+- plan 파일(`~/.claude/plans/1-snuggly-galaxy.md`)을 사용자가 승인했다. 아래는 그 plan을 구체화한 것이다.
+- "Spikformer(DE)" = 모든 neuron이 SpikeDE LIF인 Spikformer식(`spkall_lif`)이다. 기준 model도 전부 SpikeDE로 맞춘다(사용자 결정 11-18 "(가)").
+
+### (가) 원 시계열을 복원하는 auxiliary loss
+- **바꾸는 것은 복원 목표 하나다:** 저주파(keep_ratio 0.3 / 0.25 / 0.15) → 원 patch 그대로(`--keep_ratio 0`).
+  - code상 keep_ratio가 0이면 `myModel._tokens_mc`가 저역 거르기를 건너뛰고 원 token을 목표로 쓴다. `check_of.py` k1로 확인했다(차이 0).
+  - ETT 목표는 window 정규화된 입력의 patch다.
+- **나머지는 저주파 시험과 같다:** α(ETTh2 0.8, ETTm2 0.5, r = α × H / 720; MIT-BIH 0.9 CE + 0.1 MSE), 두 기준 model × pop LIF / pop f-LIF.
+- **run:** 조건 `nsmt4q_pop_<n>_{msn,msn_sde}_auxf`. suite `flif-v1-ett-auxf`(48 run), `flif-v1-mitbih-auxf`(12 run).
+- **판정 (`summarize_auxf.py`; 문턱은 지금까지와 같음):**
+  - F1 원 시계열 − aux 끔.
+  - F2 원 시계열 − 저주파.
+  - F3 원 시계열 켠 기준 model − 같은 library의 Spikformer식, 그리고 격차 변화.
+  - neuron마다 종합.
+- **보고 전용:**
+  - `coupling_diag.py --arms auxf --out_json results/flif-v1-auxf-diag.json --out_md results/flif-v1-auxf-diag.md` (spikingjelly 기준).
+  - 재구성 MSE, 발화율, energy, 첫 epoch 멈춤.
+- **사전 예상:**
+  - F1 / F2 / F3 모두 차이 없음. ETTh2 H720은 저주파 때처럼 나빠질 수 있다.
+  - 원 신호는 고주파 잡음까지 복원해야 하므로 재구성 MSE는 저주파보다 높다.
+  - Neocortex 발화율은 저주파 aux와 비슷하게 는다.
+
+### (나) 과적합 조치 후 Spikformer(DE)와 비교 (ETT, 입력 96)
+- **배경:** 11-18 23:57 loss 경향 분석. ETT validation이 epoch 0–3에서 가장 낮고 그 뒤 오른다(과적합 표시 133/180). lr은 모두 5e-6 이하로 깎인 채 끝났다.
+- **model:** Spikformer(DE) `spkall_lif`, 전부 SpikeDE 기준 model pop LIF / pop f-LIF. 기준 model의 aux 형태는 S단계에서 고른다.
+- **S단계 (자동, validation만):**
+  - neuron마다 {끔(`flif-v1-ett-sde`), 저주파(`flif-v1-ett-aux`), 원 시계열(`flif-v1-ett-auxf`)} 중에서 고른다.
+  - 기준은 4칸 × seed 3의 [validation L1 / 끔의 validation L1 − 1] 평균이 가장 낮은 것이다.
+  - 끔보다 엄밀히 낮을 때만 바꾼다.
+- **조치 세 단계 (두 model에 같은 후보, 고르기는 model마다, seed 42):**
+
+| 단계 | 조치 | 후보 (지금 값은 기존 run을 다시 씀) |
+|---|---|---|
+| A1 | learning rate | 0.0005(지금), 0.0001, 0.00005 |
+| A2 | head dropout (flat head 입력 앞, 학습 때만) | 0(지금), 0.1, 0.3 |
+| A3 | weight decay (AdamW) | 0.06(지금), 0.2, 0.5 |
+
+  - 단계마다 3 model × 4칸 × 새 값 2개 = 24 run이다.
+  - **고르는 규칙:** s(v) = 네 칸의 [validation L1(v) / validation L1(앞 단계에서 고른 설정) − 1] 평균. 가장 낮은 새 값이 앞 단계 설정보다 엄밀히 낮으면 바꾸고, 아니면 그대로 둔다.
+  - 가장자리 값(lr 0.00005, dropout 0.3, wd 0.5)을 고르면 "범위 끝"으로 표시한다. 사용자 결정 없이 범위를 넓히지 않는다.
+  - suite는 `flif-v1-ett-of-<단계>-<값>`이다. run 폴더 이름에 dropout과 weight decay가 들어가지 않기 때문이다.
+- **B단계:** 최종 설정이 지금과 다른 model만 seed 7 / 2026 × 4칸을 더 돌린다(최대 24 run). seed 42 run이 있는 suite에 넣는다.
+- **판정 (`summarize_of.py`):**
+  - **O1 과적합이 해결됐는가 (서술, model마다):** 최종 설정 12 run의 과적합 표시 수와 가장 좋았던 epoch의 중앙값. 정의는 `loss_trends.py`와 같다. "해결" = 과적합 표시 ≤ 3/12이고 중앙값 ≥ 4.
+  - **O2 (주 비교):** 기준 model(최종) − Spikformer(DE)(최종). 12쌍이고, 좋음 = R ≤ −1 %이고 8/12 낮음, 나쁨은 그 거울이다. 두 neuron 결론과 energy를 함께 적는다.
+  - **O3 격차 변화:** O2 − (지금 설정의 기준 model − Spikformer(DE)). 커짐 = 평균 ≤ −1 %p이고 8/12 음수.
+  - **O4 조치의 효과:** 최종 − 지금, model마다 12쌍.
+  - **종합 (neuron마다):** ETT는 O2를 쓴다. MIT-BIH는 S단계에서 고른 aux 형태의 SpikeDE 비교 값을 쓴다(MIT-BIH는 조치하지 않음; 과적합 표시 0/18).
+  - **보고 전용:** 단계별 seed 42 고르기 표(validation, 참고용 test), 범위 끝 여부, epoch 수, run 시간, 발화율, energy.
+- **읽는 법:**
+  - O2 좋음(두 neuron, 또는 한 neuron robust)이면 과적합을 다룬 뒤 기준 model이 Spikformer(DE)보다 낫다.
+  - O1 "해결 안 됨"이면 세 조치로 과적합이 풀리지 않은 것이다. 그때도 비교는 보고하되, 과적합이 남은 비교라고 적는다.
+  - O4가 "좋음"이 아니면 조치가 test를 올리지 못한 것이다(validation으로 고른 설정이 test에서 이득이 없음).
+- **사전 예상:**
+  - S단계에서는 끔 또는 저주파가 근소한 차이로 뽑힌다.
+  - A1에서는 세 model 모두 더 낮은 lr(0.0001 또는 0.00005)을 고른다. A2에서는 적어도 한 model이 dropout을 고른다. A3에서는 대부분 0.06이 유지된다.
+  - O1: 과적합 표시는 줄지만 "해결" 기준(≤ 3/12, 중앙값 ≥ 4)은 많아야 한 model이 넘는다.
+  - O4: Spikformer(DE)와 기준 model 모두 차이 없음이거나 −1 ~ −2 %다.
+  - O2: 두 neuron 모두 차이 없음. O3: 변화 없음.
+
+### 코드 / 스크립트 (기본값이면 지금과 같음)
+- `classification/forecast_wrap.py`: `Forecaster(..., head_dropout=0.)`.
+  - 0보다 크면 flat head 입력 앞에 `nn.Dropout`을 둔다. 0이면 module을 만들지 않는다.
+  - h6 head와 p ≥ 1은 거부한다.
+- `classification/train_forecast.py`: `--head_dropout`(기본 0)을 더했다. weight decay는 기존 `--weight_decay`를 쓴다.
+- `forecasting/scripts/run_ett_dual.sh`, `run_ett_mixer.sh`:
+  - env `WD`(`--weight_decay ${WD:-0.06}`)와 env `DROP`(주면 `--head_dropout`)을 더했다. RESULT 줄에는 준 경우에만 `wd=` / `drop=`이 붙는다.
+  - `_auxf` 조건을 더했다. `--keep_ratio 0`에 같은 `--aux_alpha`를 쓴다.
+- `classification/scripts/run_mitbih4.sh`: `_auxf` 조건(AUX 0.1, `--keep_ratio 0`가 고정값 0.15 뒤에 붙음).
+- `classification/coupling_diag.py`: `--arms auxf` / `--suite_auxf`를 더했다. 기존 arm은 그대로다.
+- **새 파일:**
+  - `classification/select_of.py`: S / A1 / A2 / A3 고르기와 다음 단계 대기열. 상태 파일은 `results/flif-v1-of-selected.json`이다.
+  - `classification/summarize_auxf.py`, `classification/summarize_of.py`, `classification/check_of.py`.
+  - `classification/scripts/make_queue_auxf.sh`, `classification/scripts/of_driver.sh`.
+- plan과 다른 점: `loss_trends.py`는 고치지 않았다. `summarize_of.py`가 그 `ett_run` 함수를 직접 불러 O1을 센다.
+
+### 점검 (fail-closed)
+- **기본 경로 동일:**
+  - 고치기 전에 저장하고 고친 뒤 비교했다(`fw_identity_xnor.py`). 16/16 같다.
+  - 실행 스크립트 명령줄도 고치기 전과 같다: ETT dual 4, mixer 2, MIT-BIH 3 = 9/9. 이번에는 모든 `*.py` 호출을 기록하는 가짜 python과 비교마다 다른 파일 이름을 썼다(11-18 실수 재발 방지).
+  - 값을 주면 바뀌는 것만 바뀐다: `-lr`, `--head_dropout`, weight decay 값, `_auxf`의 `--keep_ratio 0`과 `--aux_alpha`.
+- **`check_of.py` 10/10 통과** (SpikeDE 기준 pop LIF, Spikformer(DE); ETTh2 H96 seed 42 config):
+  - d1: p 0이면 dropout module이 없고, p 0.3인 model과 state_dict 80 / 61 항목이 같다.
+  - d2: eval 출력은 p 0.3과 0이 같다.
+  - d3: 학습 모드 출력은 다르고 유한하다.
+  - d4: p 1과 h6 head를 거부한다.
+  - k1: keep_ratio 0이면 aux 목표 = 원 patch(차이 0). keep_ratio 0.3이면 다르다(최대 3.152).
+- `check_aux.py`를 다시 돌렸다: 14/14.
+- **smoke** (1 epoch, seed 42, RESULT 12, SKIP 0):
+  - 기본 경로 끝단 확인: `nsmt4q_pop_lif_msn` ETTh2 H96 test 0.286664, validation 0.313381로 이전 smoke 세 번과 같다.
+  - `_auxf` ETT 5개: 폴더 `keep_ratio+0.0`, "aux loss on: r = 0.106667 … keep_ratio 0.0" 4개, r 0.5 1개(ETTm2 H720). test MSE는 ETTh2 H96에서 0.286750–0.289841, ETTm2 H720에서 0.401662다.
+  - `_auxf` MIT-BIH 4개: 폴더 `keep_ratio+0.0`, aux=0.1. 1 epoch F1 0.6647–0.7486.
+  - 손잡이 2개: `spkall_lif` LR=0.0001 DROP=0.3 WD=0.2와 기준 pop LIF SpikeDE LR=5e-05 DROP=0.1 WD=0.5. `logargs.txt`의 lr / weight_decay / head_dropout이 준 값과 같다. 폴더는 `+lr+0.0001+` / `+lr+5e-05+`이고 RESULT는 lr= / wd= / drop=이다.
+  - ETT smoke의 energy 재계산은 두 suite 모두 "all checks passed"다(dropout model 포함).
+- **고르기·요약 script 시험 (가짜 suite):**
+  - 가짜 실행기로 대기열을 실제처럼 돌려 S → A1 → A2 → A3 → B를 끝까지 진행했다. validation 배율을 심어 두었다.
+  - 고른 값이 모두 심어 둔 답과 같았다: S pop LIF 저주파 / pop f-LIF 끔; A1 0.0001 / 0.00005(범위 끝) / 유지; A2 0.1 / 유지 / 유지; A3 유지 / 0.5(범위 끝) / 유지.
+  - B 대기열은 바뀐 두 model만 16줄이었다.
+  - `summarize_of.py`의 O4는 −2.49 / −3.97 %로 심어 둔 값과 같았다. "지금" 비교 줄은 기록값(−0.80 / −0.75 %, 저주파 −1.79 %)을 재현했다.
+  - 실패해야 하는 6경우가 멈췄다: 줄 빠짐, RESULT lr 틀림, SKIP 줄, 단계 순서 어김, 같은 단계 반복, nan. 검색 패턴이 실제 줄에 맞는지 먼저 확인했다(4줄 일치).
+  - `summarize_auxf.py`는 가짜 suite에서 심어 둔 −2.00 % / +0.60 %p를 그대로 냈다.
+
+### 실행
+- NSMT/에서 tmux `flif_of`로 `bash nsmt_flif_v1/classification/scripts/of_driver.sh 0,1,2,3`을 띄운다(GPU 하나에 run 하나).
+- 기록은 `nsmt_flif_v1/forecasting/results/flif-v1-of-pool.log`에 남는다.
+- 어느 단계든 RESULT 수가 맞지 않거나, SKIP이 있거나, 고르기가 실패하면 멈추고 다음 단계로 가지 않는다.
+- 측정한 run 시간: ETT 입력 96은 126–4312 s(저주파 aux 묶음 포함), MIT-BIH는 372–656 s다. 낮은 lr은 epoch가 늘 수 있다. 끝나는 시각은 어림하지 않는다.
+- **F단계가 끝나면** (가) 후처리: pool 기록 복사, `energy_recount_ett.py --suite flif-v1-ett-auxf`, `coupling_diag.py --arms auxf …`, `summarize_auxf.py --diag …`, 결과 기록, tag, 보고. driver는 (나)를 계속한다.
+- **B단계가 끝나면** (나) 후처리: 쓰인 단계 suite마다 energy 재계산, `summarize_of.py`, 결과 기록, tag, 보고, 그리고 사용자 결정을 기다린다.
+- driver가 도는 동안 저장소의 code와 실행 스크립트를 고치지 않는다. 특히 `select_of.py`는 단계 사이에 실행되므로 고치지 않는다.
+
+### 한계와 not run
+- **한계:**
+  - 조치 고르기는 seed 하나(42)의 validation이고, 한 번에 하나씩 차례로 고른다(모든 조합을 보지 않음).
+  - ETT 입력 96만 본다. MIT-BIH는 조치하지 않는다.
+  - aux 설정은 NSMT 값 그대로다.
+- **not run:**
+  - MIT-BIH 과적합 조치(필요하면 80/20 validation 안을 따로 냄).
+  - body 안의 dropout, head 크기 줄이기, patch 변경.
+  - 같은 설정으로 두 model 맞추기.
+  - 입력 336 / 720, CinC, 이상 탐지.
+
+**commit:** 이 항목과 code, 스크립트, 점검, smoke 결과를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 driver를 시작한다. 이 commit이 새 run들의 sha가 된다.
+
+---

@@ -33,7 +33,7 @@ __all__ = ['Forecaster']
 
 
 class Forecaster(nn.Module):
-    def __init__(self, inner, embed_dim, pred_len, bias=False, head_kind='flat', head_dim=8, seq_len=None):
+    def __init__(self, inner, embed_dim, pred_len, bias=False, head_kind='flat', head_dim=8, seq_len=None, head_dropout=0.):
         super().__init__()
         if isinstance(inner, NeoMixer):
             self.kind = 'mixer'
@@ -49,6 +49,13 @@ class Forecaster(nn.Module):
         self.T = getattr(inner, 'T', None)
         self.head_kind, self.body_off = head_kind, False
         self.aux, self._x_neo = False, None                                # MODI 2026-11-19 (aux loss): set by train_forecast.py
+        # MODI 2026-11-19 (overfitting test): dropout on the flat head's input (training only; no parameters). 0 (default): no module,
+        # so the state_dict, the RNG use and every output are unchanged. 'flat' head only.
+        if not 0. <= float(head_dropout) < 1.:
+            raise ValueError('head_dropout in [0, 1)')
+        if head_dropout > 0 and head_kind != 'flat':
+            raise NotImplementedError('head_dropout: flat head only')
+        self.head_drop = nn.Dropout(float(head_dropout)) if head_dropout > 0 else None
         if head_kind == 'flat':
             self.head = nn.Linear(embed_dim * self.num_patches, self.pred_len, bias=bias)
             heads = [self.head]
@@ -118,5 +125,8 @@ class Forecaster(nn.Module):
             y = y.reshape(B, C, self.pred_len).permute(0, 2, 1)
             return y * stdev + means
         f = self.features(z)
+        if self.head_drop is not None:                                     # MODI 2026-11-19 (overfitting test)
+            y = self.head(self.head_drop(f.reshape(B * C, -1))).reshape(B, C, self.pred_len).permute(0, 2, 1)
+            return y * stdev + means
         y = self.head(f.reshape(B * C, -1)).reshape(B, C, self.pred_len).permute(0, 2, 1)   # [B, H, C]
         return y * stdev + means

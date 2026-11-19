@@ -43,7 +43,9 @@ ARMS = {'now': (('base_lif', 'flif-v1-ett-ms', 'nsmt4q_pop_lif_msn'), ('base_fli
         'new': (('base_lif', 'flif-v1-ett-xnor', 'nsmt4q_pop_lif_msn_xl'), ('base_flif', 'flif-v1-ett-xnor', 'nsmt4q_pop_flif_msn_xl'),
                 ('spk', 'flif-v1-ett-xnor', 'spk_ssa_xl')),
         # MODI 2026-11-19 (aux loss test, report only): the msn base trained with NSMT's reconstruction loss (spikingjelly hippocampus)
-        'aux': (('base_lif', 'flif-v1-ett-aux', 'nsmt4q_pop_lif_msn_aux'), ('base_flif', 'flif-v1-ett-aux', 'nsmt4q_pop_flif_msn_aux'))}
+        'aux': (('base_lif', 'flif-v1-ett-aux', 'nsmt4q_pop_lif_msn_aux'), ('base_flif', 'flif-v1-ett-aux', 'nsmt4q_pop_flif_msn_aux')),
+        # MODI 2026-11-19 (full-signal aux test, report only): the same with the raw patches as the reconstruction target
+        'auxf': (('base_lif', 'flif-v1-ett-auxf', 'nsmt4q_pop_lif_msn_auxf'), ('base_flif', 'flif-v1-ett-auxf', 'nsmt4q_pop_flif_msn_auxf'))}
 CELLS = (('ETTh2', 96), ('ETTh2', 720), ('ETTm2', 96), ('ETTm2', 720))
 SEEDS = (42, 7, 2026)
 AC, AC_INT = 0.9e-6, 0.03e-6                                         # µJ per add
@@ -327,12 +329,13 @@ def report(rs, arms_key):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--arms', choices=['now', 'new', 'aux'], required=True)   # MODI 2026-11-19: + aux
+    ap.add_argument('--arms', choices=['now', 'new', 'aux', 'auxf'], required=True)   # MODI 2026-11-19: + aux, auxf
     ap.add_argument('--device', default='cuda:0')
     ap.add_argument('--only', default=None)
     ap.add_argument('--seeds', default=None)
     ap.add_argument('--suite_new', default='flif-v1-ett-xnor', help='suite of the new arms (a smoke suite for testing the script)')
     ap.add_argument('--suite_aux', default='flif-v1-ett-aux', help='MODI 2026-11-19: suite of the aux arms (a smoke suite for testing)')
+    ap.add_argument('--suite_auxf', default='flif-v1-ett-auxf', help='MODI 2026-11-19: suite of the auxf arms (a smoke suite for testing)')
     ap.add_argument('--out_json', required=True)
     ap.add_argument('--out_md', required=True)
     a = ap.parse_args()
@@ -340,6 +343,8 @@ def main():
         ARMS['new'] = tuple((arm, a.suite_new, cond) for arm, _, cond in ARMS['new'])
     if a.arms == 'aux':                                                # MODI 2026-11-19
         ARMS['aux'] = tuple((arm, a.suite_aux, cond) for arm, _, cond in ARMS['aux'])
+    if a.arms == 'auxf':                                               # MODI 2026-11-19
+        ARMS['auxf'] = tuple((arm, a.suite_auxf, cond) for arm, _, cond in ARMS['auxf'])
     arms = ARMS[a.arms]
     R = refs(arms)
     seeds = tuple(int(s) for s in a.seeds.split(',')) if a.seeds else SEEDS

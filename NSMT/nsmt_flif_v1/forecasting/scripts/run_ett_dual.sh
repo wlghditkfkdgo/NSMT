@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# MODI 2026-11-19 (full-signal aux, user request 11-19): + nsmt4q_pop_<lif|flif>_{msn,msn_sde}_auxf = the _aux conditions with the
+#   raw patches as the reconstruction target (--keep_ratio 0), same alpha.
+# MODI 2026-11-19 (overfitting test): env WD = weight decay (--weight_decay, unset = 0.06 as before) and DROP = head dropout
+#   (--head_dropout, appended only when set); RESULT gains wd= / drop= only when set. Unset: command line and RESULT unchanged.
 # MODI 2026-11-19 (aux loss, user request 11-19): + nsmt4q_pop_<lif|flif>_{msn,msn_sde}_aux = the msn base (spikingjelly hippocampus) /
 #   the all-SpikeDE msn base with NSMT's reconstruction loss (--aux_alpha, --keep_ratio as run_ett.sh: ETTh2 0.8 / 0.3, ETTm2 0.5 / 0.25).
 # MODI 2026-11-18 (SpikeDE-basis comparison, user decision 11-18 "(가)"): + nsmt4q_pop_<lif|flif>_msn_sde = the msn base with
@@ -77,6 +81,10 @@ case $COND in                     # MODI 2026-10-29: dual-path models, B-form se
   nsmt4q_pop_lif_msn_sde_aux)   CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neuron_all lif" ;;   # MODI 2026-11-19 (aux loss): + NSMT reconstruction loss (per dataset below)
   nsmt4q_pop_flif_msn_aux)  CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms" ;;   # MODI 2026-11-19 (aux loss): + NSMT reconstruction loss (per dataset below)
   nsmt4q_pop_flif_msn_sde_aux)  CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neuron_all lif" ;;   # MODI 2026-11-19 (aux loss): + NSMT reconstruction loss (per dataset below)
+  nsmt4q_pop_lif_msn_auxf)   CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms" ;;   # MODI 2026-11-19 (full-signal aux): keep_ratio 0 (below)
+  nsmt4q_pop_lif_msn_sde_auxf)   CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neuron_all lif" ;;   # MODI 2026-11-19 (full-signal aux): keep_ratio 0 (below)
+  nsmt4q_pop_flif_msn_auxf)  CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms" ;;   # MODI 2026-11-19 (full-signal aux): keep_ratio 0 (below)
+  nsmt4q_pop_flif_msn_sde_auxf)  CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neuron_all lif" ;;   # MODI 2026-11-19 (full-signal aux): keep_ratio 0 (below)
   nsmt4q_pop_lif_msn_freq)CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band freq" ;;   # MODI 2026-11-13 (frequency bands): msn + one input per population member
   nsmt4q_pop_lif_msn_same)CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band same" ;;
   nsmt4q_pop_lif_msn_rev) CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band rev" ;;
@@ -98,6 +106,10 @@ case $DS in                       # patch emb heads mlp M lr bs epochs   (run_et
   ETTm2) HP="--patch_size 8 -emb 64 -nh 16 --mlp_ratios 1   --time_layers 2 -lr 0.0005 -bs 64"; E=50 ;;
   *) echo "bad dataset $DS"; exit 1 ;;
 esac
+if [[ $COND == *_auxf ]]; then          # MODI 2026-11-19: the same alpha, target = the raw patches (keep_ratio 0)
+  case $DS in ETTh2) CF="$CF --keep_ratio 0 --aux_alpha 0.8" ;; ETTm2) CF="$CF --keep_ratio 0 --aux_alpha 0.5" ;;
+    *) echo "auxf: no NSMT setting for $DS"; exit 1 ;; esac
+fi
 if [[ $COND == *_aux ]]; then           # MODI 2026-11-19: NSMT forecasting aux setting (run_ett.sh / paper Table 13): keep_ratio, alpha
   case $DS in ETTh2) CF="$CF --keep_ratio 0.3 --aux_alpha 0.8" ;; ETTm2) CF="$CF --keep_ratio 0.25 --aux_alpha 0.5" ;;
     *) echo "aux: no NSMT setting for $DS"; exit 1 ;; esac
@@ -110,9 +122,9 @@ SHA=$(cd "$R" && git rev-parse --short HEAD); TS=$(date +%Y%m%d)
 OUT=$LOG/ett_${DS}_p${PL}_${COND}_seed${S}_${TS}_${SHA}.stdout; t0=$(date +%s)
 (cd "$C" && CUDA_VISIBLE_DEVICES=$GPU OMP_NUM_THREADS=${THREADS:-4} $PY ./train_forecast.py \
   --log_dir "$LOG/$DS/p$PL" --seed $S -s -nd 0 --gating attn --no-bias --scheduler reduce -e $E --warm_up_epoch 0 \
-  --layers 1 --tau 2.0 --weight_decay 0.06 --patience $P \
+  --layers 1 --tau 2.0 --weight_decay ${WD:-0.06} --patience $P \
   --data $DS --data_path $DS.csv --root_path "$W/dataset/ETT-small" --seq_len $SEQ --pred_len $PL --features M --target OT \
-  $HP $CF ${LR:+-lr $LR} --tag $COND seed$S > "$OUT" 2>&1)
+  $HP $CF ${LR:+-lr $LR} ${DROP:+--head_dropout $DROP} --tag $COND seed$S > "$OUT" 2>&1)
 RC=$?
 D=$(ls -td "$LOG/$DS/p$PL"/*/*"+${COND}+seed${S}+"*"+epoch+${E}+${LR:+lr+$LR+}"*/seed${S}_* 2>/dev/null | head -1)
 CSV="$D/log/final+result.csv"; LCSV="$D/log/last/final+result.csv"
@@ -127,4 +139,4 @@ EOF
 [ -z "$VALS" ] && { echo "SKIP(result parse failed) ds=$DS pl=$PL cond=$COND seed=$S out=$OUT" | tee -a "$RES/raw.txt"; exit 1; }
 BE=$(cat "$D/log/best_epoch.txt" 2>/dev/null | tr ' ' ':')
 PAR=$(grep -a 'number of parameters' "$OUT" | grep -oE 'parameters : [0-9]+' | grep -oE '[0-9]+'); t1=$(date +%s)
-echo "RESULT exp=nsmt_flif_v1_ett_dual ds=$DS pl=$PL cond=$COND seed=$S $VALS best_epoch_val_epochs=$BE params=$PAR time_s=$((t1-t0)) seq_len=$SEQ${LR:+ lr=$LR} sha=$SHA dir=$D" | tee -a "$RES/raw.txt"
+echo "RESULT exp=nsmt_flif_v1_ett_dual ds=$DS pl=$PL cond=$COND seed=$S $VALS best_epoch_val_epochs=$BE params=$PAR time_s=$((t1-t0)) seq_len=$SEQ${LR:+ lr=$LR}${WD:+ wd=$WD}${DROP:+ drop=$DROP} sha=$SHA dir=$D" | tee -a "$RES/raw.txt"

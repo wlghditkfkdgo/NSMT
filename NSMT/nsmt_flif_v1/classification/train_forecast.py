@@ -55,6 +55,8 @@ def split_args():
     # forecasting recipe, nsmt_flif_v1/forecasting/train.py); the low-pass fraction is --keep_ratio. Validation, early stopping and
     # model selection stay on the forecast L1. 0 (default) = unchanged.
     ap.add_argument('--aux_alpha', type=float, default=0.0)
+    # MODI 2026-11-19 (overfitting test): dropout on the flat head's input during training (Forecaster head_dropout); 0 = unchanged.
+    ap.add_argument('--head_dropout', type=float, default=0.0)
     fc, rest = ap.parse_known_args()
     sys.argv = sys.argv[:1] + rest
     return fc
@@ -158,7 +160,7 @@ def main():
     args.print_info()
     model = Forecaster(LOAD_MODEL[args.model](args, True), args.embed_dim, fc.pred_len, bias=args.bias,
                        head_kind=getattr(args, 'fc_head', 'flat'), head_dim=getattr(args, 'fc_head_dim', 8),
-                       seq_len=args.seq_len).to(args.device)   # MODI 2026-11-04 (H6); default 'flat' unchanged
+                       seq_len=args.seq_len, head_dropout=fc.head_dropout).to(args.device)   # MODI 2026-11-04 (H6); 11-19 head_dropout
     functional.reset_net(model)
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f'creating model >> number of parameters : {n_params}  tokens {model.num_patches}  T {model.T}'
