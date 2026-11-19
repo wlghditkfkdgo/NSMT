@@ -14810,3 +14810,7 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 **artifact:** `NSMT/cinc_mixer_v1/results/ett-pass-20261119/{pass_ett.py,summary.md}`. 원문 PDF와 그 텍스트는 local(scratchpad)이다.
 
 **commit:** 이 기록과 위 파일을 `exp/f-lif-pop-v3`에 commit · push한다. 해시는 다음 기록에 적는다. 다음 기록은 "mixer에만 population" ETT 부분의 사전등록이다.
+
+## 2026-11-19 21:10 KST — 정정(바로 앞 기록의 제목 시각)
+- 바로 앞 기록(commit `2bbb888d9`)의 제목 시각 "21:24 KST"는 틀렸다. 실제 작성 시각은 21:09다(같은 명령의 `date` 출력 21:09:50). `date`를 기록과 같은 명령에서 실행해서, 출력을 보기 전에 시각을 적었다.
+- 내용은 바뀌지 않는다. 앞으로는 `date`를 먼저 따로 실행하고 그 값을 제목에 쓴다.
