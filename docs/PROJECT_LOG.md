@@ -14535,3 +14535,84 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 - 같은 규칙으로 직접 돌린 SNN 비교는 SF-de뿐이다(R +0.305 %, no clear difference; 17:34 기록).
 
 **commit:** 이 기록과 `results/ref-snn-lb96-20261119/`를 `exp/f-lif-pop-v3`에 commit · push한다(code 변경 없음, 학습 없음). 해시는 다음 기록에 적는다.
+
+## 2026-11-19 17:58 KST — 사용자 질문(학습 없음): 예측 과제(ETT)의 hyperparameter 튜닝 상태와 튜닝 계획 제안. 지금까지는 lr · 방향별 mixer 층 수 · 잔차만 validation에서 골랐고, 나머지는 NSMT용 설정을 그대로 썼다. SF-de는 lr만 골랐다. 계획은 사용자 결정을 기다린다
+
+**직전 commit:** `66221788a`(17:51 기록). 브랜치 `exp/f-lif-pop-v3`. AD energy driver가 도는 중이다(17:57 기준 RESULT 7, SKIP 0). 이 기록은 code를 바꾸지 않는다.
+
+### 사용자 질문(원문)
+> 예측과제에 대해서 우리는 지금 hyperparameter tuning이 이루어지지 않은 상태이지?
+> - patience와 lr, weight decay, layer 개수, d_model, MLP의 hidden node 등등 여러 option(hyperparameter)를 튜닝해볼 필요가 있을 것 같아.
+
+### 지금 상태(`scripts/run_ett_spk.sh`, `summarize_ett_tune.py`, `results/flif-v1-ett-spkmux-tune/selected_*.json`, `results/flif-v1-ett-sfde/selected_lr.json`)
+- **튜닝한 것(11-01, LIF SpkMixer):** validation에서 한 번에 하나씩 골랐다(lr → 방향별 mixer 층 수 M → 잔차). dataset마다 따로 골랐고, 점수는 H96 · H720 평균, seed는 3개다.
+  - lr {1e-4, 2.5e-4, 5e-4, 1e-3, 2e-3} → ETTh2 5e-4, ETTm2 1e-4.
+  - M {1, 2, 3} → 둘 다 1.
+  - 잔차 {OR, IAND, ADD} → 둘 다 IAND.
+- **SF-de(11-18):** lr만 골랐다(ETTh2 5e-4, ETTm2 1e-4).
+- **고정값(튜닝 안 함):** NSMT용 설정(`nsmt_flif_v1/forecasting/scripts/run_ett_mixer.sh`, runner 주석의 "Table 13")을 그대로 가져왔다. SpkMixer나 SF-de에 맞춰 고른 값이 아니다.
+
+| 항목 | 값 |
+|---|---|
+| patience | 10 |
+| weight decay | 0.06 (AdamW) |
+| d_model(`-emb`) | 64 |
+| MLP 비율 | ETTh2 0.5, ETTm2 1 (hidden = 비율 × d_model) |
+| block 수(`--layers`) | 1 |
+| patch 길이 | 8 (token 수 N = 12) |
+| batch | 64 |
+| 최대 epoch | ETTh2 100, ETTm2 50 |
+| scheduler | ReduceLROnPlateau |
+| neuron | τ 2.0, 반복 T_h 4 |
+| loss | L1 |
+
+- **patience가 실제로 묶였는가(선택된 final run, `best_epoch_val_epochs` = 최고 epoch(0부터) : validation L1 : 돈 epoch 수):**
+
+| model | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 |
+|---|---|---|---|---|
+| LIF SpkMixer | 3, 1, 6 / 14, 12, 17 | 1, 0, 2 / 12, 11, 13 | 25, 11, 7 / 36, 22, 18 | 2, 4, 2 / 13, 15, 13 |
+| SF-de | 1, 1, 3 / 12, 12, 14 | 3, 3, 2 / 14, 14, 13 | 15, 11, 12 / 26, 22, 23 | 2, 4, 2 / 13, 15, 13 |
+
+  - 모든 run이 최대 epoch 전에 patience로 멈췄다.
+  - 4칸 중 3칸에서 validation 최고가 처음 1–7 epoch 안에 나온다. 그 뒤로는 validation이 다시 좋아지지 않았다.
+  - best-validation 가중치를 쓰므로, validation 기준으로 고르면 patience는 길수록 같거나 좋다(멈추는 시점만 늦어질 뿐 그 앞의 학습은 같다). 그래서 patience를 validation으로 "튜닝"하면 항상 가장 긴 값이 뽑힌다. 지금 run에서는 patience 10이 묶여 있지 않았다.
+
+### 계획 제안(실행 안 함, 사용자 결정 대기)
+- 원칙(지금까지와 같음): validation으로만 고르고 test는 고른 뒤에만 본다. 4칸(ETTh2 · ETTm2 × H96 · H720), seed 3개, 입력 96(17:34 결정).
+- **공정성:** 논문 기준이 "SF-de보다 평균 우위"이므로 SF-de도 같은 방식과 같은 후보로 튜닝해야 한다. SpkMixer만 튜닝하면 비교가 기울어진다.
+- 후보(제안):
+
+| 항목 | 지금 | 후보 |
+|---|---|---|
+| weight decay | 0.06 | {0, 0.01, 0.06, 0.1} |
+| d_model | 64 | {32, 64, 128, 256} |
+| MLP 비율 | 0.5 / 1 | {0.5, 1, 2, 4} |
+| block 수 | 1 | {1, 2, 3} |
+| patch 길이 | 8 (N 12) | {4, 8, 16} (N 24, 12, 6). token 수가 바뀌므로 T = N 해석에 영향이 있다 |
+| batch | 64 | {32, 64, 128} |
+| lr | 튜닝됨 | 마지막에 {1e-4, 2.5e-4, 5e-4, 1e-3, 2e-3}로 다시 확인 |
+| patience | 10 | 고정 제안(위 이유) |
+| τ, T_h | 2, 4 | 고정 제안(neuron 설정; T = N 주장과 연결) |
+
+- 방식과 비용. 1 run 시간은 입력 96 튜닝 suite 평균이다(GPU당 2개 동시): SpkMixer 1,209 s, SF-de 603 s. d_model · block을 키우면 더 느려진다.
+
+| 방식 | 내용 | run 수(SpkMixer + SF-de) | GPU 시간 | 8 slot에서 |
+|---|---|---|---|---|
+| A 단계별(11-01과 같은 방식) | 위 순서대로 한 항목씩, 새 후보 19개 × 4칸 × seed 3 | 228 + 228 | 약 115 | 약 15시간 이상 |
+| B 무작위 탐색 + 확인 | 조합 32개 × 4칸 × seed 1, 그다음 dataset별 상위 3개를 seed 2개 더 | 152 + 152 | 약 76 | 약 10시간 이상 |
+| C 축소 단계별 | weight decay · d_model · MLP · block만(새 후보 11개) | 132 + 132 | 약 66 | 약 8시간 이상 |
+
+- 한계(미리 적음):
+  - A와 C는 항목 사이의 상호작용을 놓칠 수 있다. B는 seed 1개로 걸러서 잡음이 크다(ETTh2 MSE의 seed 표준편차 약 0.003).
+  - 후보가 많을수록 validation에 맞춘 선택이 test에서 덜 재현될 수 있다.
+- 시점: AD energy driver가 끝난 뒤(예상 23시–01시) 시작하는 것을 제안한다.
+- "mixer에만 population" ETT 부분(48 run)은 튜닝으로 기본 설정이 바뀔 수 있으므로 튜닝 뒤에 돌리는 것을 제안한다.
+
+### 사용자 결정 필요
+1. 방식 A / B / C.
+2. SF-de도 같은 방식으로 튜닝할지(제안: 예).
+3. 후보 표 수정(특히 patch 길이).
+4. 시작 시점(AD 뒤 / 바로).
+5. "mixer에만 population" ETT 부분을 튜닝 뒤로 미룰지.
+
+**commit:** 이 기록을 `exp/f-lif-pop-v3`에 commit · push한다(code 변경 없음, 학습 없음). 해시는 다음 기록에 적는다.
