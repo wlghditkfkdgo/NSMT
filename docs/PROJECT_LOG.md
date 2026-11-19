@@ -14708,3 +14708,105 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 **다음:** 사용자 결정(11-19 저녁)에 따라 예측 과제(ETT)로 넘어간다. 순서는 "mixer에만 population" ETT 48 run → 채택 판정 → 튜닝(C + patch 길이)이다. 결정 원문과 통과 기준은 다음 기록에 적는다. AD에서 G5 설정을 채택할지는 사용자 결정을 기다린다.
 
 **commit / tag:** 이 기록과 결과를 `exp/f-lif-pop-v3`에 commit · push한다. annotated tag `exp/f-lif-pop-v3-ade-20261119`를 붙인다. 이 tag는 AD energy 실험의 완료된 학습 run이다(snapshot 아님). 이 기록이 들어간 commit은 이 tag로 가리킨다.
+
+## 2026-11-19 21:24 KST — 사용자 결정(예측 과제 튜닝 계획과 통과 기준) + 통과 기준 판정기(학습 없음): 지금 LIF SpkMixer는 세 기준 모두 통과하지 못한다. 4칸 평균 MSE를 0.0087(TimeMixer 기준), MAE를 0.0027(SpikF 기준) 더 낮춰야 한다
+
+**직전 commit:** `3f1245e0e`(AD energy 결과, tag `exp/f-lif-pop-v3-ade-20261119`). 브랜치 `exp/f-lif-pop-v3`. 이 기록은 학습을 하지 않고, model · runner code를 바꾸지 않는다.
+
+### 사용자 결정(원문; 17:58 기록의 질문 5개에 대한 답)
+> 1. C
+> 2. 아니오
+> 3. C에 patch 길이 탐색도 포함
+> 4. AD 실험 끝난 이후 예측 과제에 대해서만
+> 5. 우선 "mixer에만 population" 실험을 먼저 진행하고 기존 구조 보다 개선됨이 확인되면 "mixer에만 population" 구졸르 채택하여 튜닝하는 것으로 순서를 기억해.
+> ---
+> +) 추가적으로 통과 기준은 **평균적으로**
+> - SNN 예측 모델(SpikF) 보다 0.001이라도 낮은 MSE/MAE
+> - (우리가 수정하고 비교해왔던) Spikformer 보다 0.001이라도 낮은 MSE/MAE + 비슷한 energy consumption
+> - DNN 예측 모델보다 0.001이라도 낮은 MSE/MAE
+
+- 뜻(17:58 질문 번호대로):
+  1. 튜닝 방식은 C(축소 단계별: weight decay · d_model · MLP 비율 · block 수)다.
+  2. SF-de는 같은 방식으로 튜닝하지 않는다. SF-de는 lr만 튜닝된 상태 그대로다.
+  3. patch 길이 {4, 8, 16}을 C에 더한다.
+  4. AD 실험이 끝난 뒤(20:07 끝남) 예측 과제에만 한다.
+  5. 순서: "mixer에만 population" ETT 48 run → 기존 구조(LIF SpkMixer)보다 나으면 그 구조를 채택 → 채택한 구조를 튜닝.
+
+### 이어서 물은 4개와 답(사용자 선택)
+| 질문 | 답 |
+|---|---|
+| "DNN 예측 모델"은 어느 모델인가 | **우리 DNN 표 9개 모두**(TimeMixer 포함) |
+| "비슷한 energy"는 SF-de의 몇 배까지인가 | **1.05배 이하** |
+| "mixer에만 population" 채택 규칙 | **통과 기준과 같은 방식**: 4칸 평균 test MSE와 MAE가 둘 다 LIF SpkMixer보다 0.001 이상 낮고, energy가 SF-de의 1.05배 이하. 여러 arm이 통과하면 평균 MSE가 가장 낮은 arm |
+| 튜닝에서 energy 제한을 둘까 | **두지 않는다**(validation 성능만으로 고름; energy는 마지막 통과 기준에서만 봄) |
+
+### 통과 기준(사전 고정; `NSMT/cinc_mixer_v1/results/ett-pass-20261119/pass_ett.py`)
+- "평균" = 4칸(ETTh2 · ETTm2 × H96 · H720, 입력 96)의 seed 평균(42 / 7 / 2026) test 값을 다시 4칸 평균한 값이다. MSE와 MAE를 따로 계산한다.
+- "0.001이라도 낮음" = 기준값 − 우리 값 ≥ 0.001이다. **MSE와 MAE 둘 다** 만족해야 한다. "MSE/MAE"를 둘 다로 읽은 것은 내 해석이다. 다르면 사용자가 고쳐 주기를 바란다.
+- (1) SNN: SpikF(SpikF Table 12 = NSMT Table 14; 17:51 기록에서 전사 검증).
+- (2) Spikformer: SF-de(우리)보다 MSE · MAE가 0.001 이상 낮고, energy A/B ≤ 1.05.
+  - A/B = 4칸 각각의 seed 평균 비율을 4칸 평균한 값이다. energy는 syops 원본 규칙이다(사용자 결정 11-19).
+- (3) DNN: 아래 9개 행 각각보다 MSE · MAE가 0.001 이상 낮다.
+- 셋 다 만족하면 통과다. 판정은 test 값으로 하고, 튜닝 선택에는 test를 쓰지 않는다.
+
+### DNN 9개 행의 MAE 전사(새로 함)와 검증
+- 17:34 기록의 DNN 표는 MSE만 있었다. 같은 표에서 MAE를 옮겨 적었다.
+  - iTransformer Table 10(arXiv 2310.06625v4): iTransformer, RLinear, PatchTST, TimesNet, DLinear. SpikF Table 11에도 같은 수치가 있다.
+  - SpikF Table 9 · 10: MAE loss로 학습한 iTransformer. SpikF Table 12: FITS.
+  - TimeMixer Table 13(arXiv 2405.14616v1, "Unified hyperparameter results", 입력 96): TimeMixer, PatchTST(TimeMixer의 재실행).
+- 검증: arXiv의 공개 PDF 두 개를 받아 `pdftotext -layout`으로 바꾸고(scratchpad, local), SpikF 텍스트(17:51과 같은 파일)와 함께 `pass_ett.py --verify`로 표를 다시 읽었다.
+  - 60번(칸마다 MSE / MAE 한 쌍) 비교했고 불일치는 0이다.
+  - SpikF Table 11에 옮겨진 iTransformer 표 값 5개 행도 원본과 같다.
+- SpikF Table 12에 있는 FEDformer는 우리 9개 표에 없으므로 넣지 않았다(사용자 답 "우리 DNN 표 9개").
+
+| 행 | 출처 | 4칸 평균 MSE / MAE |
+|---|---|---|
+| SpikF (SNN) | SpikF Table 12 = NSMT Table 14 | 0.3215 / 0.3550 |
+| iTransformer | iTransformer Table 10 | 0.3290 / 0.3663 |
+| iTransformer, MAE loss | SpikF Table 9, 10 | 0.3275 / 0.3623 |
+| RLinear | iTransformer Table 10 | 0.3242 / 0.3603 |
+| PatchTST(재실행) | iTransformer Table 10 | 0.3275 / 0.3632 |
+| PatchTST(다른 재실행) | TimeMixer Table 13 | 0.3347 / 0.3698 |
+| TimeMixer | TimeMixer Table 13 | **0.3167** / 0.3572 |
+| TimesNet | iTransformer Table 10 | 0.3493 / 0.3780 |
+| FITS | SpikF Table 12 | 0.3290 / 0.3653 |
+| DLinear(재실행) | iTransformer Table 10 | 0.4778 / 0.4645 |
+
+- 칸별 값은 `summary.md`에 있다.
+
+### 지금 모델의 통과 여부(학습 없음; `results/ett-pass-20261119/summary.md`)
+- LIF SpkMixer(11-01 튜닝: muxlin, IAND, 방향별 층 1): 4칸 평균 **0.3245 / 0.3567**, energy A/B 0.9825.
+
+| 기준 | 기준값 MSE / MAE | 기준값 − 우리 값 | 통과 |
+|---|---|---|---|
+| (1) SpikF | 0.3215 / 0.3550 | −0.0030 / −0.0017 | 아니오 |
+| (2) SF-de | 0.3238 / 0.3557 | −0.0007 / −0.0010 | 아니오(energy 0.9825는 통과) |
+| (3) DNN 9개 | — | 7/9 행 통과 | 아니오 |
+| └ RLinear | 0.3242 / 0.3603 | −0.0002 / +0.0036 | 아니오(MSE) |
+| └ TimeMixer | 0.3167 / 0.3572 | −0.0077 / +0.0006 | 아니오(MSE; MAE도 여유 0.0006 < 0.001) |
+
+- **세 기준을 모두 넘으려면 4칸 평균 MSE ≤ 0.3157, MAE ≤ 0.3540이 필요하다.**
+  - MSE는 0.0087(약 2.7 %) 낮아져야 한다. TimeMixer가 묶는 기준이다.
+  - MAE는 0.0027 낮아져야 한다. SpikF가 묶는 기준이다.
+- SF-de도 같은 기준으로 보면 (1) · (3)에서 통과하지 못한다(0.3238 / 0.3557; 보고용).
+- 보고(기준 아님): NSMT 0.3177 / 0.3518보다 우리가 0.0067 / 0.0049 높다.
+
+### 계획(사용자 결정의 순서; 사전등록은 단계마다 따로 기록)
+1. **"mixer에만 population" ETT 48 run.** 01:26 사전등록의 arm 4개(pop LIF mixer, pop LIF mixer + mean, pop f-LIF mixer, pop f-LIF mixer + mean) × 4칸 × seed 3. 설정은 튜닝한 LIF SpkMixer 그대로(입력 96).
+   - 채택은 위의 사용자 규칙으로 정한다. 11-18 사전등록 판정(B1, B3, C3, C5)도 계산해 함께 적는다.
+   - population arm의 syops energy는 recorder의 `body_syn_uJ`로 센다. syops가 population neuron class를 등록하지 않아서, run이 기록한 `total_fft_uJ`에는 그 neuron의 입력 AC가 빠지기 때문이다.
+2. **채택한 구조 S를 튜닝(C + patch 길이).** 순서는 patch {4, 8, 16} → d_model {32, 64, 128, 256} → MLP 비율 {0.5, 1, 2, 4} → block 수 {1, 2, 3} → weight decay {0, 0.01, 0.06, 0.1}이다.
+   - dataset마다 validation으로 고른다(11-01과 같은 점수, 같으면 지금 값 유지). 새 후보 13개 × 4칸 × seed 3 = 156 run이다.
+   - 순서(모양 먼저, 정규화 마지막)는 내가 정했다.
+   - 고정: patience 10, τ 2, T_h 4, batch 64, lr, 방향별 층 1, IAND.
+3. 튜닝 결과에 `pass_ett.judge`로 통과 기준을 낸다.
+
+### 한계(미리 적음)
+- **SF-de는 lr만 튜닝됐다(사용자 결정 2).** SpkMixer만 다섯 항목을 더 튜닝하므로, SF-de와의 비교는 튜닝한 쪽(SpkMixer)으로 기운다. 결과마다 이 점을 적는다.
+- DNN · SpikF 값은 공개 수치다. 평가 방식(test batch, 정규화, 학습 loss)이 우리와 같은지 확인하지 않았다. 같은 PatchTST도 표에 따라 최대 4.6 % 다르다(연구 노트).
+- 0.001은 ETTh2 MSE의 seed 표준편차(약 0.003)보다 작다. 기준을 넘거나 못 넘는 것이 seed에 따라 바뀔 수 있다.
+- 필요한 MSE 개선(약 2.7 %)은 지금까지 ETT 구조 변경이 만든 차이(대부분 1 % 안)보다 크다.
+
+**artifact:** `NSMT/cinc_mixer_v1/results/ett-pass-20261119/{pass_ett.py,summary.md}`. 원문 PDF와 그 텍스트는 local(scratchpad)이다.
+
+**commit:** 이 기록과 위 파일을 `exp/f-lif-pop-v3`에 commit · push한다. 해시는 다음 기록에 적는다. 다음 기록은 "mixer에만 population" ETT 부분의 사전등록이다.
