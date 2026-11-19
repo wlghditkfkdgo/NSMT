@@ -14474,3 +14474,64 @@ head = s2                          H1(head가 membrane을 읽으면 CinC, ETT wo
 - 합계 약 28–33 GPU 시간(lrmean 54 ≈ 18 h, res 18 ≈ 5.5 h, final 9–18 ≈ 4.3–8.6 h). 8 slot에서 단계마다 가장 느린 SMAP run을 기다리므로 약 5–7시간이다(끝 예상 11-19 23시 – 11-20 01시). 다른 세션이 GPU를 함께 쓰면 늦어진다.
 
 **commit:** 이 기록, 위 code · 점검 결과, `results/syops-exact-20261119/`, `results/ett-length-dnn-20261119/`, `results/smoke-ade-20261119/raw.txt`를 `exp/f-lif-pop-v3`에 commit · push한다(queue 파일, driver.log, checkpoint는 local). 해시는 다음 기록에 적는다. 그 commit에서 `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/ade_driver.sh`(NSMT/에서)로 시작한다.
+
+## 2026-11-19 17:51 KST — 사용자 질문(학습 없음): NSMT · SpikF 원문의 입력 96 SNN 모델 ETT 값과 지금 SpkMixer 비교 — LIF SpkMixer는 NSMT보다 4칸 모두 나쁘고(R +2.05 %), SpikF보다 3칸 나쁘며(R +1.06 %), SpikeRNN과는 칸마다 엇갈리고(R −0.47 %, 2/4), iSpikformer보다는 4칸 모두 좋다(R −2.19 %). 차이는 모두 3.2 % 안이고 평가 규칙이 달라 확정 비교는 아니다
+
+**직전 commit:** `befc769f2`(17:34 사전등록). 브랜치 `exp/f-lif-pop-v3`. AD energy driver(17:35 시작)가 도는 중이다. 이 기록은 code를 바꾸지 않는다.
+
+### 사용자 요청(원문)
+> 지금 NSMT 원문 혹은 SpikF 원문에서 얻을 수 있는 SNN 시계열 모델의 Look-back winodw=96 설정의 ETT 실험 값들을 현재 SpikMixer와 비교해줘.
+
+### 출처와 방법
+- **NSMT 원문:** `NSMT/papers/NSMT.pdf`(main tree, 읽기만 함)의 Table 14 "Full comparisons on SNN-based models"다. SpikF, SpikeRNN, iSpikformer, NSMT를 ETTh1 · ETTh2 · ETTm1 · ETTm2 × 예측 길이 96 · 192 · 336 · 720으로 비교한다.
+  - 본문: "we use the same look-back window size 𝐿 = 96 for all methods ... All results are taken from [43] and [41]". NSMT 열만 NSMT 자신의 결과다.
+- **SpikF 원문:** Table 12 "More benchmarks on ETT dataset"다. SpikF, SpikeRNN, iSpikformer와 DNN 2개(FITS, FEDformer)가 있다.
+  - 본문: "SNN-based models are equipped with SPE". Table 1 설명: "All baseline models are configured with a uniform look-back window of L = 96".
+  - SpikF의 다른 표(Table 1, 11)에서 SNN은 SpikF 하나뿐이다.
+- 그래서 두 원문에서 얻을 수 있는 입력 96 SNN 모델은 **NSMT, SpikF, SpikeRNN(SPE 부착), iSpikformer(SPE 부착)** 4개다.
+- **값 대조:** 두 PDF를 `pdftotext -layout`으로 텍스트로 바꿨다. 표 행을 정규식으로 다시 읽어 옮겨 적은 값 32개(4칸 × 4 모델 × MSE · MAE)를 검사했다. 불일치는 0이다.
+  - NSMT Table 14의 SpikF · SpikeRNN · iSpikformer 값은 SpikF Table 12와 20행 모두 같다. NSMT가 SpikF에서 옮겨 온 값이다.
+  - 결과: `results/ref-snn-lb96-20261119/verify.txt`. PDF와 텍스트 파일은 local에 둔다.
+- **우리:** LIF SpkMixer(튜닝: muxlin, IAND, 방향별 mixer 층 1, lr ETTh2 5e-4 / ETTm2 1e-4)와 SF-de다. 입력 96, seed 42 / 7 / 2026, best-validation 가중치의 test 값이다. 값은 `summarize_pn` loader와 점검으로 읽었다.
+- 우리 run은 ETTh2 · ETTm2 × H96 · H720뿐이다(사용자 결정 12). 원문의 ETTh1, ETTm1, H192, H336 칸은 비교하지 못한다.
+- 스크립트와 결과: `results/ref-snn-lb96-20261119/{compare_snn_lb96.py,summary.md,verify.txt}`.
+
+### 결과(test MSE / MAE; 우리는 seed 평균 ± MSE 표준편차)
+
+| model | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 | 4칸 평균 MSE / MAE |
+|---|---|---|---|---|---|
+| LIF SpkMixer(우리) | 0.2952 ± 0.0029 / 0.3381 | 0.4218 ± 0.0031 / 0.4384 | 0.1775 ± 0.0003 / 0.2547 | 0.4034 ± 0.0002 / 0.3955 | 0.3245 / 0.3567 |
+| SF-de(우리) | 0.2921 ± 0.0031 / 0.3360 | 0.4229 ± 0.0050 / 0.4377 | 0.1768 ± 0.0004 / 0.2538 | 0.4036 ± 0.0010 / 0.3953 | 0.3238 / 0.3557 |
+| NSMT | 0.288 / 0.334 | 0.409 / 0.429 | 0.175 / 0.251 | 0.399 / 0.393 | 0.3177 / 0.3518 |
+| SpikF | 0.290 / 0.336 | 0.416 / 0.436 | 0.175 / 0.251 | 0.405 / 0.397 | 0.3215 / 0.3550 |
+| SpikeRNN(SPE) | 0.295 / 0.335 | 0.428 / 0.438 | 0.176 / 0.251 | 0.409 / 0.396 | 0.3270 / 0.3550 |
+| iSpikformer(SPE) | 0.308 / 0.349 | 0.438 / 0.439 | 0.178 / 0.256 | 0.406 / 0.398 | 0.3325 / 0.3605 |
+
+LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4칸 평균이고, 음수면 우리가 좋다.
+
+| vs | R MSE % | MSE가 낮은 칸 | R MAE % | MAE가 낮은 칸 | 4칸 평균 MSE 차이 % | 칸별 MSE % (ETTh2 H96, ETTh2 H720, ETTm2 H96, ETTm2 H720) |
+|---|--:|--:|--:|--:|--:|---|
+| NSMT | +2.05 | 0/4 | +1.39 | 0/4 | +2.12 | +2.50, +3.13, +1.45, +1.11 |
+| SpikF | +1.06 | 1/4 | +0.57 | 1/4 | +0.93 | +1.79, +1.40, +1.45, −0.38 |
+| SpikeRNN(SPE) | −0.47 | 2/4 | +0.60 | 1/4 | −0.77 | +0.07, −1.45, +0.87, −1.36 |
+| iSpikformer(SPE) | −2.19 | 4/4 | −1.09 | 4/4 | −2.41 | −4.16, −3.70, −0.26, −0.63 |
+
+- 4칸 평균 MSE 순서: NSMT 0.3177 < SpikF 0.3215 < SF-de(우리) 0.3238 < LIF SpkMixer 0.3245 < SpikeRNN 0.3270 < iSpikformer 0.3325.
+- seed별(MSE)로 원문 값보다 낮은 seed 수:
+  - NSMT: 4칸 모두 0/3.
+  - SpikF: ETTm2 H720만 3/3, 나머지 칸 0/3.
+  - SpikeRNN: ETTh2 H720 · ETTm2 H720 3/3, ETTh2 H96 1/3, ETTm2 H96 0/3.
+  - iSpikformer: 4칸 모두 3/3.
+- SF-de도 같은 위치다. NSMT보다 4칸 모두 나쁘고(R +1.75 %), SpikF보다 3칸 나쁘며(+0.76 %), SpikeRNN보다 3칸 좋고(−0.76 %), iSpikformer보다 4칸 좋다(−2.47 %).
+- "4칸 평균 MSE 차이 %" 열은 11-18 선행 연구 조사 노트(`research_notes/SpikMixer 선행 연구 조사/spiking_time_series.md`)가 쓴 척도다. 값이 그 노트와 같다(+2.12, +0.93, −0.77, −2.41). 이 척도는 MSE가 큰 H720 칸에 무게가 더 실린다. R(칸별 평균)과 방향은 모두 같지만, SpikeRNN과의 차이는 R로 −0.47 %, 이 척도로 −0.77 %다.
+
+### 읽기와 한계
+- 원문 SNN 4개 가운데 LIF SpkMixer는 가운데다. NSMT와 SpikF보다 나쁘고, SpikeRNN과는 비슷하며, iSpikformer보다 좋다.
+- 확정 비교가 아니다. 아래 비교 가능성 정보는 11-18 조사 노트의 표를 옮긴 것이고, 이번에 원문과 다시 맞춰 보지 않았다.
+  - NSMT 공개값은 seed 42 하나이고, 마지막 상태로 test하며 patience가 2다(ETTh2). 우리 규칙(seed 3개, best-validation 가중치, patience 10)과 다르다. 이 저장소 기록에서 NSMT 자체의 ETTh2 H96이 stopping 규칙에 따라 0.2835–0.2896으로 움직였다(commit `d33567956` 메시지).
+  - SpikF는 loss가 L1으로 같지만 최대 5 또는 10 epoch, patience 1–2로 stopping이 다르다.
+  - SpikeRNN · iSpikformer는 원래 모델이 아니라 SpikF의 SPE encoder를 붙인 판이다.
+  - 같은 PatchTST도 논문마다 최대 4.6 % 다르다. 위 차이(최대 4.16 %)는 이 폭 안이다.
+- 같은 규칙으로 직접 돌린 SNN 비교는 SF-de뿐이다(R +0.305 %, no clear difference; 17:34 기록).
+
+**commit:** 이 기록과 `results/ref-snn-lb96-20261119/`를 `exp/f-lif-pop-v3`에 commit · push한다(code 변경 없음, 학습 없음). 해시는 다음 기록에 적는다.
