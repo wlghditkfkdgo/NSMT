@@ -9708,3 +9708,106 @@ Spikformer식보다 "좋음"인 변형은 없다.
 - `nsmt_flif_v1/classification/results/flif-v1-auxf-diag.{json,md}`, `flif-v1-auxf-summary.md`
 
 ---
+
+## 2026-11-19 17:23 KST — 결과: (나) 과적합 조치 후 Spikformer(DE)와 비교 (96 run, 사전 고정 `9c1262613`) — **과적합 조치 뒤에도 기준 model과 Spikformer(DE)의 차이는 "차이 없음"이고, 기준 model이 갖고 있던 작은 우위는 사라졌다.** 조치로 더 좋아진 쪽은 Spikformer(DE)다(test −0.86 %, 12쌍 중 10쌍 낮음; 문턱 −1 %에 조금 못 미침). Spikformer(DE)는 과적합이 "해결"됐지만(과적합 표시 8/12 → 0/12, 가장 좋은 epoch 중앙값 2.5 → 6) 기준 model 둘은 "해결 안 됨"이다(표시 5/12, 3/12이지만 중앙값 1.5 / 2.0). 기준 − Spikformer(DE)는 pop LIF +0.10 %(7/12), pop f-LIF −0.13 %(8/12)로, 조치 전(−0.59 / −0.29 %)보다 Spikformer(DE) 쪽으로 옮겨 갔다(격차 변화 +0.68 / +0.16 %p, "변화 없음"). 종합은 두 neuron 모두 "지지 안 됨"이다. energy는 Spikformer(DE)의 1.26 / 1.52배다
+
+**branch / 기준:** `exp/nsmt-flif-neo`, 사전 고정 commit `9c1262613`(새 run 96개 모두 이 sha). 사전 고정은 2026-11-19 10:53 항목이다. (가) 결과는 앞 항목(commit `0c1dc595b`, tag `exp/nsmt-flif-neo-20261119-auxf`)이다.
+
+**실행:** tmux `flif_of`, `of_driver.sh 0,1,2,3`, GPU 4장에 run 하나씩이다.
+- S 고르기 13:09:44 → A1 13:09:44–14:28:13 → A2 14:28:13–15:21:39 → A3 15:21:39–16:21:28 → B 16:21:28–17:17:34, "ALL DONE".
+- 단계마다 24 run, 모두 96 run이다. START / DONE(rc=0) 96쌍, RESULT 96, SKIP 0.
+- B단계가 최대인 24 run이 된 것은 세 model 모두 최종 설정이 지금 설정과 달랐기 때문이다.
+
+**후처리 (사전 고정 순서 그대로):**
+1. pool 기록의 (나) 부분(`flif-v1-of-pool.log` 256–707행)을 단계 suite 6개의 `pool_runs.txt`로 복사했다.
+2. 최종 설정이 쓰는 suite 두 개에 energy 재계산을 돌렸다. `energy_recount_ett.py --suite flif-v1-ett-of-A2-0.1`은 20 run, `--suite flif-v1-ett-of-A3-0.2`는 28 run이고 둘 다 "all checks passed"다.
+3. `summarize_of.py` → `classification/results/flif-v1-of-summary.md`. fail-closed 검사(줄 수, SKIP, SpikeDE 접미사, lr 폴더, RESULT lr / wd / drop, 칸마다 seed 3개, 새 run sha 하나)를 모두 통과했다.
+
+**나쁜 것 먼저:**
+- **기준 model의 과적합은 풀리지 않았다.** 과적합 표시는 줄었지만(pop LIF 8 → 5/12, pop f-LIF 7 → 3/12), validation이 가장 낮은 epoch의 중앙값은 1.5 / 2.0으로 그대로다. 세 조치 가운데 lr은 기준 model에서 뽑히지 않았다(낮은 lr의 validation이 오히려 조금 높았다).
+- **조치의 이득은 Spikformer(DE)가 더 크게 가져갔다.** Spikformer(DE) final − current는 −0.86 %(10/12)다. 칸 판정은 ETTh2 H96 −1.81 %, ETTm2 H96 −1.05 %가 "좋음"이다. 기준 model은 pop LIF −0.18 %(6/12), pop f-LIF −0.71 %(10/12)다. 셋 다 판정은 "차이 없음"이다.
+- **그 결과 기준 model이 Spikformer(DE)보다 조금 낮던 test가 같아졌다.** pop LIF는 −0.59 → +0.10 %, pop f-LIF는 −0.29 → −0.13 %다. pop LIF ETTh2 H96 칸은 칸 판정 "나쁨"(+1.33 %)이다.
+- 기준 model의 범위 끝 선택이 있다: head dropout 0.3(두 neuron 모두). 사전 고정대로 범위는 넓히지 않았다.
+
+**고른 설정 (seed 42, validation; 표는 결과 파일에 있음):**
+
+| 단계 | Spikformer(DE) | 기준 pop LIF | 기준 pop f-LIF |
+|---|---|---|---|
+| S (aux 형태) | 해당 없음 | 원 시계열 (끔 대비 −0.10 %) | 원 시계열 (−0.02 %) |
+| A1 lr (0.0005 / 0.0001 / 0.00005) | **0.0001** (−0.04 %) | 0.0005 유지 (+0.08 / +0.01 %) | 0.0005 유지 (+0.01 / +0.01 %) |
+| A2 head dropout (0 / 0.1 / 0.3) | **0.1** (−0.12 %) | **0.3** (−0.12 / −0.15 %, 범위 끝) | **0.3** (−0.09 / −0.16 %, 범위 끝) |
+| A3 weight decay (0.06 / 0.2 / 0.5) | 0.06 유지 (+0.14 / +0.16 %) | **0.2** (−0.04 / −0.03 %) | **0.2** (−0.07 / −0.06 %) |
+
+- 모든 단계에서 validation 차이가 0.16 % 이하로 아주 작다. 고르기는 사전 고정 규칙(엄밀히 낮으면 바꿈)을 그대로 따랐다.
+
+**결과 (test MSE, seed 3개 평균 ± sd):**
+
+| model | 설정 | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 |
+|---|---|---|---|---|---|
+| Spikformer(DE) | 지금 (lr 0.0005, dropout 0, wd 0.06) | 0.2921 ± 0.0038 | 0.4229 ± 0.0062 | 0.1779 ± 0.0004 | 0.4048 ± 0.0023 |
+| Spikformer(DE) | 최종 (lr 0.0001, dropout 0.1, wd 0.06) | 0.2868 ± 0.0005 | 0.4222 ± 0.0015 | 0.1761 ± 0.0003 | 0.4031 ± 0.0008 |
+| 기준 pop LIF | 지금 (원 시계열 aux) | 0.2916 ± 0.0016 | 0.4202 ± 0.0053 | 0.1762 ± 0.0007 | 0.4023 ± 0.0009 |
+| 기준 pop LIF | 최종 (lr 0.0005, dropout 0.3, wd 0.2) | 0.2906 ± 0.0042 | 0.4208 ± 0.0061 | 0.1748 ± 0.0005 | 0.4034 ± 0.0004 |
+| 기준 pop f-LIF | 지금 (원 시계열 aux) | 0.2927 ± 0.0044 | 0.4209 ± 0.0039 | 0.1767 ± 0.0007 | 0.4040 ± 0.0017 |
+| 기준 pop f-LIF | 최종 (lr 0.0005, dropout 0.3, wd 0.2) | 0.2892 ± 0.0057 | 0.4204 ± 0.0061 | 0.1750 ± 0.0005 | 0.4018 ± 0.0022 |
+
+- Spikformer(DE)는 최종 설정에서 seed 사이 흔들림(sd)도 크게 줄었다(ETTh2 H96 0.0038 → 0.0005).
+
+**판정 (사전 고정 규칙):**
+
+| 판정 | Spikformer(DE) | 기준 pop LIF | 기준 pop f-LIF |
+|---|---|---|---|
+| O1 과적합 해결 (표시 ≤ 3/12이고 중앙값 ≥ 4) | 해결 (8 → 0/12, 중앙값 2.5 → 6.0) | 해결 안 됨 (8 → 5/12, 1.5 → 1.5) | 해결 안 됨 (7 → 3/12, 1.5 → 2.0) |
+| O2 기준(최종) − Spikformer(DE)(최종) | — | +0.10 %, 7/12, 차이 없음 | −0.13 %, 8/12, 차이 없음 |
+| (참고) 같은 비교, 둘 다 지금 설정 | — | −0.59 %, 10/12, 차이 없음 | −0.29 %, 8/12, 차이 없음 |
+| O3 격차 변화 | — | +0.68 %p, 음수 3/12, 변화 없음 | +0.16 %p, 음수 6/12, 변화 없음 |
+| O4 최종 − 지금 | −0.86 %, 10/12, 차이 없음 | −0.18 %, 6/12, 차이 없음 | −0.71 %, 10/12, 차이 없음 |
+| 종합 (ETT O2 + MIT-BIH) | — | 지지 안 됨 | 지지 안 됨 |
+
+- MIT-BIH는 조치하지 않았다. S단계에서 고른 원 시계열 aux 기준 model − Spikformer(DE)는 −0.13 / −0.19 %p로 차이 없음이다((가) 항목의 값).
+- 모든 판정이 "차이 없음 / 변화 없음"이라 한 칸 빼기는 적용되지 않는다.
+
+**보고 전용:**
+- **energy (ETT 평균, Spikformer(DE) 같은 설정 대비):** 지금 1.30 / 1.56배 → 최종 1.26 / 1.52배. Hippocampus 발화율이 조금 줄었다(0.0615 → 0.0523, 0.0619 → 0.0537). Neocortex 발화율은 0.137 / 0.144로 거의 같다. Spikformer(DE)는 10.55 → 10.69 µJ다.
+- **epoch 수 중앙값:** Spikformer(DE) 14 → 17, 기준 model 12 → 12 / 13.
+- **run 시간:** 145–1605 s.
+
+**사전 예상과 대조:**
+
+| 예상 | 결과 | 맞음? |
+|---|---|---|
+| S: 끔 또는 저주파가 근소한 차이로 뽑힘 | 두 neuron 모두 원 시계열 (근소한 차이) | 틀림 |
+| A1: 세 model 모두 더 낮은 lr | Spikformer(DE)만 0.0001; 기준 model은 0.0005 유지 | 틀림 (1/3) |
+| A2: 적어도 한 model이 dropout을 고름 | 세 model 모두 (기준 model은 범위 끝 0.3) | 맞음 |
+| A3: 대부분 0.06 유지 | Spikformer(DE)만 유지, 기준 model 둘은 0.2 | 틀림 |
+| O1: 표시는 줄지만 "해결"은 많아야 한 model | 표시 모두 줄음, Spikformer(DE)만 해결 | 맞음 |
+| O4: 차이 없음 또는 −1 ~ −2 % | −0.18 ~ −0.86 %, 모두 차이 없음 | 맞음 |
+| O2: 두 neuron 모두 차이 없음, O3: 변화 없음 | 그대로 | 맞음 |
+
+**읽는 법 적용:**
+- O1 "해결 안 됨"(기준 model): 세 조치로 기준 model의 이른 validation 최저점은 풀리지 않았다. 따라서 O2는 "기준 model에는 과적합이 남은 비교"다.
+- O4가 셋 다 "좋음"이 아니다: validation으로 고른 설정이 test에서 문턱만큼의 이득을 주지 못했다. 다만 Spikformer(DE)는 −0.86 %로 문턱에 가깝다.
+- 추론(검증 안 함): 기준 model의 validation이 epoch 1–2에서 가장 낮은 현상은 head 쪽 조치(dropout, weight decay)로 바뀌지 않았다. 원인이 head가 아닌 곳(예: Neocortex / 결합부의 학습 속도, aux loss)에 있을 수 있다. 이 시험은 그것을 가리지 못한다.
+
+**결론:**
+- 사용자 요청("과적합 조치 후 test를 Spikformer(DE)와 비교")에 대한 답: 같은 세 조치를 validation으로 고르면 Spikformer(DE)는 과적합이 풀리고 test가 조금 좋아진다(−0.86 %). 기준 model은 과적합이 남고 test가 덜 좋아진다(−0.18 / −0.71 %). 그 결과 둘의 차이는 "차이 없음"이고(+0.10 / −0.13 %), 조치 전 기준 model의 작은 우위(−0.59 / −0.29 %)는 사라졌다.
+- 논문 목표("Spikformer보다 평균적으로 낫다")에 대해: ETT에서 그 근거는 이번 시험으로 더 약해졌다. energy는 여전히 1.26–1.52배다.
+
+**한계:**
+- seed 42 하나로 골랐고, 단계마다 후보는 두 개뿐이다(가장자리 dropout 0.3).
+- 세 조치를 차례로 골랐다(함께 고르지 않음). 단계 사이 상호작용은 보지 않았다.
+- 입력 96, ETT 4칸만 봤다. MIT-BIH는 조치하지 않았다.
+- 과적합 정의는 `loss_trends.py`의 것(최고점 뒤 train ≥ 2 % 하락, validation ≥ 1 % 상승)이다.
+
+**not run:** MIT-BIH 과적합 조치, body 안 dropout(spike dropout), head 크기 줄이기, patch 변경, 같은 설정으로 두 model 맞추기, dropout 범위 넓히기(0.3 초과), 입력 336 / 720, CinC, 이상 탐지.
+
+**다음:** 사용자 결정을 기다린다. 열린 결정: 문헌 후보(1순위 문턱 앞 current 주입 등) 시험 여부, 비교 기준 설정(지금 설정 / 이번 최종 설정), lr 시험 재개, 이상 탐지, DNN 비교표.
+
+**산출물 (Git):**
+- `nsmt_flif_v1/forecasting/results/flif-v1-ett-of-{A1-0.0001, A1-5e-05, A2-0.1, A2-0.3, A3-0.2, A3-0.5}/{raw.txt, pool_runs.txt}`, 그리고 `flif-v1-ett-of-A2-0.1/energy_recount.csv`, `flif-v1-ett-of-A3-0.2/energy_recount.csv`
+- `nsmt_flif_v1/classification/results/flif-v1-of-selected.json`, `flif-v1-of-summary.md`
+- 대기열(`classification/scripts/queues/of-*.txt`)과 pool 기록(`flif-v1-of-pool.log`)은 local에 둔다.
+
+**commit / tag:** 이 항목과 결과 파일을 commit 하고 tag `exp/nsmt-flif-neo-20261119-of`를 붙인다(이 항목은 자기 commit을 tag로 가리킨다).
+
+---
