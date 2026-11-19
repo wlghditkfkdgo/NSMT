@@ -14919,3 +14919,115 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 **실행:** 이 commit · push 뒤 NSMT/에서 `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/mxpop_ett_driver.sh > /dev/null 2>&1 &`로 시작한다. driver.log는 `results/flif-v1-ett-spkmux-mxpop/driver.log`(local)다.
 
 **commit:** 이 기록, 위 code, 점검 출력(`check-mxett-20261119/`의 script · txt, `check-mxett-repro-20261119/raw.txt`)을 `exp/f-lif-pop-v3`에 commit · push한다. dry 폴더, 메모리 기록, run 폴더는 local이다.
+
+## 2026-11-19 23:51 KST — 결과 + 실험 완료("mixer에만 population" ETT 부분, 48 run, 사전등록 `950537686`, SKIP 0): 네 arm 모두 채택 규칙을 통과하지 못했다. syops energy가 SF-de의 1.23–2.30배였고, MAE 0.001 조건도 네 arm 모두 못 넘었다. 튜닝할 구조는 LIF SpkMixer다. 판정 4개(B1 · B3 · C3 · C5)는 모두 no clear difference다
+
+**목적:** 21:19 사전등록. 사용자 결정 5번에 따라 "mixer에만 population" 구조가 지금 LIF SpkMixer보다 나은지 보고, 튜닝할 구조 S를 정한다.
+
+**branch / code:** `exp/f-lif-pop-v3`, code `950537686`. 48행 모두 sha `950537686`이다(`recheck_mxett.py --sha 950537686`).
+
+### 실행
+- 명령(NSMT/에서): `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/mxpop_ett_driver.sh > /dev/null 2>&1 &`
+- 환경: `/home/yschoi/.conda/envs/snn_recall/bin/python`, GPU 4장(A6000), GPU당 2개.
+- 시간: driver 시작 21:20:00 → pool 끝 23:44:10 → driver end 23:49:52. 걸린 시간은 2시간 24분이다(예상 4–6시간보다 짧음). run 시간 합은 19.01 GPU 시간이다.
+- RESULT 48, SKIP 0. energy 재계산, 요약, 독립 재계산(ALL CHECKS PASSED)까지 driver가 멈추지 않고 끝냈다.
+- 설정은 사전등록 그대로다.
+  - 공통: muxlin, IAND, 방향별 mixer 층 1, lr ETTh2 5e-4 / ETTm2 1e-4, 입력 96, patience 10.
+  - 데이터: ETTh2 · ETTm2, H96 · H720.
+  - seed: 42 / 7 / 2026.
+
+### 결과: test MSE(seed 평균)와 energy(`summary.md`)
+
+| arm | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 | 4칸 평균 MSE | 4칸 평균 MAE | mean best validation L1 | syops energy µJ(4칸 평균) |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| LIF(기준) | 0.2952 | 0.4218 | 0.1775 | 0.4034 | 0.3245 | 0.3567 | 0.36145 | 29.30 |
+| LIF + mean(보고) | 0.2893 | 0.4199 | 0.1773 | 0.4033 | 0.3225 | 0.3554 | 0.36242 | 32.02 |
+| pop LIF all(보고) | 0.2910 | 0.4134 | 0.1769 | 0.4033 | 0.3212 | 0.3540 | 0.36151 | 47.46 |
+| **pop LIF mixer** | 0.2889 | 0.4198 | 0.1776 | 0.4044 | 0.3226 | 0.3557 | 0.36260 | 40.12 |
+| **pop LIF mixer + mean** | 0.2890 | 0.4220 | 0.1777 | 0.4049 | 0.3234 | 0.3561 | 0.36205 | 34.71 |
+| **pop f-LIF mixer** | 0.2889 | 0.4196 | 0.1783 | 0.4053 | 0.3230 | 0.3561 | 0.36308 | 58.01 |
+| **pop f-LIF mixer + mean** | 0.2929 | 0.4188 | 0.1785 | 0.4061 | 0.3241 | 0.3567 | 0.36303 | 39.25 |
+| SF-de | 0.2921 | 0.4229 | 0.1768 | 0.4036 | 0.3238 | 0.3557 | 0.36126 | 29.68 |
+
+### 채택(사용자 규칙 21:09: 4칸 평균 test MSE와 MAE 둘 다 LIF보다 0.001 이상 낮고, syops energy A/B(SF-de 대비) ≤ 1.05)
+
+| arm | LIF − arm, MSE / MAE | energy A/B vs SF-de | MSE | MAE | energy | 채택 후보 |
+|---|---|--:|---|---|---|---|
+| pop LIF mixer | +0.001853 / +0.000987 | 1.4805 | 통과 | **미달(0.000013 모자람)** | **미달** | 아님 |
+| pop LIF mixer + mean | +0.001094 / +0.000631 | 1.2306 | 통과 | 미달 | 미달 | 아님 |
+| pop f-LIF mixer | +0.001485 / +0.000619 | 2.3040 | 통과 | 미달 | 미달 | 아님 |
+| pop f-LIF mixer + mean | +0.000417 / −0.000050 | 1.4397 | 미달 | 미달 | 미달 | 아님 |
+
+- **튜닝할 구조 S = LIF SpkMixer**(`COND=spkmx_lif_muxlin_iand`). 결과는 `selected_structure.json`에 있다.
+- 세 조건 중 energy 하나만 봐도 네 arm 모두 걸린다. 성능 조건(MSE · MAE 둘 다)만 따져도 통과한 arm은 없다.
+- pop LIF mixer는 MAE가 0.001에서 0.000013 모자랐다. 이 차이는 seed 표준편차보다 훨씬 작다. 다만 energy가 1.48배라서 MAE를 넘었어도 채택되지 않았다.
+
+### 판정(11-18 18:07 사전등록 규칙: test MSE, R = 4칸 평균 %, better = R ≤ −1 %이고 12쌍 중 8쌍 이상 낮음)
+
+| 비교 | R % | 낮은 쌍 | 판정 | syops energy A/B | 칸별 r % | MAE R % | validation L1 R % |
+|---|--:|--:|---|--:|---|--:|--:|
+| B1 pop LIF mixer vs LIF | −0.59 | 6/12 | no clear difference | 1.51 | −2.13, −0.48, +0.02, +0.23 | −0.28 | +0.36 |
+| B3 pop LIF mixer vs pop LIF all | +0.35 | 5/12 | no clear difference | 0.83 | −0.73, +1.53, +0.36, +0.26 | +0.44 | +0.34 |
+| C3 pop LIF mixer + mean vs pop LIF mixer | +0.20 | 4/12 | no clear difference | 0.84 | +0.05, +0.54, +0.09, +0.12 | +0.08 | −0.11 |
+| C5 pop f-LIF mixer + mean vs pop f-LIF mixer | +0.38 | 2/12 | no clear difference | 0.65 | +1.41, −0.19, +0.13, +0.20 | +0.20 | −0.03 |
+
+보고(판정에 쓰지 않음):
+
+| 비교 | R % | 낮은 쌍 | syops energy A/B | 이전 규칙 energy A/B |
+|---|--:|--:|--:|--:|
+| pop f-LIF mixer vs pop LIF mixer | +0.15 | 4/12 | 1.52 | 1.84 |
+| pop LIF mixer + mean vs LIF + mean | +0.26 | 3/12 | 1.11 | 1.21 |
+| LIF vs SF-de | +0.30 | 5/12 | 0.98 | 0.96 |
+| LIF + mean vs SF-de | −0.36 | 7/12 | 1.11 | 1.22 |
+| pop LIF all vs SF-de | −0.64 | 5/12 | 1.82 | 2.68 |
+| pop LIF mixer vs SF-de | −0.30 | 5/12 | 1.48 | 1.99 |
+| pop LIF mixer + mean vs SF-de | −0.10 | 4/12 | 1.23 | 1.47 |
+| pop f-LIF mixer vs SF-de | −0.15 | 5/12 | 2.30 | 3.66 |
+| pop f-LIF mixer + mean vs SF-de | +0.23 | 3/12 | 1.44 | 1.89 |
+
+- B1의 −0.59 %는 거의 ETTh2 H96 한 칸(−2.13 %; seed별 −3.49, +0.02, −2.92)에서 나왔다. 나머지 세 칸은 −0.48–+0.23 %다.
+  - 같은 칸에서 pop LIF mixer + mean(0.2890)과 pop f-LIF mixer(0.2889)도 LIF(0.2952)보다 낮다. pop f-LIF mixer + mean은 0.2929, LIF + mean은 0.2893이다.
+- B1의 validation L1은 +0.36 %로 오히려 LIF보다 나쁘다. validation으로 골랐다면 이 arm은 고르지 않았을 것이다.
+- C3 · C5: mean pooling은 mixer-only population에서 test MSE를 낮추지 않았다(+0.20 %, +0.38 %). energy는 0.84배 · 0.65배로 줄었다.
+
+### 사용자 통과 기준(`pass_ett.judge`; 보고. 세 기준을 모두 넘어야 통과)
+
+| arm | 4칸 평균 MSE / MAE | (1) SpikF | (2) SF-de + energy ≤ 1.05 | (3) DNN 9개 | 통과 | 모두 넘으려면 더 낮춰야 할 MSE / MAE |
+|---|---|---|---|---|---|---|
+| LIF | 0.3245 / 0.3567 | 미달 | 미달(성능) | 7/9 | 아님 | 0.0087 / 0.0027 |
+| pop LIF mixer | 0.3226 / 0.3557 | 미달 | 미달(성능 · energy 1.48) | 8/9(TimeMixer 미달) | 아님 | 0.0069 / 0.0017 |
+| pop LIF mixer + mean | 0.3234 / 0.3561 | 미달 | 미달(성능 · energy 1.23) | 7/9 | 아님 | 0.0077 / 0.0021 |
+| pop f-LIF mixer | 0.3230 / 0.3561 | 미달 | 미달(성능 · energy 2.30) | 8/9(TimeMixer 미달) | 아님 | 0.0073 / 0.0021 |
+| pop f-LIF mixer + mean | 0.3241 / 0.3567 | 미달 | 미달(성능 · energy 1.44) | 7/9 | 아님 | 0.0083 / 0.0027 |
+
+- TimeMixer(MSE 0.3167)가 가장 넘기 어렵다. 모든 arm이 MSE로 0.006–0.008 모자란다.
+- 보고(기준 아님): 4칸 평균 MSE / MAE는 NSMT 0.3177 / 0.3518, SF-de 0.3238 / 0.3557이다.
+
+### 사전 예상과 비교
+- 채택: "네 arm 모두 energy에서 걸려 S = LIF"로 예상했고 그대로 됐다.
+  - 2 epoch 시험값으로 1.11–3.05배를 예상했다. 실제는 1.23–2.30배였다.
+- B1 · B3 · C3 · C5: no clear difference로 예상했고 그대로 됐다.
+- 예상과 달랐던 것은 시간이다. 4–6시간으로 예상했지만 2시간 24분 걸렸다.
+  - 이유(내 추정): 다른 세션의 pool이 곧 끝나서 GPU를 덜 함께 썼다.
+  - 단일 run 시간은 사전등록의 예상 범위 안이거나 그보다 짧았다(예: pop LIF mixer ETTm2 H96 2,495–4,775 s).
+
+### 한계
+- 설정은 LIF SpkMixer로 튜닝한 값이다. population arm에 맞춰 다시 튜닝하지 않았다.
+- 채택은 test 값으로 정했다(사용자 규칙). 결과가 "채택 없음"이라 튜닝에는 영향이 없다.
+- seed 3이다. 0.001은 ETTh2 MSE의 seed 표준편차(약 0.003)보다 작다.
+- syops는 spike끼리의 곱과 abs · min · max를 세지 않는다. f-LIF 논문 식의 neuron energy는 syops 규칙이 아니지만, 모든 model에 같은 식으로 더했다.
+
+### 결론
+- "mixer에만 population"은 ETT에서 LIF SpkMixer보다 낫다고 할 근거가 없다. 판정 4개가 모두 no clear difference이고, MAE는 0.001 조건에 못 미친다.
+- syops energy는 SF-de의 1.23–2.30배다. 사용자 규칙에 따라 채택하지 않는다.
+- 다음 단계(21:09 결정, 계획 2단계)는 LIF SpkMixer 튜닝이다.
+  - 순서: patch 길이 {4, 8, 16} → d_model {32, 64, 128, 256} → MLP 비율 {0.5, 1, 2, 4} → block 수 {1, 2, 3} → weight decay {0, 0.01, 0.06, 0.1}.
+  - validation으로만 고른다. 새 후보 13개 × 4칸 × seed 3 = 156 run이다.
+  - S가 LIF이므로 gain table은 필요 없다(`calibrate_pn.py`를 확장하지 않음).
+  - code와 점검을 준비하고 사전등록을 commit · push한 뒤 시작한다.
+
+### 파일
+- commit(`NSMT/cinc_mixer_v1/results/flif-v1-ett-spkmux-mxpop/`): `raw.txt`, `energy_recount.csv`, `summary.md`, `selected_structure.json`, `recheck_mxett.txt`(`--sha 950537686`로 다시 돌린 출력), `pool_log.txt`.
+- local: `driver.log`, run 폴더(`cinc_mixer_v1/log/flif-v1-ett-spkmux-mxpop/`; checkpoint · TensorBoard), queue 파일(`scripts/queues/pn-mxett-20261119.txt`), `check-mxett-20261119/`의 dry 폴더와 메모리 기록.
+
+**commit / tag:** 이 기록과 결과 파일을 `exp/f-lif-pop-v3`에 commit · push한다. annotated tag는 `exp/f-lif-pop-v3-mxpopett-20261119`다(이 기록은 자기 commit을 이 tag로 가리킨다). code 변경은 없다.
