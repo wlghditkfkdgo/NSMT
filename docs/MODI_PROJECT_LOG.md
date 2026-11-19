@@ -9904,3 +9904,136 @@ Spikformer식보다 "좋음"인 변형은 없다.
 **commit:** 이 항목과 스크립트, 점검, 판정 script, smoke 결과, 보고서 정정을 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 pool을 시작한다. 이 commit이 새 run들의 sha가 된다.
 
 ---
+
+## 2026-11-19 22:12 KST — 결과: positional encoding 끔 시험 (45 run, 사전 고정 `96fb4dc2a`) — **bias를 빼도 기준 model이 Spikformer(DE)보다 낫다는 근거는 나오지 않았다.** bias 없는 조건의 기준 − Spikformer(DE)는 ETT −0.07 % / +0.02 %(pop LIF / pop f-LIF), MIT-BIH +0.24 / +0.14 %p로 모두 "차이 없음"이다. 종합은 pop LIF "약함(방향만)", pop f-LIF "지지 안 됨"이다. ETT에서는 bias를 빼자 Spikformer(DE)가 조금 좋아져서(−0.76 %, 9/12, 차이 없음) 기준 model이 갖고 있던 작은 우위(−0.80 / −0.75 %)가 없어졌다. MIT-BIH에서는 bias를 빼면 Spikformer(DE)가 나빠지지만(−0.67 %p, "나쁨") 순서를 전혀 못 보는 상태에서도 macro-F1 91.27 %다. 사후 측정(학습 없음): bias 없이 학습한 기준 model은 Neocortex로 순서를 실제로 쓴다(token 순서를 섞으면 −8.54 / −6.09 %p). 그런데도 순서를 못 보는 Spikformer(DE)보다 높지 않다
+
+**branch / 기준:** `exp/nsmt-flif-neo`, 사전 고정 commit `96fb4dc2a`(새 run 45개 모두 이 sha). 사전 고정은 2026-11-19 20:04 항목이다. 켠 쪽은 11-18의 `flif-v1-ett-sde` / `flif-v1-mitbih-sde`(sha `11c83b385`)다.
+
+**사용자 요청 (11-19 저녁, 원문):** "relative positional encoding을 끄고 실험을 해줘. (Spikformer 도 마찬가지)"
+
+**실행:** NSMT/에서 tmux `flif_nope`, `bash scripts/gpu_pool2.sh nsmt_flif_v1/classification/scripts/queues/nope-20261119.txt 0,1,2,3`(GPU 4장에 run 하나씩).
+- 20:05:41 시작, 21:55:26 "all workers finished". START / DONE(rc=0) 45쌍, RESULT 36(ETT) + 9(MIT-BIH), SKIP 0.
+- run 시간: ETT 157–1294 s, MIT-BIH 367–1033 s. 다른 대화(`wt-flif-pop-v3`)의 작업이 같은 GPU를 함께 썼다.
+- 환경: `/home/yschoi/.conda/envs/snn_recall/bin/python`, `LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib`.
+- 설정(사전 고정 그대로): 모든 neuron SpikeDE, aux 없음, `--ssa_pe 0`(env `PE=0`). ETT는 ETTh2 / ETTm2 × H96 / H720, 입력 96, lr 0.0005, head dropout 0, weight decay 0.06. MIT-BIH는 30 epoch, lr 0.01. seed 42 / 7 / 2026.
+
+**후처리 (사전 고정 순서 그대로):**
+1. pool 기록(`forecasting/results/flif-v1-nope-pool.log`, 145행)을 두 suite의 `pool_runs.txt`로 복사했다.
+2. `energy_recount_ett.py --suite flif-v1-ett-nope` → 36 run, test MSE 36/36 재현, "all checks passed".
+3. `summarize_nope.py` → `classification/results/flif-v1-nope-summary.md`. 끈 쪽 45줄 모두 폴더에 `_nope`, RESULT에 `pe=0`, sha 하나.
+
+### 결과 (seed 평균 ± 표준편차; ETT test MSE, MIT-BIH test macro-F1 %)
+
+| model | bias | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 | MIT-BIH macro-F1 % |
+|---|---|---|---|---|---|---|
+| Spikformer(DE) | 켬 | 0.2921 ± 0.0038 | 0.4229 ± 0.0062 | 0.1779 ± 0.0004 | 0.4048 ± 0.0023 | 91.94 ± 0.49 |
+| Spikformer(DE) | 끔 | 0.2886 ± 0.0025 | 0.4179 ± 0.0011 | 0.1769 ± 0.0011 | 0.4044 ± 0.0025 | 91.27 ± 0.16 |
+| 기준 pop LIF | 켬 | 0.2914 ± 0.0021 | 0.4163 ± 0.0051 | 0.1763 ± 0.0009 | 0.4029 ± 0.0019 | 91.90 ± 0.26 |
+| 기준 pop LIF | 끔 | 0.2899 ± 0.0030 | 0.4164 ± 0.0044 | 0.1770 ± 0.0008 | 0.4028 ± 0.0016 | 91.51 ± 0.28 |
+| 기준 pop f-LIF | 켬 | 0.2897 ± 0.0037 | 0.4181 ± 0.0065 | 0.1766 ± 0.0013 | 0.4034 ± 0.0020 | 92.01 ± 0.49 |
+| 기준 pop f-LIF | 끔 | 0.2917 ± 0.0033 | 0.4166 ± 0.0022 | 0.1764 ± 0.0008 | 0.4027 ± 0.0018 | 91.41 ± 0.46 |
+
+### 판정 (사전 고정 규칙)
+
+**ETT (r = A / B − 1, test MSE, %; 12쌍):**
+
+| 비교 | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 | R % | A가 낮은 쌍 | 판정 | energy A/B |
+|---|---|---|---|---|---|---|---|---|
+| N1 Spikformer(DE): 끔 − 켬 | −1.18 | −1.16 | −0.60 | −0.11 | −0.76 | 9/12 | 차이 없음 | 1.00 |
+| N1 기준 pop LIF: 끔 − 켬 | −0.52 | +0.02 | +0.40 | −0.05 | −0.04 | 8/12 | 차이 없음 | 1.00 |
+| N1 기준 pop f-LIF: 끔 − 켬 | +0.66 | −0.34 | −0.12 | −0.19 | +0.00 | 6/12 | 차이 없음 | 1.00 |
+| N2 pop LIF: 기준(끔) − Spikformer(DE)(끔) | +0.43 | −0.36 | +0.04 | −0.39 | −0.07 | 6/12 | 차이 없음 | 1.24 |
+| (참고) pop LIF: 둘 다 켬 | −0.23 | −1.55 | −0.95 | −0.46 | −0.80 | 11/12 | 차이 없음 | 1.25 |
+| N2 pop f-LIF: 기준(끔) − Spikformer(DE)(끔) | +1.04 | −0.30 | −0.27 | −0.41 | +0.02 | 5/12 | 차이 없음 | 1.51 |
+| (참고) pop f-LIF: 둘 다 켬 | −0.80 | −1.12 | −0.74 | −0.33 | −0.75 | 9/12 | 차이 없음 | 1.51 |
+| N3 격차 변화 pop LIF (음수 = bias를 빼면 기준 쪽이 유리해짐) | +0.66 | +1.19 | +1.00 | +0.06 | +0.73 | 음수 4/12 | 변화 없음 | |
+| N3 격차 변화 pop f-LIF | +1.84 | +0.82 | +0.47 | −0.08 | +0.77 | 음수 3/12 | 변화 없음 | |
+
+**MIT-BIH (d = A − B, test macro-F1, %p; seed 42 / 7 / 2026):**
+
+| 비교 | seed별 d | 평균 | 판정 | energy A/B |
+|---|---|---|---|---|
+| N1 Spikformer(DE): 끔 − 켬 | −0.32 / −1.39 / −0.29 | −0.67 | 나쁨 | 0.98 |
+| N1 기준 pop LIF: 끔 − 켬 | −0.28 / −0.62 / −0.29 | −0.39 | 차이 없음 | 0.99 |
+| N1 기준 pop f-LIF: 끔 − 켬 | +0.04 / −0.56 / −1.28 | −0.60 | 나쁨 | 0.99 |
+| N2 pop LIF: 기준(끔) − Spikformer(DE)(끔) | −0.10 / +0.25 / +0.55 | +0.24 | 차이 없음 | 1.23 |
+| (참고) pop LIF: 둘 다 켬 | −0.14 / −0.52 / +0.55 | −0.04 | 차이 없음 | 1.21 |
+| N3 격차 변화 pop LIF (양수 = bias를 빼면 기준 쪽이 유리해짐) | +0.05 / +0.77 / +0.01 | +0.28 | 변화 없음 | |
+| N2 pop f-LIF: 기준(끔) − Spikformer(DE)(끔) | +0.06 / +0.72 / −0.36 | +0.14 | 차이 없음 | 1.37 |
+| (참고) pop f-LIF: 둘 다 켬 | −0.30 / −0.12 / +0.62 | +0.07 | 차이 없음 | 1.35 |
+| N3 격차 변화 pop f-LIF | +0.36 / +0.84 / −0.99 | +0.07 | 변화 없음 | |
+
+**종합 (bias 없는 조건에서 기준 model이 Spikformer(DE)보다 나은가; `summarize_sde.overall`):** pop LIF **약함(방향만)**, pop f-LIF **지지 안 됨**.
+
+**사전에 정한 읽는 법에 대 보면:**
+- T = N 근거가 되는 조건은 "N1에서 Spikformer(DE)가 나쁨, 기준 model은 나쁨이 아님, N2가 좋음"이었다. 채워지지 않았다. MIT-BIH에서 Spikformer(DE)는 "나쁨"이지만 N2는 두 neuron 모두 "차이 없음"이고, pop f-LIF는 기준 model도 "나쁨"이다.
+- ETT는 세 model 모두 N1 "차이 없음"이다. 이 과제에서는 relative position bias가 필요 없다.
+- MIT-BIH pop f-LIF는 기준 model도 "나쁨"(−0.60 %p; seed 2026 하나가 −1.28)이다. 사전에 정한 읽기로는 "기준 model도 순서 정보를 bias에 기대고 있다"이다.
+
+**보고 전용 (`flif-v1-nope-summary.md`의 report only 표):**
+- energy(Spikformer(DE) 같은 쪽 대비): ETT 1.24 / 1.51배(켬 1.25 / 1.51), MIT-BIH 1.23 / 1.37배(켬 1.21 / 1.35). bias를 빼도 energy는 거의 같다.
+- ETT Hippocampus 발화율: Spikformer(DE) 0.0608 → 0.0588, pop LIF 0.0585 → 0.0571, pop f-LIF 0.0584 → 0.0576. Neocortex 0.0332 → 0.0311, 0.0323 → 0.0314.
+- MIT-BIH accuracy %: 98.53 → 98.33, 98.47 → 98.41, 98.54 → 98.39.
+- ETT에서 validation 최저가 epoch 0인 run(12개 중): Spikformer(DE) 2 → 4, pop LIF 3 → 4, pop f-LIF 4 → 3. epoch 수 11–23.
+
+### 사후 측정 (사전 고정 아님, 학습 없음): 저장된 MIT-BIH model이 test에서 token 순서를 쓰는가
+
+- **이유:** N2가 "차이 없음"일 때 두 가지를 가려야 한다. 기준 model이 순서를 쓰지 않는 것인지, 쓰지만 점수로 이어지지 않는 것인지.
+- **방법 (`classification/order_eval_nope.py`):** 18 run(켬 9, 끔 9)의 마지막 epoch weight로 test 32,833개를 다시 평가했다.
+  - 정상 순서: 기록된 macro-F1을 18/18 재현(차이 ≤ 1e-6)해야 진행한다.
+  - 전체 섞기: token 11개를 고정된 순열 하나(`TokenShuffle`의 평가용 순열)로 섞어 Hippocampus와 Neocortex에 같이 넣는다.
+  - Neocortex 순서만 섞기(기준 model): model에 있던 `neo_shuffle` 대조를 평가 때만 켠다. Neocortex가 섞인 순서로 읽고 출력은 원래 자리에 되돌린다. Hippocampus는 정상 순서다.
+- **명령:** classification 폴더에서 `CUDA_VISIBLE_DEVICES=2 python order_eval_nope.py` → "all checks passed", `results/flif-v1-nope-order-eval.{json,md}`.
+
+| model | bias | 정상 순서 | 전체 섞기 | 하락 %p (seed별) | 예측이 바뀐 sample % | Neocortex 순서만 섞기 | 하락 %p (seed별) | 바뀐 % |
+|---|---|---|---|---|---|---|---|---|
+| Spikformer(DE) | 켬 | 91.94 | 72.04 | −19.91 (−15.90 / −21.74 / −22.08) | 10.53 | — | — | — |
+| Spikformer(DE) | 끔 | 91.27 | 91.27 | 0.00 (0 / 0 / 0) | 0.00 | — | — | — |
+| 기준 pop LIF | 켬 | 91.90 | 74.28 | −17.62 (−17.59 / −19.57 / −15.71) | 7.27 | 88.22 | −3.69 (−3.28 / −2.00 / −5.77) | 2.05 |
+| 기준 pop LIF | 끔 | 91.51 | 82.96 | −8.54 (−8.53 / −9.79 / −7.31) | 3.90 | 82.96 | −8.54 (−8.53 / −9.79 / −7.31) | 3.90 |
+| 기준 pop f-LIF | 켬 | 92.01 | 76.19 | −15.82 (−12.20 / −14.91 / −20.34) | 5.31 | 87.71 | −4.30 (−2.05 / −1.77 / −9.08) | 1.56 |
+| 기준 pop f-LIF | 끔 | 91.41 | 85.32 | −6.09 (−6.07 / −7.72 / −4.48) | 2.53 | 85.32 | −6.09 (−6.07 / −7.72 / −4.48) | 2.53 |
+
+- **확인된 것:**
+  - bias 없이 학습한 Spikformer(DE)는 순서를 전혀 못 본다. 섞어도 32,833개 예측이 하나도 안 바뀐다(3 seed). 그 상태로 macro-F1 91.27 %다.
+  - bias 없이 학습한 기준 model은 순서를 쓴다. 섞으면 −8.54 / −6.09 %p다(3 seed 모두 하락). bias가 없으면 "전체 섞기"와 "Neocortex 순서만 섞기"의 값이 정확히 같다. bias 없는 attention과 평균 head는 token 자리에 무관하므로, 이 model에 남은 순서 통로는 Neocortex뿐이라는 뜻이다(계산이 맞는지의 확인도 된다).
+  - bias가 있을 때 Neocortex 순서만 섞으면 −3.69 / −4.30 %p다. bias를 빼고 학습하면 Neocortex 순서에 대한 의존이 더 크다(pop LIF는 3 seed 모두, pop f-LIF는 3 seed 중 2개).
+- **읽기 (추론):** MIT-BIH에서 순서 정보의 값어치는 작다. 순서를 전혀 못 보는 Spikformer(DE)가 bias를 가진 것보다 0.67 %p 낮을 뿐이다. 기준 model은 Neocortex로 순서를 읽고 실제로 거기에 기대지만, 그것으로 얻는 점수가 이 0.67 %p 안쪽이라 문턱(0.5 %p)을 넘는 우위가 되지 못한다. "섞었을 때의 하락"은 model이 순서에 기대는 정도이고, 순서가 주는 이득이 아니다.
+- **한계:** 사후 측정이라 문턱을 미리 정하지 않았다(서술만). 순열 하나만 썼다. bias를 켠 model의 "전체 섞기"에는 학습된 bias와 어긋나는 효과가 섞여 있다. ETT에는 하지 않았다.
+
+### 사전 예상과 맞춰 보기
+
+| 예상 | 결과 | 맞음 |
+|---|---|---|
+| ETT N1: 세 model 모두 차이 없음 | 세 model 모두 차이 없음 | 맞음 |
+| Spikformer(DE)는 ETTm2 H96에서 조금 나빠질 수 있다 | −0.60 %(좋아지는 방향) | 틀림 |
+| MIT-BIH N1 Spikformer(DE): 음수지만 −0.5 %p에 못 미칠 수 있다(차이 없음) | −0.67 %p, 3 seed 모두 음수, "나쁨" | 방향은 맞고 판정은 틀림 |
+| MIT-BIH N1 기준 model: 차이 없음 | pop LIF 차이 없음, pop f-LIF "나쁨"(−0.60 %p) | pop f-LIF 틀림 |
+| N2 / N3 ETT: 차이 없음 / 변화 없음 | 그대로 | 맞음 |
+| N2 MIT-BIH: 기준 쪽으로 기울지만 "좋음"은 많아야 한 neuron | +0.24 / +0.14 %p, "좋음" 없음 | 맞음 |
+| 종합: 많아야 한 neuron strong, 아니면 약함(방향만) | 약함(방향만) / 지지 안 됨 | pop f-LIF 틀림 |
+
+### 결론
+
+- **bias 없는 조건에서도 기준 model이 Spikformer(DE)보다 낫다는 근거는 없다.** T = N의 보조 근거로 쓰려던 조건이 채워지지 않았다.
+- **ETT의 작은 우위는 이번에도 남지 않았다.** 기준 − Spikformer(DE)가 −0.80 / −0.75 %(11-18)였는데, 조건을 바꾼 세 경우에서 모두 줄거나 없어졌다: 기준에 aux를 더했을 때 −0.59 / −0.29 %(11-19 (가)), 각자 과적합 조치 뒤 +0.10 / −0.13 %(11-19 (나)), bias를 뺐을 때 −0.07 / +0.02 %(이번). 판정은 처음부터 계속 "차이 없음"이다.
+- **MIT-BIH는 순서가 거의 필요 없는 과제다(사후 측정 포함).** 순서를 못 보는 model이 91.27 %이고 bias가 주는 이득은 0.67 %p다. T = N이 순서를 준다는 것을 MIT-BIH의 점수로 보이기는 어렵다.
+- **기준 model의 Neocortex는 순서를 실제로 쓴다(사후 측정).** "Neocortex가 안 쓰인다"가 아니라 "쓰이지만 이 과제에서 점수로 이어질 여지가 작다" 쪽이다. 다만 사전 고정한 판정이 아니다.
+- energy는 bias와 무관하게 1.2–1.5배다.
+
+**한계:** 지금 학습 설정 하나, seed 3개다. MIT-BIH의 "순서를 못 봄"은 평균 head에서만 성립한다. ETT는 head가 위치를 읽으므로 이 시험이 T = N을 가리지 못한다. 켠 쪽과 끈 쪽의 sha가 다르다(`11c83b385` / `96fb4dc2a`; 그 사이 model code의 기본 경로는 점검으로 같다고 확인한 변경뿐이다).
+
+**not run:** (나) 최종 설정에서의 bias 끔, 순서가 필요한 과제(CinC 등)에서의 bias 끔, 다른 head(MIT-BIH flat head), ETT의 순서 섞기 평가, 입력 336 / 720, 이상 탐지.
+
+**다음:** 사용자 결정을 기다린다. 열린 결정: aux target 변경(과거 회상 / 다음 예측)과 기억 없는 대조 검증, 문헌 후보 시험(배치 (가) / (나)), hyperparameter 점검 범위, 비교 기준 설정, lr 시험 재개, 이상 탐지, DNN 비교표.
+
+**산출물 (Git):**
+- `nsmt_flif_v1/forecasting/results/flif-v1-ett-nope/{raw.txt, pool_runs.txt, energy_recount.csv}`
+- `nsmt_flif_v1/classification/results/flif-v1-mitbih-nope/{raw.txt, pool_runs.txt}`
+- `nsmt_flif_v1/classification/results/flif-v1-nope-summary.md`
+- `nsmt_flif_v1/classification/order_eval_nope.py`, `results/flif-v1-nope-order-eval.{json, md}`
+- 대기열(`classification/scripts/queues/nope-20261119.txt`), pool 기록(`flif-v1-nope-pool.log`), run 폴더(`log/flif-v1-*-nope/`)는 local에 둔다.
+
+**commit / tag:** 이 항목과 결과 파일을 commit 하고 tag `exp/nsmt-flif-neo-20261119-nope`를 붙인다(이 항목은 자기 commit을 tag로 가리킨다).
+
+---
