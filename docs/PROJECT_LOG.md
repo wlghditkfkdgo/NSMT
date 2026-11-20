@@ -15308,3 +15308,214 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 - local: `driver.log`, run 폴더(`ETT*/.../log`, `model_state`), queue 파일 `scripts/queues/ettune-*-20261120.txt`, `check-ettune-20261120/`의 dry 폴더 · `mem_all.txt` · `pool_log.txt`.
 
 **commit / tag:** 이 기록과 위 결과를 `exp/f-lif-pop-v3`에 commit · push한다. annotated tag `exp/f-lif-pop-v3-etttune-20261120`(완료된 학습 run). 이 기록이 들어간 commit은 이 tag로 가리킨다.
+
+## 2026-11-20 13:08 KST — 사용자 질문 5개에 대한 답(학습 없음) + 사용자 결정 2개(튜닝 확장 후보): weight decay 0.1은 관련 논문 범위(0–0.06) 밖이다. 확장 후보는 patch {24, 32}를 더하고 weight decay는 {0, 0.005, 0.01, 0.02, 0.05, 0.06}으로 한다(0.1 제외)
+
+**직전 commit:** `53e1c970c`(04:02 튜닝 결과, tag `exp/f-lif-pop-v3-etttune-20261120`). 브랜치 `exp/f-lif-pop-v3`. 이 브랜치에서 도는 pool은 없었다.
+
+### 사용자 질문(원문)
+> 1. weight decay 의 값 0.1은 관행적인 기준에서 꽤 벗어나지 않아?
+> 2.후보 목록 끝(patch 32, 더 큰 weight decay)까지 넓혀보자. (관련 선행 연구의 관행적인 값 이내에서 충분히 탐색)
+> 3. 지금 너가 최종 예측 모델로 확정하려는 것의 구조에 대해서 간단히 내가 차이를 이해할 수 있게 설명해줘.
+> 4. AD의 결과에 대해서 분석해줘.
+> 5. Mixer only population의 결과에 대해서 분석해줘.
+
+### 1. weight decay 0.1
+- 우리 학습은 AdamW다(`train_forecast.py` 143행, 모든 parameter에 적용). 매 step 가중치를 lr × wd 비율로 줄인다.
+- 관련 논문의 값(scratchpad에 받아 둔 원문을 `pdftotext`로 읽고 grep으로 확인):
+
+| 분야 | 논문(arXiv) | weight decay |
+|---|---|---|
+| spiking transformer | Spike-driven Transformer v2 (2404.03663) | 0.05 |
+| | SNN-MLP (2203.14679) | 0.05 (ImageNet), 0.01 (detection) |
+| | 2505.18608 (Spikformer 계열 설정) | 0.05 (ImageNet), 0.06 (그 밖) |
+| | 2608.19238 | 0.06, 0.05, 0.005 |
+| | Lapis (2608.11865) | 0.05 |
+| | STMixer | 0.02, 0.005 |
+| | 2610.15968 | 1e-4 |
+| 예측 model | PatchTST, iTransformer, TimeMixer, TSMixer, SpikF, Lv 2024 (SNN) | 본문에 weight decay가 없다. TimeMixer · TSMixer · SpikF · Lv 2024는 Adam이라고 적는다 |
+
+- **결론: 0.1은 관련 논문의 최댓값(0.06)보다 크다.** 관행 범위 밖이다. 예측 논문 code의 기본값은 이번에 확인하지 않았다.
+- **실제 효과는 작았다.**
+  - 학습이 일찍 멈춰서(best epoch 1–13), best epoch까지 가중치가 줄어든 정도는 wd 0.1에서 약 1.3–7.3 %, 0.06에서 약 0.8–4.4 %다(내 추정: exp(−lr · wd · step), gradient와 lr 감소는 무시).
+  - validation score 차이는 0.01–0.02 %(0.9998, 0.9999)였다. test 4칸 평균 MSE는 0.3199 → 0.3205로 조금 나빠졌다.
+- **내 잘못:** 00:14 사전등록의 weight decay 후보 {0, 0.01, 0.06, 0.1}을 논문 관행을 확인하지 않고 정했다.
+
+### 3. 최종 후보 모델 구조(보고)
+- 공통(SF-de, LIF SpkMixer 튜닝 전 · 후):
+  - 입력 96 step을 채널마다 정규화하고 patch(길이 P, 간격 P/2)로 자른다.
+  - token마다 4번 복사해 spike 시간 4 step으로 쓴다.
+  - embedding은 Linear(P → 64) + BN + LIF다. MLP는 spiking Linear 2개이고, 잔차는 0/1 IAND다.
+  - head는 4번 복사를 평균한 뒤 Linear(token 수 × 64 → 예측 길이)다.
+- 다른 점은 token을 섞는 부분이다.
+  - SF-de: spiking self-attention이다. 모든 token이 서로를 비교하고, neuron은 4번 복사 축으로만 돈다. token 순서는 위치 bias로만 들어간다.
+  - SpkMixer: token 순서를 따라 도는 LIF 사슬 두 개(앞 → 뒤, 뒤 → 앞)를 muxlin으로 합친다(T = N).
+- 튜닝 후 바뀐 것:
+  - patch 8 → 16(token 24 → 12, head 입력 1536 → 768).
+  - weight decay 0.06 → 0.1.
+  - ETTm2만 MLP hidden 64 → 128.
+- parameter(ETTh2 H96): SF-de 169,656 / 튜닝 전 169,280 / 튜닝 후 96,064.
+  - 몸통(embedding + block)은 세 model 모두 약 22k다. parameter의 77–87 %가 head다.
+- energy(`energy_recount.csv`):
+  - head는 실수 곱셈(MAC)으로 세어진다. 4번 복사를 평균한 값이 들어가기 때문이다.
+  - H720에서는 head가 energy의 약 80 %다(튜닝 전 ETTh2 H720 44.23 µJ 중 35.61 µJ).
+  - 튜닝 후 energy가 절반이 된 것은 대부분 head가 작아진 몫이다. token 수가 줄어 몸통 energy도 약 40 % 줄었다(ETTh2 H96 몸통 synapse + neuron 8.76 → 5.16 µJ).
+- 그래서 튜닝 효과는 SpkMixer 구조보다 patch 길이 선택에서 왔다. SF-de에 patch 16을 주는 시험은 하지 않았다(사용자 결정 2).
+
+### 4. AD 결과 분석(보고; 01:16 · 21:05 기록과 11-03 사후 기준 점수)
+- **가장 큰 문제(11-03 사후 보고, `results/flif-v1-ad-spkmux-tune/posthoc_trivial_baselines.md`):** 학습한 model 모두(우리 SpkMixer와 SF-de)가 학습 없는 단순 점수보다 나쁘거나 비슷하다.
+
+| dataset | 학습한 model들 AUC-PR % | 무작위 | 학습 없는 점수 |
+|---|---|--:|---|
+| MSL | 14.2–14.9 | 10.53 | 14.96 (window 평균에서 벗어난 정도) |
+| SMAP | 11.6–11.9 | **12.79** | 10.84 / 10.56 |
+| PSM | 38.6–39.3 | 27.75 | **47.26** (학습 데이터 평균에서 벗어난 정도) |
+
+  - SMAP에서는 모든 model이 무작위보다 낮고, AUC-ROC도 44–45 %다.
+  - 그래서 SpkMixer와 SF-de 사이의 1–2 % 차이는 이상을 잘 찾는 model끼리의 차이가 아니다.
+- 두 실험의 결과(syops energy):
+  - muxlin 튜닝 +1.37 % · 1.19배(not met).
+  - G1 층 1 +0.43 % · 1.19배.
+  - G3 mean pooling +1.16 % · 1.18배.
+  - G5 층 1 + 0/1 잔차 +1.45 %(8/9) · 0.988배(met, no clear difference; PSM은 −0.02 % · 1.002배).
+- energy를 키운 것은 층 수가 아니라 ADD 잔차다. 0–3 값을 읽는 Linear를 syops가 곱셈으로 센다.
+- validation 선택이 test로 이어지지 않았다. 튜닝하지 않은 muxlin이 test에서 세 dataset 모두 더 높았고, lr은 후보 끝값(2e-3)이었다.
+- 내 의견(사용자 결정 대기): G5 채택보다 AD 설정(10 epoch, 재구성 오차 방식)을 먼저 점검하는 것이 맞다.
+
+### 5. "mixer에만 population" 결과 분석(보고; 03:06 · 23:51 기록)
+- population neuron은 시간 상수 4 / 8 / 16 / 32 step인 가지 4개를 섞어 LIF soma 하나로 내보낸다(`layers.py` `build_neo_neuron`, `pop_taus`).
+- MIT-BIH:
+  - pop LIF mixer vs LIF: +0.18 %p(3/3, 기준 +0.5 미만, no clear difference).
+  - vs pop LIF 전체: +0.77 %p로 better.
+  - energy는 SF-de의 1.84배(이전 규칙)다.
+- ETT:
+  - pop LIF mixer vs LIF: −0.59 %(6/12, no clear difference)이고, 대부분 ETTh2 H96 한 칸(−2.13 %)에서 나왔다. validation은 +0.36 %로 오히려 나쁘다.
+  - energy는 SF-de의 1.48배(syops)다.
+- 두 과제에서 같은 모양이다. 모든 층에 둘 때의 손해는 사라지지만 LIF보다 낫다는 근거는 없고, energy는 1.2–2.7배다.
+  - neuron energy가 LIF의 4.5배다(MIT-BIH 8.18 vs 1.81 µJ).
+  - pop f-LIF는 pop LIF보다 낫지 않고 energy만 1.45–1.52배다.
+- 가설(검증하지 않음):
+  - (a) token 사슬이 짧다(ETT 24개, 튜닝 뒤 12개). 그래서 느린 가지(16, 32 step)가 쓸 시간 구조가 적다.
+  - (b) head가 모든 token의 spike를 직접 읽는다. 그래서 mixer의 기억이 병목이 아닐 수 있다(튜닝에서 head 모양만 효과가 있었던 것과 같은 방향).
+- 결론: 사용자 논문 목표(낮은 전력으로 Spikformer보다 평균 우위)에 맞지 않는다.
+
+### 2. 튜닝 확장: 사용자 결정(AskUserQuestion 답, 원문)
+- weight decay 0.1: **"0.1 빼기 (Recommended)"** → 후보 {0, 0.005, 0.01, 0.02, 0.05, 0.06}.
+- patch: **"24, 32 추가 (Recommended)"** → 후보 {4, 8, 16, 24, 32}.
+  - 40은 넣지 않는다. 96을 고르게 나누지 못해 끝을 복제한 값으로 채우고, token이 4개뿐이다.
+  - 관행 근거: PatchTST(arXiv 2211.14730) 부록 A.4.1은 입력 336에서 patch 4, 8, 16, 24, 32, 40을 시험했다. 주 설정은 16 / 간격 8이다.
+- **기록해 둘 사실:** 두 결정 모두 첫 튜닝의 test 결과를 본 뒤에 내렸다. 특히 0.1이 test를 조금 나쁘게 했다는 것을 나와 사용자 모두 알고 있었다. 결정 근거는 관련 논문의 관행 범위다.
+- 설계와 점검은 다음 기록(사전등록)에 적는다.
+
+**commit:** 이 기록은 다음 사전등록 기록과 같은 commit으로 `exp/f-lif-pop-v3`에 commit · push한다.
+
+## 2026-11-20 13:08 KST — 사전등록(본 학습 전): ETT 튜닝 확장(LIF SpkMixer; 같은 단계별 절차를 넓힌 후보로 다시 — patch {4, 8, 16, 24, 32}, weight decay {0, 0.005, 0.01, 0.02, 0.05, 0.06}; 새 run 60–180개, validation만으로 선택)
+
+**목적:** 사용자 요청 2(바로 앞 기록) "후보 목록 끝(patch 32, 더 큰 weight decay)까지 넓혀보자. (관련 선행 연구의 관행적인 값 이내에서 충분히 탐색)"와 결정 두 개를 실행한다.
+- 결정 1: weight decay는 관행 범위 안에서만 고른다. 0.1은 뺀다.
+- 결정 2: patch 24, 32를 더한다.
+
+**branch / base:** `exp/f-lif-pop-v3`, base `53e1c970c`(04:02 결과). 이 기록의 commit이 본 학습 code다. 해시는 결과 기록에 적는다.
+
+### 설계
+- **절차:** 00:14 사전등록의 단계별 튜닝(patch → d_model → MLP 비율 → block 수 → weight decay)을 후보만 넓혀 처음부터 다시 적용한다. 선택 규칙도 같다.
+  - 데이터셋마다 score(v) = H96 · H720 평균의 [seed 평균 best validation L1(v) / 지금 값의 같은 값]이다.
+  - 가장 낮은 값이 이긴다. 지금 값과 1e-12 안이면 지금 값을 유지한다. 다른 두 값이 같으면 후보 목록의 앞 값을 고른다.
+  - test 값은 선택에 쓰지 않는다.
+
+| 단계 | 후보(* = 시작 값) | 첫 튜닝과 다른 점 |
+|---|---|---|
+| patch | 4, 8*, 16, **24, 32** (token 48 / 24 / 12 / **8 / 6**) | 24, 32 추가 |
+| d_model | 32, 64*, 128, 256 | 같음 |
+| MLP 비율 | 0.5, 1, 2, 4 (* ETTh2 0.5, ETTm2 1) | 같음 |
+| block 수 | 1*, 2, 3 | 같음 |
+| weight decay | 0, **0.005**, 0.01, **0.02, 0.05**, 0.06* | 0.005, 0.02, 0.05 추가, **0.1 제외** |
+
+- **이미 있는 run은 다시 돌리지 않는다.**
+  - 다시 쓰는 run: 11-01 기본 행 12개(`flif-v1-ett-spkmux-tune`), 첫 튜닝 156개(`flif-v1-ett-spkmux-ettune`).
+  - 같은 (칸, seed, 설정)의 행이 있으면 queue에 넣지 않는다. 새 run은 새 suite `flif-v1-ett-spkmux-ettune2`에 들어간다.
+- 새 run 수는 선택에 따라 달라진다.
+  - patch 단계: 24 run(patch 24, 32 × 4칸 × seed 3).
+  - **patch 16이 두 데이터셋 모두 다시 이기는 경우:** d_model · MLP · block 단계는 첫 튜닝과 같은 행, 같은 선택이 된다(새 run 0). weight decay 단계만 새 값 3개 × 12 = 36 run이다. 합계 60 run.
+  - **24나 32가 이기는 데이터셋이 있는 경우:** 그 데이터셋은 그 patch로 d_model 18 + MLP 18 + block 12 + weight decay 30 = 78 run을 새로 돌린다. 다른 데이터셋은 weight decay 18 run이다. 합계 최대 24 + 78 × 2 = 180 run.
+- 고정값(첫 튜닝과 같음): muxlin, IAND, 방향별 mixer 층 1, lr ETTh2 5e-4 / ETTm2 1e-4, 입력 96, patience 10, epoch ETTh2 100 / ETTm2 50, τ 2, T_h 4, batch 64, L1 loss.
+- 칸은 ETTh2 · ETTm2 × H96 · H720이고 seed는 42 / 7 / 2026이다.
+
+### 최종(다섯 단계 뒤; test 값)
+- 최종 행은 고른 설정의 튜닝 run이다. 판정은 00:14 기록과 같다.
+  - 튜닝 후 vs 튜닝 전 LIF SpkMixer, 튜닝 후 vs SF-de(ETT 규칙).
+  - energy는 syops 규칙과 이전 규칙 두 가지로 센다.
+  - 사용자 통과 기준 세 개(`pass_ett.judge`): (1) SpikF, (2) SF-de + energy ≤ 1.05배, (3) DNN 9개.
+- 보고(판정 아님): 확장 결과 vs 첫 튜닝의 최종 설정(04:02, weight decay 0.1).
+
+### code(이 commit; `ET_CHAIN`이 없으면 이전과 같음)
+- `scripts/run_ett_spk.sh`: `PATCH` 24 | 32, `WD` 0.005 | 0.02 | 0.05를 더 받는다(tag `_pt24`, `_wd0.02` 등). 이전 값의 학습 인자와 tag는 그대로다.
+- `scripts/make_queue_ettune.sh`: `ET_CHAIN=x`.
+  - 넓힌 후보로 queue를 만든다. 세 suite에 행이 이미 있는 (칸, seed, 설정)은 빼고, 빈 queue(0 run)도 만든다.
+  - 파일 이름은 `ettune2-<stage>-<date>.txt`다. smoke 단계는 거절한다.
+- `summarize_ettune.py`: `ET_CHAIN=x`.
+  - 선택과 final을 `flif-v1-ett-spkmux-ettune2`에 쓴다. 첫 튜닝 suite의 행은 읽기만 한다(src `ettune`).
+  - 두 suite에 같은 설정이 있으면 멈춘다(중복). 요청하지 않은 설정 검사는 새 suite 행에만 한다.
+  - final에 보고 행 "tuned (extended) vs tuned (first chain)"을 더한다. 그 밖의 멈춤 조건은 그대로다.
+- `recheck_ettune.py`: `ET_CHAIN=x`. 같은 후보, 두 suite를 읽는다. `--sha`는 새 suite 행만 확인한다.
+- 새 `scripts/ettune_x_driver.sh`(`ET_CHAIN=x`). 단계마다 다음 순서로 진행한다.
+  - queue를 만든다. 0줄이면 pool을 건너뛴다.
+  - RESULT가 queue 줄 수만큼 늘었는지, SKIP이 0인지 확인한다.
+  - 선택 → 독립 재계산을 한다.
+  - 다섯 단계 뒤 `energy_recount_ett.py --suite flif-v1-ett-spkmux-ettune2` → final → 독립 재계산 → `driver end`.
+  - 실패하면 멈춘다. `FROM=<stage>`로 이어서 시작하면 빠진 run만 다시 queue에 넣는다.
+
+### 점검(모두 통과; `NSMT/cinc_mixer_v1/results/check-ettunex-20261120/`)
+- **p0 runner**(`p0_runner_x.{sh,txt}`, base `53e1c970c`): 64/64 PASS. 가짜 python이 학습 인자를 기록한다.
+  - A: 기본 경로 11가지(LIF 4칸, SF-de, population, SEQ 336, MIXRESET)에서 고치기 전과 학습 인자가 같다.
+  - B: 이전에 받던 모든 값(PATCH 4 · 16, EMB 32 · 128 · 256, MLPR, BLOCKS 2 · 3, WD 0 · 0.01 · 0.1, 조합 2개)에서 학습 인자가 같다.
+  - C: 새 값마다 해당 인자 하나와 tag 끝만 바뀐다. 조합 tag `..._pt32_mlp2_wd0.02`도 맞다.
+  - D: 목록 밖 값(PATCH 12 · 40, WD 0.03 · 0.050 · 0.2)과 LIF가 아닌 조건의 새 값은 학습 전에 exit 1이다.
+- **첫 튜닝 불변 + 확장 dry run**(`check_x.{py,txt}`): 90/90 PASS.
+  - P1: `ET_CHAIN` 없이 만든 queue 5개가 HEAD의 queue 생성기 출력과 같다. 실제 queue 파일은 pool이 비워서 비교에 못 쓴다.
+  - P2: raw.txt를 그 단계까지의 행(24 / 60 / 96 / 120 / 156줄)으로 자르고 돌리면 `selected_*.json`, `selection_*.md`, `summary_final.md`, `final.json`이 commit된 파일과 글자까지 같다.
+  - P3: 독립 재계산 final이 ALL CHECKS PASSED다.
+  - XA(가짜 행; patch 16 유지):
+    - queue는 24 / 0 / 0 / 0 / 36줄이다. patch 4 · 16 줄은 없다(이미 있음).
+    - patch부터 block까지의 선택이 첫 튜닝과 같다. weight decay는 ETTh2 0.02(가짜 비율 0.999), ETTm2 0(실제 행)이다.
+    - final 설정과 4칸 MSE가 손 계산과 같고, 보고 행이 있다.
+  - XB(ETTh2 patch 24가 이김): queue는 24 / 18 / 18 / 12 / 48줄이다. final ETTh2 {24, 64, 0.5, 1, 0.06}, ETTm2 {16, 64, 2, 1, 0}이 손 계산과 같다.
+  - XC(멈춤): 각 경우 그 이유로 멈추고 선택 파일을 쓰지 않는다.
+    - 요청하지 않은 설정, 첫 튜닝 suite와 중복, 빠진 행, SKIP 줄이 있으면 exit 2다.
+    - patch 선택 없이 d_model queue를 만들려고 하면 exit 1이다.
+    - 이어서 시작할 때 patch 행 절반이 있으면 queue는 나머지 12줄이다.
+    - final에서 energy 행이 하나 빠지면 exit 2이고 `final.json`을 쓰지 않는다.
+    - `ET_CHAIN=x` smoke는 거절한다.
+  - 단계마다 독립 재계산도 통과했다.
+- **smoke**(`check_smoke_x.{py,txt}`; suite `smoke-ettunex-20261120`, 1 epoch, seed 42, H720, 데이터셋마다 기본값과 새 값 5개 = 12 run): 37/37 PASS.
+  - 12 RESULT, SKIP 0이다. 저장된 config가 RESULT 필드와 같다.
+  - 기본값의 parameter 수(ETTh2 1,127,744 · ETTm2 1,131,904)가 11-01 행과 같다. patch는 parameter 수를 바꾸고, weight decay는 바꾸지 않는다.
+  - `energy_recount_ett.py --suite smoke-ettunex-20261120`이 12 run 모두 통과했다(재계산 MSE, syops 몸통 + head).
+  - 1 epoch syops energy(기본 대비): patch 24 0.36배(token 8, parameter 0.35배), patch 32 0.28배(token 6, 0.27배), weight decay 1.00배.
+- GPU 메모리: 새 모양은 모두 token이 적어 첫 튜닝의 가장 큰 모양(16.7 GB)보다 작다. 그래서 GPU당 2개(`SLOTS=0,1,2,3,0,1,2,3`)로 한다. 다른 세션 pool은 없다.
+
+### 사전 예상(확신 낮음)
+- patch: 첫 튜닝의 validation score가 patch를 키울수록 조금씩 낮아졌다(ETTh2 1.0037 → 1 → 0.9976, ETTm2 1.0030 → 1 → 0.9995).
+  - 그래서 24나 32가 적어도 한 데이터셋에서 이길 수 있다고 본다(확신 낮음).
+  - 그 경우 energy는 더 줄어든다. 대신 T = N mixer의 step은 8이나 6으로 줄어든다.
+- weight decay: score 차이는 0.05 % 안일 것이다. 어느 값이 이기든 test 차이는 작을 것이다.
+- 통과 기준: TimeMixer의 MSE(4칸 평균 MSE 0.0047 모자람, 1.5 %)를 넘기 어려울 것으로 본다(확신 중간). (1) SpikF 통과는 여유가 0.000037이라 바뀔 수 있다.
+
+### 예상 시간(내 추정)
+- 첫 튜닝의 patch 16 run은 중앙값 515 s였다. patch 24 · 32는 더 짧다(1 epoch smoke 39–125 s).
+- 60 run이면 약 1–1.5시간, 180 run이면 약 3–4시간(8칸)이다.
+
+### 한계(미리 적음)
+- 두 결정(0.1 제외, patch 24 · 32 추가)은 첫 튜닝의 test 결과를 본 뒤에 내렸다(바로 앞 기록). 선택 자체는 validation만 쓴다.
+- 단계별 선택이라 손잡이 사이의 상호작용을 놓친다. lr과 mixer 층 수는 다시 고르지 않는다.
+- SF-de는 튜닝하지 않는다(사용자 결정 2). 특히 patch를 SF-de에 주지 않았다.
+- patch 32가 이기면 다시 후보 끝이다. 사용자 결정으로 40은 시험하지 않는다.
+- 4칸 × seed 3이다. 0.001은 seed 차이보다 작다.
+
+**실행:** 이 commit · push 뒤 NSMT/에서 `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/ettune_x_driver.sh > /dev/null 2>&1 &`로 시작한다.
+- driver.log는 `results/flif-v1-ett-spkmux-ettune2/driver.log`(local)다.
+- driver가 도는 동안 code는 고치지 않는다.
+
+**commit:** 이 기록, 바로 앞 기록, 위 code와 점검을 `exp/f-lif-pop-v3`에 commit · push한다.
+- 점검: `check-ettunex-20261120/`의 script · txt, `smoke-ettunex-20261120/{raw.txt, energy_recount.csv}`.
+- local: dry 폴더, `pool_log_smoke.txt`, smoke run 폴더, queue 파일.

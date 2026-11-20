@@ -12,21 +12,33 @@
 #   smoke  1 epoch, seed 42, H720 (suite smoke-ettune-<date>): per dataset the default, every non-default value alone and the largest
 #          shape (PATCH=4 EMB=256 MLPR=4 BLOCKS=3) = 30 runs
 # env ET_DRY=<folder>: read the selections from <folder>/flif-v1-ett-spkmux-ettune and write the queue to <folder>/queues (dry runs)
+# env ET_CHAIN=x (2026-11-20 extension, PROJECT_LOG; user decisions 11-20): the same stepwise chain with the wider candidate lists
+#   patch {4, 8*, 16, 24, 32} and wd {0, 0.005, 0.01, 0.02, 0.05, 0.06*} (0.1 dropped: outside the related-work range); selections in
+#   and new runs to the suite flif-v1-ett-spkmux-ettune2 (under ET_DRY when set); a (cell, seed, configuration) that already has a RESULT
+#   row in flif-v1-ett-spkmux-tune (default configuration), flif-v1-ett-spkmux-ettune or the new suite is not queued again, so the number
+#   of jobs depends on the earlier selections (0 is possible); queue file ettune2-<stage>-<date>.txt. Without ET_CHAIN nothing changes.
 # usage (from anywhere): bash make_queue_ettune.sh smoke|patch|dmodel|mlp|blocks|wd ; prints <queue file>:<jobs>
 set -eu
 W="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 stage=${1:?smoke|patch|dmodel|mlp|blocks|wd}
-if [ -n "${ET_DRY:-}" ]; then SEL="$ET_DRY/flif-v1-ett-spkmux-ettune"; Q="$ET_DRY/queues"; else SEL="$W/results/flif-v1-ett-spkmux-ettune"; Q="$W/scripts/queues"; fi
+case ${ET_CHAIN:-} in '') SU=flif-v1-ett-spkmux-ettune; QP=ettune ;; x) SU=flif-v1-ett-spkmux-ettune2; QP=ettune2 ;; *) echo "bad ET_CHAIN"; exit 1 ;; esac
+if [ -n "${ET_DRY:-}" ]; then SEL="$ET_DRY/$SU"; Q="$ET_DRY/queues"; else SEL="$W/results/$SU"; Q="$W/scripts/queues"; fi
 mkdir -p "$Q"; D=$(date +%Y%m%d)
-f="$Q/ettune-$stage-$D.txt"
-python3 - "$SEL" "$stage" "$f" "$D" <<'PYEOF'
+f="$Q/$QP-$stage-$D.txt"
+python3 - "$SEL" "$stage" "$f" "$D" "$W/results" <<'PYEOF'
 import json, os, sys
-sel_dir, stage, out, date = sys.argv[1:5]
+sel_dir, stage, out, date, res = sys.argv[1:6]
+CHAIN = os.environ.get('ET_CHAIN', '')
 E = 'bash cinc_mixer_v1/scripts/run_ett_spk.sh'
 SUITE = 'flif-v1-ett-spkmux-ettune'
 LR = {'ETTh2': '0.0005', 'ETTm2': '0.0001'}
 STAGES = (('patch', 'PATCH', ('4', '8', '16')), ('dmodel', 'EMB', ('32', '64', '128', '256')), ('mlp', 'MLPR', ('0.5', '1', '2', '4')),
           ('blocks', 'BLOCKS', ('1', '2', '3')), ('wd', 'WD', ('0', '0.01', '0.06', '0.1')))
+if CHAIN == 'x':                                                          # 2026-11-20 extension (user decisions 11-20)
+    SUITE = 'flif-v1-ett-spkmux-ettune2'
+    STAGES = (('patch', 'PATCH', ('4', '8', '16', '24', '32')), ('dmodel', 'EMB', ('32', '64', '128', '256')),
+              ('mlp', 'MLPR', ('0.5', '1', '2', '4')), ('blocks', 'BLOCKS', ('1', '2', '3')),
+              ('wd', 'WD', ('0', '0.005', '0.01', '0.02', '0.05', '0.06')))
 DEFAULT = {'ETTh2': {'PATCH': '8', 'EMB': '64', 'MLPR': '0.5', 'BLOCKS': '1', 'WD': '0.06'},
            'ETTm2': {'PATCH': '8', 'EMB': '64', 'MLPR': '1', 'BLOCKS': '1', 'WD': '0.06'}}
 ORDER = ('PATCH', 'EMB', 'MLPR', 'BLOCKS', 'WD')
@@ -43,7 +55,27 @@ def line(prefix, ds, pl, seed, cfg):
     return f"{prefix} COND=spkmx_lif_muxlin_iand LR={LR[ds]} LAYERS=1{' ' + kn if kn else ''} {E} {ds} {pl} {seed}"
 
 
+def have_rows():
+    """ET_CHAIN=x: (ds, pl, seed, configuration) with a RESULT row in the 11-01 default rows, flif-v1-ett-spkmux-ettune or the new suite."""
+    have = set()
+    for l in open(os.path.join(res, 'flif-v1-ett-spkmux-tune', 'raw.txt')):
+        if not l.startswith('RESULT'):
+            continue
+        r = dict(t.split('=', 1) for t in l.split()[1:] if '=' in t)
+        ds = r.get('ds')
+        if r.get('cond') == 'spkmx_lif_muxlin_iand' and ds in LR and r.get('tag') == f'spkmx_lif_muxlin_iand_lr{LR[ds]}_L1':
+            have.add((ds, int(r['pl']), int(r['seed']), tuple(DEFAULT[ds][k] for k in ORDER)))
+    for p in (os.path.join(res, 'flif-v1-ett-spkmux-ettune', 'raw.txt'), os.path.join(sel_dir, 'raw.txt')):
+        for l in (open(p) if os.path.exists(p) else []):
+            if l.startswith('RESULT'):
+                r = dict(t.split('=', 1) for t in l.split()[1:] if '=' in t)
+                have.add((r['ds'], int(r['pl']), int(r['seed']), tuple(r[f] for f in ('patch', 'emb', 'mlpr', 'blocks', 'wd'))))
+    return have
+
+
 lines = []
+if stage == 'smoke' and CHAIN == 'x':
+    sys.exit('smoke is a chain-1 stage (ET_CHAIN unset)')
 if stage == 'smoke':
     big = {'PATCH': '4', 'EMB': '256', 'MLPR': '4', 'BLOCKS': '3', 'WD': '0.06'}
     for ds in ('ETTm2', 'ETTh2'):
@@ -72,14 +104,19 @@ else:
                 sys.exit(f'STOP: {p} selects {v} for {ds}, not in {vals}')
             base[ds][knob] = v
     _, knob, vals = STAGES[k]
+    have = have_rows() if CHAIN == 'x' else set()
     for ds, pl in CELLS:
         for v in vals:
             if v == base[ds][knob]:
                 continue
             for s in SEEDS:
-                lines.append(line(f'SUITE={SUITE}', ds, pl, s, dict(base[ds], **{knob: v})))
-    want = {'patch': 24, 'dmodel': 36, 'mlp': 36, 'blocks': 24, 'wd': 36}[stage]
-    assert len(lines) == want, (len(lines), want)
-open(out, 'w').write('\n'.join(lines) + '\n')
+                c = dict(base[ds], **{knob: v})
+                if (ds, pl, s, tuple(c[q] for q in ORDER)) in have:
+                    continue
+                lines.append(line(f'SUITE={SUITE}', ds, pl, s, c))
+    if CHAIN != 'x':
+        want = {'patch': 24, 'dmodel': 36, 'mlp': 36, 'blocks': 24, 'wd': 36}[stage]
+        assert len(lines) == want, (len(lines), want)
+open(out, 'w').write(''.join(l + '\n' for l in lines))
 print(f'{out}:{len(lines)}')
 PYEOF

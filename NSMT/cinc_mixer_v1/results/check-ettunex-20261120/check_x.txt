@@ -1,0 +1,91 @@
+PASS P1 first-chain queue patch: new builder = HEAD builder (24 lines)
+PASS P1 first-chain queue dmodel: new builder = HEAD builder (36 lines)
+PASS P1 first-chain queue mlp: new builder = HEAD builder (36 lines)
+PASS P1 first-chain queue blocks: new builder = HEAD builder (24 lines)
+PASS P1 first-chain queue wd: new builder = HEAD builder (36 lines)
+PASS P2 summarize patch (no ET_CHAIN, first 24 rows) exit 0
+PASS P2 selected_patch.json byte-identical to git HEAD
+PASS P2 selection_patch.md byte-identical to git HEAD
+PASS P2 summarize dmodel (no ET_CHAIN, first 60 rows) exit 0
+PASS P2 selected_dmodel.json byte-identical to git HEAD
+PASS P2 selection_dmodel.md byte-identical to git HEAD
+PASS P2 summarize mlp (no ET_CHAIN, first 96 rows) exit 0
+PASS P2 selected_mlp.json byte-identical to git HEAD
+PASS P2 selection_mlp.md byte-identical to git HEAD
+PASS P2 summarize blocks (no ET_CHAIN, first 120 rows) exit 0
+PASS P2 selected_blocks.json byte-identical to git HEAD
+PASS P2 selection_blocks.md byte-identical to git HEAD
+PASS P2 summarize wd (no ET_CHAIN, first 156 rows) exit 0
+PASS P2 selected_wd.json byte-identical to git HEAD
+PASS P2 selection_wd.md byte-identical to git HEAD
+PASS P2 summarize final (no ET_CHAIN, first 156 rows) exit 0
+PASS P2 summary_final.md byte-identical to git HEAD
+PASS P2 final.json byte-identical to git HEAD
+PASS P3 recheck final (no ET_CHAIN): ALL CHECKS PASSED
+PASS XA patch queue: 24 jobs (want 24)
+PASS XA patch queue has no PATCH=4 / PATCH=16 line (rows exist)
+PASS XA patch selected {'ETTh2': '16', 'ETTm2': '16'} (want {'ETTh2': '16', 'ETTm2': '16'})
+PASS XA recheck patch: ALL CHECKS PASSED
+PASS XA dmodel queue: 0 jobs (want 0)
+PASS XA dmodel selected {'ETTh2': '64', 'ETTm2': '64'} (want {'ETTh2': '64', 'ETTm2': '64'})
+PASS XA recheck dmodel: ALL CHECKS PASSED
+PASS XA mlp queue: 0 jobs (want 0)
+PASS XA mlp selected {'ETTh2': '0.5', 'ETTm2': '2'} (want {'ETTh2': '0.5', 'ETTm2': '2'})
+PASS XA recheck mlp: ALL CHECKS PASSED
+PASS XA blocks queue: 0 jobs (want 0)
+PASS XA blocks selected {'ETTh2': '1', 'ETTm2': '1'} (want {'ETTh2': '1', 'ETTm2': '1'})
+PASS XA recheck blocks: ALL CHECKS PASSED
+PASS XA wd queue: 36 jobs (want 36)
+PASS XA wd selected {'ETTh2': '0.02', 'ETTm2': '0'} (want {'ETTh2': '0.02', 'ETTm2': '0'})
+PASS XA recheck wd: ALL CHECKS PASSED
+PASS XA summarize final exit 0
+PASS XA recheck final: ALL CHECKS PASSED
+PASS XA final config: {'ETTh2': {'PATCH': '16', 'EMB': '64', 'MLPR': '0.5', 'BLOCKS': '1', 'WD': '0.02'}, 'ETTm2': {'PATCH': '16', 'EMB': '64', 'MLPR': '2', 'BLOCKS': '1', 'WD': '0'}}
+PASS XA tuned 4-cell MSE = hand value 0.319703: 0.319703
+PASS XA report row vs the first chain present
+PASS XA summary title marks the extended chain
+PASS XB patch queue: 24 jobs (want 24)
+PASS XB patch queue has no PATCH=4 / PATCH=16 line (rows exist)
+PASS XB patch selected {'ETTh2': '24', 'ETTm2': '16'} (want {'ETTh2': '24', 'ETTm2': '16'})
+PASS XB recheck patch: ALL CHECKS PASSED
+PASS XB dmodel queue: 18 jobs (want 18)
+PASS XB dmodel selected {'ETTh2': '64', 'ETTm2': '64'} (want {'ETTh2': '64', 'ETTm2': '64'})
+PASS XB recheck dmodel: ALL CHECKS PASSED
+PASS XB mlp queue: 18 jobs (want 18)
+PASS XB mlp selected {'ETTh2': '0.5', 'ETTm2': '2'} (want {'ETTh2': '0.5', 'ETTm2': '2'})
+PASS XB recheck mlp: ALL CHECKS PASSED
+PASS XB blocks queue: 12 jobs (want 12)
+PASS XB blocks selected {'ETTh2': '1', 'ETTm2': '1'} (want {'ETTh2': '1', 'ETTm2': '1'})
+PASS XB recheck blocks: ALL CHECKS PASSED
+PASS XB wd queue: 48 jobs (want 48)
+PASS XB wd selected {'ETTh2': '0.06', 'ETTm2': '0'} (want {'ETTh2': '0.06', 'ETTm2': '0'})
+PASS XB recheck wd: ALL CHECKS PASSED
+PASS XB summarize final exit 0
+PASS XB recheck final: ALL CHECKS PASSED
+PASS XB final config: {'ETTh2': {'PATCH': '24', 'EMB': '64', 'MLPR': '0.5', 'BLOCKS': '1', 'WD': '0.06'}, 'ETTm2': {'PATCH': '16', 'EMB': '64', 'MLPR': '2', 'BLOCKS': '1', 'WD': '0'}}
+PASS XB tuned 4-cell MSE = hand value 0.321636: 0.321636
+PASS XC1 new-suite row of an unrequested configuration (PATCH=32 EMB=128): exit 2, no selected_patch.json, reason "no stage asked for": STOP: flif-v1-ett-spkmux-ettune2 row of a configuration no stage asked for: spkmx_lif_muxlin_iand_lr0.0005_L1_pt32_e128 ETTh2 96 42
+PASS XC2 new-suite row of a configuration in the first-chain suite (PATCH=16): exit 2, no selected_patch.json, reason "duplicate row": STOP: duplicate row ('ETTh2', 96, 42, ('16', '64', '0.5', '1', '0.06'))
+PASS XC3 a missing row: exit 2, no selected_patch.json, reason "missing runs": STOP: missing runs: ETTm2 H96 PATCH=24 (spkmx_lif_muxlin_iand_lr0.0001_L1_pt24)
+PASS XC4 a SKIP line: exit 2, no selected_patch.json, reason "SKIP line": STOP: SKIP line in /home/yschoi/CLS_spiking_transformer/wt-flif-pop-v3/NSMT/cinc_mixer_v1/results/check-ettunex-20261120/dry_XC4/flif-v1-ett-spkmux-ettune2/raw.txt: SKIP rc=1 ETTh2 96 42 dry
+PASS XC5 make_queue dmodel without selected_patch.json: exit != 0, no queue: STOP: /home/yschoi/CLS_spiking_transformer/wt-flif-pop-v3/NSMT/cinc_mixer_v1/results/check-ettunex-20261120/dry_XC5/flif-v1-ett-spkmux-ettune2/selected_patch.js
+PASS XC6 resume: 12 of 24 patch rows present -> queue holds the other 12: 12
+PASS XC7 patch queue: 24 jobs (want 24)
+PASS XC7 patch queue has no PATCH=4 / PATCH=16 line (rows exist)
+PASS XC7 patch selected {'ETTh2': '16', 'ETTm2': '16'} (want {'ETTh2': '16', 'ETTm2': '16'})
+PASS XC7 recheck patch: ALL CHECKS PASSED
+PASS XC7 dmodel queue: 0 jobs (want 0)
+PASS XC7 dmodel selected {'ETTh2': '64', 'ETTm2': '64'} (want {'ETTh2': '64', 'ETTm2': '64'})
+PASS XC7 recheck dmodel: ALL CHECKS PASSED
+PASS XC7 mlp queue: 0 jobs (want 0)
+PASS XC7 mlp selected {'ETTh2': '0.5', 'ETTm2': '2'} (want {'ETTh2': '0.5', 'ETTm2': '2'})
+PASS XC7 recheck mlp: ALL CHECKS PASSED
+PASS XC7 blocks queue: 0 jobs (want 0)
+PASS XC7 blocks selected {'ETTh2': '1', 'ETTm2': '1'} (want {'ETTh2': '1', 'ETTm2': '1'})
+PASS XC7 recheck blocks: ALL CHECKS PASSED
+PASS XC7 wd queue: 36 jobs (want 36)
+PASS XC7 wd selected {'ETTh2': '0.06', 'ETTm2': '0'} (want {'ETTh2': '0.06', 'ETTm2': '0'})
+PASS XC7 recheck wd: ALL CHECKS PASSED
+PASS XC7 final with one energy row missing: exit 2, no final.json: STOP: no energy recount row for ettune2 spkmx_lif_muxlin_iand_lr0.0001_L1_pt24 ETTm2 96 42
+PASS XC8 ET_CHAIN=x smoke refused: smoke is a chain-1 stage (ET_CHAIN unset)
+ALL X CHECKS PASSED

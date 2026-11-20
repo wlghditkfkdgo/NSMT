@@ -8,6 +8,9 @@ lowest wins, ties (< 1e-12) keep the current value, otherwise the earlier candid
 Fail closed (exit 2): SKIP lines, duplicates, missing runs, rows of the new suite whose tag disagrees with their fields.
 usage (from cinc_mixer_v1/): python -B recheck_ettune.py --stage patch|dmodel|mlp|blocks|wd|final [--sha <commit>[,<commit>...]]
 env ET_DRY=<folder>: the new suite under <folder> (dry runs).
+env ET_CHAIN=x (2026-11-20 extension): candidate lists patch {4, 8, 16, 24, 32}, wd {0, 0.005, 0.01, 0.02, 0.05, 0.06}; the new suite is
+flif-v1-ett-spkmux-ettune2 (under ET_DRY when set) and the rows of flif-v1-ett-spkmux-ettune (results/) are read as well (a configuration
+in both stops); --sha checks the new suite's rows. Without ET_CHAIN nothing changes.
 """
 import argparse
 import collections
@@ -21,12 +24,21 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 RES = os.path.join(HERE, 'results')
 DRY = os.environ.get('ET_DRY')
 NEWD = os.path.join(DRY or RES, 'flif-v1-ett-spkmux-ettune')
+CHAIN = os.environ.get('ET_CHAIN', '')
+OLDD = None
+if CHAIN == 'x':
+    OLDD, NEWD = os.path.join(RES, 'flif-v1-ett-spkmux-ettune'), os.path.join(DRY or RES, 'flif-v1-ett-spkmux-ettune2')
+elif CHAIN:
+    sys.exit(f'bad ET_CHAIN {CHAIN}')
 K = ('PATCH', 'EMB', 'MLPR', 'BLOCKS', 'WD')
 F = dict(zip(K, ('patch', 'emb', 'mlpr', 'blocks', 'wd')))
 S = dict(zip(K, ('_pt', '_e', '_mlp', '_blk', '_wd')))
 D0 = {'ETTh2': dict(zip(K, ('8', '64', '0.5', '1', '0.06'))), 'ETTm2': dict(zip(K, ('8', '64', '1', '1', '0.06')))}
 ST = [('patch', 'PATCH', ['4', '8', '16']), ('dmodel', 'EMB', ['32', '64', '128', '256']), ('mlp', 'MLPR', ['0.5', '1', '2', '4']),
       ('blocks', 'BLOCKS', ['1', '2', '3']), ('wd', 'WD', ['0', '0.01', '0.06', '0.1'])]
+if CHAIN == 'x':
+    ST[0] = ('patch', 'PATCH', ['4', '8', '16', '24', '32'])
+    ST[4] = ('wd', 'WD', ['0', '0.005', '0.01', '0.02', '0.05', '0.06'])
 LRS = {'ETTh2': '0.0005', 'ETTm2': '0.0001'}
 CELLS = [('ETTh2', '96'), ('ETTh2', '720'), ('ETTm2', '96'), ('ETTm2', '720')]
 SEEDS = ['42', '7', '2026']
@@ -71,7 +83,8 @@ for r in rd(os.path.join(RES, 'flif-v1-ett-spkmux-tune', 'raw.txt')):
             bad.append(f'duplicate {k}')
         rows[k] = r
 new = rd(os.path.join(NEWD, 'raw.txt')) if os.path.exists(os.path.join(NEWD, 'raw.txt')) else []
-for r in new:
+old = rd(os.path.join(OLDD, 'raw.txt')) if OLDD else []
+for r in old + new:
     c = {k: r.get(F[k], '?') for k in K}
     if r['tag'] != tg(r['ds'], c) or c == D0[r['ds']]:
         bad.append(f'new row tag / fields disagree or default: {r["tag"]} {c}')

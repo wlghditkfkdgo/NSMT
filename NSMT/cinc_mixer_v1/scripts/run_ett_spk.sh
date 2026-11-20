@@ -15,6 +15,8 @@
 #         pre-registration): --patch_size, -emb, --mlp_ratios, --layers (blocks), --weight_decay; only the listed values are accepted, a
 #         value equal to the default counts as unset (the same training line and tag), any other value adds _pt<v> / _e<v> / _mlp<v> /
 #         _blk<v> / _wd<v> to the tag; LIF SpkMixer conditions only (population models would need a gain table per shape)
+#         2026-11-20 extension (PROJECT_LOG, user decisions 11-20): also PATCH 24 | 32 and WD 0.005 | 0.02 | 0.05 (tags _pt24, _wd0.02, ...);
+#         every earlier value keeps the same training line and tag
 set -u
 DS=${1:?}; PL=${2:?}; S=${3:?}; GPU=${4:?}
 W="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # cinc_mixer_v1: model code, train_forecast.py, results/, log/
@@ -86,11 +88,11 @@ esac
 LR=${LR:-0.0005}; LAYERS=${LAYERS:-$L0}                                  # 2026-11-01 tuning knobs
 case $DS in ETTh2) MLP0=0.5 ;; ETTm2) MLP0=1 ;; esac                      # 2026-11-19 ETT tuning knobs (defaults = Table 13 values)
 PATCH=${PATCH:-8}; EMB=${EMB:-64}; MLPR=${MLPR:-$MLP0}; BLOCKS=${BLOCKS:-1}; WD=${WD:-0.06}
-case $PATCH in 4|8|16) ;; *) echo "bad PATCH $PATCH (4|8|16)"; exit 1 ;; esac
+case $PATCH in 4|8|16|24|32) ;; *) echo "bad PATCH $PATCH (4|8|16|24|32)"; exit 1 ;; esac
 case $EMB in 32|64|128|256) ;; *) echo "bad EMB $EMB (32|64|128|256)"; exit 1 ;; esac
 case $MLPR in 0.5|1|2|4) ;; *) echo "bad MLPR $MLPR (0.5|1|2|4)"; exit 1 ;; esac
 case $BLOCKS in 1|2|3) ;; *) echo "bad BLOCKS $BLOCKS (1|2|3)"; exit 1 ;; esac
-case $WD in 0|0.01|0.06|0.1) ;; *) echo "bad WD $WD (0|0.01|0.06|0.1)"; exit 1 ;; esac
+case $WD in 0|0.005|0.01|0.02|0.05|0.06|0.1) ;; *) echo "bad WD $WD (0|0.005|0.01|0.02|0.05|0.06|0.1)"; exit 1 ;; esac
 KTAG=""
 [ "$PATCH" != 8 ] && KTAG="${KTAG}_pt$PATCH"
 [ "$EMB" != 64 ] && KTAG="${KTAG}_e$EMB"

@@ -23,6 +23,12 @@ Fail closed (exit 2, nothing written): a SKIP line, a duplicate, a row whose tag
 configuration no stage asked for, a missing run, a non-finite value, a missing earlier selection; final also: a missing or
 non-reproducing energy recount row (recomputed test MSE within 1e-5, syops body + head = logged synaptic energy within 1e-3).
 env ET_DRY=<folder>: read flif-v1-ett-spkmux-ettune from <folder> (dry runs).
+env ET_CHAIN=x (2026-11-20 extension, PROJECT_LOG; user decisions 11-20): the same chain and rules with the wider lists patch
+{4, 8*, 16, 24, 32} and wd {0, 0.005, 0.01, 0.02, 0.05, 0.06*} (0.1 dropped); selections / final / new runs in
+flif-v1-ett-spkmux-ettune2 (under ET_DRY when set); the rows of flif-v1-ett-spkmux-ettune (results/, read only) are reused (src 'ettune'),
+the new rows carry src 'ettune2'; a configuration present in both suites stops (duplicate); only new-suite rows must belong to a requested
+configuration; final also reports the extended result vs the first chain's final configuration (results/flif-v1-ett-spkmux-ettune/final.json).
+Without ET_CHAIN the behaviour and every output are unchanged.
 usage: python summarize_ettune.py --stage patch|dmodel|mlp|blocks|wd|final
 """
 import argparse
@@ -58,6 +64,19 @@ DEFAULT = {'ETTh2': {'PATCH': '8', 'EMB': '64', 'MLPR': '0.5', 'BLOCKS': '1', 'W
 DSS, PLS, SEEDS = ('ETTh2', 'ETTm2'), (96, 720), (42, 7, 2026)
 CELLS = tuple((d, p) for d in DSS for p in PLS)
 EPS = 1e-12
+CHAIN = os.environ.get('ET_CHAIN', '')
+if CHAIN not in ('', 'x'):
+    sys.exit(f'bad ET_CHAIN {CHAIN}')
+OLD = None                                                                # first-chain suite reused by the extension (read only)
+NEWSRC = 'ettune'
+if CHAIN == 'x':
+    OLD = os.path.join(RES, SUITE)
+    SUITE, NEWSRC = 'flif-v1-ett-spkmux-ettune2', 'ettune2'
+    OUT = os.path.join(DRY, SUITE) if DRY else os.path.join(RES, SUITE)
+    STAGES = (('patch', 'PATCH', ('4', '8', '16', '24', '32')), ('dmodel', 'EMB', ('32', '64', '128', '256')),
+              ('mlp', 'MLPR', ('0.5', '1', '2', '4')), ('blocks', 'BLOCKS', ('1', '2', '3')),
+              ('wd', 'WD', ('0', '0.005', '0.01', '0.02', '0.05', '0.06')))
+    NAMES = [s[0] for s in STAGES]
 
 
 def stop(m):
@@ -115,25 +134,27 @@ def load():
             stop(f'duplicate default row {k}')
         r['src'] = 'tune'
         D[k] = finite_row(r, f'tune {k}')
-    p = os.path.join(OUT, 'raw.txt')
-    for r in (raw(p) if os.path.exists(p) else []):
-        ds = r.get('ds')
-        if ds not in DSS or r.get('cond') != COND or r.get('lr') != LR[ds] or r.get('layers') != '1' or int(r['pl']) not in PLS \
-                or int(r['seed']) not in SEEDS:
-            stop(f'unexpected row in {SUITE}: {r.get("tag")} {ds} {r.get("pl")} {r.get("seed")} lr {r.get("lr")} layers {r.get("layers")}')
-        try:
-            cfg = {k: r[FIELD[k]] for k in ORDER}
-        except KeyError as e:
-            stop(f'{SUITE} row without field {e}: {r.get("tag")}')
-        if r['tag'] != tag(ds, cfg):
-            stop(f'{SUITE} row tag {r["tag"]} != {tag(ds, cfg)} from its fields')
-        if cfg == DEFAULT[ds]:
-            stop(f'{SUITE} holds a default-configuration row ({ds} {r["pl"]} {r["seed"]}); the default rows come from the 11-01 tuning')
-        k = (ds, int(r['pl']), int(r['seed']), key(cfg))
-        if k in D:
-            stop(f'duplicate row {k}')
-        r['src'] = 'ettune'
-        D[k] = finite_row(r, f'{SUITE} {k}')
+    srcs = [(OUT, SUITE, NEWSRC)] if OLD is None else [(OLD, 'flif-v1-ett-spkmux-ettune', 'ettune'), (OUT, SUITE, NEWSRC)]
+    for folder, sname, src in srcs:
+        p = os.path.join(folder, 'raw.txt')
+        for r in (raw(p) if os.path.exists(p) else []):
+            ds = r.get('ds')
+            if ds not in DSS or r.get('cond') != COND or r.get('lr') != LR[ds] or r.get('layers') != '1' or int(r['pl']) not in PLS \
+                    or int(r['seed']) not in SEEDS:
+                stop(f'unexpected row in {sname}: {r.get("tag")} {ds} {r.get("pl")} {r.get("seed")} lr {r.get("lr")} layers {r.get("layers")}')
+            try:
+                cfg = {k: r[FIELD[k]] for k in ORDER}
+            except KeyError as e:
+                stop(f'{sname} row without field {e}: {r.get("tag")}')
+            if r['tag'] != tag(ds, cfg):
+                stop(f'{sname} row tag {r["tag"]} != {tag(ds, cfg)} from its fields')
+            if cfg == DEFAULT[ds]:
+                stop(f'{sname} holds a default-configuration row ({ds} {r["pl"]} {r["seed"]}); the default rows come from the 11-01 tuning')
+            k = (ds, int(r['pl']), int(r['seed']), key(cfg))
+            if k in D:
+                stop(f'duplicate row {k}')
+            r['src'] = src
+            D[k] = finite_row(r, f'{sname} {k}')
     return D
 
 
@@ -164,7 +185,7 @@ def seed_mean(D, ds, pl, cfg, k):
 
 def check_extra(D, expected):
     for (ds, pl, s, ck), r in D.items():
-        if r['src'] == 'ettune' and ck not in expected[ds]:
+        if r['src'] == NEWSRC and ck not in expected[ds]:
             stop(f'{SUITE} row of a configuration no stage asked for: {r["tag"]} {ds} {pl} {s}')
 
 
@@ -217,8 +238,11 @@ def stage(name):
 
 def energy_rows():
     E = {}
-    for path, src in ((os.path.join(OUT, 'energy_recount.csv'), 'ettune'), (os.path.join(TUNE, 'energy_recount.csv'), 'tune'),
-                      (os.path.join(SFDE, 'energy_recount.csv'), 'sfde')):
+    paths = [(os.path.join(OUT, 'energy_recount.csv'), NEWSRC), (os.path.join(TUNE, 'energy_recount.csv'), 'tune'),
+             (os.path.join(SFDE, 'energy_recount.csv'), 'sfde')]
+    if OLD is not None:
+        paths.insert(1, (os.path.join(OLD, 'energy_recount.csv'), 'ettune'))
+    for path, src in paths:
         if not os.path.exists(path):
             stop(f'{path} missing')
         for e in csv.DictReader(open(path)):
@@ -293,17 +317,18 @@ def final():
     base, expected = selections(len(STAGES))
     check_extra(D, expected)
     E = energy_rows()
-    n_new = sum(r['src'] == 'ettune' for r in D.values())
+    n_new = sum(r['src'] == NEWSRC for r in D.values())
     for r in D.values():                                                  # every new run must have a reproducing recount row
-        if r['src'] == 'ettune':
-            attach(r, E, 'ettune')
+        if r['src'] == NEWSRC:
+            attach(r, E, NEWSRC)
     path = [{ds: dict(DEFAULT[ds]) for ds in DSS}]
     for name, knob, _ in STAGES:
         s = json.load(open(os.path.join(OUT, f'selected_{name}.json')))
         path.append({ds: dict(path[-1][ds], **{knob: str(s['selected'][ds])}) for ds in DSS})
     tuned, untuned, sf = arm(D, E, base), arm(D, E, DEFAULT), sfde_rows(E)
     steps = [arm(D, E, p) for p in path]
-    L = ['# ETT tuning of the LIF SpkMixer: final (test values; selection was validation only)', '',
+    L = ['# ETT tuning of the LIF SpkMixer: final (test values; selection was validation only)'
+         + (' -- extended chain (ET_CHAIN=x: patch up to 32, wd within 0-0.06)' if CHAIN == 'x' else ''), '',
          f'Rule and sources: summarize_ettune.py docstring. New runs in {SUITE}: {n_new}. Seeds 42 / 7 / 2026, input 96.', '',
          '## Selection path (validation score of the winner; 1 = kept the current value)', '',
          '| stage | ' + ' | '.join(DSS) + ' |', '|---|' + '---|' * len(DSS)]
@@ -329,8 +354,12 @@ def final():
     L += ['', '## Comparisons (ETT rule; test MSE)', '',
           '| comparison | R % | lower pairs | verdict | energy A/B syops | energy A/B old rule | per cell r % | MAE R % |', '|---|--:|--:|---|--:|--:|---|--:|']
     res = {}
-    for nm, A, B in (('tuned vs untuned LIF SpkMixer', tuned, untuned), ('tuned LIF SpkMixer vs SF-de', tuned, sf),
-                     ('(report) untuned LIF SpkMixer vs SF-de', untuned, sf)):
+    pairs = [('tuned vs untuned LIF SpkMixer', tuned, untuned), ('tuned LIF SpkMixer vs SF-de', tuned, sf),
+             ('(report) untuned LIF SpkMixer vs SF-de', untuned, sf)]
+    if OLD is not None:                                                   # the first chain's final configuration (report only)
+        first = json.load(open(os.path.join(OLD, 'final.json')))['config']
+        pairs.append(('(report) tuned (extended) vs tuned (first chain, 11-20 04:02)', tuned, arm(D, E, first)))
+    for nm, A, B in pairs:
         c = cmp(A, B); res[nm] = {k: v for k, v in c.items() if k != 'pairs'}
         L.append(f'| {nm} | {c["R"]:+.2f} | {c["lo"]}/12 | {c["verdict"]} | {c["Es"]:.4f} | {c["Eo"]:.4f} | '
                  f'{", ".join(f"{z:+.2f}" for z in c["cells"])} | {c["R_mae"]:+.2f} |')
