@@ -10130,3 +10130,100 @@ Spikformer식보다 "좋음"인 변형은 없다.
 **commit:** 이 항목, 실행 스크립트 3개, `order_eval_rand.py`를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 평가를 시작한다.
 
 ---
+
+## 2026-11-20 13:42 KST — 결과: 무작위 token 순서 평가 (저장된 model 90개, 학습 없음; 사전 고정 `cd1c17c45`) — **ETT에서 body가 token 순서를 쓰는 정도는 작다.** bias 끈 기준 model은 body를 섞어도 test MSE가 +0.30 %(pop LIF, 12 run 중 8개 나빠짐; 판정 "거의 안 쓴다") / +0.91 %(pop f-LIF, 10/12; 판정 "순서를 쓴다")만 나빠진다. bias 없는 Spikformer(DE)는 정확히 0이다. 반면 head까지 섞으면(all) 모든 model이 +21 % 나빠진다. ETT의 순서 정보는 거의 전부 예측 head가 token 자리를 읽는 데서 온다. MIT-BIH에서는 bias 끈 기준 model이 −12.94 / −7.38 %p로 순서에 크게 기대지만, 순서를 못 보는 Spikformer(DE)도 91.27 %다. 기대는 정도와 이득은 다르다는 것이 bias 켠 Spikformer(DE)에서 가장 뚜렷하다(섞으면 −26.54 %p인데, bias를 빼고 다시 학습하면 −0.67 %p뿐)
+
+**branch / 기준:** `exp/nsmt-flif-neo`, 사전 고정 commit `cd1c17c45`(2026-11-20 13:02 항목). 평가한 run의 sha는 `11c83b385`(bias 켬)와 `96fb4dc2a`(bias 끔)다.
+
+**사용자 요청 (11-20, 원문):** "순서 섞는 실험을 ETT예측에 대해서 해야하는 것 아니야? - 순열로 섞는게 아니라 "무작위로" 섞는 실험으로 해줘."
+
+**실행:** classification 폴더에서 13:02 시작, 13:42 다섯 process 모두 "all checks passed".
+- ETT: `CUDA_VISIBLE_DEVICES=g python order_eval_rand.py --task ett --shard g/4` (g = 0–3), 각 18 run.
+- MIT-BIH: `CUDA_VISIBLE_DEVICES=0 python order_eval_rand.py --task mb --shard 0/1`, 18 run.
+- 이어서 `python order_eval_rand.py --summarize` → "all checks passed".
+- model 하나에 ETT 14–531 s, MIT-BIH 41–122 s. 다른 대화의 작업이 같은 GPU를 함께 썼다.
+- 환경: `/home/yschoi/.conda/envs/snn_recall/bin/python`, `LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib`.
+
+**점검 (모두 통과):**
+- 정상 순서가 90/90 run에서 기록된 test 값을 재현했다(ETT MSE와 MAE ≤ 2e-6, MIT-BIH macro-F1 ≤ 1e-6).
+- 켬 / 끔이 run과 맞다(RESULT `pe`, 폴더 `_nope`, 설정 `ssa_pe`).
+- bias 없는 Spikformer(DE)는 body에서 순서를 못 본다: ETT 12 run × 5 반복 모두 |MSE 비 − 1| ≤ 1e-4(표에서 +0.00), MIT-BIH 예측이 모두 같다.
+- bias 없는 기준 model은 body = neo다(ETT ≤ 1e-4, MIT-BIH 예측 99.99 % 이상 같음; 표의 두 열이 같은 값).
+- MIT-BIH all = body(예측 99.99 % 이상 같음). 변형 뒤 정상 값 복귀, 유한값, 줄 수(ETT 72, MIT-BIH 18, 반복 5).
+
+### 결과: ETT (r = 섞은 test MSE / 정상 test MSE − 1, %; run마다 5번 평균, 12 run = 4칸 × seed 3)
+
+| model | bias | 정상 MSE (12 run 평균) | body r % (최소 .. 최대) | 나빠진 run | neo r % (최소 .. 최대) | all r % | 반복 간 표준편차 최대 |
+|---|---|---|---|---|---|---|---|
+| Spikformer(DE) | 끔 | 0.3219 | +0.00 (+0.00 .. +0.00) | 0/12 | — | +21.7 | 0.00 |
+| Spikformer(DE) | 켬 | 0.3244 | +0.39 (−0.25 .. +1.54) | 7/12 | — | +21.2 | 0.05 |
+| 기준 pop LIF | 끔 | 0.3215 | +0.30 (−1.84 .. +2.10) | 8/12 | +0.30 (−1.84 .. +2.10) | +21.0 | 0.05 |
+| 기준 pop LIF | 켬 | 0.3217 | +0.86 (−1.92 .. +6.61) | 7/12 | +0.62 (−1.92 .. +4.95) | +21.0 | 0.05 |
+| 기준 pop f-LIF | 끔 | 0.3218 | +0.91 (−0.46 .. +2.95) | 10/12 | +0.91 (−0.46 .. +2.95) | +21.1 | 0.06 |
+| 기준 pop f-LIF | 켬 | 0.3220 | +1.13 (−0.37 .. +3.60) | 11/12 | +1.01 (−0.36 .. +3.57) | +21.3 | 0.08 |
+
+**칸별 body r % (seed 3개 평균; 괄호는 seed 42 / 7 / 2026):**
+
+| model | bias | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 |
+|---|---|---|---|---|---|
+| Spikformer(DE) | 끔 | 0.00 | 0.00 | 0.00 | 0.00 |
+| Spikformer(DE) | 켬 | −0.13 (−0.25 / −0.10 / −0.03) | +0.19 (+0.49 / +0.08 / −0.00) | +1.32 (+1.37 / +1.54 / +1.06) | +0.18 (−0.05 / +0.12 / +0.48) |
+| 기준 pop LIF | 끔 | −0.41 (+0.78 / −1.84 / −0.16) | −0.18 (−0.79 / +0.48 / −0.25) | +1.44 (+2.10 / +1.19 / +1.02) | +0.34 (+0.17 / +0.63 / +0.21) |
+| 기준 pop LIF | 켬 | −1.34 (−1.12 / −1.92 / −0.98) | +0.06 (−0.76 / +1.27 / −0.33) | +4.16 (+6.61 / +3.34 / +2.52) | +0.58 (+0.20 / +1.10 / +0.45) |
+| 기준 pop f-LIF | 끔 | +1.22 (+2.11 / +2.00 / −0.46) | +0.98 (−0.17 / +2.95 / +0.16) | +1.03 (+0.01 / +0.75 / +2.32) | +0.43 (+0.28 / +0.51 / +0.49) |
+| 기준 pop f-LIF | 켬 | +1.54 (+1.54 / +1.89 / +1.19) | +1.70 (+0.78 / +3.60 / +0.74) | +0.80 (+1.11 / −0.37 / +1.67) | +0.47 (+0.15 / +0.56 / +0.72) |
+
+### 결과: MIT-BIH (macro-F1 %; 하락 = 섞은 값 − 정상, %p, seed마다 5번 평균; 바뀐 % = 예측이 바뀐 beat 비율)
+
+| model | bias | 정상 | body 하락 %p (seed 42 / 7 / 2026) | 평균 | 바뀐 % | neo 하락 %p (seed별) | 평균 | 바뀐 % |
+|---|---|---|---|---|---|---|---|---|
+| Spikformer(DE) | 끔 | 91.27 | 0 / 0 / 0 | 0.00 | 0.00 | — | — | — |
+| Spikformer(DE) | 켬 | 91.94 | −26.94 / −25.03 / −27.66 | −26.54 | 15.07 | — | — | — |
+| 기준 pop LIF | 끔 | 91.51 | −10.63 / −16.36 / −11.82 | −12.94 | 5.62 | 같음 | −12.94 | 5.62 |
+| 기준 pop LIF | 켬 | 91.90 | −24.11 / −33.51 / −26.30 | −27.97 | 15.91 | −3.25 / −2.59 / −6.77 | −4.20 | 2.13 |
+| 기준 pop f-LIF | 끔 | 91.41 | −6.91 / −10.30 / −4.93 | −7.38 | 2.95 | 같음 | −7.38 | 2.95 |
+| 기준 pop f-LIF | 켬 | 92.01 | −23.81 / −21.18 / −21.72 | −22.23 | 10.48 | −2.52 / −2.78 / −6.60 | −3.97 | 1.49 |
+
+- 어제의 고정 순열 하나와 비교하면, row마다 무작위로 섞을 때 하락이 더 크다. 예: bias 켬 Spikformer(DE) −19.91 → −26.54 %p, bias 끔 기준 −8.54 / −6.09 → −12.94 / −7.38 %p. 어제의 순열 하나는 평균보다 덜 해로운 순서였다.
+
+### 사전에 정한 읽는 법에 대 보면
+
+- **ETT, bias 끔(새 기본값):** 기준 pop LIF는 "거의 안 쓴다"(평균 +0.30 % < +0.5 %, 8/12 < 10/12). 기준 pop f-LIF는 "순서를 쓴다"(+0.91 %, 10/12). 두 neuron 모두 손해 크기는 1 % 안쪽이다.
+- **ETT의 순서 정보는 head가 준다.** head까지 섞으면(all) bias 없는 Spikformer(DE)를 포함해 모든 model이 +21.0 ~ +21.7 % 나빠진다. body만 섞을 때(최대 +0.91 %)와 비교하면 순서 정보 대부분이 head 쪽에 있다.
+- 이것은 11-19 N2(bias 끔 기준 − Spikformer(DE) "차이 없음")와 맞는다. ETT에서는 모든 model이 head에서 위치를 얻으므로, Neocortex의 순서 처리가 더해 줄 몫이 작다(추론).
+- **MIT-BIH:** bias 끈 기준 model은 순서에 크게 기댄다(−12.94 / −7.38 %p). 그런데도 다시 학습한 비교는 차이 없음이다(11-19 N2 +0.24 / +0.14 %p). 섞었을 때의 손해(기대는 정도)와 다시 학습했을 때의 차이(이득)가 다르다는 것이 bias 켠 Spikformer(DE)에서 가장 크게 보인다: 섞으면 −26.54 %p, bias를 빼고 다시 학습하면 −0.67 %p.
+
+### 사전 예상과 맞춰 보기
+
+| 예상 | 결과 | 맞음 |
+|---|---|---|
+| ETT body, bias 끔: Spikformer(DE) 0 | 0(12 run × 5 반복) | 맞음 |
+| ETT body, bias 끔 기준: +0.3 ~ +2 %, 9/12 이상 나빠짐 | pop LIF +0.30 %, 8/12; pop f-LIF +0.91 %, 10/12 | pop LIF는 크기는 맞고 개수는 틀림 |
+| ETT body, bias 켬 Spikformer(DE): \|r\| < 0.5 % | +0.39 %(ETTm2 H96만 +1.32 %) | 맞음 |
+| ETT body, bias 켬 기준: 끈 쪽과 비슷하거나 조금 작음 | +0.86 / +1.13 %로 끈 쪽(+0.30 / +0.91 %)보다 큼 | 틀림 |
+| ETT neo, bias 켬: body보다 작음 | +0.62 < +0.86, +1.01 < +1.13 | 맞음 |
+| ETT all: 모두 +20 % 이상 | +21.0 ~ +21.7 % | 맞음 |
+| MIT-BIH bias 끔: Spikformer(DE) 0, 기준 −5 ~ −10 %p | 0; −12.94(범위 밖) / −7.38 %p | pop LIF 틀림 |
+| MIT-BIH bias 켬: 모두 −12 ~ −22 %p | −26.54 / −27.97 / −22.23 %p | 대체로 틀림(더 큼) |
+| MIT-BIH bias 켬 neo: −2 ~ −6 %p | −4.20 / −3.97 %p | 맞음 |
+
+### 결론
+
+- ETT에서 기준 model의 body가 순서에 기대는 정도는 1 % 안쪽이다. 이 과제의 순서 정보는 예측 head가 token 자리를 읽는 데서 거의 다 나온다. bias를 끈 Spikformer(DE)도 head 덕분에 순서를 본다.
+- 그래서 ETT 점수로 "T = N이 순서 정보를 준다"를 보이기는 어렵다. MIT-BIH는 head가 위치를 모르지만, 과제가 순서를 거의 필요로 하지 않는다(11-19 결과).
+- T = N이 순서로 점수를 내는지 보이려면 두 조건이 다 필요하다(추론): (1) head가 위치를 모를 것, (2) 과제가 순서를 실제로 요구할 것. 지금의 ETT와 MIT-BIH 설정은 둘 중 하나씩만 맞는다.
+
+**한계:** 학습 없이 저장된 model을 잰 서술 측정이다. seed 3개, 반복 5회, ETT는 입력 96, 4칸이다. 섞었을 때의 손해는 기대는 정도이지 이득이 아니다. bias 켬 / 끔 run은 sha가 다르다(`11c83b385` / `96fb4dc2a`).
+
+**not run:** 섞은 순서로 다시 학습하기(shuffle-retrain)를 ETT / MIT-BIH에서, 위치를 모르는 head(token 평균)로 ETT 학습, 입력 336 / 720, CinC, 이상 탐지.
+
+**다음:** 사용자 결정을 기다린다. 열린 결정: aux target 변경 전 기억 없는 대조 검증, hyperparameter 점검 범위 1(BN / bias를 weight decay에서 빼기, epoch 안 validation), 결합부 배치 (가) + (나), hyperparameter 범위 2, lr 시험 재개, 이상 탐지, DNN 비교표.
+
+**산출물 (Git):**
+- `nsmt_flif_v1/classification/results/flif-v1-order-rand/{ett-shard0of4, ett-shard1of4, ett-shard2of4, ett-shard3of4, mb-shard0of1}.jsonl`
+- `nsmt_flif_v1/classification/results/flif-v1-order-rand.{json, md}`
+- process 기록(`nsmt_flif_v1/forecasting/results/flif-v1-order-rand-logs/*.log`)은 local에 둔다.
+
+**commit / tag:** 이 항목과 결과 파일을 commit 하고 tag `exp/nsmt-flif-neo-20261120-orderrand`를 붙인다(이 항목은 자기 commit을 tag로 가리킨다).
+
+---
