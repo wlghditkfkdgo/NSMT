@@ -83,8 +83,12 @@ class Forecaster(nn.Module):
         """'ssa' / 'dual': z [B', 1, L] -> per-step hippocampus spikes [T_h, B', N, D] (the head input before the T_h mean)."""
         m = self.inner
         patched, neo_in = m._tokens_mc(z)                                  # [T_h, B', N, P], [N, B', 1, P]
-        xh = m.encoding(patched, return_pre=(getattr(m, 'res_mode', 'iand') == 'ms'))   # MODI 2026-11-08: (spikes, stream) with ms
-        x_neo = m.neo_forward(neo_in, z.clone().detach())[1] if self.kind == 'dual' else None   # [N, B', 1, D]
+        if getattr(m, 'neo_current', 0):                                   # MODI 2026-11-21 (4-2): the Neocortex first; its output
+            x_neo = m.neo_forward(neo_in, z.clone().detach())[1]           # enters the hippocampus embedding current
+            xh = m.hippo_encoding(patched, x_neo)
+        else:
+            xh = m.encoding(patched, return_pre=(getattr(m, 'res_mode', 'iand') == 'ms'))   # MODI 2026-11-08: (spikes, stream) with ms
+            x_neo = m.neo_forward(neo_in, z.clone().detach())[1] if self.kind == 'dual' else None   # [N, B', 1, D]
         if self.aux:                                                       # MODI 2026-11-19: kept for aux_rec_loss()
             self._x_neo = x_neo
         return m.hippo_blocks(xh, x_neo)

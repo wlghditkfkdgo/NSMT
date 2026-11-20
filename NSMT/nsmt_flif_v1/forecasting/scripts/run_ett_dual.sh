@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# MODI 2026-11-21 (4-2 coupling placement, user decision 11-20 "(가) + (나)"): + nsmt4q_pop_<lif|flif>_msn_sde_nc = the base with
+#   --neo_current 1 ((가): Neocortex output x learned per-channel alpha into the hippocampus embedding neuron's input current,
+#   attention kept) and nsmt4q_pop_<lif|flif>_msn_sde_ncna = + --hippo_attn 0 ((나): no hippocampus attention; the Neocortex is the
+#   only token-mixing path). Run folder suffixes _nc / _nc_noattn. Everything else unchanged.
 # MODI 2026-11-21 (hyperparameter range 1 adopted by its pre-registered rule; docs/MODI_PROJECT_LOG.md 2026-11-21 01:21 KST): the
 #   defaults are now WDX=1 (--wd_exclude_1d 1) and VPE=4 (--val_per_epoch 4). WDX=0 VPE=1 restores the command line of the runs
 #   before 11-21 exactly (add PE=1 for the one before 11-20). RESULT always carries wdx= / vpe=. Any other value stops before python.
@@ -91,6 +95,10 @@ case $COND in                     # MODI 2026-10-29: dual-path models, B-form se
   nsmt4q_pop_flif_msn_xl)CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --attn_score xnor_log" ;;
   nsmt4q_pop_lif_msn_sde)   CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neuron_all lif" ;;   # MODI 2026-11-18 (SpikeDE basis)
   nsmt4q_pop_flif_msn_sde)  CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neuron_all lif" ;;   # MODI 2026-11-18 (SpikeDE basis)
+  nsmt4q_pop_lif_msn_sde_nc)     CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neuron_all lif --neo_current 1" ;;   # MODI 2026-11-21 (4-2 (가))
+  nsmt4q_pop_flif_msn_sde_nc)    CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neuron_all lif --neo_current 1" ;;   # MODI 2026-11-21 (4-2 (가))
+  nsmt4q_pop_lif_msn_sde_ncna)   CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neuron_all lif --neo_current 1 --hippo_attn 0" ;;   # MODI 2026-11-21 (4-2 (나))
+  nsmt4q_pop_flif_msn_sde_ncna)  CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neuron_all lif --neo_current 1 --hippo_attn 0" ;;   # MODI 2026-11-21 (4-2 (나))
   nsmt4q_pop_lif_msn_aux)   CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms" ;;   # MODI 2026-11-19 (aux loss): + NSMT reconstruction loss (per dataset below)
   nsmt4q_pop_lif_msn_sde_aux)   CF="--model myModel --neo_neuron pop_lif --neo_where both --pop_soma_init 0.5 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neuron_all lif" ;;   # MODI 2026-11-19 (aux loss): + NSMT reconstruction loss (per dataset below)
   nsmt4q_pop_flif_msn_aux)  CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms" ;;   # MODI 2026-11-19 (aux loss): + NSMT reconstruction loss (per dataset below)

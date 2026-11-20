@@ -10783,3 +10783,139 @@ ETT는 test MSE 비율 r = A / B − 1(%), 12쌍. MIT-BIH는 macro-F1 차이 d(%
 ### Git
 
 - 이 항목과 실행 스크립트 3개를 하나의 commit으로 묶어 push 한다. tag는 달지 않는다(학습 결과가 없는 설정 변경).
+
+## 2026-11-21 01:49 KST — 사전 고정 + 구현 (학습 전): 4-2 결합부 배치 — (가) Neocortex 출력을 Hippocampus embedding neuron의 입력 전류에 더함(attention 유지), (나) 같은 것 + Hippocampus attention 없음. pop LIF / pop f-LIF × (ETT 4칸 × seed 3 + MIT-BIH × seed 3) × 두 배치 = 60 run, 새 기본 학습 조건(범위 1)
+
+**사용자 결정 (11-20, 원문):** "4-1 검증(작음) → 범위 1(이후 모든 비교의 학습 조건을 정함) → 4-2 (가) + (나) 순서로 수행하자." 이 항목은 셋째 단계다.
+
+### 목적
+
+- (가)가 묻는 것: Neocortex 출력을 Hippocampus에 더 직접 넣으면 성능이 오르는가. 지금 Neocortex 출력은 Hippocampus attention의 query로만 들어가고, 측정해 보면 그 통로를 거의 쓰지 않는다(11-17 결합 진단).
+- (나)가 묻는 것: T = N 순서 처리(Neocortex)가 Hippocampus attention을 대신할 수 있는가. 논문 contribution과 가장 직접 맞닿는다.
+- branch `exp/nsmt-flif-neo`, base commit `9e3644b4e`.
+
+### 설계
+
+- **11-20 제안 원문:** "Neocortex 출력을 Hippocampus neuron의 입력 전류에 더 넣습니다. channel마다 세기 α를 학습합니다." 어느 neuron인지는 그때 정하지 않았다. 여기서 정한다.
+- **넣는 곳: Hippocampus embedding neuron** (patch → Linear → BN → [여기서 더함] → LIF).
+  - 이유: Hippocampus block의 출력은 x(1 − f(x))이므로 늘 입력 spike의 부분집합이다. block 안의 neuron에 넣으면 Neocortex는 Hippocampus spike를 지울 수만 있고 더할 수는 없다. embedding에 넣어야 Neocortex 정보가 spike로 더해져 head까지 간다.
+- **식:** token i, channel c, T_h 반복 step t마다 입력 전류 = BN(W p_i)_c + α_c · s_{i,c}.
+  - s는 Neocortex 출력 spike다([N, B, 1, D], 0 / 1임을 점검했다). 반복 4 step 모두에 같은 값을 더한다.
+  - α는 channel마다 하나다(ETT D = 64, MIT-BIH D = 384). 초기값은 모두 1이다. 1-D parameter이므로 범위 1 규칙에 따라 weight decay가 0이다.
+  - Neocortex로 가는 gradient 몫(neo_grad)은 기준과 같은 1이다.
+- **α 초기값을 1로 정한 이유:** 0이면 (가)는 기준과 똑같이 시작하지만, (나)에서는 처음에 Neocortex가 Hippocampus에 전혀 닿지 않고 Neocortex parameter의 gradient도 0에서 시작한다. 두 배치에 같은 초기값을 쓰려고 1로 정했다. 1이면 Neocortex spike 하나가 전류 1을 더한다(BN 출력의 표준 크기 정도).
+- **(나):** Hippocampus block이 x ← x(1 − MLP(x))만 남는다. token마다 따로 처리하므로, token끼리 정보를 섞는 길은 순서대로 읽는 Neocortex 하나다.
+  - attention module은 기준과 같은 난수 순서로 만든 뒤 지운다. 그래서 나머지 parameter의 초기값이 (가)·기준과 같다.
+  - query라는 개념이 없어진다(Neocortex는 embedding 전류로만 들어간다).
+
+### model과 비교 상대
+
+| 이름 | 조건 | run |
+|---|---|---|
+| Spikformer(DE) | `spkall_lif` | 범위 1 기존 run (`flif-v1-ett-r1`, `flif-v1-mitbih-r1`) |
+| 기준 pop LIF / pop f-LIF | `nsmt4q_pop_<lif\|flif>_msn_sde` | 범위 1 기존 run |
+| (가) | `nsmt4q_pop_<lif\|flif>_msn_sde_nc` (`--neo_current 1`) | 새 run, 폴더 접미사 `_nc` |
+| (나) | `nsmt4q_pop_<lif\|flif>_msn_sde_ncna` (`--neo_current 1 --hippo_attn 0`) | 새 run, 폴더 접미사 `_nc_noattn` |
+
+- parameter 수(ETTh2 H96): 기준 175,168 → (가) 175,232(+64) → (나) 158,336(attention 16,896 빠짐). MIT-BIH: 1,230,720 → 1,231,104 → 638,208.
+
+### run
+
+- 60 run = 두 배치 × pop LIF / pop f-LIF × (ETT ETTh2 / ETTm2 × H96 / H720 × seed 42 / 7 / 2026 + MIT-BIH seed 42 / 7 / 2026).
+- suite `flif-v1-ett-nc`(48), `flif-v1-mitbih-nc`(12). 대기열은 `classification/scripts/make_queue_nc.sh`가 만든다(ETTm2 → MIT-BIH → ETTh2, GPU 0–3에 GPU당 2개).
+- 학습 조건: 실행 스크립트 기본값 그대로다(범위 1: BN weight / bias weight decay 0, ETT epoch 안 validation 4번; relative position bias 끔; aux 없음; 모든 neuron SpikeDE). 나머지 hyperparameter는 기준과 같다(ETT lr 5e-4, weight decay 0.06, patience 10; MIT-BIH 30 epoch, lr 0.01, 마지막 epoch weight).
+
+### 판정 규칙 (결과를 보기 전에 정함)
+
+- **비교 넷, neuron마다:** G1 (가) − 기준, G2 (나) − 기준, G3 (가) − Spikformer(DE), G4 (나) − Spikformer(DE).
+- **ETT:** 12쌍(4칸 × seed 3) test MSE 비율 r = A / B − 1. 평균 R ≤ −1 %이고 8/12쌍이 낮으면 "좋음", R ≥ +1 %이고 8/12가 높으면 "나쁨", 그 밖은 "차이 없음".
+- **MIT-BIH:** macro-F1 차이 d. 평균 ≥ +0.5 %p이고 2/3 seed가 양수면 "좋음", 그 반대면 "나쁨", 그 밖은 "차이 없음".
+- **두 neuron 결론:** 둘 다 같은 방향이면 그 방향, 하나만이면 "neuron에 따라 다름(약함)", 아니면 "차이 없음"(`summarize_ms.conclusion`).
+- **종합(사용자 목표, G3 / G4):** `summarize_sde.overall`(과제 하나라도 나쁨 → 지지 안 됨; 좋음이 있으면 strong; ETT R < 0이고 MIT-BIH d > 0이면 weak).
+- **권고 규칙(구조 결정은 사용자가 한다):**
+  1. (나)가 G2에서 "나쁨"이 없으면(두 neuron × 두 과제) → (나)를 권한다.
+  2. 아니면, (가)가 G1에서 "좋음"이 있고 "나쁨"이 없으면 → (가)를 권한다.
+  3. 아니면 → 기준을 유지한다.
+  - (나)를 먼저 보는 이유: attention이 없어 energy가 낮고 T = N contribution을 직접 보여주므로, 나빠지지만 않으면 우선한다.
+- **보고 전용:**
+  - α의 학습 후 값(평균, |α| 평균, 음수 비율).
+  - energy(ETT는 head 재계산, MIT-BIH는 기록값). α 덧셈은 module이 아니라 syops가 세지 않는다. 그래서 상한(모든 Neocortex 출력이 모든 token에서 발화)을 따로 적는다: ETT 7 × 4 × 24 × 64번 덧셈 = 0.039 µJ, MIT-BIH 4 × 11 × 384번 = 0.015 µJ.
+  - 발화율, epoch 수, epoch 안 best의 수, MIT-BIH accuracy.
+  - 학습이 끝나면 학습 없이 (나) model에 무작위 token 순서 평가(`order_eval_rand.py` 방식)를 돌려 보고한다. (나)에서는 Hippocampus가 token을 섞지 않으므로 "body 섞기 = Neocortex 섞기"여야 한다.
+
+### 구현
+
+- `classification/model.py`:
+  - `Embedding.forward(..., extra=None)`: BN 출력에 extra 전류를 더한 뒤 LIF로 보낸다. None이면 그대로다.
+  - `Block`: `no_attn`이면 x ← x(1 − MLP(x)).
+  - `myModel`: `neo_current` / `neo_current_init` / `hippo_attn`, parameter `neo_alpha_c`(다른 module을 다 만든 뒤 상수로 만들어 난수를 쓰지 않음), `hippo_encoding()`(Neocortex를 먼저 돌리고 그 출력을 embedding 전류로 넣음). forward에서 새 경로로 분기한다. 허용 범위는 query 형태, iand Hippocampus, Neocortex 한 줄이다. 그 밖은 멈춘다.
+- `classification/forecast_wrap.py`: `Forecaster.step_features`는 model의 forward를 쓰지 않고 같은 순서를 따로 구현한다. 그래서 여기도 `neo_current`일 때 `hippo_encoding`을 쓰도록 고쳤다. forward만 고쳤다면 ETT run은 새 경로를 조용히 무시했을 것이다.
+- `classification/load_model.py`, `classification/config.py`: 새 flag 3개, 폴더 접미사 `_nc`(초기값이 1이 아니면 그 값을 붙임), `_noattn`.
+- 실행 스크립트 `run_ett_dual.sh`, `run_mitbih4.sh`: 조건 4개를 더했다(기준 CF + `--neo_current 1` [+ `--hippo_attn 0`]).
+- 새 파일: `classification/check_nc.py`, `classification/fw_identity_nc.py`, `classification/summarize_nc.py`, `classification/scripts/make_queue_nc.sh`.
+
+### 점검
+
+- **기본 경로 동일:**
+  - `fw_identity_nc.py`: 고치기 전에 저장하고 고친 뒤 비교해 20/20이 같다. 범위 1 기준 pop LIF / pop f-LIF와 Spikformer(DE)(ETT), 기준 둘(MIT-BIH)의 초기 weight, 학습 모드 출력, 모든 gradient, 저장 checkpoint의 평가 출력을 봤다.
+  - 1 epoch 기준 smoke 3개(ETT pop LIF / pop f-LIF, MIT-BIH pop f-LIF)를 고치기 전후로 돌렸다. RESULT 줄(시간·sha·폴더 제외)이 같고, 저장 weight 파일 5/5가 비트 단위로 같다. config.pt 3개는 비교하지 않았다.
+- **명령줄 점검(가짜 python), 13/13:** 기준 조건 4개는 고치기 전과 같다. 새 조건 8개는 기준 명령줄 + 정확히 새 flag이고 tag 이름만 다르다. 고치기 전 실행 스크립트는 새 조건을 거부한다(비교가 자명하지 않음).
+- **단위 점검 `check_nc.py`, 102/102:**
+  - n1: (가)의 α를 0으로 두면 기준과 같다. 초기 상태는 기준 + α이고, 학습 모드 출력과 공유 parameter gradient 30개(ETT) / 34개(MIT-BIH)가 비트 단위로 같다.
+  - n2: α = 1에서 embedding neuron 입력 = 기준 입력 + Neocortex spike(정확히 일치, 4 step 모두). Neocortex 출력은 0 / 1이다. `--neo_current_init 0.5` → α = 0.5.
+  - n3: (나)에는 attention module이 없다. parameter = 기준 − attention + D이고, 남은 초기 tensor는 기준과 같다. block 출력 = x(1 − MLP(x))(정확히 일치).
+  - n4 token 섞임: 학습된 기준 weight를 각 변형에 넣고(빠진 key: α만, (나)의 남는 key: attention만) token j = N/2의 입력에 +10을 더했다.
+    - 기준과 (가): 앞쪽 token이 바뀐다.
+    - (나): 앞쪽 token은 하나도 안 바뀌고, token j와 뒤쪽 token이 바뀐다.
+    - (나) + 기억 없는 Neocortex: token j만 바뀐다.
+  - n5: (가)·(나) 모두 α와 Neocortex parameter에 gradient가 간다.
+  - n6: α는 weight decay 0 group에 있다.
+  - n7: `Forecaster.step_features` 출력 = `myModel.forward`의 Hippocampus 출력.
+  - n8: 허용 밖 설정 3개(attention 없음 + 전류 없음, replace 형태, Hippocampus MS)는 멈춘다.
+- **smoke (1 epoch, 새 조건 4개 × 두 과제 = 8개):** RESULT 줄, 폴더 접미사, parameter 수, logargs(`neo_current=1`, `neo_current_init=1.0`, `hippo_attn` 0 / 1, `wd_exclude_1d=1`, ETT `val_per_epoch=4`, `ssa_pe=0`)가 의도와 같다. ETT 4개에 energy 재계산을 돌려(scratchpad suite를 results에 임시 link로 연결했다가 지움) 기록된 test MSE를 재현하고 "all checks passed"가 나왔다.
+- **판정 script 가짜 data 시험, 20/20:** 범위 1 기준 run에서 가짜 suite를 만들었다.
+  - 심어 둔 답 3가지(권고 (가) / (나) / 기준 유지)가 그대로 나온다. (가) = 기준이면 G3가 범위 1의 R2(−0.55 / −0.35 %, 9/12)를 재현한다. 심어 둔 energy 비율 0.80과 α 통계도 재현된다.
+  - 결함 7개(줄 빠짐, 중복, `_noattn` 빠짐, nan, α 없음, sha 둘, vpe = 1)는 모두 멈춘다.
+
+### 내 실수와 바꾼 점검 (이번 구현에서)
+
+- `check_nc.py`의 key 오타 2번(`'nev'`). 점검 script 쪽 문제였고 고친 뒤 다시 돌렸다.
+- n3 첫 실패: `state_dict()`가 live tensor를 돌려주는데, 앞 단계에서 한 번 학습 step을 돈 기준 model의 BN 통계와 비교했다. 새로 만든 기준과 비교하도록 고쳤다(점검 쪽 문제).
+- n4 첫 판: 학습 안 된 model은 평가 모드에서 거의 발화하지 않아 구조를 가려내지 못했다(ETT는 token j조차 안 바뀜). 학습된 기준 weight를 넣도록 바꿨다.
+- n4 둘째 판: 학습된 ETT 기준에서 4 window, +3으로는 앞쪽 token이 하나도 안 바뀌었다. 32 window, +10으로 바꿔 민감도를 높였다. 판정 대상이 아니라 점검의 민감도를 바꾼 것이다.
+- 가짜 data 시험의 행 선택 문자열 실수 1번(label이 "query pop"으로 시작). summarize_nc.py는 바꾸지 않았다.
+
+### 보고 전용 관찰 (사후, 사전 고정 아님)
+
+- 학습된 기준에서 token j의 입력을 바꿨을 때, 앞쪽 token의 Hippocampus 출력에서 바뀐 값의 수:
+
+| 과제 | 기준 pop LIF | 기준 pop f-LIF | 같은 실험의 token j 자신 |
+|---|---|---|---|
+| ETT (32 window, +10) | 5 | 36 | 23,000–24,000 |
+| MIT-BIH (32 beat, +10) | 5,449 | 6,291 | 10,700–13,200 |
+
+- ETT 기준의 attention은 token 사이에 거의 아무것도 전하지 않는다. MIT-BIH 기준의 attention은 많이 전한다. (가)에서 α = 1(학습 전)로 Neocortex 전류를 넣으면, Neocortex가 뒤쪽 token에 전하는 변화가 ETT에서 154 → 69,041개(pop LIF)로 커진다.
+
+### 사전 예상 (추론)
+
+- G1 (가) − 기준: ETT "차이 없음"(ETT는 flat head가 위치를 처리하고 결합부를 거의 쓰지 않음), MIT-BIH "차이 없음".
+- G2 (나) − 기준: ETT "차이 없음"(위 관찰: ETT 기준의 attention은 token 사이에 거의 아무것도 전하지 않음). MIT-BIH는 적어도 한 neuron에서 "나쁨"(attention 없는 Neo-mixer가 MIT-BIH에서 1.1–3.4 %p 낮았고, MIT-BIH 기준의 attention은 token 사이에 많이 전함).
+- 그러면 권고 규칙상 (나)는 탈락하고, (가)에 "좋음"이 없으면 "기준 유지"가 된다. 가장 가능성이 높은 권고는 "기준 유지"다.
+- energy: (나)는 ETT와 MIT-BIH 모두 Spikformer(DE)보다 낮을 것이다(1 epoch smoke: ETT 6.7 / 8.9 µJ, Spikformer(DE) 범위 1 평균 10.65 µJ; MIT-BIH 6.6 / 7.6 µJ, Spikformer(DE) 9.18 µJ).
+- α는 학습 후에도 대부분 양수로 남을 것이다(약한 추론).
+
+### 한계
+
+- α 초기값은 1 하나만 본다. 넣는 곳도 embedding 하나만 본다.
+- seed 3개다.
+- (나)는 attention만 뺐고, hyperparameter는 기준용 그대로다(범위 2는 고른 구조에 한다).
+- α 덧셈의 energy는 syops가 세지 않아 상한으로만 적는다.
+
+### not run
+
+- α 초기값 0 / 다른 값, block 안 neuron에 넣기, (나)의 기억 없는 Neocortex 학습 대조(학습 없는 순서 평가로 대신함).
+- hyperparameter 범위 2, aux 본 시험(사용자 결정 대기), CinC, 이상 탐지.
+
+### Git
+
+- 이 항목, 코드, 점검 script를 하나의 commit으로 묶고 push 한 뒤 대기열을 시작한다. 결과는 새 항목으로 덧붙이고 tag `exp/nsmt-flif-neo-<끝난 날짜>-nc`를 단다.

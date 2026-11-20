@@ -30,6 +30,8 @@ def _neo_kwargs(args):
                 res_mode=getattr(args, 'res_mode', 'iand'), neo_res=getattr(args, 'neo_res', 'none'),   # MODI 2026-11-08 (membrane shortcut)
                 neo_band=getattr(args, 'neo_band', 'none'),                                         # MODI 2026-11-13 (frequency bands)
                 neo_pop=getattr(args, 'neo_pop', 'soma'),                                           # MODI 2026-11-13 (STFT test)
+                neo_current=int(getattr(args, 'neo_current', 0)), neo_current_init=float(getattr(args, 'neo_current_init', 1.0)),   # MODI 2026-11-21 (4-2)
+                hippo_attn=int(getattr(args, 'hippo_attn', 1)),
                 token_shuffle=getattr(args, 'token_shuffle', False), shuffle_seed=int(getattr(args, 'seed', 0)))   # MODI 2026-10-28
 
 

@@ -174,6 +174,12 @@ def parse_arguments():
     snn_arg.add_argument('--neuron_scope', choices=['mixer', 'all', 'lifbase'], default='mixer',
                          help="MODI 2026-10-29 Neo-mixer: 'all' = the mixer's neuron in every neuron layer (embedding and MLP too); "
                               "'lifbase' = spikeDE LIF in the embedding and MLP")
+    snn_arg.add_argument('--neo_current', type=int, choices=[0, 1], default=0,
+                         help='MODI 2026-11-21 (4-2 (가)): the Neocortex output spikes times a learned per-channel alpha are added to the input '
+                              'current of the hippocampus embedding neuron (every T_h step); query form only')
+    snn_arg.add_argument('--neo_current_init', type=float, default=1.0, help='MODI 2026-11-21: initial value of that alpha')
+    snn_arg.add_argument('--hippo_attn', type=int, choices=[0, 1], default=1,
+                         help='MODI 2026-11-21 (4-2 (나)): 0 = the hippocampus blocks have no attention sub-block (needs --neo_current 1)')
     snn_arg.add_argument('--neuron_all', choices=['sj_lif', 'lif', 'flif', 'pop_lif', 'pop_flif'], default='sj_lif',
                          help='MODI 2026-10-29 myModel: this spikeDE neuron in every hippocampus layer too (no spikingjelly LIF left)')
     snn_arg.add_argument('--pop_soma_init', type=float, default=None, help='pop_flif soma mixing weight init (None = 1/K)')
@@ -334,6 +340,10 @@ class Config():
             _iso += f"_f{args.fold}" + ("_ce" if getattr(args, 'loss_kind', 'cal') == 'ce' and str(args.data).upper() == 'CINC2017' else '')
             if getattr(args, 'crop_tokens', 0):
                 _iso += f"_crop{args.crop_tokens}"
+        if int(getattr(args, 'neo_current', 0)):                          # MODI 2026-11-21 (4-2 coupling placement)
+            _iso += "_nc" + ("" if float(getattr(args, 'neo_current_init', 1.0)) == 1.0 else f"{float(args.neo_current_init):g}")
+        if not int(getattr(args, 'hippo_attn', 1)):
+            _iso += "_noattn"
         if int(getattr(args, 'wd_exclude_1d', 0)):                         # MODI 2026-11-20 (hyperparameter range 1)
             _iso += "_wdx"
         if int(getattr(args, 'val_per_epoch', 1)) != 1:

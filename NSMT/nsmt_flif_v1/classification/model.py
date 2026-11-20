@@ -182,7 +182,7 @@ class Embedding(nn.Module):
         # Residual dropout
         # self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x:torch.tensor, pe=True, return_pre=False):
+    def forward(self, x:torch.tensor, pe=True, return_pre=False, extra=None):
         T, B, _,_ = x.shape
 
         x = self.emb_linear(x.flatten(0, 1))                      # [T*B, N', D]
@@ -199,6 +199,12 @@ class Embedding(nn.Module):
         self.org_x = x.clone().detach().transpose(-1, -2).contiguous()
         # MODI 2026-11-08 (membrane shortcut): return_pre also returns the neuron's input current (the BN output, graph kept), [T B N D]
         pre = x.transpose(-1, -2).contiguous() if return_pre else None
+        # MODI 2026-11-21 (4-2 coupling placement): extra = an input current [1 or T, B, D, N] added to the BN output in front of
+        # the neuron (myModel.hippo_encoding, --neo_current); None = unchanged. Not with return_pre (membrane shortcut).
+        if extra is not None:
+            if return_pre:
+                raise NotImplementedError('extra input current: not with return_pre')
+            x = x.reshape(T, B, self.embed_dim, -1) + extra
 
 
         x = self.emb_lif(x.reshape(T, B, self.embed_dim, -1).contiguous())
@@ -370,6 +376,12 @@ class Block(nn.Module):
                 u, x = self.mlp(x, ms_u=u)
                 return x, u
             x = x * (1. - self.ssa(x))
+            x = x * (1. - self.mlp(x))
+            return x
+
+        if self.use_xattn and getattr(self, 'no_attn', False):   # MODI 2026-11-21 (4-2 (나), --hippo_attn 0): no attention sub-block;
+            if u is not None:                           # every token alone through the MLP (the Neocortex reaches the hippocampus
+                raise NotImplementedError('hippo_attn 0: not with the membrane shortcut')   # through its embedding current)
             x = x * (1. - self.mlp(x))
             return x
 
@@ -914,6 +926,32 @@ class myModel(nn.Module):
                 self.head_score = nn.Linear(embed_dim, 1, bias=False)
             nn.init.zeros_(self.head_score.weight)
 
+        # MODI 2026-11-21 (4-2 coupling placement, user decision 11-20 "(가) + (나)"). neo_current 1 = (가): the Neocortex output
+        # spikes x_neo [N, B, 1, D] (gradient share neo_grad), times a learned per-channel alpha [D] (init neo_current_init, a constant:
+        # no RNG drawn, built after every other module), are added to the input current of the hippocampus EMBEDDING neuron at every
+        # T_h step (hippo_encoding). The embedding is the only hippocampus neuron that can ADD spikes: every block output is
+        # x (1 - f(x)), a subset of its input spikes. hippo_attn 0 = (나): additionally the hippocampus blocks have no attention
+        # sub-block (x <- x (1 - MLP(x)), each token alone), so the Neocortex is the only path that mixes tokens; the attention
+        # modules are built as usual (same RNG draws, so every other parameter starts as in (가)) and then deleted. Defaults (0 / 1):
+        # no new parameter or module, unchanged. Query form only (hippo_xattn_mode query, iand hippocampus, one Neocortex stream).
+        self.neo_current = int(kwargs.get('neo_current', 0))
+        self.hippo_attn = int(kwargs.get('hippo_attn', 1))
+        if self.neo_current not in (0, 1) or self.hippo_attn not in (0, 1):
+            raise ValueError('neo_current in {0, 1}, hippo_attn in {0, 1}')
+        if self.neo_current or not self.hippo_attn:
+            if not (self.hippo_xattn and self.hippo_xattn_mode == 'query' and self.res_mode == 'iand' and self.roll_mode == 'none'
+                    and not self.neo_streams and not self.neo_bidir and self.neo_band == 'none'):
+                raise NotImplementedError('neo_current / hippo_attn 0: the query form (hippo_xattn_mode query) with the iand hippocampus, '
+                                          'roll_mode none and one unidirectional Neocortex stream without neo_band only')
+            if not self.neo_current:
+                raise ValueError('hippo_attn 0 needs neo_current 1 (otherwise nothing of the Neocortex reaches the hippocampus)')
+        if self.neo_current:
+            self.neo_alpha_c = nn.Parameter(torch.full((embed_dim,), float(kwargs.get('neo_current_init', 1.0))))
+        if not self.hippo_attn:
+            for blk in self.data_block:
+                del blk.ssa
+                blk.no_attn = True
+
         if ((self.train_mode != 'training') and (self.train_mode != 'pre_training')):
             for module in self.modules():
                 if isinstance(module, nn.BatchNorm1d):
@@ -1017,6 +1055,17 @@ class myModel(nn.Module):
             patched_low_freq_x = low_freq_x.unfold(dimension=-1, size=self.patch_size, step=self.stride)
             self.org_x = patched_low_freq_x.clone().detach().transpose(0, 2).contiguous().mean(2, keepdim=True)
             
+        if getattr(self, 'neo_current', 0):                  # MODI 2026-11-21 (4-2): the Neocortex first, its output enters the
+            _, x_neo = self.neo_forward(neo_in, org_seq)       # hippocampus embedding current (neo_in from _tokens_mc: query form only)
+            x_hippo = self.hippo_blocks(self.hippo_encoding(patched_x, x_neo), x_neo)
+            if self.train_mode == 'training':
+                return self._training(x_hippo, x_neo)
+            elif self.train_mode == 'testing':
+                return self._testing(x_hippo)
+            elif self.train_mode == 'visual':
+                return self._visualization(x_hippo, x_neo)
+            raise ValueError
+
         if self.roll_mode in ('sine', 'rand'):
             base = patched_x[0]                              # [BC, N, P] (all T identical after repeat)
             x_hippo = self._unroll(self.encoding(self._roll_T(base)))  # sine/rand roll, encode, realign
@@ -1048,6 +1097,16 @@ class myModel(nn.Module):
             raise ValueError
         
         
+    def hippo_encoding(self, patched_x, x_neo):
+        """MODI 2026-11-21 (4-2, --neo_current 1): the hippocampus embedding with alpha * x_neo added to its neuron's input current.
+        patched_x [T_h, B, N, P]; x_neo [N, B, 1, D] (Neocortex output spikes); the same current at every T_h step. Used by forward and
+        forecast_wrap.Forecaster.step_features (both run the Neocortex first in this mode)."""
+        if not self.neo_current:
+            raise RuntimeError('hippo_encoding: neo_current 0 uses self.encoding directly')
+        g = self.neo_grad
+        mx = g * x_neo + (1 - g) * x_neo.detach()
+        return self.encoding(patched_x, extra=self.neo_alpha_c.view(1, 1, -1, 1) * mx.permute(2, 1, 3, 0))
+
     def hippo_blocks(self, x_hippo, x_neo):
         """The hippocampus blocks on the embedding output; returns the last block's spikes [T_h, B, N, D].
         MODI 2026-11-08: res_mode 'ms' takes x_hippo = (spikes, stream) from encoding(..., return_pre=True)."""
