@@ -10608,3 +10608,127 @@ Spikformer식보다 "좋음"인 변형은 없다.
 ### Git
 
 - 이 항목, 코드, 점검 script를 하나의 commit으로 묶고 push 한 뒤 대기열을 시작한다. 결과는 새 항목으로 덧붙이고 tag `exp/nsmt-flif-neo-20261120-r1`(날짜가 바뀌면 끝난 날짜)를 단다.
+
+## 2026-11-21 01:21 KST — 결과: hyperparameter 범위 1 (weight decay에서 BN weight / bias 빼기 + ETT는 epoch 안에서 validation 4번), 45 run (사전 고정 `546d16ba5`)
+
+### 한 줄로
+
+- R1(새 학습 − 이전 학습)은 세 model(Spikformer(DE), 기준 pop LIF, 기준 pop f-LIF) × 두 과제 모두 "차이 없음"이다. 사전 규칙대로 범위 1을 이후 모든 비교의 기본 학습 조건으로 채택한다. 실행 스크립트 기본값 변경은 따로 commit 한다.
+- 기준 model − Spikformer(DE)(R2)는 새 학습에서 기준 model 쪽으로 기울었지만(ETT −0.55 / −0.35 %, 둘 다 9/12쌍), 판정은 여전히 "차이 없음"이고 격차 변화(R3)도 "뚜렷한 변화 없음"이다. 그 기울기의 일부는 Spikformer(DE)가 ETTh2 H720에서 나빠진 탓이다.
+
+### 나쁜 결과와 틀린 예상 (먼저)
+
+- **칸 하나가 "나쁨":** Spikformer(DE) ETTh2 H720이 +1.68 %다. 채택 규칙은 model × 과제 단위(ETT 12쌍)로 판정하므로 채택을 막지 않는다. 그래도 적어 둔다.
+  - 원인(사후 확인): seed 7에서 세 model 모두 epoch 1의 step 62/123을 best로 골랐다. 그 지점의 validation L1은 이전 학습보다 낮았지만(0.5324 / 0.5330 / 0.5335), test MSE는 셋 다 나빴다.
+  - Spikformer(DE) 0.4349 (이전 0.4186), pop LIF 0.4261 (이전 0.4129), pop f-LIF 0.4292 (이전 0.4143).
+- **예상 틀림:** (b)가 best가 epoch 0에 몰린 ETTm2 H720에서 test MSE를 조금 낮출 것이라고 했다. 실제 ETTm2 H720 칸 값은 +0.12 / +0.17 / +0.43 %(Spikformer(DE) / pop LIF / pop f-LIF)로, 낮아지지 않았다. best는 여전히 epoch 0–1 안이다.
+- **사후 확인(사전 고정 아님, 보고 전용):** 새 학습에서 validation best는 12쌍 중 10–11쌍에서 낮아졌지만(평균 −0.24 % / −0.32 % / −0.32 %), test MSE는 6 / 7 / 7쌍에서만 낮아졌다. 고르는 지점을 촘촘히 하면 validation 숫자 자체는 낮아지지만 test로 이어지지 않는다. 고르는 지점이 많을수록 validation의 우연한 낮음에 맞춰 고르게 되는 효과로 읽는다(추론).
+
+| model | validation best가 낮아진 쌍 (평균 변화) | test MSE가 낮아진 쌍 | validation은 낮아졌는데 test는 아닌 쌍 |
+|---|---|---|---|
+| Spikformer(DE) | 10/12 (−0.24 %) | 6/12 | 6/12 |
+| 기준 pop LIF | 11/12 (−0.32 %) | 7/12 | 5/12 |
+| 기준 pop f-LIF | 11/12 (−0.32 %) | 7/12 | 4/12 |
+
+### 결과 (seed 평균 ± sd; ETT test MSE, MIT-BIH test macro-F1 %)
+
+| model | 학습 | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 | MIT-BIH macro-F1 % |
+|---|---|---|---|---|---|---|
+| Spikformer(DE) | 이전 | 0.2886 ± 0.0025 | 0.4179 ± 0.0011 | 0.1769 ± 0.0011 | 0.4044 ± 0.0025 | 91.27 ± 0.16 |
+| Spikformer(DE) | 새 | 0.2903 ± 0.0032 | 0.4249 ± 0.0087 | 0.1767 ± 0.0002 | 0.4048 ± 0.0015 | 91.20 ± 0.29 |
+| 기준 pop LIF | 이전 | 0.2899 ± 0.0030 | 0.4164 ± 0.0044 | 0.1770 ± 0.0008 | 0.4028 ± 0.0016 | 91.51 ± 0.28 |
+| 기준 pop LIF | 새 | 0.2902 ± 0.0018 | 0.4196 ± 0.0057 | 0.1756 ± 0.0007 | 0.4034 ± 0.0007 | 91.39 ± 0.41 |
+| 기준 pop f-LIF | 이전 | 0.2917 ± 0.0033 | 0.4166 ± 0.0022 | 0.1764 ± 0.0008 | 0.4027 ± 0.0018 | 91.41 ± 0.46 |
+| 기준 pop f-LIF | 새 | 0.2897 ± 0.0047 | 0.4207 ± 0.0074 | 0.1765 ± 0.0009 | 0.4044 ± 0.0012 | 91.57 ± 0.14 |
+
+- "이전" = bias 끈 기존 suite(`flif-v1-ett-nope`, `flif-v1-mitbih-nope`), "새" = `flif-v1-ett-r1`, `flif-v1-mitbih-r1`.
+- 기준 model = `nsmt4q_pop_<lif|flif>_msn_sde`(query = Neocortex 출력, population SpikeDE Neocortex, MS, bias 끔). Spikformer(DE) = `spkall_lif`.
+
+### 판정 (사전 규칙)
+
+ETT는 test MSE 비율 r = A / B − 1(%), 12쌍. MIT-BIH는 macro-F1 차이 d(%p), seed 42 / 7 / 2026.
+
+| 비교 | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 | ETT R % (낮은 쌍) | ETT 판정 | MIT-BIH d %p (seed별 → 평균) | MIT-BIH 판정 |
+|---|---|---|---|---|---|---|---|---|
+| R1 Spikformer(DE) 새 − 이전 | +0.58 | +1.68 | −0.12 | +0.12 | +0.57 (6/12) | 차이 없음 | +0.02 / +0.15 / −0.39 → −0.07 | 차이 없음 |
+| R1 기준 pop LIF 새 − 이전 | +0.12 | +0.79 | −0.76 | +0.17 | +0.08 (7/12) | 차이 없음 | +0.15 / −0.43 / −0.09 → −0.12 | 차이 없음 |
+| R1 기준 pop f-LIF 새 − 이전 | −0.68 | +0.98 | +0.03 | +0.43 | +0.19 (7/12) | 차이 없음 | +0.18 / −0.21 / +0.50 → +0.16 | 차이 없음 |
+| R2 pop LIF 기준 − Spikformer(DE), 새 학습 | −0.02 | −1.25 | −0.60 | −0.34 | −0.55 (9/12) | 차이 없음 | +0.03 / −0.33 / +0.85 → +0.18 | 차이 없음 |
+| (참고) 같은 비교, 이전 학습 | +0.43 | −0.36 | +0.04 | −0.39 | −0.07 (6/12) | 차이 없음 | −0.10 / +0.25 / +0.55 → +0.24 | 차이 없음 |
+| R2 pop f-LIF 기준 − Spikformer(DE), 새 학습 | −0.19 | −0.99 | −0.12 | −0.10 | −0.35 (9/12) | 차이 없음 | +0.22 / +0.36 / +0.52 → +0.37 | 차이 없음 |
+| (참고) 같은 비교, 이전 학습 | +1.04 | −0.30 | −0.27 | −0.41 | +0.02 (5/12) | 차이 없음 | +0.06 / +0.72 / −0.36 → +0.14 | 차이 없음 |
+| R3 격차 변화 pop LIF | −0.44 | −0.88 | −0.65 | +0.05 | −0.48 (음수 8/12) | 뚜렷한 변화 없음 | +0.13 / −0.58 / +0.30 → −0.05 | 뚜렷한 변화 없음 |
+| R3 격차 변화 pop f-LIF | −1.23 | −0.69 | +0.15 | +0.31 | −0.37 (음수 7/12) | 뚜렷한 변화 없음 | +0.16 / −0.36 / +0.89 → +0.23 | 뚜렷한 변화 없음 |
+
+- 종합(`summarize_sde.overall`, 새 학습에서 기준 model이 Spikformer(DE)보다 나은가): pop LIF "weak (방향만)", pop f-LIF "weak (방향만)". 이전 학습의 bias 끈 비교에서는 pop LIF weak, pop f-LIF 지지 안 됨이었다. R2는 사전 규칙상 채택에 쓰지 않는다.
+- R2가 기운 이유의 일부: ETTh2 H720에서 기준 pop LIF는 +0.79 %, Spikformer(DE)는 +1.68 % 나빠졌다. 기준 model이 좋아진 것이 아니라 Spikformer(DE)가 더 나빠진 몫이 있다.
+- energy(Spikformer(DE) 대비, 같은 학습): ETT 1.24 / 1.50배, MIT-BIH 1.25 / 1.38배. 이전 학습(ETT 1.24 / 1.51배, MIT-BIH 1.23 / 1.37배)과 거의 같다. 추론 구조가 그대로이므로 발화율 차이만 반영된다.
+
+### 보고 전용
+
+| model | 학습 | ETT best가 epoch 0 (12 중) | ETT epoch 수 (최소–최대) | ETT best가 epoch 안 중간 validation (12 중) | ETT rho_hippo / rho_neo | MIT-BIH accuracy % |
+|---|---|---|---|---|---|---|
+| Spikformer(DE) | 이전 | 4 | 11–23 | — | 0.0588 / — | 98.33 |
+| Spikformer(DE) | 새 | 2 | 11–17 | 9 | 0.0610 / — | 98.32 |
+| 기준 pop LIF | 이전 | 4 | 11–18 | — | 0.0571 / 0.0311 | 98.41 |
+| 기준 pop LIF | 새 | 2 | 11–16 | 10 | 0.0600 / 0.0347 | 98.40 |
+| 기준 pop f-LIF | 이전 | 3 | 11–22 | — | 0.0576 / 0.0314 | 98.39 |
+| 기준 pop f-LIF | 새 | 2 | 11–17 | 11 | 0.0597 / 0.0346 | 98.42 |
+
+- "epoch 안 중간 validation" = best가 epoch 끝이 아닌 step(⌈n/4⌉, ⌈n/2⌉, ⌈3n/4⌉)에서 나온 run 수. 12 run 중 9–11개다.
+
+### 채택 (사전 규칙 적용)
+
+- R1에 "나쁨"이 없다(세 model × 두 과제 모두 "차이 없음"). 그래서 범위 1(a: BN weight / bias를 weight decay에서 뺌, b: ETT epoch 안 validation 4번)을 이후 모든 비교의 기본 학습 조건으로 채택한다.
+- 실행 스크립트(`run_ett_dual.sh`, `run_ett_mixer.sh`, `run_mitbih4.sh`)의 기본값을 바꾸는 것은 다음 commit으로 따로 한다. 이전 명령줄을 되살리는 방법도 그 항목에 적는다.
+- 이후 비교의 기준점(이전 학습 대신 쓸 suite)은 `flif-v1-ett-r1`, `flif-v1-mitbih-r1`이다.
+
+### 사전 예상과 비교
+
+| 사전 예상 | 결과 |
+|---|---|
+| (a)는 효과가 거의 없을 것 | (a)와 (b)를 함께 바꿔서 나눠 볼 수 없다 |
+| (b)가 ETTm2 H720 test를 조금 낮출 것 | **틀림.** +0.12 / +0.17 / +0.43 % |
+| ETT R1은 세 model 모두 "차이 없음" | 맞음 (+0.57 / +0.08 / +0.19 %) |
+| MIT-BIH R1은 세 model 모두 "차이 없음" | 맞음 (−0.07 / −0.12 / +0.16 %p) |
+| R2는 이전과 비슷하게 "차이 없음" | 판정은 맞음. 방향은 기준 model 쪽으로 기울었다 (ETT −0.55 / −0.35 %, 이전 −0.07 / +0.02 %) |
+
+### 점검
+
+- RESULT 45줄(ETT 36, MIT-BIH 9), SKIP 0. 45줄 모두 sha `546d16ba5`.
+- `energy_recount_ett.py --suite flif-v1-ett-r1`: 36 run, logged test MSE 재현, "all checks passed".
+- `summarize_r1.py`: arm 점검(bias 끔, `_wdx` / `wdx=1`은 새 suite에만, ETT `_vpe4` / `vpe=4` / best epoch 4필드는 새 suite에만, MIT-BIH에는 vpe 없음)을 통과하고 요약을 썼다.
+- `check_r1.py --smoke`를 실제 두 suite에 돌렸다. 190/190 PASS, FAIL 0.
+  - s1 45: config / RESULT / 폴더 이름 일치.
+  - s2 72: epoch마다 validation 4번이 정해진 step에서 돌았고, best가 기록된 (epoch, step)의 최소값이다.
+  - s3 36: `val_inner.csv`로 early stopping을 다시 돌려 epoch 수가 같다.
+  - s4 36: 저장된 best checkpoint를 섞지 않은 validation에서 다시 평가해 기록된 val MSE를 2e-6 안에서 재현한다.
+
+### 환경과 명령
+
+- `snn_recall` conda env, GPU 0–3에 GPU당 2개. pool 2026-11-20 23:34:21 시작, 2026-11-21 01:13:09 마지막 run 끝.
+- run 시간: ETT 262–2600 s, MIT-BIH 544–1243 s.
+- 명령 (NSMT/):
+  - `bash scripts/gpu_pool2.sh nsmt_flif_v1/classification/scripts/queues/r1-20261120.txt 0,1,2,3,0,1,2,3 > nsmt_flif_v1/classification/log/flif-v1-r1-pool.log 2>&1` (대기열은 `classification/scripts/make_queue_r1.sh`가 만듦)
+  - `classification/`: `python energy_recount_ett.py --suite flif-v1-ett-r1`, `python summarize_r1.py`, `python check_r1.py --smoke ../forecasting/results/flif-v1-ett-r1/raw.txt results/flif-v1-mitbih-r1/raw.txt`
+- seed 42 / 7 / 2026. hyperparameter는 사전 고정 항목과 같다(lr 5e-4, ETT weight decay 0.06, MIT-BIH 1e-4, ETT patience 10, MIT-BIH 30 epoch 마지막 weight).
+
+### 한계
+
+- 두 변경을 함께 바꿔서 각각의 효과는 모른다.
+- epoch 안 validation이 난수 흐름을 바꾸므로 같은 seed여도 학습 batch 순서가 이전과 다르다. R1에는 seed를 바꿀 때와 비슷한 흔들림이 들어 있다.
+- seed 3개다. ETTh2 H720 seed 7처럼 한 seed가 칸 판정을 좌우한다.
+
+### artifact
+
+- Git: `nsmt_flif_v1/forecasting/results/flif-v1-ett-r1/{raw.txt,pool_runs.txt,energy_recount.csv}`, `nsmt_flif_v1/classification/results/flif-v1-mitbih-r1/{raw.txt,pool_runs.txt}`, `nsmt_flif_v1/classification/results/flif-v1-r1-summary.md`.
+- 로컬만: `nsmt_flif_v1/forecasting/log/flif-v1-ett-r1/`, `nsmt_flif_v1/classification/log/flif-v1-mitbih-r1/`(checkpoint, TensorBoard, `val_inner.csv`), pool log `nsmt_flif_v1/classification/log/flif-v1-r1-pool.log`.
+
+### not run
+
+- (a)와 (b) 각각의 효과, validation 횟수 2 / 8.
+- hyperparameter 범위 2, aux 본 시험(사용자 결정 대기), 4-2 결합부 배치(다음에 새 기본 학습 조건으로 사전 고정).
+
+### Git
+
+- 이 항목과 결과 파일을 하나의 commit으로 묶는다. 끝난 날짜가 11-21이므로 tag는 `exp/nsmt-flif-neo-20261121-r1`이다(사전 고정 항목의 규칙: 날짜가 바뀌면 끝난 날짜). 이 항목이 든 commit은 tag로 식별한다.
