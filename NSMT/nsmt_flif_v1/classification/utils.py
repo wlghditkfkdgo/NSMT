@@ -248,6 +248,21 @@ def get_scheduler(scheduler:str, optimizer, **kargs):
     
     return scheduler
 
+def make_adamw(model, lr, weight_decay, exclude_1d=False):
+    """MODI 2026-11-20 (hyperparameter range 1): AdamW over model.parameters(). exclude_1d = True puts every parameter with fewer
+    than 2 dimensions or a name ending in '.bias' (here: the BatchNorm weights and biases) in a group without weight decay (timm's
+    rule); False = torch.optim.AdamW(model.parameters(), lr, weight_decay) exactly as before."""
+    if not exclude_1d:
+        return torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    decay, no_decay = [], []
+    for n, p in model.named_parameters():
+        if not p.requires_grad:
+            continue
+        (no_decay if (p.ndim <= 1 or n.endswith('.bias')) else decay).append(p)
+    return torch.optim.AdamW([{'params': decay, 'weight_decay': weight_decay}, {'params': no_decay, 'weight_decay': 0.}],
+                             lr=lr, weight_decay=weight_decay)
+
+
 def get_pred(output, topk=(1,)):
     
     maxk = min(max(topk), output.shape[1])

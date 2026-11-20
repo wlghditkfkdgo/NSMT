@@ -233,7 +233,9 @@ def train(args:Config):
 
     criterion = nn.CrossEntropyLoss(weight=cal_weights).to(args.device)
     test_criterion = nn.CrossEntropyLoss().to(args.device)
-    optimizer1 = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    if int(getattr(args, 'val_per_epoch', 1)) != 1:                    # MODI 2026-11-20: ETT (train_forecast.py) only
+        raise NotImplementedError('--val_per_epoch: train_forecast.py only')
+    optimizer1 = make_adamw(model, args.lr, args.weight_decay, bool(int(getattr(args, 'wd_exclude_1d', 0))))   # MODI 2026-11-20
 
     scheduler1 = get_scheduler(args.scheduler, optimizer1, max_lr=args.max_lr, min_lr=min(1e-6, args.lr * 1e-2), max_epochs=args.epoch)
     if args.scheduler == 'cosine' : scheduler1.step(0)

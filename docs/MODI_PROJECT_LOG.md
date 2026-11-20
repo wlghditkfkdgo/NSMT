@@ -10505,3 +10505,106 @@ Spikformer식보다 "좋음"인 변형은 없다.
 - checkpoint, TensorBoard 기록, pool 기록 원본(`classification/log/flif-v1-auxck-pool.log`)은 local에 둔다.
 
 **commit / tag:** 이 항목과 결과 파일을 commit 하고 tag `exp/nsmt-flif-neo-20261120-auxck`를 붙인다(이 항목은 자기 commit을 tag로 가리킨다).
+
+---
+
+## 2026-11-20 23:33 KST — 사전 고정 + 구현 (학습 전): hyperparameter 범위 1 — weight decay에서 BN weight / bias 빼기 + ETT는 epoch 안에서 validation 4번. Spikformer(DE)와 기준 pop LIF / pop f-LIF × ETT 4칸 × seed 3 + MIT-BIH × seed 3 = 45 run, bias 끔, aux 없음. 비교 기준은 bias 끈 기존 suite(`flif-v1-ett-nope`, `flif-v1-mitbih-nope`). 기본 경로 동일(1 epoch smoke 4개의 저장 weight 7/7과 RESULT 줄이 비트 단위로 같음, 16/16, 12/12), 명령줄 점검 19/19, 단위 점검 25/25, smoke 점검 22/22, 판정 script 가짜 data 시험 20/20
+
+**직전 commit:** `f86ffa658` (4-1 결과, tag `exp/nsmt-flif-neo-20261120-auxck`). branch `exp/nsmt-flif-neo`.
+
+**사용자 결정 (11-20, 원문):** "4-1 검증(작음) → 범위 1(이후 모든 비교의 학습 조건을 정함) → 4-2 (가) + (나) 순서로 수행하자." 이 항목은 둘째 단계다.
+
+### 무엇을 바꾸나 (두 가지를 함께; 따로 떼어 재지 않음)
+
+- **(a) BN의 weight와 bias에 weight decay를 주지 않는다** (`--wd_exclude_1d 1`, 실행 스크립트 env `WDX=1`; ETT와 MIT-BIH).
+  - 차원이 1 이하이거나 이름이 `.bias`로 끝나는 parameter를 weight decay 0인 group에 넣는다(timm의 규칙). 이 model들에서는 그것이 모두 BatchNorm의 weight와 bias다(단위 점검 r2).
+  - 빠지는 양: ETT 기준 model 175,168개 중 1,088개, Spikformer(DE) 169,280개 중 832개(weight decay 0.06). MIT-BIH 기준 model 1,230,720개 중 7,680개, Spikformer(DE) 904,320개 중 5,376개(weight decay 1e-4).
+  - 이유: 정규화 층의 크기 / 위치 parameter를 0 쪽으로 당기는 것은 의도한 정규화가 아니다. 흔히 쓰는 관행이다.
+- **(b) ETT: 한 epoch 안에서 validation을 4번 한다** (`--val_per_epoch 4`, env `VPE=4`).
+  - 학습 step ⌈n·j/4⌉(j = 1, 2, 3) 뒤와 epoch 끝에 validation을 한다(ETTh2 n = 133, ETTm2 n = 528).
+  - best checkpoint와 early stopping은 5번 모두를 본다. 한 epoch 안에서 한 번이라도 좋아지면 기다림 수를 0으로 되돌린다. lr scheduler와 `best_log_0.csv`는 지금처럼 epoch 끝 validation만 쓴다.
+  - 이유: 11-18 loss 경향 분석에서 ETT validation은 epoch 0–3에서 가장 낮았다. bias 끈 기준 suite 36 run 중 11개가 epoch 0에서 best였다(26개가 3 이하). epoch 끝에서만 보면 첫 epoch 안의 더 좋은 지점을 놓칠 수 있다.
+  - MIT-BIH는 validation 없이 마지막 epoch를 test 하므로(VAL=0) (b)가 없다.
+- 나머지는 bias 끈 기준 suite와 같다: PE=0(기본값), 모든 neuron SpikeDE, aux 없음, lr / batch / epoch / patience 같음.
+
+### run
+
+- suite `flif-v1-ett-r1` (36 run): Spikformer(DE) `spkall_lif`(run_ett_mixer.sh), 기준 `nsmt4q_pop_<lif|flif>_msn_sde`(run_ett_dual.sh), ETTh2 / ETTm2 × H96 / H720 × seed 42 / 7 / 2026, `WDX=1 VPE=4`.
+- suite `flif-v1-mitbih-r1` (9 run): 같은 세 model, seed 42 / 7 / 2026, `WDX=1`.
+- 대기열 `classification/scripts/make_queue_r1.sh` → `scripts/queues/r1-20261120.txt`(ETTm2 → MIT-BIH → ETTh2). `scripts/gpu_pool2.sh`로 GPU당 2개. smoke의 GPU memory 최대 0.39–0.66 GB(ETT).
+
+### 비교와 판정 (`classification/summarize_r1.py`; 규칙은 지금까지와 같음)
+
+- **R1 새 학습 − 이전 학습, model마다:** 범위 1의 효과다. ETT는 12쌍(4칸 × seed 3) test MSE 비율 r. 평균 R ≤ −1 %이고 8/12쌍이 낮으면 "좋음", R ≥ +1 %이고 8/12가 높으면 "나쁨", 그 밖은 "차이 없음". MIT-BIH는 macro-F1 차이 d. 평균 ≥ +0.5 %p이고 2/3 seed가 양수면 "좋음", 반대면 "나쁨".
+- **R2 기준 − Spikformer(DE), 새 학습 (주 비교):** neuron마다 같은 규칙.
+- **R3 격차 변화:** R2 − bias 끈 기존 비교(11-19 N2).
+- **종합:** `summarize_sde.overall`(ETT R2 + MIT-BIH R2).
+
+**채택 규칙 (결과를 보기 전에 정함):**
+- 범위 1을 이후 모든 비교의 기본 학습 조건으로 채택한다. R1의 결과가 "차이 없음"이어도 채택한다. 흔히 쓰는 관행이고, 사용자가 이 단계를 "이후 모든 비교의 학습 조건을 정함"으로 정했기 때문이다.
+- 예외: R1이 어느 model, 어느 과제에서든 "나쁨"이면 채택하지 않고 보고한 뒤 사용자 결정을 기다린다.
+- R2(어느 model이 이기는가)는 채택 여부에 쓰지 않는다. 학습 조건을 우리 model에 유리한 쪽으로 고르지 않기 위해서다.
+- 채택하면 실행 스크립트의 기본값을 바꾸는 것은 따로 commit 한다(PE 때와 같은 방식; 이전 명령줄을 되살릴 수 있게 함).
+
+**보고 전용:** energy(머리 재계산 `energy_recount_ett.py --suite flif-v1-ett-r1`), 발화율, epoch 수, best checkpoint가 epoch 안 validation에서 나온 run 수, run 시간, MIT-BIH accuracy.
+
+### 바꾼 코드 (기본값이면 이전과 같음)
+
+- `classification/utils.py`: `make_adamw(model, lr, weight_decay, exclude_1d=False)`. False면 `torch.optim.AdamW(model.parameters(), lr, weight_decay)` 그대로다.
+- `classification/config.py`: `--wd_exclude_1d`(0 / 1, 기본 0), `--val_per_epoch`(기본 1). 켜면 run 폴더 끝에 `_wdx` / `_vpe<K>`가 붙는다(aux_shift 꼬리보다 앞).
+- `classification/train.py`(MIT-BIH 등): 최적화기를 `make_adamw`로 만든다. `--val_per_epoch`가 1이 아니면 멈춘다.
+- `classification/train_forecast.py`(ETT): `make_adamw`. `train_epoch(..., hook, marks)`가 표시된 step 뒤에 validation hook을 부르고 학습 모드로 되돌린다. K > 1이면 `best_epoch.txt`에 ` <step>/<n>`이 붙고 `log/val_inner.csv`(모든 validation)를 쓴다.
+- 실행 스크립트 3개(`run_ett_dual.sh`, `run_ett_mixer.sh`, `run_mitbih4.sh`): env `WDX=1` → `--wd_exclude_1d 1`, `VPE=2..9` → `--val_per_epoch K`(ETT만; MIT-BIH는 멈춤). RESULT에 `wdx=` / `vpe=`가 붙는다. MIT-BIH 폴더 tag에 `_wdx`가 붙는다. 다른 값이면 python을 부르지 않고 멈춘다.
+- 새 파일: `classification/summarize_r1.py`, `classification/check_r1.py`, `classification/scripts/make_queue_r1.sh`.
+
+### 점검 (모두 통과)
+
+- **기본 경로 동일:**
+  - 1 epoch smoke 4개(Spikformer(DE) ETTh2 H96, 기준 pop LIF ETTh2 H96, 원 시계열 aux 기준 pop f-LIF ETTh2 H96, MIT-BIH 기준 pop f-LIF)를 코드를 넣기 전과 후에 돌렸다. 저장 weight 7개(`checkpoint.pth`, `best+model.pt`)가 비트 단위로 같고, RESULT 줄(시간, sha, 폴더 제외)과 run 폴더 이름이 같다.
+  - `fw_identity_xnor.py` 16/16, `fw_identity_auxs.py` 12/12(넣기 전에 저장, 넣은 뒤 비교; 넣기 전에 한 번 더 돌려 결정적임을 확인).
+- **명령줄 (가짜 python, scratchpad `range1/harness_merged.sh`; 넣은 뒤의 repo 대 넣기 전 사본):** 19/19.
+  - WDX / VPE 안 줌: 6/6 같다(ETT dual 2, mixer 2, MIT-BIH 2).
+  - 주면 정해진 option만 `--tag` 앞에 붙는다(6/6). MIT-BIH 폴더 tag는 `_wdx`로 끝난다.
+  - WDX=0 / 2 / yes, VPE=1 / 10 / x, MIT-BIH에 VPE: python을 부르지 않고 rc 1(7/7).
+  - 처음 만든 비교 harness는 mixer의 "넣기 전" 사본을 잘못 복사해서 mixer 비교가 의미 없었다(같은 파일끼리 비교). 고친 뒤 다시 돌려 19/19였다. 내 시험 script의 실수다.
+- **단위 점검 (`check_r1.py`): 25/25.**
+  - r1: 끄면 일반 AdamW와 같다(parameter 객체, 순서, state_dict). 6 model.
+  - r2: 켜면 decay 없는 group = 1차원 이하 / `.bias` = 모두 BatchNorm. 두 group은 겹치지 않고 모든 parameter를 덮는다.
+  - r3: gradient 0으로 한 step: decay 없는 parameter는 비트 단위로 그대로, 나머지는 p·(1 − lr·wd).
+  - r4: `train_epoch`가 표시된 step(2, 4) 뒤에만 hook을 부르고 학습 모드로 되돌린다. 기본값은 hook이 없다(aux 경로 포함).
+  - r5: 두 학습 script가 최적화기를 `make_adamw`로만 만든다. `train.py`는 `--val_per_epoch` ≠ 1을 거부한다.
+- **smoke (scratchpad `range1/smoke/flags`):** ETTh2 H96 기준 pop LIF(6 epoch, patience 1), ETTh2 H96 Spikformer(DE)(2 epoch), ETTm2 H720 기준 pop f-LIF(1 epoch), MIT-BIH Spikformer(DE) / 기준 pop f-LIF(1 epoch), 모두 RESULT. `check_r1.py --smoke` 22/22:
+  - `config.pt`, RESULT, 폴더 꼬리가 서로 맞다(기본 smoke 4개 포함).
+  - epoch마다 validation이 step 34 / 67 / 100 / 133(ETTh2), 132 / 264 / 396 / 528(ETTm2)에서 4번 있다.
+  - best = 모든 validation L1의 최솟값이고 기록된 (epoch, step)과 같다.
+  - early stopping을 `val_inner.csv`로 다시 계산하면 실제 run과 같은 epoch에서 멈춘다(patience 1 run: 3 epoch).
+  - 저장된 best checkpoint를 섞지 않은 validation으로 다시 재면 기록된 val MSE와 같다(2e-6 안).
+  - smoke에서 이미 보인 것: ETTm2 H720 pop f-LIF의 best가 첫 epoch의 중간(step 264/528)이었고, ETTh2 Spikformer(DE)는 epoch 1의 step 100/133이었다.
+- **판정 script (가짜 suite, scratchpad `range1/test_r1.py`): 20/20.**
+  - 기존 bias 끈 suite를 복사해 test MSE에 ×1.00 / ×0.98 / ×1.02, MIT-BIH F1에 0 / +0.6 / −0.6 %p를 심었다. R1이 "차이 없음 / 좋음 / 나쁨"으로 나오고, epoch 안 best의 수가 심은 수와 같다.
+  - 멈춰야 하는 11가지가 모두 멈춘다: ETT 행의 `_vpe4` 없음, vpe 필드 없음, best_epoch 3칸, wdx 없음, bias 켬, lr 필드, MIT-BIH `_wdx` 없음(폴더는 있음), MIT-BIH에 vpe, sha 둘, 행 빠짐, nan.
+  - 통과하기 전에 세 번 실패했고, 모두 내 시험 script의 문제였다: 표의 줄 머리를 잘못 적었다("pop LIF"가 아니라 "query pop LIF"; ETT와 MIT-BIH 표가 같은 머리를 씀). epoch 안 best 기대값을 model마다 세지 않았다. "MIT-BIH `_wdx` 없음" 시험이 실제로 줄을 바꾸지 않았다. 판정 script는 고치지 않았다.
+- **energy 재계산:** smoke suite에서 `energy_recount_ett.py`가 돌고 점검을 통과한다(새 폴더 꼬리 `_wdx_vpe4`에서도 됨).
+
+### 사전 예상 (추론)
+
+- (a)는 ETT에서 parameter의 0.5–0.6 %만 바꾸고, MIT-BIH에서는 weight decay가 1e-4라 거의 효과가 없을 것이다.
+- (b)는 ETT에서 첫 epoch 안의 더 이른 지점을 고르게 해서, test MSE를 조금 낮출 수 있다. 특히 best가 epoch 0에 몰린 ETTm2 H720에서 그렇다. 그래도 R1은 세 model 모두 ETT "차이 없음"(|R| < 1 %)일 것이다.
+- MIT-BIH R1은 세 model 모두 "차이 없음"일 것이다.
+- R2(기준 − Spikformer(DE))는 bias 끈 기존 비교(ETT −0.07 / +0.02 %, MIT-BIH +0.24 / +0.14 %p)와 비슷하게 "차이 없음"일 것이다.
+
+### 한계
+
+- 두 변경을 함께 바꾸므로 각각의 효과는 나누지 못한다.
+- epoch 안 validation은 섞인 validation loader를 더 돌리므로 난수 흐름이 달라진다. 같은 seed여도 학습 batch 순서가 이전과 다르다. 그래서 R1에는 seed를 바꿀 때와 비슷한 흔들림이 들어 있다.
+- ETT의 validation L1은 batch별 평균의 평균이고 loader가 섞으므로, 고르는 기준에 작은 순서 잡음이 있다(이전부터 그랬다).
+- MIT-BIH는 validation 없이 마지막 epoch를 쓰므로 (b)를 시험하지 않는다.
+
+### not run
+
+- (a)와 (b) 각각의 효과, validation 횟수 2 / 8.
+- hyperparameter 범위 2(lr × batch × warmup), aux 본 시험, 4-2 결합부 배치(범위 1이 끝나고 보고한 뒤 사전 고정).
+
+### Git
+
+- 이 항목, 코드, 점검 script를 하나의 commit으로 묶고 push 한 뒤 대기열을 시작한다. 결과는 새 항목으로 덧붙이고 tag `exp/nsmt-flif-neo-20261120-r1`(날짜가 바뀌면 끝난 날짜)를 단다.

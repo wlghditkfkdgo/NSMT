@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# MODI 2026-11-20 (hyperparameter range 1): env WDX=1 appends --wd_exclude_1d 1 (no weight decay on the BatchNorm weights /
+#   biases); the folder tag gains _wdx, the run folder _wdx, RESULT wdx=. VPE is ETT only (stops). Unset: unchanged.
 # MODI 2026-11-20 (aux-target memory check, user decision 11-20): + nsmt4q_pop_<lif|flif>_msn_sde_{nomem,nshuf}_auxf = the _sde_auxf model
 #   with --neo_memoryless / --neo_shuffle; env AUXS = nonzero integer s (_auxf conditions only) appends --aux_shift=s (aux target of token i =
 #   token i - s), the folder tag gains _s<s>, the run folder ends in _auxs<s> and RESULT gains auxs=. Unset: unchanged.
@@ -136,6 +138,9 @@ LAYERS=${LAYERS:-1}
 PE=${PE:-0}                             # MODI 2026-11-20: default = no relative position bias (user decision 11-20)
 if [ "$PE" != 0 ] && [ "$PE" != 1 ]; then echo "PE: 0 (default, no relative position bias) or 1 (bias on, as before 11-20)"; exit 1; fi
 PEF=""; [ "$PE" = 0 ] && PEF="--ssa_pe 0"
+R1F=""                                  # MODI 2026-11-20 (hyperparameter range 1): unset = unchanged
+if [ -n "${WDX:-}" ]; then [ "$WDX" = 1 ] || { echo "WDX: 1 (BN / bias without weight decay) or unset"; exit 1; }; R1F="--wd_exclude_1d 1"; fi
+if [ -n "${VPE:-}" ]; then echo "VPE: ETT only"; exit 1; fi
 AUXS=${AUXS:-}                          # MODI 2026-11-20 (aux-target memory check): unset = unchanged
 if [ -n "$AUXS" ]; then
   [[ $AUXS =~ ^-?[1-9][0-9]*$ ]] || { echo "AUXS: a nonzero integer (unset = the token itself)"; exit 1; }
@@ -144,7 +149,7 @@ fi
 SUITE=${SUITE:-flif-v1-mitbih-query-$(date +%Y%m%d)}
 EPOCHS=${EPOCHS:-30}
 LR=${LR:-0.01}; VAL=${VAL:-0}; VF=""; [ "$VAL" = 1 ] && VF="--mitbih_val"
-TG=${COND}_lr${LR}_v${VAL}${AUXS:+_s$AUXS}
+TG=${COND}_lr${LR}_v${VAL}${AUXS:+_s$AUXS}${WDX:+_wdx}
 RES=${RES:-$W/results/$SUITE}; LOG=${LOG:-$W/log/$SUITE}
 DATA=${DATA:-$R/nsmt_base/classification/ECG/data}          # 5class_mitbih_{train_7,test_3}_187.csv (local, not in Git)
 mkdir -p "$RES" "$LOG"
@@ -155,7 +160,7 @@ OUT=$LOG/mitbih_${TG}_seed${S}_${TS}_${SHA}.stdout; t0=$(date +%s)
   --model myModel --seed $S --log_dir "$LOG/MITBIH" --gating attn --attn SSA -s --test --print_epoch 1 -nd 0 \
   -e $EPOCHS --warm_up_epoch 0 --num_channels 1 -bs 512 -lr $LR --max_lr 0.005 -emb 384 -nh 8 --mlp_ratios 1 \
   --layers $LAYERS --keep_ratio 0.15 --time_layers 2 --alpha $AUX --patch_size 32 --no-bias --scheduler cosine \
-  --data UEA --data_path ECG --seq_len 187 --root_path "$DATA" $CF $VF $PEF ${AUXS:+--aux_shift=$AUXS} --tag $TG seed$S > "$OUT" 2>&1)
+  --data UEA --data_path ECG --seq_len 187 --root_path "$DATA" $CF $VF $PEF $R1F ${AUXS:+--aux_shift=$AUXS} --tag $TG seed$S > "$OUT" 2>&1)
 RC=$?
 D=$(ls -td "$LOG/MITBIH"/*/*"+${TG}+seed${S}+model+"*/seed${S}_*${AUXS:+_auxs$AUXS} 2>/dev/null | head -1)   # the mixer's rho_neo column covers its mixer stacks
 CSV="$D/log/final+result.csv"
@@ -189,4 +194,4 @@ fi
 LRS=$(grep -aoE '^epoch +[0-9]+ \(lr=[0-9.e-]+\)' "$OUT" | grep -oE 'lr=[0-9.e-]+' | cut -d= -f2)
 EP=$(echo "$LRS" | grep -c .); LR_FINAL=$(echo "$LRS" | tail -1)
 PAR=$(grep -a 'number of parameters' "$OUT" | grep -oE '[0-9]+' | tail -1); t1=$(date +%s)
-echo "RESULT exp=nsmt_flif_v1_cls cond=$COND dataset=MITBIH seed=$S lr=$LR val=$VAL $VV $VALS epochs=$EPOCHS epochs_run=$EP lr_final=$LR_FINAL params=$PAR time_s=$((t1-t0)) pe=$PE${AUXS:+ auxs=$AUXS} sha=$SHA alpha=$ALPHA aux=$AUX dir=$D" | tee -a "$RES/raw.txt"
+echo "RESULT exp=nsmt_flif_v1_cls cond=$COND dataset=MITBIH seed=$S lr=$LR val=$VAL $VV $VALS epochs=$EPOCHS epochs_run=$EP lr_final=$LR_FINAL params=$PAR time_s=$((t1-t0)) pe=$PE${AUXS:+ auxs=$AUXS}${WDX:+ wdx=$WDX} sha=$SHA alpha=$ALPHA aux=$AUX dir=$D" | tee -a "$RES/raw.txt"

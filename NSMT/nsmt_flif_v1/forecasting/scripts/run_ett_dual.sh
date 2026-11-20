@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# MODI 2026-11-20 (hyperparameter range 1): env WDX=1 appends --wd_exclude_1d 1 (no weight decay on the BatchNorm
+#   weights / biases), VPE=K (2-9) appends --val_per_epoch K (K validations per epoch for the best checkpoint / early stopping);
+#   the run folder gains _wdx / _vpe<K>, RESULT gains wdx= / vpe=. Unset: unchanged.
 # MODI 2026-11-20 (aux-target memory check, user decision 11-20): + nsmt4q_pop_<lif|flif>_msn_sde_{nomem,nshuf}_auxf = the _sde_auxf model
 #   with --neo_memoryless (every token through the Neocortex alone) / --neo_shuffle (shuffled token order); env AUXS = nonzero integer s (_auxf conditions only) appends
 #   --aux_shift=s (aux target of token i = token i - s), the run folder ends in _auxs<s> and RESULT gains auxs=. Unset: unchanged.
@@ -130,6 +133,9 @@ E=${EPOCHS:-$E}; P=${PATIENCE:-10}; SEQ=${SEQ:-96}
 PE=${PE:-0}                             # MODI 2026-11-20: default = no relative position bias (user decision 11-20)
 if [ "$PE" != 0 ] && [ "$PE" != 1 ]; then echo "PE: 0 (default, no relative position bias) or 1 (bias on, as before 11-20)"; exit 1; fi
 PEF=""; [ "$PE" = 0 ] && PEF="--ssa_pe 0"
+R1F=""                                  # MODI 2026-11-20 (hyperparameter range 1): unset = unchanged
+if [ -n "${WDX:-}" ]; then [ "$WDX" = 1 ] || { echo "WDX: 1 (BN / bias without weight decay) or unset"; exit 1; }; R1F="--wd_exclude_1d 1"; fi
+if [ -n "${VPE:-}" ]; then [[ $VPE =~ ^[2-9]$ ]] || { echo "VPE: validations per epoch, 2-9, or unset"; exit 1; }; R1F="$R1F --val_per_epoch $VPE"; fi
 AUXS=${AUXS:-}                          # MODI 2026-11-20 (aux-target memory check): unset = unchanged
 if [ -n "$AUXS" ]; then
   [[ $AUXS =~ ^-?[1-9][0-9]*$ ]] || { echo "AUXS: a nonzero integer (unset = the token itself)"; exit 1; }
@@ -144,7 +150,7 @@ OUT=$LOG/ett_${DS}_p${PL}_${COND}_seed${S}_${TS}_${SHA}.stdout; t0=$(date +%s)
   --log_dir "$LOG/$DS/p$PL" --seed $S -s -nd 0 --gating attn --no-bias --scheduler reduce -e $E --warm_up_epoch 0 \
   --layers 1 --tau 2.0 --weight_decay ${WD:-0.06} --patience $P \
   --data $DS --data_path $DS.csv --root_path "$W/dataset/ETT-small" --seq_len $SEQ --pred_len $PL --features M --target OT \
-  $HP $CF ${LR:+-lr $LR} ${DROP:+--head_dropout $DROP} $PEF ${AUXS:+--aux_shift=$AUXS} --tag $COND seed$S > "$OUT" 2>&1)
+  $HP $CF ${LR:+-lr $LR} ${DROP:+--head_dropout $DROP} $PEF $R1F ${AUXS:+--aux_shift=$AUXS} --tag $COND seed$S > "$OUT" 2>&1)
 RC=$?
 D=$(ls -td "$LOG/$DS/p$PL"/*/*"+${COND}+seed${S}+"*"+epoch+${E}+${LR:+lr+$LR+}"*/seed${S}_*${AUXS:+_auxs$AUXS} 2>/dev/null | head -1)
 CSV="$D/log/final+result.csv"; LCSV="$D/log/last/final+result.csv"
@@ -159,4 +165,4 @@ EOF
 [ -z "$VALS" ] && { echo "SKIP(result parse failed) ds=$DS pl=$PL cond=$COND seed=$S out=$OUT" | tee -a "$RES/raw.txt"; exit 1; }
 BE=$(cat "$D/log/best_epoch.txt" 2>/dev/null | tr ' ' ':')
 PAR=$(grep -a 'number of parameters' "$OUT" | grep -oE 'parameters : [0-9]+' | grep -oE '[0-9]+'); t1=$(date +%s)
-echo "RESULT exp=nsmt_flif_v1_ett_dual ds=$DS pl=$PL cond=$COND seed=$S $VALS best_epoch_val_epochs=$BE params=$PAR time_s=$((t1-t0)) seq_len=$SEQ${LR:+ lr=$LR}${WD:+ wd=$WD}${DROP:+ drop=$DROP}${AUXS:+ auxs=$AUXS} pe=$PE sha=$SHA dir=$D" | tee -a "$RES/raw.txt"
+echo "RESULT exp=nsmt_flif_v1_ett_dual ds=$DS pl=$PL cond=$COND seed=$S $VALS best_epoch_val_epochs=$BE params=$PAR time_s=$((t1-t0)) seq_len=$SEQ${LR:+ lr=$LR}${WD:+ wd=$WD}${DROP:+ drop=$DROP}${WDX:+ wdx=$WDX}${VPE:+ vpe=$VPE}${AUXS:+ auxs=$AUXS} pe=$PE sha=$SHA dir=$D" | tee -a "$RES/raw.txt"

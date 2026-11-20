@@ -16,6 +16,7 @@ usage: python train_forecast.py --data ETTh2 --data_path ETTh2.csv --root_path <
 """
 import argparse
 import csv
+import math
 import os
 import sys
 import time
@@ -33,7 +34,7 @@ sys.path.append(os.path.join(HERE, '..', 'forecasting'))             # after thi
 
 from config import Config, parse_arguments, set_random_seed
 from load_model import LOAD_MODEL
-from utils import EpochLog, get_scheduler, get_energy_consumption
+from utils import EpochLog, get_scheduler, get_energy_consumption, make_adamw
 from energy import FiringRateRecorder
 from neurons import LIFNeuron, FLIFNeuron
 from forecast_wrap import Forecaster
@@ -69,7 +70,9 @@ def data_args(args, fc):
                                  num_workers=fc.num_workers, augmentation_ratio=0)
 
 
-def train_epoch(model, dl, opt, H, device, r=0.0):
+def train_epoch(model, dl, opt, H, device, r=0.0, hook=None, marks=()):
+    """MODI 2026-11-20 (hyperparameter range 1): hook(step) runs after the training steps listed in marks (1-based; the in-epoch
+    validations of --val_per_epoch), then training mode is restored. hook None (default): unchanged."""
     model.train(); model.train_mode = 'training'
     crit = nn.L1Loss()
     tot = 0.; n = 0
@@ -83,6 +86,8 @@ def train_epoch(model, dl, opt, H, device, r=0.0):
             opt.zero_grad(); loss.backward(); opt.step()
             functional.reset_net(model)
             tot += loss.item(); tt += task.item(); tr_ += rec.item(); n += 1
+            if hook is not None and n in marks:
+                hook(n); model.train(); model.train_mode = 'training'
         return {'loss': tot / n, 'task': tt / n, 'rec': tr_ / n}
     for x, y, _, _ in dl:
         x = x.float().to(device); y = y.float().to(device)[:, -H:, :]
@@ -91,6 +96,8 @@ def train_epoch(model, dl, opt, H, device, r=0.0):
         opt.zero_grad(); loss.backward(); opt.step()
         functional.reset_net(model)
         tot += loss.item(); n += 1
+        if hook is not None and n in marks:
+            hook(n); model.train(); model.train_mode = 'training'
     return {'loss': tot / n}
 
 
@@ -173,7 +180,7 @@ def main():
         model.aux = True
         args.aux_r = aux_r
         print(f'aux loss on: r = {aux_r:.6f} (aux_alpha {fc.aux_alpha} x {fc.pred_len} / 720), keep_ratio {args.keep_ratio}', flush=True)
-    opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    opt = make_adamw(model, args.lr, args.weight_decay, bool(int(getattr(args, 'wd_exclude_1d', 0))))   # MODI 2026-11-20 (range 1)
     sched = get_scheduler(args.scheduler, opt, max_lr=args.lr, min_lr=min(1e-6, args.lr * 1e-2), max_epochs=args.epoch)
     if args.scheduler == 'cosine':
         sched.step(0)
@@ -182,10 +189,33 @@ def main():
     best, best_epoch, wait = float('inf'), -1, 0
     ckpt = os.path.join(args.save_model_state_path, 'checkpoint.pth')
     epochs_run = 0
+    # MODI 2026-11-20 (hyperparameter range 1): K = --val_per_epoch validations per epoch; the K - 1 inner ones run after the steps
+    # ceil(n * j / K), j = 1 .. K - 1, and take part in the best checkpoint and in early stopping (an epoch with any improvement
+    # resets the wait); the scheduler and best_log_0.csv keep the end-of-epoch validation. K = 1: no hook, unchanged.
+    K = int(getattr(args, 'val_per_epoch', 1))
+    if K < 1:
+        raise ValueError('--val_per_epoch >= 1')
+    n_steps = len(train_dl)
+    marks = {int(math.ceil(n_steps * j / K)) for j in range(1, K)}
+    if K > 1 and (len(marks) != K - 1 or max(marks) >= n_steps):
+        raise ValueError(f'--val_per_epoch {K}: too many for {n_steps} steps per epoch')
+    inner, best_step = [], None
     for epoch in range(args.epoch):
-        tr = train_epoch(model, train_dl, opt, fc.pred_len, args.device, r=aux_r) if fc.aux_alpha != 0 else \
-            train_epoch(model, train_dl, opt, fc.pred_len, args.device)
+        improved = False
+
+        def hook(step, epoch=epoch):
+            nonlocal best, best_epoch, best_step, improved
+            vi = evaluate(model, val_dl, fc.pred_len, args.device)
+            inner.append((epoch, step, vi['loss'], vi['mse'], vi['mae']))
+            if vi['loss'] < best:
+                best, best_epoch, best_step, improved = vi['loss'], epoch, step, True
+                torch.save(model.state_dict(), ckpt)
+        hk = hook if K > 1 else None
+        tr = train_epoch(model, train_dl, opt, fc.pred_len, args.device, r=aux_r, hook=hk, marks=marks) if fc.aux_alpha != 0 else \
+            train_epoch(model, train_dl, opt, fc.pred_len, args.device, hook=hk, marks=marks)
         va = evaluate(model, val_dl, fc.pred_len, args.device)
+        if K > 1:
+            inner.append((epoch, n_steps, va['loss'], va['mse'], va['mae']))
         if args.scheduler == 'reduce':
             sched.step(va['loss'])
         elif args.scheduler == 'cosine':
@@ -197,7 +227,10 @@ def main():
         epochs_run = epoch + 1
         if va['loss'] < best:                                          # forecasting/utils.EarlyStopping with delta 0
             best, best_epoch, wait = va['loss'], epoch, 0
+            best_step = n_steps
             torch.save(model.state_dict(), ckpt)
+        elif improved:                                                 # MODI 2026-11-20: an inner validation improved this epoch
+            wait = 0
         else:
             wait += 1
         print(f"epoch {epoch} (lr={opt.param_groups[0]['lr']:.3e}) train L1 {tr['loss']:.5f} val L1 {va['loss']:.5f} "
@@ -209,7 +242,12 @@ def main():
     args.best_epoch, args.best_val_loss, args.epochs_run = best_epoch, best, epochs_run
     args.save_arg(); logger.close()
     with open(os.path.join(args.save_log_path, 'best_epoch.txt'), 'w') as f:
-        f.write(f'{best_epoch} {best:.6f} {epochs_run}\n')
+        f.write(f'{best_epoch} {best:.6f} {epochs_run}' + (f' {best_step}/{n_steps}' if K > 1 else '') + '\n')
+    if K > 1:                                                          # MODI 2026-11-20: every validation, in order
+        with open(os.path.join(args.save_log_path, 'val_inner.csv'), 'w', newline='') as f:
+            w = csv.writer(f); w.writerow(['epoch', 'step', 'steps_per_epoch', 'val_loss', 'val_mse', 'val_mae'])
+            for e_, s_, l_, m_, a_ in inner:
+                w.writerow([e_, s_, n_steps, f'{l_:.6f}', f'{m_:.6f}', f'{a_:.6f}'])
     final_test(args, model, test_dl, os.path.join(args.save_log_path, 'last'), fc.pred_len, 'last')
     model.load_state_dict(torch.load(ckpt, map_location=args.device))
     final_test(args, model, test_dl, args.save_log_path, fc.pred_len, 'best')

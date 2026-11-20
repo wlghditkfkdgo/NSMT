@@ -69,6 +69,13 @@ def parse_arguments():
     train_arg.add_argument('-lr', '--learning_rate', dest='lr', nargs='?', type=float, default=1e-4, help='Learning rate')
     train_arg.add_argument('--max_lr', dest='max_lr', nargs='?', type=float, default=0.001, help='maximum learning rate in cosine lr scheduler')
     train_arg.add_argument('--scheduler', dest='scheduler', nargs='?', type=str, choices=['step', 'lambda', 'exponential', 'cosine', 'reduce'], default='reduce', help='scheduler (default: %(default)s)')
+    # MODI 2026-11-20 (hyperparameter range 1): weight decay only on parameters with >= 2 dimensions (the BatchNorm weights / biases
+    # and any bias get none; timm's rule; utils.make_adamw). 0 = every parameter decays, as before.
+    train_arg.add_argument('--wd_exclude_1d', type=int, choices=[0, 1], default=0)
+    # MODI 2026-11-20 (hyperparameter range 1; ETT, train_forecast.py only): validations per epoch, evenly spaced over the training
+    # steps; the best checkpoint and early stopping use all of them, the lr scheduler still steps on the end-of-epoch validation.
+    # 1 = once per epoch, as before.
+    train_arg.add_argument('--val_per_epoch', type=int, default=1)
     train_arg.add_argument('--weight_decay', dest='weight_decay', nargs='?', type=float, default=1e-4)   # stage 9: was type=int (a CLI value could not be parsed); default unchanged
     train_arg.add_argument('--num_workers', dest='num_workers', nargs='?', type=int, default=8)
 
@@ -327,6 +334,10 @@ class Config():
             _iso += f"_f{args.fold}" + ("_ce" if getattr(args, 'loss_kind', 'cal') == 'ce' and str(args.data).upper() == 'CINC2017' else '')
             if getattr(args, 'crop_tokens', 0):
                 _iso += f"_crop{args.crop_tokens}"
+        if int(getattr(args, 'wd_exclude_1d', 0)):                         # MODI 2026-11-20 (hyperparameter range 1)
+            _iso += "_wdx"
+        if int(getattr(args, 'val_per_epoch', 1)) != 1:
+            _iso += f"_vpe{int(args.val_per_epoch)}"
         if int(getattr(args, 'aux_shift', 0)) != 0:                       # MODI 2026-11-20 (aux-target memory check): always last
             _iso += f"_auxs{int(args.aux_shift)}"
         self.save_result_path = os.path.join(os.getcwd(), args.log_dir, self.date, self.date + tag, _iso)
