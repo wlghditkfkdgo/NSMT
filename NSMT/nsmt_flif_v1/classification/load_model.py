@@ -25,6 +25,7 @@ def _neo_kwargs(args):
                 hippo_xattn_mode=getattr(args, 'hippo_xattn_mode', 'replace'), neo_grad=float(getattr(args, 'neo_grad', 0.5)),   # MODI 2026-10-26
                 neo_memoryless=getattr(args, 'neo_memoryless', False),
                 neo_shuffle=getattr(args, 'neo_shuffle', False),                                   # MODI 2026-11-02
+                aux_shift=int(getattr(args, 'aux_shift', 0)),                                      # MODI 2026-11-20 (aux-target memory check)
                 head_pool=getattr(args, 'head_pool', 'mean'),                                      # MODI 2026-11-04 (H2)
                 res_mode=getattr(args, 'res_mode', 'iand'), neo_res=getattr(args, 'neo_res', 'none'),   # MODI 2026-11-08 (membrane shortcut)
                 neo_band=getattr(args, 'neo_band', 'none'),                                         # MODI 2026-11-13 (frequency bands)

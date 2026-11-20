@@ -10227,3 +10227,137 @@ Spikformer식보다 "좋음"인 변형은 없다.
 **commit / tag:** 이 항목과 결과 파일을 commit 하고 tag `exp/nsmt-flif-neo-20261120-orderrand`를 붙인다(이 항목은 자기 commit을 tag로 가리킨다).
 
 ---
+
+## 2026-11-20 20:58 KST — 사용자 결정 기록 + 사전 고정 + 구현 (학습 전): aux 목표의 기억 필요 검증 (4-1) — "과거 patch를 그려라 / 다음 patch를 그려라"라는 aux 목표가 정말 Neocortex의 기억을 요구하는지, 기억 없는 대조와 비교해 먼저 확인한다. 기억 있는 Neocortex / 기억 없는 Neocortex / 순서를 섞어 읽는 Neocortex × 목표 4개(자기 token, 2칸 전, 4칸 전, 다음) × pop LIF / pop f-LIF × ETTh2 H96 / ETTm2 H96 / MIT-BIH(80/20 validation) = 72 run, seed 42, bias 끔. 기본 경로 동일 16/16 + 12/12, 명령줄 점검 28/28, 단위 점검 40/40, 판정 script 가짜 data 시험 통과, smoke 6/6
+
+**직전 commit:** `d5f7097f9` (무작위 순서 평가 결과, tag `exp/nsmt-flif-neo-20261120-orderrand`). branch `exp/nsmt-flif-neo`.
+
+**사용자 메시지 (11-20, 원문):** "4-1 검증(작음) → 범위 1(이후 모든 비교의 학습 조건을 정함) → 4-2 (가) + (나) 순서로 수행하자. 그런데, 순서를 섞은 실험은 aux loss가 ON이야 OFF야?"
+
+### 사용자 결정
+
+- 순서: (1) 4-1 aux 목표의 기억 필요 검증 → (2) hyperparameter 범위 1(weight decay에서 BN과 bias 빼기, epoch 안에서 validation 여러 번) → (3) 4-2 결합부 배치 (가) + (나).
+- 범위 1과 4-2는 각각 앞 단계가 끝난 뒤 따로 사전 고정한다. 이 항목은 (1)만 고정한다.
+- 4-1을 통과한 목표로 aux 본 시험을 하는 것은 이 결정에 들어 있지 않다. 통과하더라도 자동으로 돌리지 않고 보고만 한다.
+
+### 질문에 대한 답 (확인한 사실): 순서 섞기 평가의 model은 모두 aux가 꺼져 있었다
+
+- **ETT bias 켬 (`flif-v1-ett-sde`, sha `11c83b385`):** 그 시점의 `train_forecast.py`에는 aux 기능이 없었다(`git show 11c83b385:...train_forecast.py`에 `aux_alpha` 0회). loss는 L1뿐이다.
+- **ETT bias 끔 (`flif-v1-ett-nope`, sha `96fb4dc2a`):** 36 run 모두 `logargs.txt`의 `aux_alpha`가 0.0이다.
+- **MIT-BIH 기준 model:** 두 suite 모두 RESULT `aux=0`이다(실행 스크립트의 `AUX=0`).
+- **MIT-BIH Spikformer(DE):** bias 끔 suite의 RESULT에는 `aux=0.1`이 찍혀 있다. 그러나 저장된 weight에는 `data_block`, `encoding`, `head`만 있고 Neocortex 블록(`time_block`)이 없다. `train.py`는 `hasattr(model, 'time_block')`일 때만 aux를 더하므로 실제 loss는 cross entropy뿐이다.
+- 따라서 11-20 순서 평가는 aux 없이 학습한 model에 대한 결과다. aux로 학습한 model에는 옮겨 말할 수 없다.
+
+### 목적
+
+- 지금 aux는 token i의 Neocortex 출력으로 token i 자신을 다시 그리게 한다. 방금 받은 입력이므로 기억 없이 풀린다. 두 번 시험했고(저주파 11-19, 원 시계열 11-19) 이득이 없었다.
+- 기억해야 풀리는 목표(과거 patch 회상, 다음 patch 예측)로 바꾸기 전에, 그 목표가 정말 기억을 요구하는지 작은 시험으로 확인한다. 기억 없는 Neocortex도 똑같이 잘 풀면 그 목표는 버린다.
+
+### 설계
+
+**model:** 전부 SpikeDE인 기준 model에 원 patch aux(`_auxf`, keep_ratio 0)를 켠 것.
+- 기억 있음: `nsmt4q_pop_<lif|flif>_msn_sde_auxf`.
+- 기억 없음: `..._sde_nomem_auxf` = 위 + `--neo_memoryless`. token마다 Neocortex를 따로, 1 step으로 돌린다. token 사이에 상태가 넘어가지 않는다.
+- 순서 섞음: `..._sde_nshuf_auxf` = 위 + `--neo_shuffle`. Neocortex가 token을 섞인 순서로 읽고 출력은 원래 자리로 돌아간다. 학습 때는 sample마다 무작위 순서, 평가 때는 고정된 순서 하나(`TokenShuffle`)다. 기억과 발화는 그대로지만, 넘어오는 기억이 "순서대로의 과거"가 아니다.
+- 순서 섞음 대조를 넣은 이유: 1 epoch smoke에서 기억 없는 pop LIF Neocortex가 ETT에서 거의 발화하지 않았다(Neocortex 발화율 0.000076, 자기 token 대신 −2 목표의 e = 1.00). 1 step만 도는 neuron은 시간상수 4–32 때문에 문턱에 거의 닿지 못한다. 11-03 CinC에서도 같은 현상을 봤다. 이 상태로 끝까지 가면 "기억이 없어서 못 푼다"와 "발화를 못 해서 못 푼다"를 가릴 수 없다. 그래서 발화는 정상인 두 번째 대조를 넣었다. **이 결정은 smoke(1 epoch, 판정과 무관한 값)를 본 뒤에 내렸다.** 본 run의 값은 아직 아무것도 없다.
+
+**aux 목표 (token i의 Neocortex 출력이 그려야 할 것), 새 옵션 `--aux_shift s`: 목표 = token i − s.**
+
+| 이름 | s | ETT (patch 8, 간격 4) | MIT-BIH (patch 32, 간격 16) | 짝이 없는 출력 |
+|---|---|---|---|---|
+| 자기 token | 0 | 시점 [4i, 4i+8) | [16i, 16i+32) | 없음 |
+| 2칸 전 | 2 | [4i−8, 4i): token i 바로 앞, 겹침 없음 | [16i−32, 16i) | 앞 2개 |
+| 4칸 전 | 4 | [4i−16, 4i−8) | [16i−64, 16i−32) | 앞 4개 |
+| 다음 | −2 | [4i+8, 4i+16): token i 바로 뒤, 겹침 없음 | [16i+32, 16i+64) | 뒤 2개 |
+
+- 짝이 없는 출력은 loss에서 뺀다. 나머지(α, 목표 = window 정규화된 원 patch, decoder = Linear(D → P) 하나)는 원 시계열 aux와 같다.
+- ETT: α = 0.8(ETTh2) / 0.5(ETTm2), r = α × 96 / 720 = 0.107 / 0.067. MIT-BIH: 0.9 CE + 0.1 MSE.
+
+**과제:** ETTh2 H96, ETTm2 H96, MIT-BIH(`VAL=1`: 학습 파일의 80 / 20 validation 분할; 판정은 validation으로만 한다). seed 42. bias 끔(새 기본값).
+
+**run:** 3 Neocortex × 4 목표 × 2 neuron × 3 과제 칸 = 72 run. suite `flif-v1-auxck-<ett|mb>-<s0|s2|s4|sm2>`(목표마다 suite를 나눈다. run 폴더 검색이 섞이지 않게 하기 위함). 대기열 `classification/scripts/make_queue_auxck.sh`(MIT-BIH → ETTm2 → ETTh2), `scripts/gpu_pool2.sh`로 GPU당 2개.
+
+### 측정과 판정 (`classification/aux_check.py`)
+
+**측정 (validation, test에 쓰는 weight: ETT best-validation `checkpoint.pth`, MIT-BIH 마지막 epoch; eval 모드):**
+- E = 학습된 aux decoder가 그린 것과 목표의 평균 제곱 오차.
+- Z = 목표가 (token 자리, 원소)별 평균에서 벗어나는 정도(분산). "자리마다 평균값을 말하는 것"의 오차다.
+- e = E / Z = **목표의 분산 중 설명하지 못하고 남은 비율.** 0이면 완벽, 1이면 자리별 평균을 말하는 것과 같다.
+
+**판정 (task마다, neuron마다; s = 2, 4, −2):**
+- 대조 c(기억 없음 / 순서 섞음)마다 g_c(s) = e(c, s) − e(기억 있음, s), d_c(s) = g_c(s) − g_c(0).
+  - g_c(0)을 빼는 이유: 대조 model은 자기 token을 그릴 때도 조금 못할 수 있다(발화가 적은 등). 그만큼은 기억과 무관한 손해이므로 뺀다.
+- ETT는 두 칸의 평균을 쓰고, d가 두 칸 모두 0보다 커야 한다.
+- 대조가 "유효"하려면 자기 token을 그릴 수 있어야 한다: e(c, 0) < 0.90(ETT는 두 칸 모두).
+- 판정에 쓰는 대조: 기억 없음이 유효하면 그것. 아니면 순서 섞음이 유효하면 그것. 둘 다 아니면 "판정 불가".
+- **"기억이 필요하다"** = d(s) ≥ 0.10이고 e(기억 있음, s) ≤ 0.90. 즉 대조가 목표 분산의 10 % 이상을 더 남기고, 기억 있는 model은 목표 분산의 10 % 이상을 설명한다.
+- 목표가 task에서 **통과** = pop LIF와 pop f-LIF 모두 "기억이 필요하다". 통과한 목표 중 두 neuron의 d 평균이 가장 큰 것을 "가장 좋은 목표"로 적는다.
+- 두 대조의 d와 판정은 언제나 함께 적는다.
+
+**보고 전용:**
+- 데이터 수준 선형 기준(학습된 model 없음): 학습 구간에서 ridge 회귀를 맞추고 validation에서 e를 잰다. (가) token i 하나만 보고 목표를 맞히기, (나) token i, i−1, …, 처음까지 보고 맞히기. (가)는 "기억 없이 선형으로 얻을 수 있는 몫"의 참고값이다. 과거 목표의 (나)는 정답이 입력에 들어 있으므로 0이어야 한다(점검 겸).
+- 예측 / 분류 성능(validation, test), Neocortex 발화율, energy. seed 하나라 판정하지 않는다.
+
+### 바꾼 코드 (기본값이면 이전과 같음)
+
+- `classification/config.py`: `--aux_shift`(정수, 기본 0). 0이 아니면 run 폴더 끝에 `_auxs<s>`가 붙는다.
+- `classification/load_model.py`: `aux_shift`를 model에 넘긴다.
+- `classification/model.py`:
+  - `self.aux_shift`. Neocortex가 없는 model(Spikformer식 등)이나 |s| ≥ token 수면 ValueError.
+  - `aux_pair(rec_x, org_x)`: token 축(0)에서 s > 0이면 `rec[s:]`와 `org[:-s]`, s < 0이면 `rec[:s]`와 `org[-s:]`를 짝짓는다. 0이면 받은 tensor를 그대로 돌려준다.
+  - `_training`(MIT-BIH 학습과 validation loss)에서 모양 확인 뒤 `aux_pair`를 부른다.
+- `classification/forecast_wrap.py`: `aux_rec_loss()`(ETT)에서 `aux_pair`를 부른다.
+- `forecasting/scripts/run_ett_dual.sh`, `classification/scripts/run_mitbih4.sh`:
+  - 조건 `nsmt4q_pop_<lif|flif>_msn_sde_{nomem,nshuf}_auxf`.
+  - env `AUXS`(0이 아닌 정수, `_auxf` 조건만): `--aux_shift=<s>`, run 폴더 검색에 `_auxs<s>`, RESULT에 `auxs=`. MIT-BIH는 폴더 tag에 `_s<s>`도 붙는다. 안 주면 명령줄이 같다.
+- 새 파일: `classification/aux_check.py`(측정 / 기준 / 요약), `classification/check_auxs.py`(단위 점검), `classification/fw_identity_auxs.py`(aux 경로 동일성), `classification/scripts/make_queue_auxck.sh`.
+
+### 점검 (모두 통과)
+
+- **기본 경로 동일:**
+  - 고치기 전에 저장하고 고친 뒤 비교했다. `fw_identity_xnor.py`(ETT 기본 경로 4 run의 초기 weight, 학습 출력, 모든 gradient, 저장 weight의 eval 출력): 16/16 같다.
+  - `fw_identity_auxs.py`(aux 켠 경로: ETT 원 시계열 aux pop LIF와 MIT-BIH 원 시계열 aux pop f-LIF의 초기 weight, 학습 출력, aux loss, 모든 gradient, eval 출력): 12/12 같다. 고치기 전에 같은 비교를 두 번 돌려 결정적임을 먼저 확인했다(12/12).
+- **명령줄 (가짜 python, scratchpad `auxs/harness.sh`):** 28/28 통과.
+  - AUXS 안 줌: 고치기 전과 11/11 같다(ETT 7, MIT-BIH 4; PE=1, VAL=1, LR / WD / DROP을 준 경우 포함).
+  - AUXS를 주면 `--aux_shift=<s>`가 `--tag` 앞에 하나 붙고 나머지는 같다(3/3). MIT-BIH는 폴더 tag가 `_s<s>`로 끝난다.
+  - AUXS가 0, x, 1.5, +2이거나 `_auxf`가 아닌 조건: python을 부르지 않고 rc 1(6/6).
+  - nomem / nshuf 조건 = `_sde_auxf` 명령 + `--neo_memoryless` / `--neo_shuffle` 하나(8/8).
+  - 처음 돌렸을 때 1개가 실패했다. MIT-BIH 폴더 tag의 `_s4`를 내 시험 목록이 기대값에 넣지 않았기 때문이다(의도한 동작). 목록을 고친 뒤 통과했다.
+- **단위 점검 (`check_auxs.py`): 40/40.**
+  - a1: 짝짓기 방향(s = 2, 4, −2, 0).
+  - a2: ETT aux loss가 손으로 계산한 값과 비트 단위로 같다(3 Neocortex × 3 s × 2 neuron).
+  - a3: MIT-BIH 학습 출력의 짝과 모양 [N − |s|, B, 1, P].
+  - a4: 학습된 weight로 eval 모드에서, 기억 있는 Neocortex는 인과적이다. token j의 입력을 바꾸면 j 앞의 출력은 비트 단위로 그대로이고, j 이후가 바뀐다. 기억 없는 Neocortex는 token j의 출력만 바뀐다(ETT, MIT-BIH × 2 neuron). 그래서 "다음 patch" 목표는 미래를 몰래 보고 풀 수 없다.
+    - 처음에는 기억 없는 pop LIF(ETT)에서 실패했다. 기억을 쓰도록 학습된 weight를 기억 없이 돌리면 발화율이 약 1e-5라서, 0.5 크기의 변화로는 spike가 하나도 바뀌지 않았다. 변화를 5.0으로 키우니 token j만 바뀌었다. 시험 설정 문제였고 코드 문제는 아니었다.
+  - a5: |s| ≥ token 수, Neocortex 없는 Spikformer(DE)에 aux_shift를 주면 ValueError.
+- **판정 script (가짜 suite, 답을 심어 둠; scratchpad `auxs/test_auxck.py`):**
+  - 12개 판정과 판정 대조가 심어 둔 답과 같다. 두 칸 모두 d > 0 규칙, e ≤ 0.90 규칙, 대조 교체, 판정 불가를 포함한다.
+  - 멈춰야 하는 10가지가 모두 멈춘다: 줄 빠짐, SKIP, 중복, 폴더에 `_auxs` 없음, auxs 필드 없음, 대조 종류와 폴더 불일치, bias 켬, sha 둘, MIT-BIH validation 없음, 자기 token suite에 auxs 필드.
+- **기준 선형 회귀 조각:** baseline token이 model의 aux 목표와 같다(ETT, MIT-BIH). 서로 독립인 무작위 token에서 알려진 답이 나온다(자기 token e = 0, 2칸 전 현재만 e ≈ 1, history e = 0, 다음 e ≈ 1).
+- **smoke (1 epoch, scratchpad):** 6/6 RESULT. ETT 기억 없음 pop LIF s = −2, ETT 기억 있음 pop f-LIF s = 4, ETT 순서 섞음 pop LIF s = 2, MIT-BIH 기억 없음 pop f-LIF s = 2, 기억 있음 pop LIF s = 0, 순서 섞음 pop LIF s = −2.
+  - `config.pt`의 aux_shift, neo_memoryless / neo_shuffle, ssa_pe 0, keep_ratio 0, aux 켬이 의도와 같다. `logargs.txt`는 값을 대시로 채워 쓰므로 음수의 부호가 보이지 않는다(−2가 "-----2"). 판정 script는 `config.pt`를 읽는다.
+  - `aux_check.py`의 재현 점검을 6 run 모두 통과했다: ETT validation MSE가 기록과 같다(≤ 2e-6), MIT-BIH validation macro-F1이 기록과 같다(≤ 2e-6), aux MSE가 기록된 batch 평균과 1 % 안이다.
+  - 실측 시간(1 epoch, 시작과 test 포함): ETTh2 26–33 s, ETTm2 102 s, MIT-BIH(VAL=1) 26–33 s. GPU memory 최대 3.1 GB.
+
+### 사전 예상 (추론)
+
+- 기억 없는 pop LIF는 ETT에서 끝까지 거의 발화하지 않아 "유효하지 않음"일 가능성이 크다. 그러면 순서 섞음 대조가 판정한다.
+- ETT: 값이 매끄럽게 이어지는 시계열이라, token i 하나로도 바로 옆 patch를 꽤 맞힌다. 그래서 2칸 전과 다음 목표는 "기억 불필요"일 것이다. 4칸 전은 d ≥ 0.10일 수 있다.
+- MIT-BIH: beat 모양은 위치에 따라 크게 다른데(R파가 가운데), 기억 없는 model은 자기 위치를 모른다. 그래서 과거 목표 둘은 "기억이 필요하다"일 것이다. 다음 목표는 확신이 없다.
+
+### 한계
+
+- seed 하나, ETT는 입력 96과 H96 두 칸이다. 두 neuron과 ETT 두 칸이 서로의 재현 역할을 한다.
+- 이것은 목표가 기억을 **요구하는지**를 보는 시험이다. 그 목표로 학습하면 예측이나 분류가 **좋아지는지**는 말하지 않는다. 그것은 본 시험이 말한다.
+- 순서 섞음 대조는 기억이 남아 있으므로, 순서와 무관한 window 요약(예: 평균 수준)은 여전히 쓸 수 있다. 이 대조로 "필요"가 나오면, 정확히는 "**순서대로의** 과거가 필요하다"는 뜻이다.
+- d ≥ 0.10과 e ≤ 0.90은 미리 정한 기준이다. seed 사이의 흔들림은 아직 재지 않았다.
+
+### not run
+
+- aux 본 시험(통과한 목표로 aux를 바꿔 seed 3개로 성능 비교): 사용자 결정 없이 돌리지 않는다.
+- H720, 입력 336 / 720, CinC.
+- 범위 1과 4-2: 이 시험이 끝나고 보고한 뒤 각각 사전 고정한다.
+
+### Git
+
+- 이 항목, 코드, 점검 script를 하나의 commit으로 묶고 push 한 뒤 대기열을 시작한다. 결과는 새 항목으로 덧붙이고 tag `exp/nsmt-flif-neo-20261120-auxck`를 단다.

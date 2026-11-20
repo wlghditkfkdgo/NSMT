@@ -86,6 +86,9 @@ def parse_arguments():
     model_arg.add_argument('--gating', dest='gating', default='original', help='gating type')
     model_arg.add_argument('--attn', dest='attn', nargs='?', default='MSSA', choices=['SSA'],)
     model_arg.add_argument('--keep_ratio', nargs='?', type=float, default=0.15)
+    # MODI 2026-11-20 (aux-target memory check, user decision 11-20): the reconstruction aux pairs the Neocortex output of token i
+    # with the target token i - aux_shift (0 = token i itself, unchanged; > 0 = a past patch; < 0 = a future patch). Dual-path myModel.
+    model_arg.add_argument('--aux_shift', type=int, default=0)
     
     snn_arg = parser.add_argument_group("snn parameters")
     snn_arg.add_argument('-T', '--time_steps', dest='time_steps', nargs='?', type=int, default=4, help='Total time steps for SNN simulation (default: %(default)s)')
@@ -324,6 +327,8 @@ class Config():
             _iso += f"_f{args.fold}" + ("_ce" if getattr(args, 'loss_kind', 'cal') == 'ce' and str(args.data).upper() == 'CINC2017' else '')
             if getattr(args, 'crop_tokens', 0):
                 _iso += f"_crop{args.crop_tokens}"
+        if int(getattr(args, 'aux_shift', 0)) != 0:                       # MODI 2026-11-20 (aux-target memory check): always last
+            _iso += f"_auxs{int(args.aux_shift)}"
         self.save_result_path = os.path.join(os.getcwd(), args.log_dir, self.date, self.date + tag, _iso)
         
         self.save_log_path = os.path.join(self.save_result_path, 'log')

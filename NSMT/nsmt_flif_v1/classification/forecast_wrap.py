@@ -100,6 +100,7 @@ class Forecaster(nn.Module):
         org_x = self.inner.org_x
         if org_x.shape != rec_x.shape:
             raise RuntimeError(f'aux target {tuple(org_x.shape)} vs reconstruction {tuple(rec_x.shape)}')
+        rec_x, org_x = self.inner.aux_pair(rec_x, org_x)                  # MODI 2026-11-20 (aux-target memory check); 0 = unchanged
         self._x_neo = None
         return ((org_x - rec_x) ** 2).mean()
 

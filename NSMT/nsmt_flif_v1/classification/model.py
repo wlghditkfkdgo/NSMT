@@ -713,6 +713,12 @@ class myModel(nn.Module):
                                              or self.token_shuffle is not None):
             raise ValueError('neo_shuffle: hippo_xattn with a unidirectional single-stream neocortex that keeps its memory '
                              '(not with neo_memoryless / neo_bidir / popk streams / token_shuffle)')
+        # MODI 2026-11-20 (aux-target memory check, user decision 11-20): aux_shift s pairs the reconstruction of token i with the
+        # target token i - s (aux_pair). 0 = unchanged; needs the single-stream Neocortex path (the weak_decoder input).
+        self.aux_shift = int(kwargs.get('aux_shift', 0))
+        if self.aux_shift != 0 and (self.no_neo or self.hippo_only or self.hippo_ssa or self.neo_streams
+                                    or abs(self.aux_shift) >= self.num_patches):
+            raise ValueError(f'aux_shift {self.aux_shift}: dual-path single-stream Neocortex only, |s| < {self.num_patches} tokens')
         self.neo_neuron, self.neo_where = neo_neuron, neo_where
         # MODI 2026-11-13 (frequency bands, user request 11-13): the Neocortex input is split into K = 4 signals and member k of
         # every population neuron of the Neocortex embedding receives its own signal through its own Linear(P -> D).
@@ -1139,6 +1145,18 @@ class myModel(nn.Module):
             o = torch.maximum(o, o_r)
         return e, o
 
+    def aux_pair(self, rec_x, org_x):
+        """MODI 2026-11-20 (aux-target memory check, user decision 11-20): pairs the reconstruction made from the Neocortex output of
+        token i with the target token i - aux_shift along the token axis 0 of [N, B, 1, P]. 0 = the token itself (unchanged);
+        s > 0 = the patch s tokens back (past recall; the first s outputs have no target and are dropped); s < 0 = the patch |s|
+        tokens ahead (future; the last |s| outputs are dropped)."""
+        s = int(getattr(self, 'aux_shift', 0))
+        if s == 0:
+            return rec_x, org_x
+        if s > 0:
+            return rec_x[s:], org_x[:-s]
+        return rec_x[:s], org_x[-s:]
+
     def _training(self, x_hippo, x_neo):
         x_data = x_hippo.clone().detach().transpose(0, 2).contiguous().mean(2, keepdim=True)
         if x_neo is None:                               # no_neo: no reconstruction aux, no distill
@@ -1149,6 +1167,7 @@ class myModel(nn.Module):
             org_x = org_x.expand_as(rec_x)
 
         assert org_x.shape == rec_x.shape, f"original x_time' shape is {org_x.shape}, and reconstructed x_time' shape is {rec_x.shape}"
+        rec_x, org_x = self.aux_pair(rec_x, org_x)                     # MODI 2026-11-20: identity for aux_shift 0
 
         z = self.head(self._pool(x_hippo)).mean(0)
 
