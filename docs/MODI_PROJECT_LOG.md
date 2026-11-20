@@ -10919,3 +10919,152 @@ ETT는 test MSE 비율 r = A / B − 1(%), 12쌍. MIT-BIH는 macro-F1 차이 d(%
 ### Git
 
 - 이 항목, 코드, 점검 script를 하나의 commit으로 묶고 push 한 뒤 대기열을 시작한다. 결과는 새 항목으로 덧붙이고 tag `exp/nsmt-flif-neo-<끝난 날짜>-nc`를 단다.
+
+## 2026-11-21 05:05 KST — 결과: 4-2 결합부 배치 (가) Neocortex 전류 + attention, (나) Neocortex 전류, attention 없음 — 60 run (사전 고정 `d53119ef4`) + 학습 없는 무작위 token 순서 평가 90 run (보고 전용)
+
+**사용자 결정 (11-20, 원문):** "4-1 검증(작음) → 범위 1(이후 모든 비교의 학습 조건을 정함) → 4-2 (가) + (나) 순서로 수행하자." 이 항목으로 세 단계가 모두 끝났다.
+
+### 한 줄로
+
+- 사전 규칙의 권고는 **"기준 유지"**다. (나)는 pop f-LIF의 MIT-BIH에서 "나쁨"(−0.54 %p, seed 3개 모두 음수)이 나와 탈락했다. (가)는 G1에 "좋음"이 없다. 구조 결정은 사용자가 한다.
+- (나) pop LIF는 기준과 두 과제 모두 "차이 없음"이면서 energy가 기준의 0.64 / 0.62배다. Spikformer(DE)와는 두 과제 모두 "차이 없음"(방향은 낫다: ETT −0.26 % 9/12, MIT-BIH +0.26 %p)이고 energy는 0.79 / 0.77배다.
+
+### 나쁜 결과와 틀린 예상 (먼저)
+
+1. **(가)는 어디서도 좋아지지 않았다.** G1은 두 neuron × 두 과제 모두 "차이 없음"이다. ETT는 오히려 기준보다 나쁜 방향이다(R +0.35 / +0.61 %, 12쌍 중 4쌍만 낮음). pop f-LIF의 ETTh2 H96 칸은 +1.56 %(칸 단위 "나쁨")다.
+2. **(나) pop f-LIF는 MIT-BIH에서 나빠졌다:** −0.53 / −0.61 / −0.49 %p(seed 42 / 7 / 2026), 평균 −0.54 %p → "나쁨". 이것 하나로 권고 규칙 1이 막혔다.
+3. **energy 예상이 하나 틀렸다.** "(나)는 두 과제 모두 Spikformer(DE)보다 낮을 것"이라고 했지만, (나) pop f-LIF의 ETT는 11.35 µJ로 Spikformer(DE)(10.65 µJ)의 1.06배다. 근거로 쓴 1 epoch smoke(6.7 / 8.9 µJ)보다 학습 뒤에 많이 발화했다(ETT Hippocampus 발화율 0.085). pop LIF(0.79 / 0.77배)와 pop f-LIF MIT-BIH(0.87배)는 예상대로 낮다.
+4. **(가)는 energy가 기준보다 높다:** ETT 1.02배, MIT-BIH 1.17 / 1.09배다. Neocortex 발화율이 올랐다(ETT 0.035 → 0.046 / 0.050, MIT-BIH pop LIF 0.079 → 0.136).
+5. **ETT의 α는 거의 움직이지 않았다.** α의 channel 평균은 model별(12 run 평균) 1.000–1.006, run별 0.989–1.037이다.
+   - α가 학습되지 않은 것은 아니다. channel 사이 표준편차는 0.008–0.080, 범위는 0.83–1.20이다.
+   - 이유: ETT의 best checkpoint가 epoch 0–5(대부분 0–2)에서 나와, α가 1 근처에서 위아래로 조금 퍼진 상태에서 멈췄다.
+   - MIT-BIH(30 epoch 끝 weight)의 α는 channel 평균이 model별 1.43–1.63, run별 1.38–1.65이고, 범위 0.18–2.62, 음수가 없다.
+
+### 예상과 맞은 것
+
+| 사전 예상 | 결과 |
+|---|---|
+| G1 (가) − 기준: ETT, MIT-BIH "차이 없음" | 맞음 (두 neuron 모두) |
+| G2 (나) − 기준: ETT "차이 없음" | 맞음 |
+| G2 (나) − 기준: MIT-BIH 적어도 한 neuron "나쁨" | 맞음 (pop f-LIF) |
+| 권고 "기준 유지" | 맞음 |
+| (나) energy < Spikformer(DE), 두 과제 | pop LIF 맞음, pop f-LIF ETT 틀림 (1.06배) |
+| α 대부분 양수 | 맞음 (모두 양수) |
+
+### 결과 (seed 평균 ± sd; ETT test MSE, MIT-BIH test macro-F1 %)
+
+| model | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 | MIT-BIH macro-F1 % |
+|---|---|---|---|---|---|
+| Spikformer(DE) (범위 1) | 0.2903 ± 0.0032 | 0.4249 ± 0.0087 | 0.1767 ± 0.0002 | 0.4048 ± 0.0015 | 91.20 ± 0.29 |
+| 기준 pop LIF (범위 1) | 0.2902 ± 0.0018 | 0.4196 ± 0.0057 | 0.1756 ± 0.0007 | 0.4034 ± 0.0007 | 91.39 ± 0.41 |
+| (가) pop LIF | 0.2917 ± 0.0040 | 0.4221 ± 0.0064 | 0.1765 ± 0.0012 | 0.4027 ± 0.0022 | 91.68 ± 0.14 |
+| (나) pop LIF | 0.2909 ± 0.0043 | 0.4235 ± 0.0066 | 0.1761 ± 0.0011 | 0.4023 ± 0.0019 | 91.46 ± 0.31 |
+| 기준 pop f-LIF (범위 1) | 0.2897 ± 0.0047 | 0.4207 ± 0.0074 | 0.1765 ± 0.0009 | 0.4044 ± 0.0012 | 91.57 ± 0.14 |
+| (가) pop f-LIF | 0.2942 ± 0.0047 | 0.4240 ± 0.0022 | 0.1768 ± 0.0003 | 0.4040 ± 0.0007 | 91.17 ± 0.09 |
+| (나) pop f-LIF | 0.2926 ± 0.0031 | 0.4224 ± 0.0045 | 0.1766 ± 0.0008 | 0.4030 ± 0.0011 | 91.02 ± 0.11 |
+
+### 판정 (사전 규칙)
+
+| 비교 | neuron | ETT R % (낮은 쌍) | ETT 판정 | MIT-BIH d %p (seed 42 / 7 / 2026) | MIT-BIH 판정 | energy A/B (ETT / MIT-BIH) |
+|---|---|---|---|---|---|---|
+| G1 (가) − 기준 | pop LIF | +0.35 (4/12) | 차이 없음 | +0.03 / +0.83 / +0.00 (+0.29) | 차이 없음 | 1.02 / 1.17 |
+| G1 (가) − 기준 | pop f-LIF | +0.61 (4/12) | 차이 없음 | −0.40 / −0.47 / −0.31 (−0.39) | 차이 없음 | 1.02 / 1.09 |
+| G2 (나) − 기준 | pop LIF | +0.29 (7/12) | 차이 없음 | −0.28 / +0.44 / +0.07 (+0.08) | 차이 없음 | 0.64 / 0.62 |
+| G2 (나) − 기준 | pop f-LIF | +0.30 (6/12) | 차이 없음 | −0.53 / −0.61 / −0.49 (−0.54) | **나쁨** | 0.71 / 0.63 |
+| G3 (가) − Spikformer(DE) | pop LIF | −0.20 (7/12) | 차이 없음 | +0.07 / +0.50 / +0.86 (+0.48) | 차이 없음 | 1.26 / 1.46 |
+| G3 (가) − Spikformer(DE) | pop f-LIF | +0.25 (5/12) | 차이 없음 | −0.18 / −0.11 / +0.21 (−0.03) | 차이 없음 | 1.53 / 1.51 |
+| G4 (나) − Spikformer(DE) | pop LIF | −0.26 (9/12) | 차이 없음 | −0.24 / +0.12 / +0.92 (+0.26) | 차이 없음 | 0.79 / 0.77 |
+| G4 (나) − Spikformer(DE) | pop f-LIF | −0.06 (8/12) | 차이 없음 | −0.31 / −0.25 / +0.03 (−0.18) | 차이 없음 | 1.06 / 0.87 |
+
+- 두 neuron 결론: G1 ETT / MIT-BIH "차이 없음"; G2 ETT "차이 없음", MIT-BIH "neuron에 따라 다름(약함)"; G3, G4 모두 "차이 없음".
+- 종합(사용자 목표): (가)와 (나) 모두 pop LIF "약함(방향만)", pop f-LIF "지지 안 됨".
+- **권고(사전 규칙): 기준 유지.** G2에 "나쁨"이 있고(MIT-BIH pop f-LIF), G1에 "좋음"이 없다.
+- energy: ETT는 head 재계산 값, MIT-BIH는 기록값이다. α 덧셈은 syops가 세지 않는다. 상한은 ETT 0.0387 µJ(가장 작은 (나) energy의 0.46 %), MIT-BIH 0.0152 µJ(0.21 %)다.
+
+### 보고 전용 (사전 고정 표)
+
+| model | ETT energy µJ (/ Spikformer(DE)) | MIT-BIH energy µJ (/ Spikformer(DE)) | ETT Hippocampus 발화율 | ETT Neocortex 발화율 | MIT-BIH Hippocampus | MIT-BIH Neocortex | MIT-BIH accuracy % | ETT epoch 0이 best (12 중) | ETT epoch 수 |
+|---|---|---|---|---|---|---|---|---|---|
+| Spikformer(DE) | 10.65 (1.00) | 9.18 (1.00) | 0.0610 | — | 0.1075 | — | 98.32 | 2 | 11–17 |
+| 기준 pop LIF | 13.20 (1.24) | 11.45 (1.25) | 0.0600 | 0.0347 | 0.1271 | 0.0785 | 98.40 | 2 | 11–16 |
+| (가) pop LIF | 13.45 (1.26) | 13.38 (1.46) | 0.0598 | 0.0461 | 0.1210 | 0.1360 | 98.47 | 4 | 11–15 |
+| (나) pop LIF | 8.48 (0.79) | 7.10 (0.77) | 0.0816 | 0.0469 | 0.1618 | 0.1229 | 98.41 | 4 | 11–15 |
+| 기준 pop f-LIF | 16.00 (1.50) | 12.65 (1.38) | 0.0597 | 0.0346 | 0.1253 | 0.0955 | 98.42 | 2 | 11–17 |
+| (가) pop f-LIF | 16.34 (1.53) | 13.83 (1.51) | 0.0612 | 0.0497 | 0.1132 | 0.1113 | 98.36 | 4 | 11–15 |
+| (나) pop f-LIF | 11.35 (1.06) | 8.02 (0.87) | 0.0847 | 0.0495 | 0.1492 | 0.1100 | 98.29 | 4 | 11–16 |
+
+- (나)는 Hippocampus 발화율이 오른다(ETT 0.060 → 0.082 / 0.085). attention이 spike를 지우던 몫(x(1 − SSA))이 없어졌기 때문으로 본다(추론). 그래도 attention 연산이 빠져 energy는 낮다.
+- run 시간: ETT (가) 428–2175 s, (나) 353–1950 s; MIT-BIH (가) 861–1153 s, (나) 578–871 s. pool은 01:50:57에 시작해 04:03:31에 끝났다(GPU 4개 × 2).
+
+### 무작위 token 순서 평가 (학습 없음, 보고 전용)
+
+- 사전 고정 항목이 정한 대상은 (나)다. 같은 학습 조건의 기준(범위 1 run)과 (가)는 비교용으로 **사전 고정 없이 더했다.** 앞선 `order_eval_rand.py`의 model은 범위 1 이전 학습이라 같은 조건의 기준이 따로 필요했다.
+- 방법은 `order_eval_rand.py`와 같다(그 함수를 import함). 행마다 새 무작위 순서, 반복 5번(seed 1000 + r).
+  - body: 두 경로 모두 섞고 Hippocampus 출력은 head 전에 제자리로 돌린다.
+  - neo: Neocortex만 섞인 순서로 읽는다.
+  - all: body와 같되 제자리로 돌리지 않는다.
+- 결과 `classification/results/flif-v1-nc-order.md`:
+
+| neuron | model | ETT body r % (12 run 평균, 최소 .. 최대) | ETT all r % | MIT-BIH body 하락 %p (seed 42 / 7 / 2026) | 평균 | 예측이 바뀐 beat % |
+|---|---|---|---|---|---|---|
+| pop LIF | 기준 | +0.66 (−1.93 .. +4.03) | +21.4 | −13.64 / −8.16 / −10.85 | −10.88 | 4.86 |
+| pop LIF | (가) | +1.82 (−1.23 .. +8.81) | +21.5 | −53.86 / −51.57 / −53.59 | −53.01 | 36.01 |
+| pop LIF | (나) | +1.88 (−1.38 .. +6.21) | +21.5 | −52.41 / −50.23 / −53.57 | −52.07 | 39.32 |
+| pop f-LIF | 기준 | +0.59 (−1.15 .. +3.08) | +21.1 | −4.63 / −6.87 / −4.75 | −5.42 | 2.58 |
+| pop f-LIF | (가) | +1.12 (−0.99 .. +3.72) | +21.0 | −42.91 / −42.42 / −42.73 | −42.69 | 26.38 |
+| pop f-LIF | (나) | +1.42 (−1.07 .. +4.16) | +21.4 | −41.87 / −43.71 / −44.94 | −43.51 | 26.39 |
+
+- **neo = body가 여섯 model 모두에서 같다**(표의 두 자리까지 같음).
+  - (나)에서는 이것이 멈춤 점검이었다(ETT |MSE 비율 − 1| ≤ 1e-4, MIT-BIH 예측 일치 ≥ 99.99 %).
+  - 기준과 (가)에서는 관찰이다. bias 없는 attention은 순서를 보지 못하므로, body의 순서 효과는 모두 Neocortex를 거친 것이다.
+- **관찰 (사후, 사전 고정 아님):**
+  - MIT-BIH: Neocortex 출력을 embedding 전류로 넣으면 model이 순서에 크게 기대게 된다. 섞었을 때 기준 −10.9 / −5.4 %p가 (가) −53.0 / −42.7, (나) −52.1 / −43.5 %p로 커진다. 그런데 정상 순서의 test 정확도는 기준과 같거나(pop LIF) 낮다(pop f-LIF). 순서 정보를 더 많이 쓰게 됐지만, 그것이 더 나은 판단으로 이어지지 않았다.
+  - ETT: body 순서 효과는 모든 model에서 작다(+0.6–1.9 %). (가)·(나)가 기준보다 조금 크고, ETTm2 H96이 가장 크다((가) pop LIF +6.54 %, (나) pop LIF +5.65 %). all은 모두 +21 %로, 11-20과 같이 ETT 순서 정보는 flat head가 갖고 있다.
+- 시간: ETT 25–203 s, MIT-BIH 50–75 s(run 하나, 반복 5번 × 세 변형). 04:13 시작, 05:04 끝.
+
+### 점검
+
+- RESULT 60/60(ETT 48, MIT-BIH 12), pool log에 SKIP 0, `DONE(rc=0)` 60. 모든 run의 sha는 `d53119ef4` 하나다.
+- parameter 수가 사전 고정 값과 같다: ETTh2 H96 (가) 175,232 / (나) 158,336, MIT-BIH 1,231,104 / 638,208.
+- energy 재계산 48 run: 기록된 test MSE 재현, "all checks passed".
+- `summarize_nc.py`의 멈춤 점검(줄 수, 중복, 폴더 접미사, nan, α, sha, vpe)을 모두 통과해 표가 만들어졌다.
+- 순서 평가:
+  - smoke(학습 없음, 반복 1번, (나)와 기준 pop LIF, 두 과제)가 정상 지표를 재현하고 점검을 통과했다.
+  - 본 평가 5 shard 모두 "all checks passed": 정상 지표 재현, 설정 일치(neo_current / hippo_attn, ssa_pe 0, wd_exclude_1d 1, ETT val_per_epoch 4), (나) body = neo, MIT-BIH all = body, 정상 지표 복원, 유한값, 행 완전·중복 없음.
+- 실제로 돌린 launcher는 scratchpad 복사본(작업 폴더를 절대 경로로 고정)이었다. 저장소의 `classification/scripts/run_order_nc.sh`는 같은 명령을 경로만 스스로 찾게 바꾼 것이다(문법 점검만 함, 다시 돌리지 않음).
+
+### 환경과 명령
+
+- 서버 GPU 4 × NVIDIA RTX A6000, conda env `snn_recall`(torch 1.12.0+cu113), `LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib`.
+- 학습(NSMT/): `tmux new-session -d -s flif_nc "bash scripts/gpu_pool2.sh nsmt_flif_v1/classification/scripts/queues/nc-20261121.txt 0,1,2,3,0,1,2,3 > nsmt_flif_v1/classification/log/flif-v1-nc-pool.log 2>&1"`(대기열은 `classification/scripts/make_queue_nc.sh`가 만듦).
+- pool log를 두 suite의 `pool_runs.txt`로 복사했다.
+- classification/: `python energy_recount_ett.py --suite flif-v1-ett-nc`, `python summarize_nc.py`.
+- 순서 평가(classification/): `python order_eval_nc.py --smoke`, `tmux new-session -d -s flif_ncord "bash scripts/run_order_nc.sh"`(위 점검 참고), `python order_eval_nc.py --summarize`.
+- seed 42 / 7 / 2026. hyperparameter는 사전 고정 항목과 같다(범위 1 기본값, ETT lr 5e-4, weight decay 0.06, patience 10; MIT-BIH 30 epoch, lr 0.01, 마지막 epoch weight).
+- 데이터·분할·전처리는 앞 항목들과 같다(ETT 표준 분할과 window 정규화, MIT-BIH 5-class 기존 train / test csv).
+
+### 산출물
+
+- Git: `forecasting/results/flif-v1-ett-nc/{raw.txt,pool_runs.txt,energy_recount.csv}`, `classification/results/flif-v1-mitbih-nc/{raw.txt,pool_runs.txt}`, `classification/results/flif-v1-nc-summary.md`, `classification/results/flif-v1-nc-order/*.jsonl`, `classification/results/flif-v1-nc-order.{json,md}`, `classification/order_eval_nc.py`, `classification/scripts/run_order_nc.sh`.
+- 로컬만: run 폴더 `forecasting/log/flif-v1-ett-nc/`, `classification/log/flif-v1-mitbih-nc/`(checkpoint, TensorBoard event), pool log `classification/log/flif-v1-nc-pool.log`, 순서 평가 log `classification/log/flif-v1-nc-order/`.
+
+### 한계
+
+- seed 3개다. α 초기값 1, 넣는 곳(embedding neuron) 하나만 봤다.
+- ETT는 best가 epoch 0–5에서 나와 α가 거의 학습되지 않은 상태로 평가됐다. ETT에서 "Neocortex 전류의 세기를 학습한 결과"를 본 것은 아니다.
+- (나)는 attention만 뺐고 hyperparameter는 기준용 그대로다.
+- 순서 평가의 기준·(가) 행은 사전 고정 밖이다.
+
+### not run
+
+- α 초기값 0 / 다른 값, block 안 neuron에 넣기, (나)의 기억 없는 Neocortex 학습 대조.
+- hyperparameter 범위 2, aux 본 시험(사용자 결정 대기), CinC, 이상 탐지.
+
+### 결론
+
+- 사전 규칙의 권고는 기준 유지다. (가)는 이득이 없고 energy만 조금 늘었다. (나)는 pop f-LIF가 MIT-BIH에서 나빠졌다.
+- 사용자 목표(낮은 power에서 Spikformer(DE)보다 평균적으로 나음)에 비추면, (나) pop LIF가 정확도 "차이 없음"(방향은 나음)에 energy 0.79 / 0.77배로 현재 후보 중 유일하게 Spikformer(DE)보다 energy가 낮다. 다만 사전 규칙은 두 neuron을 함께 보므로 이것만으로 채택하지 않는다. 구조 결정은 사용자에게 맡긴다.
+
+### Git
+
+- 이 항목, 결과, 순서 평가 script와 launcher를 하나의 commit으로 묶고 tag `exp/nsmt-flif-neo-20261121-nc`를 단다(이 commit은 tag로 가리킨다). `exp/nsmt-flif-neo`와 그 tag만 push 한다.
