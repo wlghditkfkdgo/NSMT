@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# MODI 2026-11-20 (user decision 11-20 "Positional encoding을 OFF하는 것을 default로 하자"): the default is now PE=0 -- no
+#   relative position bias ('--ssa_pe 0', run folder suffix _nope). PE=1 restores the bias: the command line of the runs before
+#   11-20 exactly. RESULT always carries pe=0 / pe=1. Any other value stops before python.
 # MODI 2026-11-19 (positional encoding off, user request 11-19): env PE=0 appends '--ssa_pe 0' (no relative position bias in the
 #   attention; the run folder gets the suffix _nope) and RESULT gains pe=0. Unset: command line and RESULT unchanged. Only 0 is accepted.
 # MODI 2026-11-19 (overfitting test): env WD = weight decay (--weight_decay, unset = 0.06 as before) and DROP = head dropout
@@ -60,7 +63,9 @@ case $DS in                       # patch emb heads mlp M lr bs epochs   (run_et
   *) echo "bad dataset $DS"; exit 1 ;;
 esac
 E=${EPOCHS:-$E}; P=${PATIENCE:-10}; SEQ=${SEQ:-96}
-if [ -n "${PE:-}" ] && [ "$PE" != 0 ]; then echo "PE: only 0 is accepted (unset = relative position bias on)"; exit 1; fi
+PE=${PE:-0}                             # MODI 2026-11-20: default = no relative position bias (user decision 11-20)
+if [ "$PE" != 0 ] && [ "$PE" != 1 ]; then echo "PE: 0 (default, no relative position bias) or 1 (bias on, as before 11-20)"; exit 1; fi
+PEF=""; [ "$PE" = 0 ] && PEF="--ssa_pe 0"
 SUITE=${SUITE:-flif-v1-gen-ett-$(date +%Y%m%d)}
 RES=${RES:-$W/results/$SUITE}; LOG=${LOG:-$W/log/$SUITE}
 mkdir -p "$RES" "$LOG"; RES="$(cd "$RES" && pwd)"; LOG="$(cd "$LOG" && pwd)"
@@ -70,7 +75,7 @@ OUT=$LOG/ett_${DS}_p${PL}_${COND}_seed${S}_${TS}_${SHA}.stdout; t0=$(date +%s)
   --log_dir "$LOG/$DS/p$PL" --seed $S -s -nd 0 --gating attn --no-bias --scheduler reduce -e $E --warm_up_epoch 0 \
   --layers 1 --tau 2.0 --weight_decay ${WD:-0.06} --patience $P \
   --data $DS --data_path $DS.csv --root_path "$W/dataset/ETT-small" --seq_len $SEQ --pred_len $PL --features M --target OT \
-  $HP $CF ${LR:+-lr $LR} ${DROP:+--head_dropout $DROP} ${PE:+--ssa_pe $PE} --tag $COND seed$S > "$OUT" 2>&1)
+  $HP $CF ${LR:+-lr $LR} ${DROP:+--head_dropout $DROP} $PEF --tag $COND seed$S > "$OUT" 2>&1)
 RC=$?
 D=$(ls -td "$LOG/$DS/p$PL"/*/*"+${COND}+seed${S}+"*"+epoch+${E}+${LR:+lr+$LR+}"*/seed${S}_* 2>/dev/null | head -1)
 CSV="$D/log/final+result.csv"; LCSV="$D/log/last/final+result.csv"
@@ -85,4 +90,4 @@ EOF
 [ -z "$VALS" ] && { echo "SKIP(result parse failed) ds=$DS pl=$PL cond=$COND seed=$S out=$OUT" | tee -a "$RES/raw.txt"; exit 1; }
 BE=$(cat "$D/log/best_epoch.txt" 2>/dev/null | tr ' ' ':')
 PAR=$(grep -a 'number of parameters' "$OUT" | grep -oE 'parameters : [0-9]+' | grep -oE '[0-9]+'); t1=$(date +%s)
-echo "RESULT exp=nsmt_flif_v1_gen_ett ds=$DS pl=$PL cond=$COND seed=$S $VALS best_epoch_val_epochs=$BE params=$PAR time_s=$((t1-t0)) seq_len=$SEQ${LR:+ lr=$LR}${WD:+ wd=$WD}${DROP:+ drop=$DROP}${PE:+ pe=$PE} sha=$SHA dir=$D" | tee -a "$RES/raw.txt"
+echo "RESULT exp=nsmt_flif_v1_gen_ett ds=$DS pl=$PL cond=$COND seed=$S $VALS best_epoch_val_epochs=$BE params=$PAR time_s=$((t1-t0)) seq_len=$SEQ${LR:+ lr=$LR}${WD:+ wd=$WD}${DROP:+ drop=$DROP} pe=$PE sha=$SHA dir=$D" | tee -a "$RES/raw.txt"

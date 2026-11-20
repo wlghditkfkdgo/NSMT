@@ -10037,3 +10037,96 @@ Spikformer식보다 "좋음"인 변형은 없다.
 **commit / tag:** 이 항목과 결과 파일을 commit 하고 tag `exp/nsmt-flif-neo-20261119-nope`를 붙인다(이 항목은 자기 commit을 tag로 가리킨다).
 
 ---
+
+## 2026-11-20 13:02 KST — 사용자 결정 기록 + 사전 고정 (학습 없음): (1) relative position bias 끔을 기본값으로 바꿈(실행 스크립트 3개; 명령줄 점검 33/33). (2) 저장된 model의 token 순서를 row마다 무작위로 섞어 test 하는 평가를 ETT(72 run)와 MIT-BIH(18 run)에 한다(사용자 요청 11-20). smoke 4/4 점검 통과
+
+**직전 commit:** `022f66941` (positional encoding 끔 결과, tag `exp/nsmt-flif-neo-20261119-nope`). branch `exp/nsmt-flif-neo`.
+
+**사용자 메시지 (11-20, 원문 중 해당 부분):**
+1. "Positional encoding을 OFF하는 것을 default로 하자."
+2. "순서 섞는 실험을 ETT예측에 대해서 해야하는 것 아니야? - 순열로 섞는게 아니라 "무작위로" 섞는 실험으로 해줘."
+
+### (1) 사용자 결정: relative position bias 끔이 기본값
+
+- **바꾼 것:** `forecasting/scripts/run_ett_dual.sh`, `forecasting/scripts/run_ett_mixer.sh`, `classification/scripts/run_mitbih4.sh`.
+  - env `PE`의 기본값이 0이다. 안 주면 `--ssa_pe 0`이 붙고 run 폴더에 `_nope`가 붙는다.
+  - `PE=1`이면 bias를 켠다. 명령줄은 11-20 이전의 기본 명령줄과 같다(`--ssa_pe`를 붙이지 않음).
+  - 0과 1이 아닌 값은 python을 부르기 전에 rc 1로 멈춘다.
+  - RESULT 줄에 항상 `pe=0` 또는 `pe=1`이 붙는다(이전에는 PE를 줄 때만).
+- **안 바꾼 것:**
+  - python 쪽 기본값(`config.py`의 `--ssa_pe` 기본 1)은 그대로다. 저장된 run 설정으로 model을 다시 만드는 점검 script들이 이 기본값에 기대므로 건드리지 않는다. 실행 스크립트를 거치지 않고 직접 python을 부르면 bias가 켜진다.
+  - CinC 실행 스크립트(`run_rhythm*.sh`)는 그대로다. CinC는 주 결과가 아니고, 그 스크립트들에는 `spk_ssa_nope` 조건만 따로 있다.
+  - 이미 있는 run과 기록은 그대로다. 11-19 이전 결과는 모두 bias 켬 조건의 결과다.
+- **앞으로의 비교 기준:** 같은 학습 설정이면 bias 끈 suite(`flif-v1-ett-nope`, `flif-v1-mitbih-nope`; sha `96fb4dc2a`)가 기준 run이다. 그 비교 결과(기준 − Spikformer(DE): ETT −0.07 / +0.02 %, MIT-BIH +0.24 / +0.14 %p, 차이 없음)가 출발점이다.
+- **점검 (가짜 python으로 명령줄 비교, scratchpad `pedef/harness.sh`):** 고치기 전 사본과 고친 뒤를 10가지 경우로 비교했다(ETT dual 3, mixer 4(LR / DROP / WD를 준 경우 포함), MIT-BIH 3).
+  - 고친 뒤 PE 안 줌 = 고치기 전 `PE=0`: 10/10 같다.
+  - 고친 뒤 `PE=1` = 고치기 전 PE 안 줌: 10/10 같고, `--ssa_pe`가 붙지 않는다.
+  - `PE=2`: 10/10이 rc 1로 멈추고 python을 부르지 않는다.
+  - RESULT echo 줄: 세 스크립트 모두 항상 `pe=$PE`(3/3).
+  - 모두 33/33 통과. 처음 돌렸을 때 2개가 실패했는데, 내 시험 목록이 `spkall_lif`를 dual 스크립트로 불렀기 때문이다(이 조건은 mixer 스크립트에 있음). 목록을 고친 뒤 통과했다. 스크립트 문제는 아니었다.
+
+### (2) 사전 고정: 무작위 token 순서 평가
+
+**질문:**
+1. ETT에서 기준 model의 body(attention + Neocortex)는 token 순서를 쓰는가. bias를 끈 model이 주 대상이다(새 기본값).
+2. 그중 얼마가 Neocortex를 거치는가.
+3. 어제 MIT-BIH 측정(고정된 순열 하나)이 무작위 순서에서도 같은가.
+
+**대상 (학습 없음):**
+- 저장된 run: bias 켬 `flif-v1-ett-sde` / `flif-v1-mitbih-sde`(sha `11c83b385`), bias 끔 `flif-v1-ett-nope` / `flif-v1-mitbih-nope`(sha `96fb4dc2a`).
+- model: Spikformer(DE) `spkall_lif`, 기준 `nsmt4q_pop_lif_msn_sde` / `nsmt4q_pop_flif_msn_sde`.
+- ETT 4칸 × seed 3 × 3 model × 2(켬 / 끔) = 72 run, MIT-BIH seed 3 × 3 × 2 = 18 run.
+- weight는 test에 쓴 것이다: ETT `checkpoint.pth`(best validation), MIT-BIH `best+model.pt`(마지막 epoch).
+
+**"무작위로" 섞는 방법:**
+- 어제는 순열 하나(`default_rng(0).permutation(N)`)를 모든 sample에 똑같이 썼다.
+- 이번에는 batch의 row마다 새 순서를 뽑는다. ETT는 한 window의 한 channel이 row 하나다(B × 7 row; 7개 변수는 원래 따로 처리됨). MIT-BIH는 beat 하나가 row 하나다.
+- 순서는 `torch.argsort(torch.rand(row 수, N))`로 뽑는다. 반복 r(0–4, R = 5)마다 CPU generator seed 1000 + r을 쓴다.
+- test loader는 섞지 않으므로, 같은 반복에서는 모든 변형과 모든 model이 같은 순서들을 받는다.
+
+**변형:**
+- **정상:** 원래 순서. 기록된 test 값을 재현해야 진행한다(ETT MSE와 MAE 차이 ≤ 2e-6, MIT-BIH macro-F1 ≤ 1e-6).
+- **body:** Hippocampus 입력 [T_h, B', N, P]와 Neocortex 입력 [N, B', 1, P]의 token을 같은 무작위 순서로 섞는다. Hippocampus 출력 [T_h, B', N, D]는 head에 들어가기 전에 원래 자리로 되돌린다. head는 token을 제자리에서 읽으므로, 이 변형은 body가 순서를 쓰는 정도만 잰다.
+- **neo (기준 model만):** model에 있던 Neocortex 순서 대조(`neo_shuffle`)에 이 무작위 순서를 넣는다. Neocortex만 섞인 순서로 읽고 출력은 원래 자리로 돌아간다. Hippocampus는 원래 순서다.
+- **all (참고):** body와 같지만 되돌리지 않는다. ETT는 flat head가 token을 엉뚱한 자리에서 읽게 된다. MIT-BIH는 head가 token 평균을 읽으므로 body와 같아야 한다.
+
+**점검 (fail-closed, 하나라도 실패하면 멈춤):**
+- 정상 순서가 기록을 재현한다.
+- 켬 / 끔이 run과 맞다(끔: RESULT `pe=0`, 폴더 `_nope`, 설정 `ssa_pe 0`; 켬: 셋 다 없음).
+- bias 없는 Spikformer(DE)는 body에서 순서를 못 본다. ETT는 반복마다 |MSE 비 − 1| ≤ 1e-4, MIT-BIH는 예측이 모두 같다.
+- bias 없는 기준 model은 body = neo다(남은 순서 통로가 Neocortex뿐이므로). ETT |MSE 비 − 1| ≤ 1e-4, MIT-BIH 예측 99.99 % 이상 같음.
+- MIT-BIH all = body(예측 99.99 % 이상 같음).
+- 변형 뒤에 정상 값이 그대로 돌아온다. 모든 값이 유한하다. 줄이 빠지거나 겹치지 않는다(ETT 72, MIT-BIH 18, 반복 5).
+- 허용 오차를 두는 이유: token 순서가 바뀌면 attention 안의 덧셈 순서가 바뀌어 float 반올림이 달라질 수 있다.
+
+**smoke (R = 1, bias 끔 seed 42; 점검과 시간만 출력, 값은 보지 않음):** ETT ETTh2 H96 기준 pop LIF 12.7 s, Spikformer(DE) 4.0 s; MIT-BIH 기준 pop LIF 19.6 s, Spikformer(DE) 8.7 s. 4/4 점검 통과.
+
+**보고 (서술; 성능 판정이 아님):**
+- ETT: r = 섞은 test MSE / 정상 test MSE − 1(%). run마다 R번 평균, model × bias마다 12 run의 평균, 최솟값–최댓값, r > 0인 run 수. 칸별 표도 낸다.
+- MIT-BIH: 하락 = 섞은 macro-F1 − 정상(%p), seed별, 그리고 예측이 바뀐 beat 비율.
+
+**읽는 법 (미리 정함):**
+- "body가 순서를 쓴다" = body r의 평균 ≥ +0.5 %이고 12 run 중 10개 이상에서 r > 0. 아니면 "거의 안 쓴다".
+- 섞었을 때의 손해는 model이 순서에 **기대는 정도**다. 순서가 주는 **이득**이 아니다. 이득은 다시 학습해서 비교한 값(11-19 N2: 차이 없음)이 말한다.
+- ETT에서 기준 model이 순서를 많이 쓰는데도 N2가 "차이 없음"이면: ETT에서는 flat head가 위치를 이미 알려 주므로, Neocortex의 순서 정보가 다른 model이 head에서 얻는 것을 대신할 뿐이라는 해석이 가능하다(추론).
+
+**사전 예상:**
+- ETT body, bias 끔: Spikformer(DE) 0(점검). 기준 model은 평균 +0.3 ~ +2 %, 12 run 중 9개 이상에서 r > 0. 근거: spikingjelly 기준에서 시험 때 Neocortex를 0으로 만들어도 MSE가 −0.07 / +0.84 %만 변했다(11-19 (가) 항목의 진단, aux 끔). 다만 무작위 순서는 0보다 더 헷갈리는 입력이라 손해가 더 클 수 있다.
+- ETT body, bias 켬: Spikformer(DE)는 |r| < 0.5 %(학습된 bias가 평균 |b| 0.015–0.018로 작음). 기준 model은 끈 쪽과 비슷하거나 조금 작다.
+- ETT neo, bias 켬: body보다 작다.
+- ETT all: 모든 model이 +20 % 이상(head가 위치를 읽음).
+- MIT-BIH: 어제 고정 순열 결과와 같은 모양. bias 끔 Spikformer(DE) 0, 기준 model −5 ~ −10 %p. bias 켬은 모든 model이 −12 ~ −22 %p. bias 켬 기준의 neo는 −2 ~ −6 %p.
+
+**실행:** classification 폴더에서 GPU마다 process 하나.
+- ETT: `CUDA_VISIBLE_DEVICES=g python order_eval_rand.py --task ett --shard g/4` (g = 0–3).
+- MIT-BIH: `CUDA_VISIBLE_DEVICES=0 python order_eval_rand.py --task mb --shard 0/1`.
+- 다 끝나면 `python order_eval_rand.py --summarize` → `results/flif-v1-order-rand.{json,md}`, 결과 기록, tag `exp/nsmt-flif-neo-20261120-orderrand`, push.
+- 환경: `/home/yschoi/.conda/envs/snn_recall/bin/python`, `LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib`. 다른 대화(`wt-flif-pop-v3`)의 작업이 같은 GPU에서 돌고 있다(건드리지 않음).
+
+**새 파일:** `classification/order_eval_rand.py`.
+
+**한계 (미리 적음):** 학습 없이 저장된 model을 잰다. seed 3개, 반복 5회다. ETT는 입력 96, 4칸만 본다. "기대는 정도"는 이득과 다르다.
+
+**commit:** 이 항목, 실행 스크립트 3개, `order_eval_rand.py`를 commit 하고 `exp/nsmt-flif-neo`만 push 한 뒤 평가를 시작한다.
+
+---
