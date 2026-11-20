@@ -10732,3 +10732,54 @@ ETT는 test MSE 비율 r = A / B − 1(%), 12쌍. MIT-BIH는 macro-F1 차이 d(%
 ### Git
 
 - 이 항목과 결과 파일을 하나의 commit으로 묶는다. 끝난 날짜가 11-21이므로 tag는 `exp/nsmt-flif-neo-20261121-r1`이다(사전 고정 항목의 규칙: 날짜가 바뀌면 끝난 날짜). 이 항목이 든 commit은 tag로 식별한다.
+
+## 2026-11-21 01:27 KST — 실행 스크립트 기본값 변경: hyperparameter 범위 1 채택 (사전 규칙 적용, 학습 없음)
+
+### 목적
+
+- 01:21 항목에서 범위 1이 사전 채택 규칙을 통과했다(R1 "나쁨" 없음). 사전 고정 항목대로 실행 스크립트의 기본값을 바꾸는 일을 따로 commit 한다. 이전 명령줄은 env로 그대로 되살릴 수 있다.
+- branch `exp/nsmt-flif-neo`, base commit `6b91bc2a3`(tag `exp/nsmt-flif-neo-20261121-r1`).
+
+### 바꾼 것 (`.py`는 바꾸지 않음)
+
+| 실행 스크립트 | 새 기본값 | 이전 명령줄을 되살리는 env | RESULT |
+|---|---|---|---|
+| `forecasting/scripts/run_ett_dual.sh` | WDX=1(`--wd_exclude_1d 1`), VPE=4(`--val_per_epoch 4`) | `WDX=0 VPE=1` (11-20 이전은 여기에 `PE=1`) | 항상 `wdx=` / `vpe=`를 적는다 |
+| `forecasting/scripts/run_ett_mixer.sh` | 위와 같음 | 위와 같음 | 위와 같음 |
+| `classification/scripts/run_mitbih4.sh` | WDX=1(`--wd_exclude_1d 1`, 폴더 tag와 run 폴더에 `_wdx`) | `WDX=0` (11-20 이전은 여기에 `PE=1`) | 항상 `wdx=`를 적는다. VPE는 ETT 전용이라 주면 멈춘다 |
+
+- WDX는 0 / 1만, VPE는 1–9만 받는다. 다른 값은 python을 부르기 전에 멈춘다.
+- MIT-BIH의 폴더 tag는 이전에 `${WDX:+_wdx}`였다. 기본값이 생기면 WDX=0에도 `_wdx`가 붙게 되므로, WDX=1일 때만 붙도록 바꿨다.
+- 다시 돌리면 결과가 바뀌는 것: 저장소의 이전 대기열 생성 script(`classification/scripts/make_queue_*.sh`, `forecasting/scripts/make_queue_gen.sh`)와 단계 선택 script(`select_lrlong.py`, `select_of.py`)는 env를 주지 않으므로 이제 새 학습 조건으로 돈다. 이전 결과를 다시 만들려면 `WDX=0 VPE=1`(MIT-BIH는 `WDX=0`)과, 11-20 이전 run이면 `PE=1`을 붙인다.
+- python의 argparse 기본값(`--wd_exclude_1d 0`, `--val_per_epoch 1`)은 그대로다. 실행 스크립트를 거치지 않는 호출은 이전과 같다.
+
+### 점검
+
+- **명령줄 점검(가짜 python이 인자를 기록), 30/30 통과:** 고친 실행 스크립트와, 고치기 전에 scratchpad에 복사해 둔 실행 스크립트를 비교했다.
+  - 새 기본값 = 이전 스크립트 + `WDX=1 VPE=4`(ETT) / `WDX=1`(MIT-BIH): 6/6.
+  - `WDX=0 VPE=1` / `WDX=0` = 이전 스크립트의 기본값: 6/6. `PE=1`을 함께 준 경우 = 이전 스크립트 + `PE=1`: 3/3.
+  - 섞인 경우(`WDX=0` = 이전 + `VPE=4`, `VPE=1` = 이전 + `WDX=1`, `VPE=2` = 이전 + `WDX=1 VPE=2`): 3/3. `AUXS`를 준 `_auxf` 조건(ETT, MIT-BIH, `WDX=0 AUXS=-2`): 3/3.
+  - 잘못된 값(WDX=2 / yes / −1, VPE=0 / 10 / x, MIT-BIH VPE=4 / 1, MIT-BIH WDX=2)은 python을 부르기 전에 멈춤: 9/9.
+  - 비교가 자명하지 않음을 확인했다. 새 스크립트의 `WDX=0`는 이전 스크립트라면 멈추는 값이므로, 두 쪽이 뒤바뀌었다면 실패했을 것이다(11-20 harness 실수의 재발 방지).
+- **실제 학습 smoke 4개, 모두 기준값을 비트 단위(소수 6자리)로 재현:**
+
+| smoke | 결과 | 기준 (같은 설정의 이전 smoke) | RESULT와 폴더 |
+|---|---|---|---|
+| ETT 새 기본값, Spikformer(DE), ETTh2 H96 seed 42, 2 epoch | test MSE 0.287915, best `1:0.311735:2:100/133` | 범위 1 flag smoke(WDX=1 VPE=4): 같음 | `wdx=1 vpe=4`, 폴더 `_wdx_vpe4` |
+| ETT `WDX=0 VPE=1`, 기준 pop LIF, ETTh2 H96 seed 42, 1 epoch | test MSE 0.289104, best `0:0.313469:1` | 범위 1 구현 전 기본 smoke: 같음 | `wdx=0 vpe=1`, 접미사 없음 |
+| MIT-BIH 새 기본값, Spikformer(DE), seed 42, 1 epoch | macro-F1 0.729736 | 범위 1 flag smoke(WDX=1): 같음 | `wdx=1`, tag와 폴더 `_wdx` |
+| MIT-BIH `WDX=0`, 기준 pop f-LIF, seed 42, 1 epoch | macro-F1 0.651742 | 범위 1 구현 전 기본 smoke: 같음 | `wdx=0`, 접미사 없음 |
+
+- smoke와 harness는 scratchpad에서 돌렸다(결과 폴더는 저장소 밖). 명령: `PY=<snn_recall python> EPOCHS=<1|2> [WDX=0 VPE=1] COND=<cond> RES=<scratchpad> LOG=<scratchpad> bash nsmt_flif_v1/forecasting/scripts/run_ett_<mixer|dual>.sh ETTh2 96 42 <gpu>`, MIT-BIH는 `run_mitbih4.sh 42 <gpu>`.
+
+### 한계
+
+- harness는 명령줄만 본다. 실제 학습 경로는 smoke 4개로만 확인했다(Spikformer(DE)와 기준 model 각 1개씩, 과제당 2개).
+
+### not run
+
+- 학습 run 없음. 4-2 (가) + (나)는 이 기본값으로 다음 항목에서 사전 고정한다.
+
+### Git
+
+- 이 항목과 실행 스크립트 3개를 하나의 commit으로 묶어 push 한다. tag는 달지 않는다(학습 결과가 없는 설정 변경).

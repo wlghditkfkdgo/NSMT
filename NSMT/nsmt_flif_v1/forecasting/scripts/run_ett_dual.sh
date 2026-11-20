@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# MODI 2026-11-21 (hyperparameter range 1 adopted by its pre-registered rule; docs/MODI_PROJECT_LOG.md 2026-11-21 01:21 KST): the
+#   defaults are now WDX=1 (--wd_exclude_1d 1) and VPE=4 (--val_per_epoch 4). WDX=0 VPE=1 restores the command line of the runs
+#   before 11-21 exactly (add PE=1 for the one before 11-20). RESULT always carries wdx= / vpe=. Any other value stops before python.
 # MODI 2026-11-20 (hyperparameter range 1): env WDX=1 appends --wd_exclude_1d 1 (no weight decay on the BatchNorm
 #   weights / biases), VPE=K (2-9) appends --val_per_epoch K (K validations per epoch for the best checkpoint / early stopping);
 #   the run folder gains _wdx / _vpe<K>, RESULT gains wdx= / vpe=. Unset: unchanged.
@@ -133,9 +136,10 @@ E=${EPOCHS:-$E}; P=${PATIENCE:-10}; SEQ=${SEQ:-96}
 PE=${PE:-0}                             # MODI 2026-11-20: default = no relative position bias (user decision 11-20)
 if [ "$PE" != 0 ] && [ "$PE" != 1 ]; then echo "PE: 0 (default, no relative position bias) or 1 (bias on, as before 11-20)"; exit 1; fi
 PEF=""; [ "$PE" = 0 ] && PEF="--ssa_pe 0"
-R1F=""                                  # MODI 2026-11-20 (hyperparameter range 1): unset = unchanged
-if [ -n "${WDX:-}" ]; then [ "$WDX" = 1 ] || { echo "WDX: 1 (BN / bias without weight decay) or unset"; exit 1; }; R1F="--wd_exclude_1d 1"; fi
-if [ -n "${VPE:-}" ]; then [[ $VPE =~ ^[2-9]$ ]] || { echo "VPE: validations per epoch, 2-9, or unset"; exit 1; }; R1F="$R1F --val_per_epoch $VPE"; fi
+WDX=${WDX:-1}; VPE=${VPE:-4}            # MODI 2026-11-21: default = hyperparameter range 1 (adopted); WDX=0 VPE=1 = before 11-21
+if [ "$WDX" != 0 ] && [ "$WDX" != 1 ]; then echo "WDX: 1 (default, BN / bias without weight decay) or 0 (as before 11-21)"; exit 1; fi
+[[ $VPE =~ ^[1-9]$ ]] || { echo "VPE: validations per epoch, 4 (default), 1 (as before 11-21) or 2-9"; exit 1; }
+R1F=""; [ "$WDX" = 1 ] && R1F="--wd_exclude_1d 1"; [ "$VPE" != 1 ] && R1F="$R1F --val_per_epoch $VPE"
 AUXS=${AUXS:-}                          # MODI 2026-11-20 (aux-target memory check): unset = unchanged
 if [ -n "$AUXS" ]; then
   [[ $AUXS =~ ^-?[1-9][0-9]*$ ]] || { echo "AUXS: a nonzero integer (unset = the token itself)"; exit 1; }
@@ -165,4 +169,4 @@ EOF
 [ -z "$VALS" ] && { echo "SKIP(result parse failed) ds=$DS pl=$PL cond=$COND seed=$S out=$OUT" | tee -a "$RES/raw.txt"; exit 1; }
 BE=$(cat "$D/log/best_epoch.txt" 2>/dev/null | tr ' ' ':')
 PAR=$(grep -a 'number of parameters' "$OUT" | grep -oE 'parameters : [0-9]+' | grep -oE '[0-9]+'); t1=$(date +%s)
-echo "RESULT exp=nsmt_flif_v1_ett_dual ds=$DS pl=$PL cond=$COND seed=$S $VALS best_epoch_val_epochs=$BE params=$PAR time_s=$((t1-t0)) seq_len=$SEQ${LR:+ lr=$LR}${WD:+ wd=$WD}${DROP:+ drop=$DROP}${WDX:+ wdx=$WDX}${VPE:+ vpe=$VPE}${AUXS:+ auxs=$AUXS} pe=$PE sha=$SHA dir=$D" | tee -a "$RES/raw.txt"
+echo "RESULT exp=nsmt_flif_v1_ett_dual ds=$DS pl=$PL cond=$COND seed=$S $VALS best_epoch_val_epochs=$BE params=$PAR time_s=$((t1-t0)) seq_len=$SEQ${LR:+ lr=$LR}${WD:+ wd=$WD}${DROP:+ drop=$DROP} wdx=$WDX vpe=$VPE${AUXS:+ auxs=$AUXS} pe=$PE sha=$SHA dir=$D" | tee -a "$RES/raw.txt"

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# MODI 2026-11-21 (hyperparameter range 1 adopted by its pre-registered rule; docs/MODI_PROJECT_LOG.md 2026-11-21 01:21 KST): the
+#   default is now WDX=1 (--wd_exclude_1d 1; folder tag and run folder _wdx). WDX=0 restores the command line of the runs before
+#   11-21 exactly (add PE=1 for the one before 11-20). RESULT always carries wdx=. VPE is ETT only (stops).
 # MODI 2026-11-20 (hyperparameter range 1): env WDX=1 appends --wd_exclude_1d 1 (no weight decay on the BatchNorm weights /
 #   biases); the folder tag gains _wdx, the run folder _wdx, RESULT wdx=. VPE is ETT only (stops). Unset: unchanged.
 # MODI 2026-11-20 (aux-target memory check, user decision 11-20): + nsmt4q_pop_<lif|flif>_msn_sde_{nomem,nshuf}_auxf = the _sde_auxf model
@@ -138,8 +141,9 @@ LAYERS=${LAYERS:-1}
 PE=${PE:-0}                             # MODI 2026-11-20: default = no relative position bias (user decision 11-20)
 if [ "$PE" != 0 ] && [ "$PE" != 1 ]; then echo "PE: 0 (default, no relative position bias) or 1 (bias on, as before 11-20)"; exit 1; fi
 PEF=""; [ "$PE" = 0 ] && PEF="--ssa_pe 0"
-R1F=""                                  # MODI 2026-11-20 (hyperparameter range 1): unset = unchanged
-if [ -n "${WDX:-}" ]; then [ "$WDX" = 1 ] || { echo "WDX: 1 (BN / bias without weight decay) or unset"; exit 1; }; R1F="--wd_exclude_1d 1"; fi
+WDX=${WDX:-1}                           # MODI 2026-11-21: default = hyperparameter range 1 (adopted); WDX=0 = before 11-21
+if [ "$WDX" != 0 ] && [ "$WDX" != 1 ]; then echo "WDX: 1 (default, BN / bias without weight decay) or 0 (as before 11-21)"; exit 1; fi
+R1F=""; WXT=""; [ "$WDX" = 1 ] && { R1F="--wd_exclude_1d 1"; WXT=_wdx; }
 if [ -n "${VPE:-}" ]; then echo "VPE: ETT only"; exit 1; fi
 AUXS=${AUXS:-}                          # MODI 2026-11-20 (aux-target memory check): unset = unchanged
 if [ -n "$AUXS" ]; then
@@ -149,7 +153,7 @@ fi
 SUITE=${SUITE:-flif-v1-mitbih-query-$(date +%Y%m%d)}
 EPOCHS=${EPOCHS:-30}
 LR=${LR:-0.01}; VAL=${VAL:-0}; VF=""; [ "$VAL" = 1 ] && VF="--mitbih_val"
-TG=${COND}_lr${LR}_v${VAL}${AUXS:+_s$AUXS}${WDX:+_wdx}
+TG=${COND}_lr${LR}_v${VAL}${AUXS:+_s$AUXS}$WXT
 RES=${RES:-$W/results/$SUITE}; LOG=${LOG:-$W/log/$SUITE}
 DATA=${DATA:-$R/nsmt_base/classification/ECG/data}          # 5class_mitbih_{train_7,test_3}_187.csv (local, not in Git)
 mkdir -p "$RES" "$LOG"
@@ -194,4 +198,4 @@ fi
 LRS=$(grep -aoE '^epoch +[0-9]+ \(lr=[0-9.e-]+\)' "$OUT" | grep -oE 'lr=[0-9.e-]+' | cut -d= -f2)
 EP=$(echo "$LRS" | grep -c .); LR_FINAL=$(echo "$LRS" | tail -1)
 PAR=$(grep -a 'number of parameters' "$OUT" | grep -oE '[0-9]+' | tail -1); t1=$(date +%s)
-echo "RESULT exp=nsmt_flif_v1_cls cond=$COND dataset=MITBIH seed=$S lr=$LR val=$VAL $VV $VALS epochs=$EPOCHS epochs_run=$EP lr_final=$LR_FINAL params=$PAR time_s=$((t1-t0)) pe=$PE${AUXS:+ auxs=$AUXS}${WDX:+ wdx=$WDX} sha=$SHA alpha=$ALPHA aux=$AUX dir=$D" | tee -a "$RES/raw.txt"
+echo "RESULT exp=nsmt_flif_v1_cls cond=$COND dataset=MITBIH seed=$S lr=$LR val=$VAL $VV $VALS epochs=$EPOCHS epochs_run=$EP lr_final=$LR_FINAL params=$PAR time_s=$((t1-t0)) pe=$PE${AUXS:+ auxs=$AUXS} wdx=$WDX sha=$SHA alpha=$ALPHA aux=$AUX dir=$D" | tee -a "$RES/raw.txt"
