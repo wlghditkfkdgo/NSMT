@@ -15844,3 +15844,130 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
   - (다) 쓸 설정으로 나머지 ETT 칸을 채운다. 사용자 결정 12를 바꾸는 일이다.
 
 **commit:** 이 기록을 `exp/f-lif-pop-v3`에 commit · push한다(학습 없음, 새 파일 없음).
+
+## 2026-11-23 22:37 KST — 사용자 질문 답 + (나) 결과(학습 없음): "우리 규칙"은 syops 원본 + f-LIF 논문 neuron 항이다. NSMT Table 6의 SpikF · NSMT energy도 실제로는 syops 원본으로 센 값이었다. 같은 규칙으로 첫 튜닝 model은 H720에서 NSMT의 0.47배, SpikF의 약 2 %다
+
+**사용자 요청(원문, 11-23):** "1. (가) 실행 2. (나)에서 '우리 규칙'이 뭐야? 현재 synops 라이브러리를 그대로 따르고 있지 않아? 3. 우선 (가)와 (나)를 완료하고 (다)에 대해서 논의하자."
+
+**branch / base:** `exp/f-lif-pop-v3`, base `6f40f62df`.
+
+### 질문 2: "우리 규칙"이란(code로 확인)
+- **syops 원본이 세는 것**(설치본 syops 0.0.5, `ops.py`는 github 원본 HEAD `4232f77`과 같음):
+  - nn module(Linear · Conv · BN · pooling)의 입력이 0/1이면 AC × 발화율로 센다. 0/1이 아니면 MAC으로 센다.
+  - spikingjelly LIF · IF neuron은 입력 원소 하나당 AC 1이다.
+  - nn module 밖의 연산(행렬곱 `matmul`, `fft`, 원소별 연산)은 세지 않는다.
+  - E_AC 0.9 pJ, E_MAC 4.6 pJ다. 입력 창 하나(7 channel 전체)당 평균이다.
+- **우리 code가 하는 것**(`train_forecast.final_test`):
+  - (a) syops를 그대로 쓴다. 우리 neuron class(`neurons.py` LIFNeuron · FLIFNeuron)는 syops가 모르는 class라서, syops 자신의 LIF hook(`LIF_syops_counter_hook`)을 `custom_modules_hooks`로 붙였다. syops가 spikingjelly LIF에 하는 것과 같은 방식이다.
+    - 이 값이 `syn_energy_uJ`다.
+    - spikingjelly `clock_driven` neuron은 syops가 먼저 import하는 class라 원래 센다.
+  - (b) 그 위에 **f-LIF 논문(Ge et al., ICLR 2026, 식 60)의 neuron 자체 energy를 더한다**(`energy.py`). syops 규칙이 아니다.
+    - `total_fft_uJ` = (a) + (b)이고, 지금까지 판정에 쓴 값이다.
+    - (b)는 전체의 7–27 %다. 첫 튜닝: ETTh2 H96 21.5 %, H720 7.1 %, ETTm2 H96 23.4 %, H720 8.3 %.
+- **(b)를 남긴 경위:** 11-19 17:34 기록에서 "syops 원본대로"를 적용할 때 (b)는 두 model에 똑같이 붙는다는 이유로 남겼다. 남길지는 사용자에게 물었고, 아직 답이 없다.
+- **내 실수(21:50 기록 정정):**
+  - 21:50 기록에서 NSMT Table 6의 energy를 "NSMT 식 (16)으로 센 다른 규칙"이라고 적었다. 확인해 보니 그 값들은 이 서버에서 syops 원본으로 센 값이다(아래).
+  - 그래서 우리 값과의 차이는 (b) 하나뿐이었다. "NSMT와의 0.5배는 규칙 차이 안일 수 있다"는 문장은 틀렸다. 같은 규칙으로 다시 센 값은 아래 표다.
+  - NSMT 논문 부록 C의 식 (16)은 Spiking MLP · memory replay · 첫 층 · head만 센다고 쓰여 있다. 실제 Table 6 숫자(syops로 model 전체를 셈)와 설명이 맞지 않는다. 새 논문에서 energy 방법을 쓸 때 참고할 점이다.
+
+### (나) 결과: 같은 규칙(syops 원본, (b) 없음)으로 센 energy(µJ, 입력 창 하나당; `results/energy-common-20261123/summary.md`)
+| model | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 | 4칸 평균 |
+|---|--:|--:|--:|--:|--:|
+| LIF SpkMixer 첫 튜닝 최종(patch 16) | 5.92 | 21.31 | 6.58 | 21.94 | 13.94 |
+| LIF SpkMixer 확장 최종(patch 24) | 4.50 | 14.76 | 32.44 | 73.32 | 31.26 |
+| SF-de patch 8(기준의 SF-de) | 10.11 | 40.92 | 10.77 | 41.43 | 25.81 |
+| NSMT(10-14 재현 run, seed 42) | 33.41 | 44.90 | 38.46 | 46.72 | 40.87 |
+| SpikF | 819.00* | 1050.47 | 818.66* | 1050.10 | 934.56 |
+
+| 첫 튜닝 / 상대(칸별) | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 | 평균 |
+|---|--:|--:|--:|--:|--:|
+| vs SF-de patch 8 | 0.585 | 0.521 | 0.611 | 0.530 | 0.562 |
+| vs NSMT | 0.177 | 0.475 | 0.171 | 0.470 | 0.323 |
+| vs SpikF | 0.007 | 0.020 | 0.008 | 0.021 | 0.014 |
+
+- **SpikF(`count_spikf.py`, `spikf_syops.csv`):** SpikF 공식 code의 local clone(`/home/yschoi/SpikF`, 읽기만 함)과 그 checkpoint를 썼다.
+  - H720: 학습된 checkpoint(`exp/run_ETT/SpikF_<ds>_ftM_sl96_pl720_lr0.0005_bs32`)를 엄격 로드했다.
+    - test MSE / MAE를 다시 계산하면 기록과 같다(ETTh2 0.412360 / 0.433131, ETTm2 0.402080 / 0.394294).
+    - syops energy 1050.4678 / 1050.1045 µJ는 기록(1050.47 / 1050.10)과 NSMT Table 6과 같다.
+    - 99.9 %가 MAC(4.6 pJ)다. 그중 80 %가 실수 입력을 받는 출력 층 두 개(dense1 · dense2)다.
+  - *H96: 입력 96 · 출력 96으로 학습된 SpikF는 ETTh2 · ETTm2에 없다. H720 checkpoint에 출력 층(dense2)만 96 크기로 바꿔(무작위 초기값) 셌다.
+    - syops는 dense2를 weight와 상관없이 MAC으로 센다. 그래서 MAC 수(energy의 99.9 %)는 정확하다.
+    - AC 부분(약 1.1 µJ)만 H720으로 학습된 앞단의 발화율에서 왔다. 정확도는 의미가 없어 적지 않는다.
+- **NSMT:** main tree `NSMT/nsmt_base/forecasting/log/ett-paper-check-20261014`(10-14 NSMT 재현, seed 42, 읽기만 함)의 `final+result.csv` energy 열이다.
+  - syops 원본, custom hook이 없다. H720 값은 Table 6과 같다(스크립트가 확인함).
+- **ours · SF-de:** seed 3개 평균의 `syn_energy_uJ`다(요약기 loader로 읽음). (b)를 더한 값과 그 비중은 `summary.md` 두 번째 표에 있다.
+- **세는 단위는 같다.** 네 model 모두 syops `get_model_complexity_info`에 test loader를 넣었다. 7 channel 입력 창 하나당 평균이다.
+
+**이 결과가 말하는 것 / 말하지 않는 것:**
+- 같은 library, 같은 단위, 같은 상수로 센 값이다. 첫 튜닝 model은 SpikF보다 수십 배 적고, NSMT의 약 절반(H720)이다.
+- syops가 세지 않는 연산(행렬곱, 원소별 연산 등)은 모든 model에서 빠져 있다. 어느 model에 더 유리한지는 따로 세지 않았다.
+  - SF-de의 attention 행렬곱이 여기에 들어간다.
+- NSMT는 seed 1개, SpikF는 checkpoint 1개다.
+- energy가 줄어든 큰 부분은 patch 16으로 head가 작아진 몫이다. SF-de patch 16 run(아래 (가))이 이것을 확인한다.
+
+### artifact
+`NSMT/cinc_mixer_v1/results/energy-common-20261123/`:
+- `count_spikf.{py,txt}`, `spikf_syops.csv`, `spikf_<ds>_H<pl>_model_info.txt`(syops 층별 출력)
+- `common_table.py`, `summary.md`
+
+## 2026-11-23 22:37 KST — 사전등록(본 학습 전): (가) SF-de를 patch 16으로(12 run) — 첫 튜닝 model과 같은 patch에서 Spikformer 비교
+
+**목적:** 사용자 요청 "(가) 실행"이다. 21:50 기록에서 "Spikformer(SF-de)보다 정확하고 저전력"이라는 주장은 약하다고 보았다. 이득 대부분이 SF-de에는 주지 않은 patch 16에서 왔기 때문이다. SF-de에도 같은 patch를 주어 비교를 공정하게 한다.
+
+**branch / base:** `exp/f-lif-pop-v3`, base `6f40f62df`. 이 기록의 commit이 학습 code다.
+
+### 설계
+- SF-de는 기준에 쓰는 그 model이다: `COND=spk_ssa NALL=lif`, lr ETTh2 5e-4 · ETTm2 1e-4(11-18 validation 선택), 층 ETTh2 1 · ETTm2 2.
+  - **patch만 8 → 16**이고, 나머지는 그대로다(d_model 64, MLP, block 1, weight decay 0.06, patience 10, 입력 96).
+  - 첫 튜닝 model의 weight decay 0.1 · ETTm2 MLP 2는 SF-de에 주지 않는다. 사용자가 고른 범위가 "patch 16으로"이고, 그 두 값은 validation 차이가 아주 작았다.
+- ETTh2 · ETTm2 × H96 · H720 × seed 42 / 7 / 2026 = **12 run**. suite는 `flif-v1-ett-sfde-pt16`이다.
+- **판정(`results/sfde-pt16-20261123/summarize_sfpt16.py`):**
+  - main: 첫 튜닝 최종 vs SF-de patch 16. ETT 규칙(test MSE, seed별 r, R = 4칸 평균; better = R ≤ −1 %이고 8/12 이상 낮음; worse = 반대)과 MAE R을 본다.
+  - energy A/B는 두 가지로 본다: syops + neuron 항(지금까지의 규칙), syops만.
+  - 보고: 확장 최종 vs SF-de patch 16, SF-de patch 16 vs patch 8, 첫 튜닝 vs SF-de patch 8.
+  - 통과 기준(NSMT DNN 5행)은 (2)를 두 가지 SF-de로 계산해 보고한다.
+    - 정의대로: SF-de patch 8.
+    - 만약 기준의 SF-de가 patch 16이라면: SF-de patch 16.
+    - 기준을 바꿀지는 사용자 결정이다.
+- 끝나면 `common_table.py`가 SF-de patch 16을 넣은 energy 표를 다시 만든다(`summary_with_pt16.md`).
+
+### code(이 commit)
+- `scripts/run_ett_spk.sh`: `COND=spk_ssa`도 `PATCH`를 받는다(tag `..._L<l>_pt16_nalif`). SF-de의 다른 손잡이(EMB · MLPR · BLOCKS · WD)는 계속 거절한다. PATCH가 없으면 학습 명령은 그대로다.
+- 새 `scripts/sfpt16_driver.sh`: queue 12줄 → pool → RESULT 12 · SKIP 0 확인 → `energy_recount_ett.py` → 요약 → energy 표 → `driver end`. 실패하면 멈춘다.
+- 새 `results/sfde-pt16-20261123/summarize_sfpt16.py`.
+  - 행 검사: tag · patch · lr · layers · emb · wd · blocks가 맞아야 한다.
+  - 재계산 MSE 1e-5, syops 몸통 + head 1e-3.
+  - 빠진 run · 중복 · SKIP · 비유한 값이 있으면 멈춘다.
+
+### 점검(모두 통과; `results/check-sfpt16-20261123/`)
+- **p0 runner**(`p0_runner_sf.{sh,txt}`, base `6f40f62df`): 24/24 PASS. 가짜 python이 학습 인자를 기록한다.
+  - A: 기존 경로 10가지(SF-de 4칸, SF-de SEQ 336, LIF 기본, 첫 튜닝 · 확장 설정, population)의 학습 인자가 고치기 전과 같다.
+  - B: SF-de PATCH=16은 기본 인자에서 `--patch_size` 8 → 16과 tag만 다르다. 고치기 전 runner는 이것을 거절했다.
+  - C: SF-de에 EMB · MLPR · BLOCKS · WD · PATCH 12를 주면 학습 전에 exit 1이다.
+- **smoke**(1 epoch, seed 42, suite `smoke-sfpt16-20261123`): 5 RESULT, SKIP 0.
+  - SF-de patch 16 네 칸 + patch 8 대조 한 칸이다. patch 8 대조의 parameter 수는 1,128,120으로 기존 SF-de H720과 같다.
+  - `energy_recount_ett.py`는 all checks passed다(재계산 MSE, head 이진 입력, syops 몸통 + head).
+  - 1 epoch energy(syops + neuron 항, µJ): SF-de patch 16은 7.71 / 23.12 / 8.04 / 23.45다. 첫 튜닝 최종(학습 끝)은 7.54 / 22.93 / 8.58 / 23.94다.
+  - parameter 수: SF-de patch 16 ETTh2 H96은 96,248이고, 첫 튜닝은 96,064다.
+- **dry run**(`check_dry_sf16.{py,txt}`): 12/12 PASS.
+  - SF-de patch 8 행에 patch 16 이름을 붙이면 SF-de 16 = SF-de 8이다(R 0, energy 1).
+  - main 비교가 11-20 값(R −1.02 %, 11/12, better, energy 0.5412, MAE −0.59 %)과 같다. 통과 판정은 21:01 기록과 같다.
+  - SKIP · 빠진 run · 중복 · 빠진 energy 행이 있으면 exit 2이고 요약을 쓰지 않는다.
+
+### 사전 예상(확신 중간)
+- energy: SF-de patch 16은 첫 튜닝 model과 거의 같을 것이다(smoke 1 epoch 비율 0.98–1.07). 지금의 "SF-de 대비 0.54배"는 거의 사라질 것이다.
+- 정확도: SF-de도 patch 16에서 좋아질 것이다(SpkMixer는 patch 16으로 약 −1.3 %). 첫 튜닝 vs SF-de patch 16은 **no clear difference**(|R| < 1 %)일 것이다.
+- 그렇다면 논문에서는 "Spikformer보다 낫다"가 아니라 "같은 patch에서 Spikformer와 비슷하다"가 된다.
+
+### 예상 시간(내 추정)
+- SF-de patch 8 run은 650–1,500 s였다. patch 16은 token이 반이라 더 짧을 것이다.
+- 12 run을 8칸으로 돌리면 약 20–40분이다.
+
+### 한계(미리 적음)
+- seed 3개다. lr은 patch 8에서 고른 값을 그대로 쓴다. 첫 튜닝 model도 lr은 patch 8 때 값이다.
+- 첫 튜닝 model은 patch 말고도 weight decay · MLP가 다르다(작은 차이).
+- syops가 세지 않는 attention 행렬곱은 SF-de energy에서 빠져 있다(위 기록).
+
+**실행:** 이 commit · push 뒤 NSMT/에서 `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/sfpt16_driver.sh > /dev/null 2>&1 &`로 시작한다.
+
+**commit:** 이 기록, 바로 앞 기록, 위 code · 점검 · smoke 결과(`smoke-sfpt16-20261123/{raw.txt, energy_recount.csv}`), energy 표를 `exp/f-lif-pop-v3`에 commit · push한다. smoke run 폴더, queue 파일, dry 폴더는 local로 둔다.

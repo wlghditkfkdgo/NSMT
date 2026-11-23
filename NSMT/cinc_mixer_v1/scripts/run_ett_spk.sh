@@ -17,6 +17,8 @@
 #         _blk<v> / _wd<v> to the tag; LIF SpkMixer conditions only (population models would need a gain table per shape)
 #         2026-11-20 extension (PROJECT_LOG, user decisions 11-20): also PATCH 24 | 32 and WD 0.005 | 0.02 | 0.05 (tags _pt24, _wd0.02, ...);
 #         every earlier value keeps the same training line and tag
+#         2026-11-23 fair-patch test (PROJECT_LOG, user request 11-23 "(가) 실행"): COND=spk_ssa (SF-de) also takes PATCH (tag _pt<v>
+#         before _nalif); its other knobs (EMB MLPR BLOCKS WD) stay refused; without PATCH the SF-de training line and tag are unchanged
 set -u
 DS=${1:?}; PL=${2:?}; S=${3:?}; GPU=${4:?}
 W="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # cinc_mixer_v1: model code, train_forecast.py, results/, log/
@@ -99,7 +101,10 @@ KTAG=""
 [ "$MLPR" != "$MLP0" ] && KTAG="${KTAG}_mlp$MLPR"
 [ "$BLOCKS" != 1 ] && KTAG="${KTAG}_blk$BLOCKS"
 [ "$WD" != 0.06 ] && KTAG="${KTAG}_wd$WD"
-[ -n "$KTAG" ] && case $COND in spkmx_lif_*) ;; *) echo "PATCH / EMB / MLPR / BLOCKS / WD: LIF SpkMixer conditions only"; exit 1 ;; esac
+[ -n "$KTAG" ] && case $COND in
+  spkmx_lif_*) ;;
+  spk_ssa) [ "$KTAG" = "_pt$PATCH" ] || { echo "spk_ssa: only PATCH may differ from its default (2026-11-23 fair-patch test)"; exit 1; } ;;
+  *) echo "PATCH / EMB / MLPR / BLOCKS / WD: LIF SpkMixer conditions only"; exit 1 ;; esac
 case $DS in
   ETTh2) HP="--patch_size $PATCH -emb $EMB -nh 8  --mlp_ratios $MLPR --time_layers $LAYERS -lr $LR -bs 64" ;;
   ETTm2) HP="--patch_size $PATCH -emb $EMB -nh 16 --mlp_ratios $MLPR   --time_layers $LAYERS -lr $LR -bs 64" ;;

@@ -1,0 +1,29 @@
+PASS A1 existing path, same argv (63 tokens): COND=spk_ssa NALL=lif LR=0.0005 LAYERS=1 -- ETTh2 96 42
+PASS A2 existing path, same argv (63 tokens): COND=spk_ssa NALL=lif LR=0.0005 LAYERS=1 -- ETTh2 720 7
+PASS A3 existing path, same argv (63 tokens): COND=spk_ssa NALL=lif LR=0.0001 LAYERS=2 -- ETTm2 96 2026
+PASS A4 existing path, same argv (63 tokens): COND=spk_ssa NALL=lif LR=0.0001 LAYERS=2 -- ETTm2 720 42
+PASS A5 existing path, same argv (63 tokens): COND=spk_ssa NALL=lif SEQ=336 LR=0.0005 LAYERS=1 -- ETTh2 96 42
+PASS A6 existing path, same argv (66 tokens): COND=spkmx_lif_muxlin_iand LR=0.0005 LAYERS=1 -- ETTh2 96 42
+PASS A7 existing path, same argv (66 tokens): COND=spkmx_lif_muxlin_iand LR=0.0005 LAYERS=1 PATCH=16 WD=0.1 -- ETTh2 720 7
+PASS A8 existing path, same argv (66 tokens): COND=spkmx_lif_muxlin_iand LR=0.0001 LAYERS=1 PATCH=16 MLPR=2 WD=0.1 -- ETTm2 96 2026
+PASS A9 existing path, same argv (66 tokens): COND=spkmx_lif_muxlin_iand LR=0.0001 LAYERS=1 PATCH=24 EMB=256 BLOCKS=2 WD=0.02 -- ETTm2 720 42
+PASS A10 existing path, same argv (72 tokens): COND=spkmx_pop_lif_muxlin_iand NSCOPE=mixer LR=0.0005 LAYERS=1 -- ETTh2 96 42
+ok
+PASS B ETTh2 H96 seed 42: SF-de PATCH=16 argv = default argv except --patch_size 16 and the tag _pt16_nalif
+PASS B ETTh2 H96: the base runner refused SF-de PATCH=16 (exit 1, no training call)
+ok
+PASS B ETTh2 H720 seed 7: SF-de PATCH=16 argv = default argv except --patch_size 16 and the tag _pt16_nalif
+PASS B ETTh2 H720: the base runner refused SF-de PATCH=16 (exit 1, no training call)
+ok
+PASS B ETTm2 H96 seed 2026: SF-de PATCH=16 argv = default argv except --patch_size 16 and the tag _pt16_nalif
+PASS B ETTm2 H96: the base runner refused SF-de PATCH=16 (exit 1, no training call)
+ok
+PASS B ETTm2 H720 seed 42: SF-de PATCH=16 argv = default argv except --patch_size 16 and the tag _pt16_nalif
+PASS B ETTm2 H720: the base runner refused SF-de PATCH=16 (exit 1, no training call)
+PASS C SF-de EMB=128: exit 1 before training (spk_ssa: only PATCH may differ from its default (2026-11-23 fair-patch test))
+PASS C SF-de MLPR=2: exit 1 before training (spk_ssa: only PATCH may differ from its default (2026-11-23 fair-patch test))
+PASS C SF-de BLOCKS=2: exit 1 before training (spk_ssa: only PATCH may differ from its default (2026-11-23 fair-patch test))
+PASS C SF-de WD=0.1: exit 1 before training (spk_ssa: only PATCH may differ from its default (2026-11-23 fair-patch test))
+PASS C SF-de PATCH=16 WD=0.1: exit 1 before training (spk_ssa: only PATCH may differ from its default (2026-11-23 fair-patch test))
+PASS C SF-de PATCH=12: exit 1 before training (bad PATCH 12 (4|8|16|24|32))
+24/24 PASS
