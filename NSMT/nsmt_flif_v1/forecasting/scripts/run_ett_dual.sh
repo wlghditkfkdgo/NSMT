@@ -4,6 +4,9 @@
 #   lr over the first W = round(WU x steps per epoch) optimizer steps; unset = none). When set, the folder tag becomes
 #   <COND>_b<BS>_w<WU> (so runs that differ only in BS / WU never share a folder), the run folder gains _wu<WU> and RESULT gains
 #   bs= / wu=. Unset: command line, folder and RESULT unchanged.
+# MODI 2026-11-23 (fix, same day): the stdout file name now carries BS / WU / LR (ett_..._<COND>_b<BS>_w<WU>_lr<LR>_seed...). Before,
+#   two concurrent runs of one model / cell / seed that differed only in these wrote the same stdout file (the first range-2 launch,
+#   stopped after 3 minutes). Unset: the name is unchanged.
 # MODI 2026-11-21 (4-2 coupling placement, user decision 11-20 "(가) + (나)"): + nsmt4q_pop_<lif|flif>_msn_sde_nc = the base with
 #   --neo_current 1 ((가): Neocortex output x learned per-channel alpha into the hippocampus embedding neuron's input current,
 #   attention kept) and nsmt4q_pop_<lif|flif>_msn_sde_ncna = + --hippo_attn 0 ((나): no hippocampus attention; the Neocortex is the
@@ -166,7 +169,7 @@ SUITE=${SUITE:-flif-v1-ett-dual-$(date +%Y%m%d)}
 RES=${RES:-$W/results/$SUITE}; LOG=${LOG:-$W/log/$SUITE}
 mkdir -p "$RES" "$LOG"; RES="$(cd "$RES" && pwd)"; LOG="$(cd "$LOG" && pwd)"
 SHA=$(cd "$R" && git rev-parse --short HEAD); TS=$(date +%Y%m%d)
-OUT=$LOG/ett_${DS}_p${PL}_${COND}_seed${S}_${TS}_${SHA}.stdout; t0=$(date +%s)
+OUT=$LOG/ett_${DS}_p${PL}_${COND}${TX}${LR:+_lr$LR}_seed${S}_${TS}_${SHA}.stdout; t0=$(date +%s)   # MODI 2026-11-23: + BS / WU / LR (runs that differ only in them wrote the same stdout file)
 (cd "$C" && CUDA_VISIBLE_DEVICES=$GPU OMP_NUM_THREADS=${THREADS:-4} $PY ./train_forecast.py \
   --log_dir "$LOG/$DS/p$PL" --seed $S -s -nd 0 --gating attn --no-bias --scheduler reduce -e $E --warm_up_epoch 0 \
   --layers 1 --tau 2.0 --weight_decay ${WD:-0.06} --patience $P \

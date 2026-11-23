@@ -11233,3 +11233,42 @@ ETT는 test MSE 비율 r = A / B − 1(%), 12쌍. MIT-BIH는 macro-F1 차이 d(%
 ### Git
 
 - 이 항목과 구현을 하나의 commit으로 묶어 `exp/nsmt-flif-neo`에 push 한 뒤 시작한다. 학습이 도는 동안에는 commit 하지 않는다(run이 기록하는 sha가 하나여야 한다).
+
+## 2026-11-23 22:41 KST — 정정 + 재시작 준비: 범위 2 첫 시작(22:37)을 3분 만에 멈췄다 — ETT run의 stdout 파일 이름에 lr / batch / warmup이 없어서 같은 model의 다른 조합 run들이 같은 stdout 파일에 겹쳐 썼다. 이름을 고치고 대기열 전체 점검을 더한 뒤 다시 시작한다
+
+**내 실수:** 22:37 항목의 구현에서 run 폴더는 조합마다 나눴지만(tag `<조건>_b<BS>_w<WU>`), stdout 파일 이름(`ett_<데이터>_p<H>_<조건>_seed<S>_<날짜>_<sha>.stdout`)은 그대로 뒀다. 점검도 폴더만 봤다.
+
+**무엇이 잘못됐나:**
+- 22:37:54에 driver가 시작됐고 worker 8개가 ETTm2 H720의 첫 8줄을 가져갔다. model 5개의 (lr 0.00025, batch 32, warmup 없음)과 3개의 (lr 0.00025, batch 32, warmup 1)이다.
+- stdout 파일은 5개뿐이었다. 같은 model의 두 조합이 한 파일에 썼다.
+- 실행 스크립트는 RESULT 줄의 parameter 수를 이 파일에서 읽는다. 두 run의 줄이 섞이면 RESULT 줄이 깨질 수 있었다. test 값 자체는 run 폴더에서 읽으므로 섞이지 않는다.
+- 시작 후 처음 진행 상황을 볼 때(약 3분 뒤) 파일 수가 run 수보다 적은 것을 보고 알았다. RESULT 줄은 하나도 나오지 않은 상태였다.
+
+**멈춤:** driver(PID 7600)의 자손 process 64개만 PID로 멈췄다. 같은 시각에 시작된 다른 대화의 pool(`cinc_mixer_v1`, worktree `wt-flif-pop-v3`)은 건드리지 않았고, 멈춘 뒤에도 돌고 있는 것을 확인했다.
+
+**남은 것 (지우지 않고 이름만 바꿈, 로컬):**
+- `forecasting/log/flif-v1-ett-r2s-aborted-20261123-2237/`(끝나지 않은 run 8개의 폴더와 섞인 stdout 5개).
+- `classification/results/flif-v1-r2-pool-aborted-20261123-2237.log`(START 8, DONE 0).
+- `raw.txt`는 만들어지지 않았다. 이 8 run의 결과는 어디에도 쓰지 않는다.
+
+**고친 것:**
+- `forecasting/scripts/run_ett_dual.sh`, `run_ett_mixer.sh`: stdout 이름이 `ett_<데이터>_p<H>_<조건>[_b<BS>][_w<WU>][_lr<LR>]_seed…`가 된다. 옵션을 주지 않으면 이름이 이전과 같다.
+- MIT-BIH 실행 스크립트는 stdout 이름에 이미 lr / batch / warmup이 들어간다(폴더 tag를 쓴다). 고치지 않았다.
+- `classification/check_r2.py`에 점검 e를 더했다: 찾기 대기열 430줄을 전부 가짜 python으로 실행해서 stdout 파일 430개와 run 폴더(log 폴더, tag, seed, lr) 430개가 서로 다른지 본다.
+
+**점검 (다시):**
+
+| 점검 | 결과 |
+|---|---|
+| 실행 스크립트 명령줄, 옵션 없을 때 | 고치기 전과 33/33 같음 |
+| `check_r2.py` (a–d 37개 + e 6개) | 43/43 |
+| e. 대기열 430줄 → 서로 다른 stdout 파일 / run 폴더 | 430 / 430 |
+| e. 옵션 없을 때 ETT stdout 이름 | 이전과 같음(두 스크립트) |
+
+- 학습 code(`train_forecast.py`, `train.py`, `config.py`, `utils.py`)와 `select_r2.py`는 22:37 항목 그대로다. 그래서 기본값 재현 smoke와 고르기 시험은 다시 돌리지 않았다.
+
+**설계와 판정 규칙은 22:37 항목 그대로다.** 바뀐 것은 stdout 파일 이름과 점검 하나다.
+
+**GPU:** 다시 시작하는 시점에 다른 대화의 pool이 GPU 4장을 GPU당 2개씩 쓰고 있다. 내 run까지 GPU당 4개가 된다. memory는 충분하다(내 run 최대 4.8 GB, 지금 GPU당 사용 3 GB). 속도는 느려진다.
+
+**Git:** 이 항목과 고친 스크립트, 점검을 하나의 commit으로 묶어 push 한 뒤 다시 시작한다. 새 run의 sha는 이 commit이다.

@@ -7,6 +7,9 @@
   c  utils.get_scheduler('cosine'): warmup_epochs=None gives the same lr sequence as the explicit int(0.2 * epochs) (30 epochs: 6);
      warmup_epochs=0 starts at the full lr; 6 starts at the warmup lr 1e-5 and reaches its cosine value at epoch 6.
   d  the runners stop before python on a bad BS / WU value (fake python: nothing recorded) and pass a good one on.
+  e  every line of the range-2 search queue (select_r2.search_queue, 430 lines) run with the fake python: 430 distinct stdout files and
+     430 distinct run folders (log dir, folder tag, lr), and the ETT stdout name without options is the old one. (The first launch
+     on 11-23 was stopped because ETT runs that differed only in lr / batch / warmup shared a stdout file.)
 usage (classification folder): python check_r2.py     -> exit 1 on any failure
 """
 import math
@@ -125,7 +128,38 @@ def d_runners():
         check(' -bs 512 ' in out and '--lr_warmup' not in out and ' --tag spkall_lif_lr0.01_v0_wdx seed42' in out, 'd: MIT-BIH defaults unchanged')
 
 
+def e_queue():
+    import re
+    import select_r2 as S
+    N = os.path.abspath(os.path.join(HERE, '..', '..'))
+    with tempfile.TemporaryDirectory() as td:
+        fake = os.path.join(td, 'bin', 'python'); os.makedirs(os.path.dirname(fake)); rec = os.path.join(td, 'rec.txt')
+        open(fake, 'w').write('#!/usr/bin/env bash\necho "$*" >> "$FAKE_OUT"\nexit 3\n'); os.chmod(fake, 0o755)
+
+        def run(ln):
+            toks = ln.split(); i = toks.index('bash')
+            env = dict(t.split('=', 1) for t in toks[:i])
+            raw = os.path.join(td, 'res', 'raw.txt')
+            for f in (rec, raw):
+                if os.path.exists(f):
+                    os.remove(f)
+            e = dict(os.environ, PY=fake, FAKE_OUT=rec, RES=os.path.join(td, 'res'), LOG=os.path.join(td, 'log'), **env)
+            subprocess.run(toks[i:] + ['0'], env=e, cwd=N, capture_output=True, text=True)
+            cmd = open(rec).read().split(); skip = open(raw).read()
+            out = re.search(r' out=(\S+)', skip).group(1)
+            lr = [cmd[j + 1] for j, t in enumerate(cmd) if t == '-lr'][-1]
+            return out, (cmd[cmd.index('--log_dir') + 1], cmd[cmd.index('--tag') + 1], cmd[cmd.index('--tag') + 2], lr)
+        Q = S.search_queue(); got = [run(ln) for ln in Q]
+        check(len(Q) == 430 and len({g[0] for g in got}) == 430, f'e: 430 queue lines -> {len({g[0] for g in got})} distinct stdout files')
+        check(len({g[1] for g in got}) == 430, f'e: 430 queue lines -> {len({g[1] for g in got})} distinct run folders (log dir, tag, seed, lr)')
+        for sh, c in (('nsmt_flif_v1/forecasting/scripts/run_ett_dual.sh', 'nsmt4q_pop_lif_msn_sde'), ('nsmt_flif_v1/forecasting/scripts/run_ett_mixer.sh', 'spkall_lif')):
+            out, _ = run(f'COND={c} SUITE=x bash {sh} ETTh2 96 42')
+            check(re.search(rf'/ett_ETTh2_p96_{c}_seed42_\d{{8}}_[0-9a-f]+\.stdout$', out), f'e: {os.path.basename(sh)} stdout name without options is the old one ({os.path.basename(out)})')
+            out, _ = run(f'COND={c} SUITE=x LR=0.001 BS=32 WU=1 bash {sh} ETTh2 96 42')
+            check(f'/ett_ETTh2_p96_{c}_b32_w1_lr0.001_seed42_' in out, f'e: {os.path.basename(sh)} stdout name with options ({os.path.basename(out)})')
+
+
 if __name__ == '__main__':
-    a_warmup(); b_train_epoch(); c_cosine(); d_runners()
+    a_warmup(); b_train_epoch(); c_cosine(); d_runners(); e_queue()
     print(f'{ok_n} passed, {bad_n} failed')
     sys.exit(1 if bad_n else 0)
