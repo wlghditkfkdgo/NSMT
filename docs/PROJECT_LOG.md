@@ -16117,3 +16117,41 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 `NSMT/cinc_mixer_v1/results/ett-pass-20261124/{snn_lb96_syops.py, summary.md, rejudge_syops_only.json}`
 
 **commit:** 이 기록과 위 파일을 `exp/f-lif-pop-v3`에 commit · push한다(학습 없음, tag 없음).
+
+## 2026-11-24 01:30 KST — 사용자 기억 확인(학습 없음): "SpikF github의 Spikformer code와 hyperparameter를 그대로 써서 실험했다" — local 증거로는 그 run들이 **local에서 고쳐 쓴 iSpikformer**이고, **입력 336**이다. github 원본에는 바로 돌릴 수 있는 Spikformer가 없다
+
+**사용자 말(원문, 11-24):** "내가 기억한 것은 'SpikF' github에 구현된 'Spikformer'의 코드와 그 하이퍼파라미터들을 그대로 사용해서 실험한 것이었어."
+
+**확인한 것**(`/home/yschoi/SpikF`, 읽기만 함):
+- **github 원본(HEAD `041e398` "release", 2025-09-14):**
+  - `exp/exp_ETT.py`는 SpikF만 import한다. `Spikformer` 분기는 있지만 import 줄이 주석이다(`# from model.spikformer import Spikformer`). spikformer 파일도 없다. 그래서 일반 Spikformer는 원본 code로 돌릴 수 없다.
+  - `models/iSpikformer.py`(SPE + iSSA + dense1 / dense2)는 있지만 `exp_ETT.py`에 연결되어 있지 않다.
+  - iSpikformer용 script나 hyperparameter도 원본에 없다. 원본 script는 `run_<dataset>.sh`(SpikF용)뿐이다.
+- **local 사본의 변경(commit 안 됨):**
+  - `models/iSpikformer.py`가 크게 바뀌었다(+453줄; ConvEncoder, DataEmbedding_inverted, Block, fc_out; depth 2, head 8).
+  - `exp_ETT.py`에 iSpikformer 분기와 syops 계산이 더해졌다.
+  - `scripts/<ds>_iSpikformer.sh`(추적 안 됨)가 새로 생겼다.
+- **local iSpikformer run**(`exp/ETT_results/iSpikformer_<ds>_ftM_sl336_pl<H>_lr0.0005_bs32`, 2025-12-03 16:34 ~ 12-04 08:53):
+  - 4 데이터셋 × 4 길이이고, **입력 336**, seed 42다.
+  - script 값: patch_dim 512, T 4, levels 1, hidden 0, epoch 20, patience 3, lr 5e-4, batch 32.
+  - **checkpoint의 층 이름은 local 수정본(encoder · emb · blocks · fc_out)과 맞고, 원본 iSpikformer(emb = SPE, attn, dense1 · dense2)와 다르다.** 네 데이터셋 모두 그렇다.
+    - ETTh run(12-03 16:34–17:56)은 마지막 파일 수정(12-03 23:44)보다 먼저 돌았다. 그래도 층 구조는 수정본과 같다.
+  - 결과(MSE / MAE, syops µJ):
+
+| 칸 | MSE / MAE | syops µJ |
+|---|---|--:|
+| ETTh2 H96 | 0.3514 / 0.3849 | 92.67 |
+| ETTh2 H720 | 0.4328 / 0.4492 | 91.23 |
+| ETTm2 H96 | 0.1900 / 0.2682 | 100.34 |
+| ETTm2 H720 | 0.3886 / 0.3961 | 118.62 |
+
+- **입력 96의 local Spikformer / iSpikformer run은 없다.**
+- SpikF 논문 Table 12의 iSpikformer 값(입력 96)은 "SNN-based models are equipped with SPE"라고 되어 있다. 원본 `models/iSpikformer.py`(SPE 포함)로 만든 값으로 보인다. 이것은 내 추측이고 확인하지 않았다.
+- 우리 SF-de는 이 code들과 관계없다. NSMT code의 Spikformer-style hippocampus(SSA)를 쓰고, 우리 spikeDE LIF와 우리 학습 설정을 쓴다.
+
+**결론:** 사용자가 기억하는 "SpikF github의 Spikformer 그대로" run은 local 증거와 맞지 않는다.
+- 남아 있는 것은 local에서 고쳐 쓴 iSpikformer를 입력 336으로 돌린 결과다.
+- 입력 96 비교에 쓰려면 새로 돌려야 한다.
+- 어느 code로 돌릴지(원본 iSpikformer / local 수정본)는 사용자 결정이다.
+
+**commit:** 이 기록을 `exp/f-lif-pop-v3`에 commit · push한다(학습 없음, 새 파일 없음).
