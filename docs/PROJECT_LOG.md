@@ -16050,3 +16050,70 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 - local: `driver.log`, run 폴더, queue 파일.
 
 **commit / tag:** 이 기록과 위 결과를 `exp/f-lif-pop-v3`에 commit · push한다. annotated tag `exp/f-lif-pop-v3-sfpt16-20261123`(완료된 학습 run). 이 기록이 들어간 commit은 이 tag로 가리킨다.
+
+## 2026-11-24 00:50 KST — 사용자 결정(energy는 syops만; f-LIF 논문 neuron 항 제외) + 질문 답(학습 없음): SpikF 논문의 SNN 값(입력 96)과 비교하면 첫 튜닝 model은 SpikF · SpikeRNN · iSpikformer보다 4칸 평균이 낮고, NSMT보다는 높다. SpikF 논문에는 일반 Spikformer 행이 없다
+
+**사용자 요청(원문, 11-24):** "1. 현재 Look-back window가 96이라면, Spikformer의 값을 SpikF 원 논문에 제시된 값으로 하게 되면 SNN baseline들 중에서 우리 모델이 어떤 우위/열위를 갖게 돼? 2. energy의 neuron항은 'syops만 쓰기'"
+
+**branch / base:** `exp/f-lif-pop-v3`, base `99fd008c5`. 학습은 하지 않았다.
+
+### 사용자 결정(2): energy는 syops만
+- 이 기록부터 energy 판정은 **syops 원본으로 센 값만** 쓴다(`syn_energy_uJ`). f-LIF 논문(식 60)의 neuron 항은 더하지 않는다.
+  - 11-19 17:34에 남겨 두고 사용자에게 물었던 항목의 답이다.
+- 우리 neuron class(LIFNeuron · FLIFNeuron)를 syops 자신의 LIF 규칙으로 등록하는 것은 그대로 둔다. syops가 spikingjelly LIF를 세는 방식과 같다.
+- syops가 모르는 population neuron 같은 class는 11-19의 recorder syops 규칙으로 센다(neuron 항은 빼고).
+- **기존 판정 다시 계산**(통과 기준, NSMT DNN 5행, (2)는 SF-de patch 8):
+
+| 후보 | energy A/B(syops만) | 판정 |
+|---|--:|---|
+| 첫 튜닝 최종 | 0.5616 | PASS(그대로) |
+| 확장 최종 | 1.3971 | NOT PASSED(그대로; energy) |
+
+- 같은 patch 비교(23:07)는 syops만으로 1.021배다. 판정은 바뀌지 않는다(no clear difference).
+
+### 질문 1: SpikF 논문의 SNN 값(입력 96)과 비교(`results/ett-pass-20261124/summary.md`)
+- **SpikF 논문에는 입력 96의 일반 "Spikformer" 행이 없다.**
+  - 입력 96의 SNN 행은 Table 12("More benchmarks on ETT dataset")의 SpikF, SpikeRNN, iSpikformer뿐이다. 본문: "SNN-based models are equipped with SPE".
+  - Spikformer 계열 baseline은 iSpikformer(inverted Spikformer, Lv et al. 2024b)다.
+  - 본문 서론의 "Spikformer + CPG 위치 encoding"(Lv et al. 2024a)은 RSE 비율로만 언급되고 입력 96 값이 없다.
+- 그래서 "Spikformer 값 = SpikF 논문 값"은 iSpikformer 행으로 읽었다.
+- 숫자는 11-19 검증된 전사(`ref-snn-lb96-20261119`)와 같은지 스크립트가 확인한다.
+
+| model | 출처 | 4칸 평균 MSE / MAE | energy syops만(µJ, 4칸 평균; H720 ETTh2 / ETTm2) |
+|---|---|---|---|
+| NSMT | NSMT Table 14 | 0.3177 / 0.3518 | 40.87 (44.90 / 46.72) |
+| (확장 최종) | 우리, seed 3 | 0.3193 / 0.3526 | 31.26 (14.76 / 73.32) |
+| (SF-de patch 16) | 우리, seed 3 | 0.3201 / 0.3530 | 13.74 (21.32 / 21.55) |
+| **첫 튜닝 최종** | 우리, seed 3 | **0.3205 / 0.3535** | **13.94 (21.31 / 21.94)** |
+| SpikF | SpikF Table 12 | 0.3215 / 0.3550 | 934.56 (1050.47 / 1050.10) |
+| (SF-de patch 8) | 우리, seed 3 | 0.3238 / 0.3557 | 25.81 (40.92 / 41.43) |
+| SpikeRNN | SpikF Table 12 | 0.3270 / 0.3550 | 없음 |
+| iSpikformer | SpikF Table 12 | 0.3325 / 0.3605 | 없음 |
+
+| 첫 튜닝 최종 vs | 4칸 차이 MSE / MAE(기준 − 우리) | MSE % 칸별 | 낮은 칸 MSE / MAE | 0.001 규칙 | energy(우리 / 상대, syops만) |
+|---|---|---|---|---|---|
+| NSMT | −0.0027 / −0.0017 | +0.76, +1.50, −0.13, +0.70 | 1/4 / 0/4 | 못 넘음 | 0.323(H720 0.475 / 0.470) |
+| SpikF | +0.0010 / +0.0015 | +0.06, −0.21, −0.13, −0.79 | 3/4 / 3/4 | 넘음(MSE 여유 0.000037) | 0.014(H720 0.020 / 0.021) |
+| SpikeRNN | +0.0065 / +0.0015 | −1.63, −3.01, −0.70, −1.76 | 4/4 / 3/4 | 넘음 | 없음 |
+| iSpikformer | +0.0120 / +0.0070 | −5.79, −5.22, −1.81, −1.04 | 4/4 / 4/4 | 넘음 | 없음 |
+
+- **우위:**
+  - 논문의 SNN 3개(SpikF, SpikeRNN, iSpikformer)보다 4칸 평균 MSE · MAE가 모두 낮다.
+  - iSpikformer보다는 모든 칸에서 낮다(MSE −1.0 ~ −5.8 %).
+  - energy는 SpikF의 약 1/70(4칸 평균), H720에서 약 1/49다.
+- **열위:**
+  - NSMT보다 4칸 평균 MSE +0.0027(0.9 %), MAE +0.0017이 높다. 낮은 칸은 ETTm2 H96 MSE 하나다.
+  - SpikF 대비 여유는 아슬아슬하다(MSE 0.0010, 칸별 ±0.8 %). ETTh2 H96 MSE는 SpikF가 낮다.
+  - SpikeRNN 대비 MAE 여유는 0.0015이고, ETTm2 H96 MAE는 SpikeRNN이 낮다.
+- **Spikformer를 iSpikformer 논문 값으로 바꾸면 생기는 일:**
+  - 정확도로는 Spikformer 계열을 넘는다(MSE 0.012, MAE 0.007 낮음).
+  - energy 부분은 판정할 수 없다. iSpikformer · SpikeRNN energy는 논문에 없고, 우리가 세지도 않았다.
+  - 우리가 같은 조건으로 돌린 Spikformer-style SF-de(patch 16)는 우리 model과 차이가 없다(23:07). 논문 값만 쓰고 이 결과를 빼면, 같은 조건의 대조를 숨기는 셈이 된다(내 의견).
+- **한계:**
+  - 논문 값은 seed가 밝혀지지 않은 단일 숫자(소수 셋째 자리)다. 학습 설정(SPE, epoch 등)도 우리와 다르다.
+  - 우리 값은 seed 3개 평균이다.
+
+### artifact
+`NSMT/cinc_mixer_v1/results/ett-pass-20261124/{snn_lb96_syops.py, summary.md, rejudge_syops_only.json}`
+
+**commit:** 이 기록과 위 파일을 `exp/f-lif-pop-v3`에 commit · push한다(학습 없음, tag 없음).
