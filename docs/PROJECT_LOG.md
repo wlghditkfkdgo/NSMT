@@ -15683,3 +15683,80 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 - local: `driver.log`, run 폴더(`ETT*/.../log`, `model_state`), queue 파일 `scripts/queues/ettune2-*-20261120.txt`.
 
 **commit / tag:** 이 기록과 위 결과를 `exp/f-lif-pop-v3`에 commit · push한다. annotated tag `exp/f-lif-pop-v3-etttunex-20261120`(완료된 학습 run). 이 기록이 들어간 commit은 이 tag로 가리킨다.
+
+## 2026-11-23 21:01 KST — 사용자 결정(DNN baseline은 NSMT 원 논문에 실린 결과만; TimeMixer 제외) + 기존 ETT 결과 다시 판정(학습 없음): 첫 튜닝 최종 설정은 **PASS**, 확장 최종 설정은 energy 때문에 NOT PASSED
+
+**사용자 결정(원문, 11-23):** "(중요) DNN baseline은 NSMT 원 논문에 실린 결과만 포함할 것. 따라서 TimeMixer 제외할 것." 같은 내용의 첫 메시지 "(중요) DNN baseline은 NSMT 원 논문에 실린 결과만 포함할 것. (TimeMixer 제외)"는 중간에 끊겼고, 이어서 위 문장이 다시 왔다.
+
+**branch / base:** `exp/f-lif-pop-v3`, base `c577dbf67`(11-20 17:07 결과). 학습은 하지 않았다. 기존 run 행만 읽었다.
+
+### 바뀐 것: 통과 기준 (3)의 DNN 목록
+- **이전(11-19 21:09 결정):** 우리 DNN 표 9행. TimeMixer, iTransformer, iTransformer(MAE loss), RLinear, PatchTST 두 가지 re-run, TimesNet, FITS, DLinear였다. 출처는 iTransformer · TimeMixer · SpikF 논문 표다.
+- **이제:** NSMT 논문 Table 13("Full results on full data", 본문 Table 2의 전체판)의 DNN 5행이다. Informer, FEDformer, PatchTST, ETSformer, Autoformer다. NSMT 논문에 다른 DNN 예측 결과는 없다.
+  - NSMT 본문: "we use the same look-back window size L = 96 for all methods ... All results are taken from [43] and [41]". [43]은 SpikF, [41]은 TimesNet이다.
+  - 빠진 행: TimeMixer, iTransformer 두 행, RLinear, PatchTST 다른 re-run, TimesNet, FITS, DLinear.
+  - 새로 들어온 행: ETSformer.
+  - NSMT의 PatchTST 값은 이전 표의 "PatchTST (re-run)"(iTransformer Table 10)과 숫자가 같다.
+- (1) SpikF(NSMT Table 14 = SpikF Table 12)와 (2) SF-de + energy 1.05배 이하는 그대로다. 4칸 평균, MSE와 MAE 둘 다 0.001 이상 낮아야 한다는 규칙도 그대로다.
+
+| NSMT DNN 행 | MSE (ETTh2 96, 720, ETTm2 96, 720) | MAE | 4칸 평균 MSE / MAE |
+|---|---|---|---|
+| Informer | 3.755, 3.647, 0.365, 3.379 | 1.525, 1.625, 0.453, 1.338 | 2.7865 / 1.2352 |
+| FEDformer | 0.358, 0.463, 0.203, 0.421 | 0.397, 0.474, 0.287, 0.415 | 0.3613 / 0.3932 |
+| PatchTST | 0.302, 0.431, 0.175, 0.402 | 0.348, 0.446, 0.259, 0.400 | 0.3275 / 0.3632 |
+| ETSformer | 0.340, 0.500, 0.189, 0.414 | 0.391, 0.497, 0.280, 0.413 | 0.3608 / 0.3953 |
+| Autoformer | 0.346, 0.515, 0.255, 0.433 | 0.388, 0.511, 0.339, 0.432 | 0.3873 / 0.4175 |
+
+- 이제 정확도에서 가장 어려운 기준은 MSE와 MAE 모두 **SpikF**다. 4칸 평균 MSE ≤ 0.3205, MAE ≤ 0.3540이어야 한다. DNN 중 가장 강한 행은 PatchTST(0.3275 / 0.3632)다.
+
+### 전사 확인
+- 원문: `NSMT/papers/NSMT.pdf`(main tree, 읽기만 함; md5 `84078f8deb02f4dd6f8566ee69ac3a50`). `pdftotext -layout` 출력은 11-19에 뽑은 텍스트와 바이트까지 같다(scratchpad, local).
+- `pass_ett_nsmt.py --verify`: Table 13을 다시 파싱해 48개 숫자(5 DNN + NSMT 열 × 4칸 × MSE · MAE)를 대조했다. **불일치 0**.
+  - Table 13의 NSMT 열은 Table 14의 NSMT 값(`pass_ett.NSMT`)과 같다.
+
+### 다시 판정(`results/ett-pass-20261123/summary.md`; 학습 없음)
+| 후보 | 종류 | MSE / MAE | energy vs SF-de | (1) SpikF | (2) SF-de + energy | (3) 이전 9행 | (3) NSMT 5행 | 이전 판정 | **새 판정** |
+|---|---|---|--:|---|---|---|---|---|---|
+| 튜닝 전 LIF SpkMixer(11-01) | 참고 | 0.3245 / 0.3567 | 0.98 | 실패 | 실패 | 실패 | 통과 | NOT PASSED | NOT PASSED |
+| **첫 튜닝 최종**(11-20 04:02) | 사전등록 | 0.3205 / 0.3535 | 0.54 | 통과 | 통과 | 실패 | 통과 | NOT PASSED | **PASS** |
+| **확장 최종**(11-20 17:07) | 사전등록 | 0.3193 / 0.3526 | 1.33 | 통과 | **실패** | 실패 | 통과 | NOT PASSED | **NOT PASSED** |
+| 첫 튜닝 patch 단계 뒤(patch 16) | 사후 | 0.3198 / 0.3531 | 0.53 | 통과 | 통과 | 실패 | 통과 | NOT PASSED | PASS |
+| 첫 튜닝 MLP · block 단계 뒤 | 사후 | 0.3199 / 0.3531 | 0.54 | 통과 | 통과 | 실패 | 통과 | NOT PASSED | PASS |
+| 확장 patch 단계 뒤(patch 24) | 사후 | 0.3196 / 0.3527 | 0.38 | 통과 | 통과 | 실패 | 통과 | NOT PASSED | PASS |
+| 확장 d_model · MLP 단계 뒤 | 사후 | 0.3193 / 0.3526 | 1.04 | 통과 | 통과 | 실패 | 통과 | NOT PASSED | PASS |
+| 확장 block 단계 뒤 | 사후 | 0.3194 / 0.3527 | 1.33 | 통과 | 실패 | 실패 | 통과 | NOT PASSED | NOT PASSED |
+
+- 모든 후보가 NSMT DNN 5행을 넘는다. 튜닝 전 model도 PatchTST보다 MSE 0.0030, MAE 0.0066 낮다. 이제 (3)은 판정을 가르지 않는다. 판정을 가르는 것은 (1) SpikF와 (2) energy다.
+- **첫 튜닝 최종(사전등록)이 새 기준으로 PASS다.** 다만 다음 세 가지를 같이 적는다.
+  - (1) SpikF의 MSE 여유가 0.001037이다. 기준 0.001보다 0.000037 크다. 한 칸에서 0.00015만 나빠져도 떨어진다. ETTh2 seed 표준편차(0.0006–0.0028)보다 훨씬 작다.
+  - 이 설정의 weight decay는 0.1이다. 11-20 결정("0.1 빼기")에서 사용자가 관련 논문 범위(0–0.06) 밖이라 뺀 값이다.
+  - 첫 튜닝의 후보 목록 끝 값(patch 16, weight decay 0.1)이 뽑힌 설정이다.
+- **확장 최종(사전등록)은 (2) energy 하나로 NOT PASSED다**(1.33배).
+- "사후" 행은 test를 본 뒤에 보는 것이라 판정이 아니다. patch만 바꾼 두 설정(patch 16: 0.53배, patch 24: 0.38배)은 모두 PASS이고, SpikF 여유는 각각 MSE 0.0017 / 0.0019다.
+- 보고(기준 아님): NSMT 자체 0.3177 / 0.3518은 모든 후보보다 여전히 낮다(좋다).
+
+### 점검
+- `pass_ett_nsmt.py`의 `judge`는 DNN 목록을 인자로 받는 `pass_ett.judge`다. 이전 9행으로 돌리면 11개 후보 모두에서 `pass_ett.judge`와 판정이 같다. 다르면 멈추게 했고, 멈추지 않았다.
+- 후보 행은 두 튜닝의 요약기(`summarize_ettune.py`, `ET_CHAIN` 없음 / `x`)의 `load` · `arm` · `energy_rows` · `sfde_rows`로 읽었다. 같은 멈춤 조건(빠진 run, 재계산 MSE, syops 몸통 + head)을 거쳤다.
+- 사전등록 최종 두 행의 MSE / MAE / energy가 각 `summary_final.md`와 같다(0.3205 / 0.3535 / 0.5412; 0.3193 / 0.3526 / 1.3338).
+
+### 한계
+- **이 기준 변경은 두 튜닝의 결과가 나온 뒤에 왔다.** 이전 기준에서는 두 튜닝 모두 TimeMixer 한 행 때문에 (3)에서 떨어졌다. 그 행이 이 결정으로 빠졌다. 결정은 사용자의 것이다. 다만 논문에 쓸 때는 baseline 목록을 결과를 본 뒤 정했다는 점을 감추지 말아야 한다.
+- NSMT의 DNN 값은 다른 논문에서 옮긴 것이다(NSMT 본문). 학습 설정이 우리와 같은지는 확인하지 않았다.
+- 4칸 × seed 3이다. (1)의 0.001 판정은 seed 차이보다 작은 차이로 갈린다.
+- `pass_ett.py`는 고치지 않았다. 그래서 11-20의 `summary_final.md` 두 개는 이전 기준 판정(NOT PASSED)을 그대로 담고 있다. 이 기록부터 (3)은 NSMT 5행 기준이다. 앞으로의 요약기는 `pass_ett_nsmt.py`의 목록을 쓴다.
+
+### 결론
+- 사용자 결정으로 (3) DNN은 NSMT 논문 Table 13의 5행이다(TimeMixer 제외).
+- 새 기준으로 **첫 튜닝 최종 설정은 PASS**, **확장 최종 설정은 NOT PASSED(energy 1.33배)**다.
+- 이제 남은 실질 기준은 (1) SpikF(MSE ≤ 0.3205, MAE ≤ 0.3540)와 (2) energy 1.05배 이하다.
+- ETT 예측 model로 어느 설정을 쓸지는 사용자 결정을 기다린다. 선택지(내 정리, 실행하지 않음):
+  - 첫 튜닝 최종(사전등록, PASS). SpikF 여유가 0.000037뿐이고 weight decay 0.1이다.
+  - 확장 최종(사전등록, 가장 최근). energy로 NOT PASSED다.
+  - 사후 설정(예: patch 24만 바꾼 설정, PASS, energy 0.38배). test를 본 뒤의 선택이라 그렇게 기록해야 한다. 새 seed로 다시 확인하는 run을 붙일 수 있다.
+
+### artifact
+- commit: `NSMT/cinc_mixer_v1/results/ett-pass-20261123/{pass_ett_nsmt.py, summary.md, rejudge.json}`.
+- local: NSMT PDF의 `pdftotext -layout` 텍스트(scratchpad `nsmt1123/`).
+
+**commit:** 이 기록과 위 파일을 `exp/f-lif-pop-v3`에 commit · push한다. 학습이 없으므로 tag는 만들지 않는다.
