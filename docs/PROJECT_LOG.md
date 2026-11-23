@@ -15971,3 +15971,82 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 **실행:** 이 commit · push 뒤 NSMT/에서 `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/sfpt16_driver.sh > /dev/null 2>&1 &`로 시작한다.
 
 **commit:** 이 기록, 바로 앞 기록, 위 code · 점검 · smoke 결과(`smoke-sfpt16-20261123/{raw.txt, energy_recount.csv}`), energy 표를 `exp/f-lif-pop-v3`에 commit · push한다. smoke run 폴더, queue 파일, dry 폴더는 local로 둔다.
+
+## 2026-11-23 23:07 KST — 결과 + 실험 완료((가) SF-de patch 16, 12 run, 사전등록 `b53efcbe4`, SKIP 0): 같은 patch에서는 첫 튜닝 LIF SpkMixer와 SF-de의 **차이가 없다**(R +0.16 %, 6/12). energy도 같다(1.005배). "SF-de 대비 0.54배"는 patch 16에서 왔다
+
+**목적:** 바로 앞 22:37 사전등록의 실행 결과다(사용자 요청 "(가) 실행").
+
+**branch / code:** `exp/f-lif-pop-v3`. 학습 code는 `b53efcbe4`다(RESULT 12행 모두 `sha=b53efcbe4`). 학습 중 tracked 파일은 바뀌지 않았다.
+
+**환경:** A6000 4장, GPU당 2개(`SLOTS=0,1,2,3,0,1,2,3`). 다른 세션(nsmt_flif_v1) pool과 GPU를 함께 썼다(사용률 96–99 %, 메모리 약 5 GB / 49 GB).
+
+**명령(NSMT/에서):** `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/sfpt16_driver.sh > /dev/null 2>&1 &`.
+- 22:38:59 시작 → 23:05:39 pool 끝(RESULT 12, SKIP 0) → energy 재계산(all checks passed) → 요약 → 23:06:42 `driver end`.
+- 학습 시간 합은 2.44 GPU 시간이고, run 중앙값은 312 s(201–1,600 s)다. pool log의 rc=0 줄은 12개다.
+
+### 결과(`results/flif-v1-ett-sfde-pt16/summary.md`; test, seed 평균)
+| model | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 | 4칸 MSE / MAE | energy syops + neuron 항 | energy syops만 |
+|---|---|---|---|---|---|--:|--:|
+| 첫 튜닝 LIF SpkMixer(patch 16) | 0.2902 / 0.3347 | 0.4151 / 0.4327 | 0.1748 / 0.2525 | 0.4018 / 0.3940 | 0.3205 / 0.3535 | 15.75 | 13.94 |
+| **SF-de patch 16** | 0.2866 / 0.3320 | 0.4175 / 0.4334 | 0.1750 / 0.2525 | 0.4015 / 0.3942 | **0.3201 / 0.3530** | 15.68 | 13.74 |
+| SF-de patch 8(기준의 SF-de) | 0.2921 / 0.3360 | 0.4229 / 0.4377 | 0.1768 / 0.2538 | 0.4036 / 0.3953 | 0.3238 / 0.3557 | 29.68 | 25.81 |
+| 확장 LIF SpkMixer(patch 24) | 0.2887 / 0.3327 | 0.4141 / 0.4318 | 0.1745 / 0.2521 | 0.3999 / 0.3937 | 0.3193 / 0.3526 | 36.10 | 31.26 |
+
+- SF-de patch 16의 seed 표준편차는 0.0024, 0.0025, 0.0002, 0.0012다.
+- best epoch는 ETTh2 1–4, ETTm2 H96 13–27, ETTm2 H720 3–7이다.
+- parameter 수(ETTh2 H96 / H720)는 SF-de patch 16이 96,248 / 575,480이고, 첫 튜닝이 96,064 / 575,296이다. 거의 같다.
+
+| 비교(ETT 규칙) | R % | 낮은 쌍 | 판정 | 칸별 r % | MAE R % | energy A/B syops + neuron 항 | syops만 |
+|---|--:|--:|---|---|--:|--:|--:|
+| **main: 첫 튜닝 vs SF-de patch 16** | **+0.16** | 6/12 | **no clear difference** | +1.27, −0.57, −0.15, +0.08 | +0.15 | **1.005** | 1.021 |
+| (보고) 확장 vs SF-de patch 16 | −0.19 | 8/12 | no clear difference | +0.75, −0.81, −0.31, −0.38 | −0.11 | 2.473 | 2.528 |
+| (보고) SF-de patch 16 vs patch 8 | −1.17 | 12/12 | better | −1.89, −1.26, −1.00, −0.54 | −0.74 | 0.538 | 0.550 |
+| (보고) 첫 튜닝 vs SF-de patch 8 | −1.02 | 11/12 | better | −0.65, −1.82, −1.14, −0.46 | −0.59 | 0.541 | 0.562 |
+
+- **같은 patch 16에서 LIF SpkMixer와 SF-de는 정확도도 energy도 같다.** 4칸 평균은 오히려 SF-de가 0.0004 / 0.0005 낮다. ETTh2 H96에서는 SF-de가 1.27 % 낮다.
+- **SF-de도 patch 16으로 좋아졌다**(−1.17 %, 12/12, energy 0.54배). 그래서 11-20부터 적은 "첫 튜닝 vs SF-de −1.02 %, energy 0.54배"는 구조의 차이가 아니라 patch의 차이였다.
+- 같은 규칙(syops만)의 energy 표에 SF-de patch 16을 넣으면(`energy-common-20261123/summary_with_pt16.md`) 5.91 / 21.32 / 6.17 / 21.55 µJ다. 첫 튜닝 / SF-de patch 16 = 1.001, 1.000, 1.065, 1.018이다.
+- SF-de patch 16을 SpikF와 비교하면 MSE −1.19, +0.36, +0.01, −0.87 %, MAE −1.19, −0.59, +0.59, −0.70 %다. 4칸 평균 차이는 MSE 0.0014, MAE 0.0020이다.
+  - 우리 판정기로 보면 SF-de patch 16도 (1) SpikF 기준(0.001 이상 낮음)과 (3) NSMT DNN 5행 기준을 넘는다.
+  - 첫 튜닝 model은 SpikF보다 MSE 0.0010 낮아 여유가 0.000037뿐이다. 이 여유는 SF-de patch 16(0.0014)보다 작다.
+
+### 통과 기준(보고; NSMT DNN 5행)
+| 후보 | (2)를 SF-de patch 8로(정의대로) | (2)를 SF-de patch 16으로(가정) |
+|---|---|---|
+| 첫 튜닝 최종 | **PASS**(21:01과 같음) | NOT PASSED: SF-de보다 0.0003 / 0.0004 높고, 0.001 이상 낮아야 함 |
+| 확장 최종 | NOT PASSED(energy 1.33배) | NOT PASSED(정확도 +0.0008 / +0.0005로 0.001 미달, energy 2.47배) |
+
+- 기준 (2)의 SF-de를 patch 16으로 바꿀지는 사용자 결정이다. 이 기록에서 판정 정의는 바꾸지 않았다.
+
+### 사전 예상과 비교(22:37)
+| 예상 | 결과 | 맞음? |
+|---|---|---|
+| energy가 첫 튜닝과 거의 같음(0.98–1.07) | 1.005(syops + neuron 항), 1.021(syops만) | 맞음 |
+| SF-de도 patch 16으로 좋아짐(약 −1 %) | −1.17 %, 12/12 | 맞음 |
+| 첫 튜닝 vs SF-de patch 16은 no clear difference(\|R\| < 1 %) | +0.16 %, 6/12 | 맞음 |
+| 20–40분 | 27분(pool), 전체 28분 | 맞음 |
+
+### 점검
+- driver: RESULT 12 · SKIP 0. `energy_recount_ett.py` all checks passed(재계산 MSE 1e-5, head 이진 입력, syops 몸통 + head).
+- 요약기의 행 검사(tag · patch · lr · layers · emb · wd · blocks)와 energy 대조에서 멈추지 않았다.
+- 요약기의 첫 튜닝 · SF-de patch 8 값이 11-20 · 21:01 값과 같다(0.3205 / 0.3535, 0.3238 / 0.3557, −1.02 %, 0.5412).
+
+### 한계
+- seed 3개다. lr은 두 model 모두 patch 8일 때 고른 값이다.
+- 첫 튜닝 model은 weight decay 0.1 · ETTm2 MLP 2가 SF-de와 다르다(validation 차이가 아주 작았던 값).
+- syops는 SF-de attention의 행렬곱을 세지 않는다. 그래서 같은 patch에서 energy가 같다는 결론은 syops 원본 규칙 안에서만 성립한다.
+  - SpkMixer의 token mixing(LIF 사슬)은 neuron과 Linear로 되어 있어 대부분 세어진다.
+  - 행렬곱까지 세면 SF-de 쪽 energy가 늘 수 있다. 세지 않았다.
+
+### 결론
+- **ETT 예측에서, 같은 patch(16)이면 LIF SpkMixer와 Spikformer-style SF-de는 정확도(R +0.16 %, 6/12)도 energy(1.005배)도 차이가 없다.**
+- 지금까지의 "SF-de보다 정확하고 저전력"은 SF-de에 patch 16을 주지 않아서 생긴 것이었다. 논문에서 Spikformer 대비 우위를 ETT로 주장할 수 없다.
+- 남는 주장: SpikF와 비슷한 정확도에 energy가 수십 배 적고(같은 syops 규칙), NSMT의 약 절반이다(H720). SF-de patch 16도 같은 수준이다.
+- 다음은 사용자와 (다)(나머지 ETT 칸 채우기)를 논의한다. 이 결과는 그 논의에 영향을 준다. 같은 patch의 Spikformer와 차이가 없다면, 칸을 늘리기 전에 무엇을 주장할지부터 정해야 한다(내 의견).
+
+### artifact
+- commit(`NSMT/cinc_mixer_v1/results/flif-v1-ett-sfde-pt16/`): `raw.txt`(12 RESULT), `energy_recount.csv`, `summary.{md,json}`, `pool_log.txt`.
+- commit: `results/energy-common-20261123/summary_with_pt16.md`.
+- local: `driver.log`, run 폴더, queue 파일.
+
+**commit / tag:** 이 기록과 위 결과를 `exp/f-lif-pop-v3`에 commit · push한다. annotated tag `exp/f-lif-pop-v3-sfpt16-20261123`(완료된 학습 run). 이 기록이 들어간 commit은 이 tag로 가리킨다.
