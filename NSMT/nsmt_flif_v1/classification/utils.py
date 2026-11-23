@@ -232,7 +232,8 @@ def get_scheduler(scheduler:str, optimizer, **kargs):
         max_lr = kargs["max_lr"]
         max_epochs = kargs["max_epochs"]
         min_lr = kargs["min_lr"]
-        scheduler, _ = create_scheduler_v2(optimizer, sched='cosine', num_epochs=max_epochs, decay_epochs=int(max_epochs * 0.3), warmup_epochs=int(max_epochs * 0.2), cooldown_epochs=int(max_epochs * 0.1), min_lr=0, noise_pct=0.67, warmup_lr=0.00001)
+        wu = kargs.get('warmup_epochs')                                # MODI 2026-11-23 (range 2): None = int(0.2 * epochs), as before
+        scheduler, _ = create_scheduler_v2(optimizer, sched='cosine', num_epochs=max_epochs, decay_epochs=int(max_epochs * 0.3), warmup_epochs=int(max_epochs * 0.2) if wu is None else int(wu), cooldown_epochs=int(max_epochs * 0.1), min_lr=0, noise_pct=0.67, warmup_lr=0.00001)
         
         # scheduler = CosineAnnealingWarmupRestarts(optimizer, first_cycle_steps=10, cycle_mult=1, min_lr=1e-8, max_lr=max_lr, gamma=1, warmup_steps=5)
         # scheduler = CosineAnnealingWarmupRestarts(optimizer, first_cycle_steps=100, cycle_mult=1, min_lr=1e-5, max_lr=max_lr, gamma=1, warmup_steps=5)

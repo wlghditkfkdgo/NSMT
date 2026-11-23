@@ -76,6 +76,11 @@ def parse_arguments():
     # steps; the best checkpoint and early stopping use all of them, the lr scheduler still steps on the end-of-epoch validation.
     # 1 = once per epoch, as before.
     train_arg.add_argument('--val_per_epoch', type=int, default=1)
+    # MODI 2026-11-23 (hyperparameter range 2): learning-rate warmup in epochs. < 0 (default) = unchanged: train.py keeps the timm
+    # cosine warmup of int(0.2 * epochs) epochs, train_forecast.py has none. >= 0: train.py (cosine) uses int(value) warmup epochs
+    # (0 = none); train_forecast.py raises the lr linearly from lr / W to lr over the first W = round(value * steps per epoch)
+    # optimizer steps (0 < value <= 1 only). The run folder gains _wu<value>.
+    train_arg.add_argument('--lr_warmup', type=float, default=-1.0)
     train_arg.add_argument('--weight_decay', dest='weight_decay', nargs='?', type=float, default=1e-4)   # stage 9: was type=int (a CLI value could not be parsed); default unchanged
     train_arg.add_argument('--num_workers', dest='num_workers', nargs='?', type=int, default=8)
 
@@ -348,6 +353,8 @@ class Config():
             _iso += "_wdx"
         if int(getattr(args, 'val_per_epoch', 1)) != 1:
             _iso += f"_vpe{int(args.val_per_epoch)}"
+        if float(getattr(args, 'lr_warmup', -1.0)) >= 0:                  # MODI 2026-11-23 (hyperparameter range 2)
+            _iso += f"_wu{float(args.lr_warmup):g}"
         if int(getattr(args, 'aux_shift', 0)) != 0:                       # MODI 2026-11-20 (aux-target memory check): always last
             _iso += f"_auxs{int(args.aux_shift)}"
         self.save_result_path = os.path.join(os.getcwd(), args.log_dir, self.date, self.date + tag, _iso)

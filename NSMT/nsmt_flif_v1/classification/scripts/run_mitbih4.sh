@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# MODI 2026-11-23 (hyperparameter range 2, user decision 11-23): env BS = batch size (unset = 512) and WU = warmup epochs of the
+#   cosine schedule, a whole number >= 0 (appends '--lr_warmup $WU'; unset = int(0.2 x epochs) = 6 of 30, as before; 0 = none). When
+#   set, the folder tag gains _b<BS> / _w<WU>, the run folder _wu<WU> and RESULT bs= / wu=. Unset: command line, folder and RESULT
+#   unchanged.
 # MODI 2026-11-21 (4-2 coupling placement, user decision 11-20 "(가) + (나)"): + nsmt4q_pop_<lif|flif>_msn_sde_nc = the base with
 #   --neo_current 1 ((가): Neocortex output x learned per-channel alpha into the hippocampus embedding neuron's input current,
 #   attention kept) and nsmt4q_pop_<lif|flif>_msn_sde_ncna = + --hippo_attn 0 ((나): no hippocampus attention; the Neocortex is the
@@ -153,6 +157,9 @@ WDX=${WDX:-1}                           # MODI 2026-11-21: default = hyperparame
 if [ "$WDX" != 0 ] && [ "$WDX" != 1 ]; then echo "WDX: 1 (default, BN / bias without weight decay) or 0 (as before 11-21)"; exit 1; fi
 R1F=""; WXT=""; [ "$WDX" = 1 ] && { R1F="--wd_exclude_1d 1"; WXT=_wdx; }
 if [ -n "${VPE:-}" ]; then echo "VPE: ETT only"; exit 1; fi
+BS=${BS:-}; WU=${WU:-}                  # MODI 2026-11-23 (hyperparameter range 2): unset = unchanged
+if [ -n "$BS" ]; then [[ $BS =~ ^[1-9][0-9]*$ ]] || { echo "BS: batch size, a positive integer (unset = 512)"; exit 1; }; fi
+if [ -n "$WU" ]; then [[ $WU =~ ^(0|[1-9][0-9]*)$ ]] || { echo "WU: cosine warmup epochs, a whole number >= 0 (unset = 6 of 30)"; exit 1; }; fi
 AUXS=${AUXS:-}                          # MODI 2026-11-20 (aux-target memory check): unset = unchanged
 if [ -n "$AUXS" ]; then
   [[ $AUXS =~ ^-?[1-9][0-9]*$ ]] || { echo "AUXS: a nonzero integer (unset = the token itself)"; exit 1; }
@@ -161,7 +168,7 @@ fi
 SUITE=${SUITE:-flif-v1-mitbih-query-$(date +%Y%m%d)}
 EPOCHS=${EPOCHS:-30}
 LR=${LR:-0.01}; VAL=${VAL:-0}; VF=""; [ "$VAL" = 1 ] && VF="--mitbih_val"
-TG=${COND}_lr${LR}_v${VAL}${AUXS:+_s$AUXS}$WXT
+TG=${COND}_lr${LR}_v${VAL}${AUXS:+_s$AUXS}$WXT${BS:+_b$BS}${WU:+_w$WU}
 RES=${RES:-$W/results/$SUITE}; LOG=${LOG:-$W/log/$SUITE}
 DATA=${DATA:-$R/nsmt_base/classification/ECG/data}          # 5class_mitbih_{train_7,test_3}_187.csv (local, not in Git)
 mkdir -p "$RES" "$LOG"
@@ -170,9 +177,9 @@ SHA=$(cd "$R" && git rev-parse --short HEAD); TS=$(date +%Y%m%d)
 OUT=$LOG/mitbih_${TG}_seed${S}_${TS}_${SHA}.stdout; t0=$(date +%s)
 (cd "$W" && CUDA_VISIBLE_DEVICES=$GPU OMP_NUM_THREADS=${THREADS:-4} $PY ./train.py \
   --model myModel --seed $S --log_dir "$LOG/MITBIH" --gating attn --attn SSA -s --test --print_epoch 1 -nd 0 \
-  -e $EPOCHS --warm_up_epoch 0 --num_channels 1 -bs 512 -lr $LR --max_lr 0.005 -emb 384 -nh 8 --mlp_ratios 1 \
+  -e $EPOCHS --warm_up_epoch 0 --num_channels 1 -bs ${BS:-512} -lr $LR --max_lr 0.005 -emb 384 -nh 8 --mlp_ratios 1 \
   --layers $LAYERS --keep_ratio 0.15 --time_layers 2 --alpha $AUX --patch_size 32 --no-bias --scheduler cosine \
-  --data UEA --data_path ECG --seq_len 187 --root_path "$DATA" $CF $VF $PEF $R1F ${AUXS:+--aux_shift=$AUXS} --tag $TG seed$S > "$OUT" 2>&1)
+  --data UEA --data_path ECG --seq_len 187 --root_path "$DATA" $CF $VF $PEF $R1F ${WU:+--lr_warmup $WU} ${AUXS:+--aux_shift=$AUXS} --tag $TG seed$S > "$OUT" 2>&1)
 RC=$?
 D=$(ls -td "$LOG/MITBIH"/*/*"+${TG}+seed${S}+model+"*/seed${S}_*${AUXS:+_auxs$AUXS} 2>/dev/null | head -1)   # the mixer's rho_neo column covers its mixer stacks
 CSV="$D/log/final+result.csv"
@@ -206,4 +213,4 @@ fi
 LRS=$(grep -aoE '^epoch +[0-9]+ \(lr=[0-9.e-]+\)' "$OUT" | grep -oE 'lr=[0-9.e-]+' | cut -d= -f2)
 EP=$(echo "$LRS" | grep -c .); LR_FINAL=$(echo "$LRS" | tail -1)
 PAR=$(grep -a 'number of parameters' "$OUT" | grep -oE '[0-9]+' | tail -1); t1=$(date +%s)
-echo "RESULT exp=nsmt_flif_v1_cls cond=$COND dataset=MITBIH seed=$S lr=$LR val=$VAL $VV $VALS epochs=$EPOCHS epochs_run=$EP lr_final=$LR_FINAL params=$PAR time_s=$((t1-t0)) pe=$PE${AUXS:+ auxs=$AUXS} wdx=$WDX sha=$SHA alpha=$ALPHA aux=$AUX dir=$D" | tee -a "$RES/raw.txt"
+echo "RESULT exp=nsmt_flif_v1_cls cond=$COND dataset=MITBIH seed=$S lr=$LR val=$VAL $VV $VALS epochs=$EPOCHS epochs_run=$EP lr_final=$LR_FINAL params=$PAR time_s=$((t1-t0)) pe=$PE${AUXS:+ auxs=$AUXS} wdx=$WDX${BS:+ bs=$BS}${WU:+ wu=$WU} sha=$SHA alpha=$ALPHA aux=$AUX dir=$D" | tee -a "$RES/raw.txt"

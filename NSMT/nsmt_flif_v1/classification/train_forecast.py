@@ -70,9 +70,28 @@ def data_args(args, fc):
                                  num_workers=fc.num_workers, augmentation_ratio=0)
 
 
-def train_epoch(model, dl, opt, H, device, r=0.0, hook=None, marks=()):
+class LinearWarmup:
+    """MODI 2026-11-23 (hyperparameter range 2): linear lr warmup. Called once before every optimizer step; step k (0-based) of the
+    first W uses lr * (k + 1) / W in every parameter group, so step W - 1 already runs at the full lr and later steps are not touched
+    (ReduceLROnPlateau then owns the lr)."""
+    def __init__(self, opt, total):
+        if total < 1:
+            raise ValueError('warmup: at least one step')
+        self.opt, self.total, self.k = opt, int(total), 0
+        self.base = [g['lr'] for g in opt.param_groups]
+
+    def __call__(self):
+        if self.k < self.total:
+            f = (self.k + 1) / self.total
+            for g, b in zip(self.opt.param_groups, self.base):
+                g['lr'] = b * f if self.k + 1 < self.total else b
+            self.k += 1
+
+
+def train_epoch(model, dl, opt, H, device, r=0.0, hook=None, marks=(), warm=None):
     """MODI 2026-11-20 (hyperparameter range 1): hook(step) runs after the training steps listed in marks (1-based; the in-epoch
-    validations of --val_per_epoch), then training mode is restored. hook None (default): unchanged."""
+    validations of --val_per_epoch), then training mode is restored. hook None (default): unchanged.
+    MODI 2026-11-23 (range 2): warm (a LinearWarmup) is called before every optimizer step. None (default): unchanged."""
     model.train(); model.train_mode = 'training'
     crit = nn.L1Loss()
     tot = 0.; n = 0
@@ -83,6 +102,8 @@ def train_epoch(model, dl, opt, H, device, r=0.0, hook=None, marks=()):
             out = model(x)
             task = crit(out, y); rec = model.aux_rec_loss()
             loss = task * (1. - r) + rec * r
+            if warm is not None:
+                warm()
             opt.zero_grad(); loss.backward(); opt.step()
             functional.reset_net(model)
             tot += loss.item(); tt += task.item(); tr_ += rec.item(); n += 1
@@ -93,6 +114,8 @@ def train_epoch(model, dl, opt, H, device, r=0.0, hook=None, marks=()):
         x = x.float().to(device); y = y.float().to(device)[:, -H:, :]
         out = model(x)
         loss = crit(out, y)
+        if warm is not None:
+            warm()
         opt.zero_grad(); loss.backward(); opt.step()
         functional.reset_net(model)
         tot += loss.item(); n += 1
@@ -200,6 +223,14 @@ def main():
     if K > 1 and (len(marks) != K - 1 or max(marks) >= n_steps):
         raise ValueError(f'--val_per_epoch {K}: too many for {n_steps} steps per epoch')
     inner, best_step = [], None
+    # MODI 2026-11-23 (hyperparameter range 2): --lr_warmup v in (0, 1] = linear lr warmup over the first round(v * n_steps) optimizer
+    # steps (at most the first epoch, so the plateau scheduler never acts during it). < 0 (default): none, unchanged.
+    wu = float(getattr(args, 'lr_warmup', -1.0)); warm = None
+    if wu >= 0:
+        if not (0. < wu <= 1.) or args.scheduler != 'reduce':
+            raise ValueError('--lr_warmup (train_forecast.py): 0 < value <= 1 epoch, with --scheduler reduce')
+        warm = LinearWarmup(opt, int(round(wu * n_steps)))
+        print(f'lr warmup on: {warm.total} steps of {n_steps} per epoch, lr {args.lr}', flush=True)
     for epoch in range(args.epoch):
         improved = False
 
@@ -211,8 +242,8 @@ def main():
                 best, best_epoch, best_step, improved = vi['loss'], epoch, step, True
                 torch.save(model.state_dict(), ckpt)
         hk = hook if K > 1 else None
-        tr = train_epoch(model, train_dl, opt, fc.pred_len, args.device, r=aux_r, hook=hk, marks=marks) if fc.aux_alpha != 0 else \
-            train_epoch(model, train_dl, opt, fc.pred_len, args.device, hook=hk, marks=marks)
+        tr = train_epoch(model, train_dl, opt, fc.pred_len, args.device, r=aux_r, hook=hk, marks=marks, warm=warm) if fc.aux_alpha != 0 else \
+            train_epoch(model, train_dl, opt, fc.pred_len, args.device, hook=hk, marks=marks, warm=warm)
         va = evaluate(model, val_dl, fc.pred_len, args.device)
         if K > 1:
             inner.append((epoch, n_steps, va['loss'], va['mse'], va['mae']))

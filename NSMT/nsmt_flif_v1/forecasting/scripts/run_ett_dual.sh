@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# MODI 2026-11-23 (hyperparameter range 2, user decision 11-23): env BS = batch size (appends '-bs $BS' after the dataset flags,
+#   argparse keeps the last; unset = 64) and WU = lr warmup in epochs, 0 < WU <= 1 (appends '--lr_warmup $WU': linear from lr / W to
+#   lr over the first W = round(WU x steps per epoch) optimizer steps; unset = none). When set, the folder tag becomes
+#   <COND>_b<BS>_w<WU> (so runs that differ only in BS / WU never share a folder), the run folder gains _wu<WU> and RESULT gains
+#   bs= / wu=. Unset: command line, folder and RESULT unchanged.
 # MODI 2026-11-21 (4-2 coupling placement, user decision 11-20 "(가) + (나)"): + nsmt4q_pop_<lif|flif>_msn_sde_nc = the base with
 #   --neo_current 1 ((가): Neocortex output x learned per-channel alpha into the hippocampus embedding neuron's input current,
 #   attention kept) and nsmt4q_pop_<lif|flif>_msn_sde_ncna = + --hippo_attn 0 ((나): no hippocampus attention; the Neocortex is the
@@ -148,6 +153,10 @@ WDX=${WDX:-1}; VPE=${VPE:-4}            # MODI 2026-11-21: default = hyperparame
 if [ "$WDX" != 0 ] && [ "$WDX" != 1 ]; then echo "WDX: 1 (default, BN / bias without weight decay) or 0 (as before 11-21)"; exit 1; fi
 [[ $VPE =~ ^[1-9]$ ]] || { echo "VPE: validations per epoch, 4 (default), 1 (as before 11-21) or 2-9"; exit 1; }
 R1F=""; [ "$WDX" = 1 ] && R1F="--wd_exclude_1d 1"; [ "$VPE" != 1 ] && R1F="$R1F --val_per_epoch $VPE"
+BS=${BS:-}; WU=${WU:-}                  # MODI 2026-11-23 (hyperparameter range 2): unset = unchanged
+if [ -n "$BS" ]; then [[ $BS =~ ^[1-9][0-9]*$ ]] || { echo "BS: batch size, a positive integer (unset = 64)"; exit 1; }; fi
+if [ -n "$WU" ]; then [[ $WU =~ ^(1|0\.[0-9]*[1-9][0-9]*)$ ]] || { echo "WU: lr warmup in epochs, 0 < WU <= 1 (unset = none)"; exit 1; }; fi
+TX="${BS:+_b$BS}${WU:+_w$WU}"; R2F="${BS:+-bs $BS}${WU:+ --lr_warmup $WU}"
 AUXS=${AUXS:-}                          # MODI 2026-11-20 (aux-target memory check): unset = unchanged
 if [ -n "$AUXS" ]; then
   [[ $AUXS =~ ^-?[1-9][0-9]*$ ]] || { echo "AUXS: a nonzero integer (unset = the token itself)"; exit 1; }
@@ -162,9 +171,9 @@ OUT=$LOG/ett_${DS}_p${PL}_${COND}_seed${S}_${TS}_${SHA}.stdout; t0=$(date +%s)
   --log_dir "$LOG/$DS/p$PL" --seed $S -s -nd 0 --gating attn --no-bias --scheduler reduce -e $E --warm_up_epoch 0 \
   --layers 1 --tau 2.0 --weight_decay ${WD:-0.06} --patience $P \
   --data $DS --data_path $DS.csv --root_path "$W/dataset/ETT-small" --seq_len $SEQ --pred_len $PL --features M --target OT \
-  $HP $CF ${LR:+-lr $LR} ${DROP:+--head_dropout $DROP} $PEF $R1F ${AUXS:+--aux_shift=$AUXS} --tag $COND seed$S > "$OUT" 2>&1)
+  $HP $CF ${LR:+-lr $LR} ${DROP:+--head_dropout $DROP} $PEF $R1F $R2F ${AUXS:+--aux_shift=$AUXS} --tag $COND$TX seed$S > "$OUT" 2>&1)
 RC=$?
-D=$(ls -td "$LOG/$DS/p$PL"/*/*"+${COND}+seed${S}+"*"+epoch+${E}+${LR:+lr+$LR+}"*/seed${S}_*${AUXS:+_auxs$AUXS} 2>/dev/null | head -1)
+D=$(ls -td "$LOG/$DS/p$PL"/*/*"+${COND}${TX}+seed${S}+"*"+epoch+${E}+${LR:+lr+$LR+}"*/seed${S}_*${AUXS:+_auxs$AUXS} 2>/dev/null | head -1)
 CSV="$D/log/final+result.csv"; LCSV="$D/log/last/final+result.csv"
 if [ $RC -ne 0 ] || [ ! -s "$CSV" ]; then echo "SKIP(rc=$RC, no result) ds=$DS pl=$PL cond=$COND seed=$S out=$OUT" | tee -a "$RES/raw.txt"; exit 1; fi
 VALS=$($PY - "$CSV" "$LCSV" <<'EOF'
@@ -177,4 +186,4 @@ EOF
 [ -z "$VALS" ] && { echo "SKIP(result parse failed) ds=$DS pl=$PL cond=$COND seed=$S out=$OUT" | tee -a "$RES/raw.txt"; exit 1; }
 BE=$(cat "$D/log/best_epoch.txt" 2>/dev/null | tr ' ' ':')
 PAR=$(grep -a 'number of parameters' "$OUT" | grep -oE 'parameters : [0-9]+' | grep -oE '[0-9]+'); t1=$(date +%s)
-echo "RESULT exp=nsmt_flif_v1_ett_dual ds=$DS pl=$PL cond=$COND seed=$S $VALS best_epoch_val_epochs=$BE params=$PAR time_s=$((t1-t0)) seq_len=$SEQ${LR:+ lr=$LR}${WD:+ wd=$WD}${DROP:+ drop=$DROP} wdx=$WDX vpe=$VPE${AUXS:+ auxs=$AUXS} pe=$PE sha=$SHA dir=$D" | tee -a "$RES/raw.txt"
+echo "RESULT exp=nsmt_flif_v1_ett_dual ds=$DS pl=$PL cond=$COND seed=$S $VALS best_epoch_val_epochs=$BE params=$PAR time_s=$((t1-t0)) seq_len=$SEQ${LR:+ lr=$LR}${WD:+ wd=$WD}${DROP:+ drop=$DROP} wdx=$WDX vpe=$VPE${BS:+ bs=$BS}${WU:+ wu=$WU}${AUXS:+ auxs=$AUXS} pe=$PE sha=$SHA dir=$D" | tee -a "$RES/raw.txt"

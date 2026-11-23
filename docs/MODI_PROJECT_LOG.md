@@ -11068,3 +11068,168 @@ ETT는 test MSE 비율 r = A / B − 1(%), 12쌍. MIT-BIH는 macro-F1 차이 d(%
 ### Git
 
 - 이 항목, 결과, 순서 평가 script와 launcher를 하나의 commit으로 묶고 tag `exp/nsmt-flif-neo-20261121-nc`를 단다(이 commit은 tag로 가리킨다). `exp/nsmt-flif-neo`와 그 tag만 push 한다.
+
+## 2026-11-23 22:37 KST — 사용자 결정 기록 + 사후 분석 요약 + 사전 고정 + 구현 (학습 전): hyperparameter 범위 2 (learning rate × batch 크기 × warmup) — Spikformer(DE), 기준 pop LIF / pop f-LIF, (나) pop LIF / pop f-LIF 다섯 model에 같은 18조합. seed 42로 찾고(430 run, validation만 봄), 고른 설정을 seed 3개로 확정한다(최대 75 run). aux 본 시험은 돌리지 않고 닫는다
+
+**사용자 메시지 (11-23, 원문):** "1. (나)가 어떤 설정이였어? 2. 기준과 (나)를 둘 다 'hyperparameter 조정)에 넣고 결정하자. 3. aux 본 시험의 '2칸 전 patch를 목표'로 하는 손실함수는 임의적이라고 생각해."
+
+### 결정 기록
+
+- **구조 결정은 범위 2 뒤로 미룬다.** 기준과 (나)를 둘 다 hyperparameter 조정에 넣고, 조정한 설정끼리 비교해서 정한다(사용자 결정 2번).
+- **aux 본 시험(과거 patch를 목표로 하는 손실)은 돌리지 않고 닫는다.** 사용자 의견 3번("임의적")에 동의한다. 이유:
+  - "2칸 전"이라는 값은 4-1 결과를 본 뒤에 고른 값이다(4칸 전은 ETTh2에서 model이 거의 못 그려서 2칸으로 물러났다). 과제에서 나온 값이 아니다.
+  - 이 손실의 목표는 "예측 / 분류에 도움이 되는 것"이 아니라 "Neocortex가 기억을 쓰게 만드는 것"이다.
+  - 4-2에서 Neocortex를 실제로 쓰이게 만들어도 정확도는 오르지 않았다(아래 사후 분석).
+  - 임의적이지 않은 aux(NSMT 논문의 재구성 손실: 저주파, 원 시계열)는 11-19에 둘 다 "이득 없음"으로 끝났다.
+- 1번 질문((나)의 설정)에는 대화에서 답했다. 내용은 2026-11-21 01:49 사전 고정 항목과 같다.
+
+### 사후 분석 요약 (11-23, 학습 없음; 4-2 결과를 사용자 요청으로 다시 정리하면서 확인한 것)
+
+기록된 RESULT 줄과 energy 재계산 파일에서 다시 뽑았다. 사전 고정이 아니다.
+
+- **ETT에서 기준 / (나)가 Spikformer(DE)보다 test에서 나아 보이던 방향은 validation에서는 보이지 않는다.**
+
+| 비교 (12쌍) | test MSE R % (A가 낮은 쌍) | test MAE R % | validation L1 R % (A가 낮은 쌍) |
+|---|---|---|---|
+| 기준 pop LIF − Spikformer(DE) | −0.55 (9/12) | −0.35 (10/12) | +0.15 (2/12) |
+| 기준 pop f-LIF − Spikformer(DE) | −0.35 (9/12) | −0.25 (8/12) | +0.07 (7/12) |
+| (나) pop LIF − Spikformer(DE) | −0.26 (9/12) | −0.22 (7/12) | +0.10 (4/12) |
+| (나) pop f-LIF − Spikformer(DE) | −0.06 (8/12) | −0.11 (8/12) | +0.11 (5/12) |
+
+  - 그동안 보고한 ETT의 "방향은 낫다"는 우연일 수 있다.
+- **짝 비교 r 하나의 흔들림(12쌍의 표준편차)은 0.7–1.2 %다.** 4-2의 R(+0.3–0.6 %)은 그 안이다. 같은 model의 seed 사이 MSE 폭((최대 − 최소) / 평균)은 ETTh2 1.2–3.8 %, ETTm2 0.2–0.9 %다.
+- **(나)와 (가)는 ETT에서 거의 같은 예측을 한다.** (나) − (가) pop LIF의 12쌍 표준편차가 0.28 %로 가장 작다.
+- **(나) pop f-LIF의 MIT-BIH 하락(−0.54 %p)은 S class(−1.16 %p, seed 3개 모두 하락)와 F class(−1.06 %p, 241 beat라 흔들림이 큼)에서 나온다.** 기준이 Spikformer(DE)보다 나은 곳도 거의 S class뿐이다(+1.85 / +1.55 %p). (나) pop LIF는 그 우위를 유지하고(+1.88) (나) pop f-LIF는 대부분 잃는다(+0.39).
+- **(나) pop LIF는 ETT 네 칸 모두(0.71 / 0.78 / 0.80 / 0.87배)와 MIT-BIH(0.77배)에서 Spikformer(DE)보다 energy가 낮다.** (나) pop f-LIF는 ETTm2 두 칸에서 더 높다(1.13 / 1.17배).
+- **α(학습 뒤):** ETT run별 channel 평균 0.989–1.037(가장 좋은 checkpoint가 epoch 0–5라 거의 학습되지 않음), MIT-BIH 1.38–1.65, 음수 channel 없음.
+
+### 목적
+
+- 기준과 (나)는 지금까지 NSMT 논문 Table 13의 learning rate / batch 크기를 그대로 썼고, (나) 전용으로 고른 값이 없다. 구조를 정하기 전에 다섯 model 모두에 같은 조정 기회를 준다.
+- 묻는 것: (1) 조정한 설정끼리 비교하면 (나)가 기준보다 나빠지는가. (2) 조정한 설정끼리 비교하면 기준 / (나)가 Spikformer(DE)보다 나은가.
+- branch `exp/nsmt-flif-neo`, base commit `12b66dfcf`.
+
+### 설계
+
+**model (모든 neuron SpikeDE, relative position bias 끔, aux 없음, 범위 1 학습):**
+
+| 이름 | 조건 | 실행 스크립트 | 지금 설정의 기존 run |
+|---|---|---|---|
+| Spikformer(DE) | `spkall_lif` | `run_ett_mixer.sh`, `run_mitbih4.sh` | `flif-v1-ett-r1`, `flif-v1-mitbih-r1` |
+| 기준 pop LIF / pop f-LIF | `nsmt4q_pop_<lif\|flif>_msn_sde` | `run_ett_dual.sh`, `run_mitbih4.sh` | `flif-v1-ett-r1`, `flif-v1-mitbih-r1` |
+| (나) pop LIF / pop f-LIF | `nsmt4q_pop_<lif\|flif>_msn_sde_ncna` | `run_ett_dual.sh`, `run_mitbih4.sh` | `flif-v1-ett-nc`, `flif-v1-mitbih-nc` |
+
+**조합 (과제마다 3 × 3 × 2 = 18개; 굵게 = 지금 값):**
+
+| 과제 | learning rate | batch 크기 | warmup |
+|---|---|---|---|
+| ETT | 0.00025 / **0.0005** / 0.001 | 32 / **64** / 128 | **없음** / 1 epoch |
+| MIT-BIH | 0.005 / **0.01** / 0.02 | 256 / **512** / 1024 | **6 epoch** / 없음 |
+
+- learning rate와 batch 크기는 지금 값의 절반과 두 배다. 두 과제에 같은 방식이다.
+- **ETT warmup 1 epoch:** 첫 epoch의 optimizer step 동안 lr을 lr / W에서 lr까지 직선으로 올린다(W = 그 epoch의 step 수). 지금은 warmup이 없다.
+- **MIT-BIH warmup:** 지금은 cosine 일정의 처음 6 epoch(30 epoch의 20 %)가 warmup이다. "없음"은 첫 epoch부터 lr 전체로 시작한다.
+- 나머지는 그대로다: ETT weight decay 0.06(BN과 bias 제외), validation이 안 좋아지면 lr을 1/10로, epoch당 validation 4번, 10 epoch 개선 없으면 중단. MIT-BIH 30 epoch, weight decay 1e-4, 마지막 epoch weight.
+
+**찾기 (seed 42, validation만 본다):**
+
+- **ETT** suite `flif-v1-ett-r2s`: 새 조합 17개 × model 5개 × ETTh2 / ETTm2 × H96 / H720 = 340 run. 지금 조합은 기존 seed 42 run을 쓴다.
+  - 점수(model마다, 데이터마다): s(c) = H96 / H720 두 칸의 [validation L1(c) / validation L1(지금) − 1] 평균. validation L1은 checkpoint를 고르는 값(`val_loss_best`)이다.
+  - s가 가장 낮은 조합을 고른다. s < 0일 때만 지금 설정을 바꾼다.
+  - 데이터마다(ETTh2, ETTm2) 따로 고른다. NSMT 논문도 데이터마다 lr / batch를 따로 둔다.
+- **MIT-BIH** suite `flif-v1-mitbih-r2s`: 18조합 × model 5개 = 90 run, 모두 `VAL=1`(학습 파일의 80 %로 학습, 20 %가 validation; 11-01 방식).
+  - 점수: 마지막 epoch의 validation macro-F1(`val_f1`). 가장 높은 조합을 고른다. 지금 조합보다 높을 때만 바꾼다.
+- 점수가 같으면 조합 순서(lr → batch → warmup)에서 앞선 것을 쓴다.
+- 고른 값이 lr이나 batch의 범위 끝이면 보고에 "범위 끝"이라고 적는다. 사용자 결정 없이 범위를 넓히지 않는다.
+
+**확정 (seed 42 / 7 / 2026), 고른 설정이 지금과 다른 곳만:**
+
+- ETT suite `flif-v1-ett-r2f`: 그 데이터의 H96 / H720 × seed 3개. 최대 5 × 2 × 2 × 3 = 60 run.
+- MIT-BIH suite `flif-v1-mitbih-r2f`: `VAL=0`(학습 파일 전체) × seed 3개. 최대 15 run.
+- 바뀌지 않은 곳은 기존 run(`-r1`, `-nc` suite)을 그대로 쓴다.
+- ETT seed 42 확정 run은 찾기 run과 같은 설정을 다시 돌린 것이다. 두 run의 test MSE / MAE / validation이 정확히 같아야 한다(학습이 bit 단위로 재현되므로). 다르면 요약을 멈춘다.
+
+### 판정 규칙 (결과를 보기 전에 정함; 모두 test, 각 model의 확정 설정, seed 3개)
+
+- **문턱은 지금까지와 같다.** ETT: 12쌍(4칸 × seed 3)의 test MSE 비율 r = A / B − 1, 평균 R ≤ −1 %이고 8/12쌍이 낮으면 "좋음", R ≥ +1 %이고 8/12가 높으면 "나쁨", 그 밖은 "차이 없음". MIT-BIH: macro-F1 차이의 평균 ≥ +0.5 %p이고 2/3 seed가 양수면 "좋음", 그 반대면 "나쁨", 그 밖은 "차이 없음".
+- **T (조정의 효과), model마다:** 확정 − 지금. 설정이 바뀌지 않은 과제는 "바뀌지 않음"으로 적는다.
+- **S1 (구조), neuron마다:** (나) 확정 − 기준 확정.
+- **S2 (사용자 목표), neuron마다:** 기준 확정 − Spikformer(DE) 확정, (나) 확정 − Spikformer(DE) 확정. 종합은 `summarize_sde.overall`(과제 하나라도 나쁨 → 지지 안 됨; 좋음이 있으면 strong; ETT R < 0이고 MIT-BIH d > 0이면 weak). energy 비율을 함께 적는다(ETT는 head 재계산, MIT-BIH는 기록값).
+- **권고 규칙 (구조 결정은 사용자가 한다; 4-2와 같은 규칙):**
+  1. S1에 "나쁨"이 없으면(두 neuron × 두 과제) → (나)를 권한다. 이유는 4-2와 같다(attention이 없어 energy가 낮고, T = N contribution을 직접 보여준다).
+  2. 아니면 → 기준 유지를 권한다.
+  - 보조(neuron별): S1의 "나쁨"이 한 neuron에만 있으면, 다른 neuron의 (나)를 "neuron 한정 후보"로 적는다. 그것을 채택하면 "결과를 본 뒤 neuron을 고른 것"으로 기록한다.
+- **보고 전용:** 조합 18개의 validation 표(model마다), 고른 설정과 범위 끝 여부, MIT-BIH `VAL=1` run의 test macro-F1(고르기에 쓰지 않음), 가장 좋은 epoch, epoch 수, run 시간, 발화율, 지금 설정끼리의 같은 비교(4-2 값).
+
+### 사전 예상 (틀릴 수 있다; 결과와 대조한다)
+
+1. ETT에서 가장 좋은 새 조합과 지금 설정의 validation 차이는 다섯 model 모두 0.5 % 안쪽이다.
+2. 그래도 후보가 17개라 대부분의 model이 적어도 한 곳에서 설정을 바꾼다(다섯 중 넷 이상).
+3. T는 다섯 model × 두 과제 모두 "좋음"이 아니다.
+4. S1: ETT는 두 neuron 모두 "차이 없음". MIT-BIH pop LIF "차이 없음". MIT-BIH pop f-LIF는 −0.5 %p 근처라 어느 쪽인지 예상하지 못한다.
+5. S2 종합에 strong은 없다.
+
+### 구현 (기본값이면 이전과 같다)
+
+- `classification/config.py`: `--lr_warmup`(기본 −1 = 이전과 같음). 0 이상이면 run 폴더에 `_wu<값>`이 붙는다.
+- `classification/utils.py` `get_scheduler`: cosine의 warmup epoch 수를 받는다(`warmup_epochs`; None이면 이전처럼 epoch 수의 20 %).
+- `classification/train.py`: `--lr_warmup`을 cosine 일정에 넘긴다(정수 epoch만).
+- `classification/train_forecast.py`: `LinearWarmup`(optimizer step마다 호출; 첫 W step에서 lr × (k + 1) / W, 그 뒤는 건드리지 않음). `--lr_warmup`은 0 초과 1 이하만 받는다(첫 epoch 안에서 끝나므로 lr을 줄이는 일정과 겹치지 않는다).
+- `forecasting/scripts/run_ett_dual.sh`, `run_ett_mixer.sh`: env `BS`(batch 크기), `WU`(warmup epoch). 주면 폴더 tag가 `<조건>_b<BS>_w<WU>`가 되고 RESULT에 `bs=` / `wu=`가 붙는다. 조합마다 폴더가 달라져 동시에 돌려도 섞이지 않는다.
+- `classification/scripts/run_mitbih4.sh`: env `BS`, `WU`(cosine warmup epoch 수, 0 = 없음). tag와 RESULT는 같은 방식이다.
+- 새 파일:
+  - `classification/select_r2.py`: 조합, 찾기 대기열(430줄), validation만 보는 고르기, 확정 대기열. 결과는 `classification/results/flif-v1-r2-selected.json`.
+  - `classification/check_r2.py`: 새 옵션의 단위 점검.
+  - `classification/scripts/r2_driver.sh`: 찾기 pool → 줄 수 확인(340 / 90 RESULT, SKIP 0이 아니면 멈춤) → 고르기(실패하면 멈춤) → 확정 pool.
+- `classification/summarize_r2.py`(판정 표)는 학습이 도는 동안 쓴다. 학습 code가 import하지 않는 새 파일이고, 판정 규칙은 이 항목에 고정돼 있다.
+
+### 점검 (모두 학습 전; 실패하면 시작하지 않음)
+
+| 점검 | 결과 |
+|---|---|
+| 실행 스크립트 3개의 명령줄, 옵션을 주지 않았을 때 (가짜 python으로 기록; ETT dual 13, ETT mixer 5, MIT-BIH 15) | 고치기 전과 33/33 같음 |
+| 기본값 학습이 bit 단위로 같은가: Spikformer(DE) ETTh2 H96 2 epoch, (나) pop LIF ETTh2 H96 2 epoch, Spikformer(DE) MIT-BIH 5 epoch, (나) pop LIF MIT-BIH 5 epoch(`VAL=1`) | 4/4, RESULT의 모든 값이 고치기 전과 같음 (Spikformer(DE) ETT는 기록된 0.287915, `1:0.311735:2:100/133`) |
+| `check_r2.py` | 37/37 |
+| a. `LinearWarmup`: W = 5일 때 lr × 1/5 … 5/5, 그 뒤 lr 그대로; 뒤이은 lr 줄이기는 lr 전체에서 시작; W = 0은 멈춤 | 통과 |
+| b. `train_epoch`: warmup 없으면 step마다 lr 그대로, 있으면 계획한 값 | 통과 |
+| c. cosine: 기본값 = warmup 6을 직접 준 것과 30 epoch 모두 같음; warmup 0은 lr 전체(0.0100)에서 시작해 내려가기만 함; warmup 6은 1e-5에서 올라가 epoch 6에 최고(0.0090) | 통과 |
+| d. 실행 스크립트: 잘못된 `BS` / `WU`(0, 소수 batch, 범위 밖 warmup 등 21가지)는 python 전에 멈춤; 올바른 값은 명령줄과 tag에 들어감; MIT-BIH 기본값 그대로 | 통과 |
+| 새 옵션 smoke 4개 (ETT: 기준 pop f-LIF ETTm2 H720 lr 0.001 / batch 128 / warmup 1, Spikformer(DE) ETTh2 H96 lr 0.00025 / batch 32 / warmup 1; MIT-BIH: 기준 pop f-LIF lr 0.02 / batch 1024 / warmup 0, (나) pop f-LIF lr 0.005 / batch 256) | RESULT 4, SKIP 0; `logargs.txt`의 lr / batch_size / lr_warmup이 의도와 같음; stdout "lr warmup on: 264 steps of 264 per epoch" |
+| `select_r2.py` 시험 (가짜 찾기 파일에 답을 심음; 지금 설정 행은 실제 run): 심은 답 15개(바뀜, 유지, 동점, 지금과 같은 값), 점수 표, 범위 끝 표시, 확정 대기열 24줄, 찾기 대기열 430줄(model마다 86) | 21/21 |
+| 〃 멈춰야 하는 경우 19가지 (줄 빠짐, 중복, 수는 맞지만 한 줄이 다른 줄로 바뀜, SKIP, nan, tag의 batch 불일치, `_wu` 없음, lr 폴더 불일치, vpe=1, pe=1, `_noattn` 없음, 기준 행에 `_noattn`, sha 둘, MIT-BIH `val=0` / 29 epoch / `_mbval` 없음 / nan / 줄 빠짐) | 19/19 멈춤 |
+| 실제 smoke RESULT 4줄을 `select_r2.check_row`에 넣음 | 자기 조합으로는 통과, 다른 17조합으로는 모두 거부 |
+| GPU memory (smoke 중 nvidia-smi 최대) | 4.8 GB 이하 (MIT-BIH batch 1024 기준 pop f-LIF). ETT `peak_mem_GB` 1.32 (batch 128, ETTm2 H720). GPU당 2개 가능 |
+
+- 시험 script는 scratchpad에 있다(Git 밖): `cmdline.sh`, `test_select.py`.
+
+### 환경과 명령
+
+- 서버 RTX A6000 4장, python `/home/yschoi/.conda/envs/snn_recall/bin/python`(torch 1.12.0+cu113), `LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib`.
+- 데이터와 분할은 지금까지와 같다. ETT: ETTh2 / ETTm2, 입력 96, H96 / H720, 표준 train / validation / test 분할, window 정규화. MIT-BIH: 5 class, 학습 파일 70 % / 시험 파일 30 %; `VAL=1`은 학습 파일을 층화 5-fold의 fold 0으로 80 / 20 나눈다.
+- 실행: `cd NSMT && tmux new-session -d -s flif_r2 "bash nsmt_flif_v1/classification/scripts/r2_driver.sh 0,1,2,3,0,1,2,3"` (GPU당 2개).
+- 대기열(로컬): `classification/scripts/queues/r2-search-20261123.txt`, `r2-final-20261123.txt`. pool 기록(로컬): `classification/results/flif-v1-r2-pool.log`.
+- 줄 예: `COND=nsmt4q_pop_lif_msn_sde_ncna SUITE=flif-v1-ett-r2s LR=0.00025 BS=32 WU=1 bash nsmt_flif_v1/forecasting/scripts/run_ett_dual.sh ETTm2 720 42`, `COND=spkall_lif SUITE=flif-v1-mitbih-r2s VAL=1 LR=0.02 BS=1024 WU=0 bash nsmt_flif_v1/classification/scripts/run_mitbih4.sh 42`.
+- 끝난 뒤(손으로): pool 기록을 suite의 `pool_runs.txt`로 복사 → `energy_recount_ett.py --suite flif-v1-ett-r2f` → `summarize_r2.py` → 결과 항목.
+
+### 비용 (실측만; 끝나는 시각은 어림하지 않음)
+
+- run 수: 찾기 430(ETT 340, MIT-BIH 90) + 확정 최대 75(ETT 60, MIT-BIH 15).
+- 지금 설정의 실측 run 시간(GPU당 2개): ETT 262–2600 s(다섯 model × 네 칸의 seed 평균 합 20,949 s), MIT-BIH 544–1243 s(다섯 model 합 4,001 s). batch 32는 step 수가 두 배라 더 걸린다.
+- GPU 4장은 시작할 때 비어 있었다. 다른 대화의 작업이 GPU를 함께 쓰면 느려진다.
+
+### 한계
+
+- 고르기는 seed 하나다. 조합 사이 validation 차이가 seed 사이 흔들림과 비슷한 크기일 수 있다. 특히 MIT-BIH validation macro-F1은 seed 사이 표준편차가 0.1–0.5 %p였다(11-02). 고른 설정이 "진짜 최적"이라는 보장은 없다. 다만 모든 model이 같은 절차를 거치고, 판정은 seed 3개의 test로 한다.
+- ETT는 데이터마다 두 칸(H96, H720)으로 고른다.
+- 범위는 지금 값의 절반 / 두 배까지다. weight decay, dropout(11-19에 따로 시험), Neocortex 시간상수(범위 3)는 건드리지 않는다.
+- ETT의 lr 일정(개선 없으면 줄임)과 MIT-BIH의 30 epoch은 그대로다.
+
+### not run
+
+- 범위 3(Neocortex 시간상수), weight decay / dropout 다시 고르기, 입력 336 / 720, CinC, 이상 탐지.
+- aux 본 시험(위 결정으로 닫음).
+- (가): 4-2에서 이득이 없어 범위 2에 넣지 않았다.
+
+### Git
+
+- 이 항목과 구현을 하나의 commit으로 묶어 `exp/nsmt-flif-neo`에 push 한 뒤 시작한다. 학습이 도는 동안에는 commit 하지 않는다(run이 기록하는 sha가 하나여야 한다).

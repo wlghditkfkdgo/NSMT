@@ -237,7 +237,11 @@ def train(args:Config):
         raise NotImplementedError('--val_per_epoch: train_forecast.py only')
     optimizer1 = make_adamw(model, args.lr, args.weight_decay, bool(int(getattr(args, 'wd_exclude_1d', 0))))   # MODI 2026-11-20
 
-    scheduler1 = get_scheduler(args.scheduler, optimizer1, max_lr=args.max_lr, min_lr=min(1e-6, args.lr * 1e-2), max_epochs=args.epoch)
+    _wu = float(getattr(args, 'lr_warmup', -1.0))                      # MODI 2026-11-23 (hyperparameter range 2): < 0 = unchanged
+    if _wu >= 0 and (args.scheduler != 'cosine' or _wu != int(_wu) or _wu >= args.epoch):
+        raise ValueError('--lr_warmup: the cosine schedule only, a whole number of epochs below --epoch')
+    scheduler1 = get_scheduler(args.scheduler, optimizer1, max_lr=args.max_lr, min_lr=min(1e-6, args.lr * 1e-2), max_epochs=args.epoch,
+                               warmup_epochs=None if _wu < 0 else int(_wu))
     if args.scheduler == 'cosine' : scheduler1.step(0)
     
     for epoch in range(args.epoch):
