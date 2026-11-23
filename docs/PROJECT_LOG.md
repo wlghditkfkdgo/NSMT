@@ -15760,3 +15760,87 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 - local: NSMT PDF의 `pdftotext -layout` 텍스트(scratchpad `nsmt1123/`).
 
 **commit:** 이 기록과 위 파일을 `exp/f-lif-pop-v3`에 commit · push한다. 학습이 없으므로 tag는 만들지 않는다.
+
+## 2026-11-23 21:50 KST — 사용자 질문(학습 없음): "첫 튜닝" model은 무엇인가, SF-de · SpikF 대비 정확도와 energy 차이, 논문에서 "비교할 만한 성능 + 저전력"을 주장할 수 있는가
+
+**사용자 질문(원문):** "'첫 튜닝' 모델이 무엇을 의미하고 있는지, SF-de 대비, SpiKF 대비 성능 차이가 얼마나 나는지 energy consumption 차이는 얼마나 되는지, 그리고 논문 작성했을 때 성능면에서는 주장이 가능한지(비교할만한 수준의 성능 + 저전력)"
+
+**출처:** 첫 튜닝 행은 `results/flif-v1-ett-spkmux-ettune/`(final.json 설정)에서 읽었다. 요약기 `load` · `arm` · `sfde_rows`로 읽었고, seed 42 / 7 / 2026의 test 값이다. SpikF · NSMT · PatchTST 값은 NSMT Table 13 · 14에서 가져왔다. SpikF · NSMT energy는 NSMT Table 6(H720)이다.
+
+### 1. "첫 튜닝" model
+- 구조는 LIF SpkMixer 그대로다.
+  - patch token → spike embedding(Linear + BN + LIF)
+  - token 순서를 따라 도는 LIF 사슬 두 개(정방향 · 역방향, step 수 = token 수, T = N)로 token을 섞음
+  - spiking MLP(IAND residual)
+  - 4번 반복의 평균
+  - Linear forecast head
+- 튜닝 전(11-01)과 다른 것은 세 가지다(11-20 04:02 기록):
+  - patch 8 → 16. token이 24개에서 12개로 줄었다.
+  - ETTm2의 MLP 비율 1 → 2.
+  - weight decay 0.06 → 0.1.
+- 그대로인 것: d_model 64, block 1, lr(ETTh2 5e-4, ETTm2 1e-4), 입력 96, T_h 4.
+
+### 2. 정확도(test, seed 평균 ± 표준편차)
+| 칸 | 첫 튜닝 MSE / MAE | SF-de MSE / MAE | SpikF MSE / MAE | 첫 튜닝 − SpikF MSE · MAE % | seed 3개 중 SpikF MSE보다 낮은 수 |
+|---|---|---|---|---|--:|
+| ETTh2 H96 | 0.2902 ± 0.0006 / 0.3347 | 0.2921 ± 0.0038 / 0.3360 | 0.290 / 0.336 | +0.06 · −0.39 | 1 |
+| ETTh2 H720 | 0.4151 ± 0.0028 / 0.4327 | 0.4229 ± 0.0062 / 0.4377 | 0.416 / 0.436 | −0.21 · −0.75 | 1 |
+| ETTm2 H96 | 0.1748 ± 0.0002 / 0.2525 | 0.1768 ± 0.0004 / 0.2538 | 0.175 / 0.251 | −0.13 · +0.58 | 2 |
+| ETTm2 H720 | 0.4018 ± 0.0004 / 0.3940 | 0.4036 ± 0.0013 / 0.3953 | 0.405 / 0.397 | −0.79 · −0.75 | 3 |
+| 4칸 평균 | 0.3205 / 0.3535 | 0.3238 / 0.3557 | 0.3215 / 0.3550 | −0.32 · −0.43 | – |
+
+- **vs SF-de:** MSE R −1.02 %(12쌍 중 11쌍 낮음, better 경계), MAE R −0.59 %. 칸별 r은 −0.65, −1.82, −1.14, −0.46 %다.
+- **vs SpikF:** 4칸 평균 MSE −0.0010(−0.32 %), MAE −0.0015(−0.43 %).
+  - 칸마다 ±0.8 % 안이다.
+  - 4칸 모두 MSE와 MAE가 함께 낮은 칸은 ETTh2 H720과 ETTm2 H720뿐이다. ETTh2 H96 MSE와 ETTm2 H96 MAE는 SpikF가 낮다.
+  - ETTh2 H720의 차이(0.0009)는 그 칸의 seed 표준편차(0.0028)보다 작다.
+- 보고:
+  - NSMT 자체보다 MSE +0.76 / +1.50 / −0.13 / +0.70 %다(4칸 평균 0.3177 / 0.3518보다 나쁨).
+  - PatchTST(NSMT Table 13)보다 MSE −3.91 / −3.68 / −0.13 / −0.05 %다. ETTm2에서는 사실상 같다.
+
+### 3. energy(µJ, 1 sample 기준)
+- 우리 규칙: syops 규칙 + f-LIF 논문 neuron energy, head MAC 4.6 pJ. seed 평균이다.
+
+| 칸 | 첫 튜닝 | SF-de | 첫 튜닝 / SF-de | parameter 첫 튜닝 / SF-de |
+|---|--:|--:|--:|---|
+| ETTh2 H96 | 7.54 | 13.84 | 0.54 | 96,064 / 169,656 |
+| ETTh2 H720 | 22.93 | 44.64 | 0.51 | 575,296 / 1,128,120 |
+| ETTm2 H96 | 8.58 | 14.80 | 0.58 | 108,544 / 174,192 |
+| ETTm2 H720 | 23.94 | 45.44 | 0.53 | 587,776 / 1,132,656 |
+| 칸별 비율 평균 | | | **0.541** | |
+
+- **SF-de 대비 energy가 줄어든 이유는 거의 patch 16이다.**
+  - token이 반으로 줄어 forecast head 입력이 반이 됐다. head는 H720 energy의 약 80 %다(11-20 13:08 기록).
+  - patch 8인 튜닝 전 SpkMixer는 SF-de의 0.98배였다. SF-de도 patch 16을 쓰면 비슷하게 줄 수 있다. 시험하지 않았다.
+- **SpikF와 NSMT는 NSMT Table 6(H720)의 값이다.**
+
+| model | ETTh2 H720 | ETTm2 H720 |
+|---|--:|--:|
+| SpikF | 1050.47 | 1050.10 |
+| NSMT | 44.90 | 46.72 |
+
+  - 첫 튜닝은 SpikF의 약 1/46(2.2 %) · 1/44(2.3 %)이고, NSMT의 0.51배다.
+  - **세는 규칙이 다르다.** NSMT는 식 (16)을 쓴다: AC = fr · T · MAC, 첫 층과 head는 MAC. 우리는 syops 규칙이다.
+  - SpikF를 우리 규칙으로 센 적은 없다. SpikF와의 차이는 40배를 넘어 규칙 차이로 뒤집히기는 어렵다고 본다(내 판단). NSMT와의 0.5배는 규칙 차이 안일 수 있다.
+- DNN(PatchTST 등)의 energy는 계산하지 않았다.
+
+### 4. 논문 주장 가능성(내 판단)
+| 주장 | 지금 근거 | 판단 |
+|---|---|---|
+| SpikF와 비슷한 정확도 | 4칸 평균 −0.32 % / −0.43 %, 칸마다 ±0.8 % 안 | **가능**("동등"으로). "더 낫다"는 seed 차이보다 작아 약하다 |
+| SpikF보다 훨씬 적은 energy | NSMT가 보고한 SpikF 값 대비 약 1/45 | **가능성 높음**. 같은 규칙으로 SpikF를 다시 세면 더 단단하다 |
+| NSMT 표의 DNN Transformer와 비슷하거나 나은 정확도 | 5행 모두보다 4칸 평균 낮음. PatchTST 대비 ETTh2 −3.9 / −3.7 %, ETTm2 −0.1 % | **가능**. DNN energy는 아직 없다 |
+| Spikformer(SF-de)보다 정확하고 저전력 | −1.02 %(11/12), energy 0.54배 | **지금은 약함**. 이득 대부분이 SF-de에 주지 않은 patch 16에서 왔다 |
+| NSMT보다 정확 | 4칸 평균 MSE +0.9 %, MAE +0.5 % | **불가**. energy는 0.5배이지만 세는 규칙이 다르다 |
+
+- 공통 한계:
+  - 칸이 ETTh2 · ETTm2 × H96 · H720뿐이다(사용자 결정 12). SpikF · NSMT 표는 4 데이터셋 × 4 길이다.
+  - seed 3개다.
+  - 이 설정의 weight decay 0.1은 11-20 결정에서 뺀 값이다.
+  - 기준값은 논문 표의 숫자다(학습 설정은 맞추지 않음).
+- 주장을 단단하게 하려면(제안, 실행하지 않음):
+  - (가) SF-de를 patch 16으로 돌린다(12 run). Spikformer 비교를 공정하게 하기 위해서다.
+  - (나) SpikF · NSMT의 energy를 우리 규칙으로 다시 세거나, 우리 model을 NSMT 식 (16)으로 센다.
+  - (다) 쓸 설정으로 나머지 ETT 칸을 채운다. 사용자 결정 12를 바꾸는 일이다.
+
+**commit:** 이 기록을 `exp/f-lif-pop-v3`에 commit · push한다(학습 없음, 새 파일 없음).
