@@ -16348,3 +16348,112 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 - 멈출 때 `ps | grep`과 `kill`을 한 명령에 넣어, 같은 명령 줄에 있던 파일 이름 때문에 내 shell까지 죽였다(다른 process는 죽지 않았다; 죽은 것은 내 계산 process와 그 worker, 내 shell뿐이다). memory의 "PID를 먼저 읽고 따로 kill" 규칙을 어긴 것이다.
 
 **commit:** 이 기록, code, 점검 파일을 `exp/f-lif-pop-v3`에 commit · push한 뒤 driver를 시작한다.
+
+## 2026-11-24 20:14 KST — 사용자 정정(NSMT는 reject된 논문, 보고할 필요 없음) + 확인(학습 없음): NSMT 행을 SpkMixer 논문의 비교에서 완전히 뺀다. NSMT Table 13에서 가져온 DNN 값 160개는 모두 출판된 원 출처(TimesNet ICLR 2023 Table 13, SpikF ICML 2025 Table 11 · 12)의 값과 같다. 그래서 DNN baseline은 그 두 논문을 출처로 인용하면 된다
+
+**직전 commit:** `f547035ea`(사전등록). 브랜치 `exp/f-lif-pop-v3`. full16 pool이 도는 중이라 commit은 pool이 끝난 뒤 결과와 함께 한다(남은 run이 같은 commit을 기록하도록).
+
+**사용자 말(원문, 11-24):** "NSMT는 내 논문이라는 뜻은, NSMT의 논문을 작성했지만 "최종적으로는 reject되어" 아직 완성된 연구라고 할 수 없어. 그러니 차이를 보고할 필요도 없어. NSMT을 발전시킨 논문은 별도의 세션에서 진행 중이야."
+
+**적용:**
+- 18:02 기록의 내 해석("NSMT는 보고 행")을 고친다. NSMT는 SpkMixer 논문의 표와 본문 어디에도 넣지 않는다. 정확도 차이와 energy 비율도 보고하지 않는다.
+- 18:02 기록 질문 5 답의 (f) "NSMT의 후속"은 후보에서 뺀다.
+- 사전등록한 요약기(`summarize_full16.py`)는 NSMT 행을 "보고용"으로 계산한다. 판정에 쓰지 않는 행이므로 pool 중에 code를 고치지 않고 그대로 둔다. 결과 보고와 논문 표에서는 그 행을 쓰지 않는다.
+
+**DNN baseline 출처 확인**(`results/ett-full16-20261124/trace_dnn_sources.py` → `trace_dnn_sources.txt`):
+- 11-23 결정은 "DNN baseline은 NSMT 원 논문에 실린 결과만"이었다. 그런데 NSMT 논문은 출판되지 않아 출처로 인용할 수 없다.
+- NSMT 논문 본문에는 예측 baseline(L = 96)의 값을 "taken from [43] and [41]"이라고 적혀 있다. [43]은 SpikF(ICML 2025), [41]은 TimesNet(ICLR 2023)이다.
+- 그 두 논문의 표를 원문(arXiv PDF의 pdftotext -layout)에서 다시 읽어, 16칸 × MSE · MAE × 5 model = 160개 숫자를 하나씩 맞춰 보았다.
+
+| NSMT Table 13의 행 | 같은 값이 있는 출판 논문의 표 | 32개 중 같은 수 |
+|---|---|--:|
+| Informer | TimesNet Table 13 | 32 |
+| FEDformer | TimesNet Table 13, SpikF Table 12 | 32, 32 |
+| PatchTST | SpikF Table 11 | 32 |
+| ETSformer | TimesNet Table 13 | 32 |
+| Autoformer | TimesNet Table 13, SpikF Table 11 | 32, 32 |
+
+- 출처를 찾지 못한 숫자는 160개 중 0개다.
+- 그래서 DNN baseline의 **값은 바꾸지 않는다.** 논문에서는 TimesNet과 SpikF를 출처로 인용하면 된다(내 제안; 인용 방식은 사용자 결정).
+- PatchTST 값은 SpikF Table 11의 것이다. SpikF는 iTransformer의 방법을 따랐다고 적었다(11-19 기록: iTransformer Table 10의 PatchTST와 같은 값).
+- 원문 파일: TimesNet arXiv 2210.02186v3 PDF(md5 `2b55c6e392e819d7debb7207f8c12bab`, text md5 `142f9b382dfb7ae6bd3d7183ec55e928`), SpikF text md5 `f235757e771fc026e9964449eb7c5df5`. 모두 local scratchpad에 있고 Git에는 넣지 않는다.
+
+**기존 판정 code에 미치는 영향:**
+- 기준 행의 값은 그대로이므로 지금 판정과 사전등록한 16칸 판정은 바뀌지 않는다.
+- `pass_ett_nsmt.py` 등의 이름과 설명문에 "NSMT Table 13"이라고 적혀 있다. 이것은 값을 처음 옮겨 온 곳이고, 출판 출처는 위 표다. 이름은 바꾸지 않는다(기존 기록과 맞추기 위해).
+
+**commit:** 이 기록과 `trace_dnn_sources.{py,txt}`는 full16 결과 기록과 함께 `exp/f-lif-pop-v3`에 commit · push한다.
+
+## 2026-11-24 20:31 KST — 결과 + 실험 완료(ETT 전체 16칸, 72 run, 사전등록 `f547035ea`, SKIP 0): 두 model 모두 **NOT PASSED**. 16칸 평균에서 SpikF를 넘지 못한다(첫 튜닝 MSE −0.0011 / MAE −0.0003, 확장 −0.0029 / −0.0011; 0.001 이상 낮아야 함). SpikeRNN · iSpikformer · DNN 5행은 모두 넘고, energy는 16칸 모두 SpikF의 2.1 %(첫 튜닝) · 7.1 %(확장) 이하다. SpikF와의 차이는 대부분 ETTh1에서 나온다
+
+**목적과 설계:** 18:02 사전등록 그대로다(바꾼 것 없음). 첫 튜닝 최종 설정과 확장 최종 설정을 아직 안 돌린 12칸에 돌렸다. ETTh1은 ETTh2의 설정을, ETTm1은 ETTm2의 설정을 그대로 썼다. 기존 4칸 24 run과 합쳐 model당 16칸 × seed 3이다.
+
+**실행:**
+- driver `scripts/full16_driver.sh`, 18:03:08 시작, 20:29:48 "driver end". GPU A6000 4장, 8 slot.
+- 18:07쯤부터 다른 세션의 학습이 같은 GPU에서 돌아 run이 느려졌다(306–2,499 s, 합계 18.2 GPU 시간). 사전등록의 예상(1.5–2시간)보다 약 30분 길었다.
+- RESULT 72, SKIP 0. 모든 run이 commit `f547035ea`를 기록했다(pool 중에는 commit하지 않음).
+- `energy_recount_ett.py`: "all checks passed". 72행 모두 다시 계산한 test MSE와 syops body + head가 기록값과 맞는다.
+- SpikF energy(`count_spikf16.py`, 학습 없음): H720 네 칸 모두 SpikF 쪽 기록값을 재현했다.
+
+| SpikF H720 | 다시 센 MSE / MAE | 기록 MSE / MAE | 다시 센 energy / 기록(µJ) |
+|---|---|---|---|
+| ETTh1 | 0.474802 / 0.460927 | 0.474803 / 0.460926 | 1050.59 / 1050.59 |
+| ETTh2 | 0.412360 / 0.433131 | 0.41236 / 0.433132 | 1050.47 / 1050.47 |
+| ETTm1 | 0.454646 / 0.427914 | 0.454646 / 0.427914 | 1050.53 / 1050.53 |
+| ETTm2 | 0.402080 / 0.394294 | 0.40208 / 0.394293 | 1050.10 / 1050.10 |
+
+**점검:**
+- 요약기 dry run(`check_dry_full.txt`, 사전등록 뒤 SpikF 계산이 끝나고 실행): ALL PASS. 지어낸 72행에서 요약과 따로 계산한 값이 같았다(D1, D2). 행 누락 · SKIP · 중복 · NaN · energy 불일치 다섯 경우에 모두 exit 2로 멈추고 요약을 쓰지 않았다(N1–N5).
+- 독립 재계산(`recheck_full16.py`, 이 repo의 code를 import하지 않음; `recheck_full16.txt`): 26/26 PASS, "ALL CHECKS PASSED". raw.txt에서 바로 16칸 평균, 18개 여유와 통과 여부, energy 칸 수, 판정을 다시 내 요약과 같았다.
+
+**결과 — 판정(16칸 평균, 사전등록 규칙):**
+
+| 기준 행 | 16칸 MSE / MAE | 첫 튜닝 여유 MSE / MAE | 통과 | 확장 여유 MSE / MAE | 통과 |
+|---|---|---|---|---|---|
+| (우리 값) | — | 0.3711 / 0.3821 | | 0.3729 / 0.3829 | |
+| **SpikF** | 0.3700 / 0.3819 | **−0.0011 / −0.0003** | **no** | **−0.0029 / −0.0011** | **no** |
+| SpikeRNN | 0.3761 / 0.3845 | +0.0050 / +0.0024 | yes | +0.0032 / +0.0016 | yes |
+| iSpikformer | 0.3875 / 0.3928 | +0.0164 / +0.0106 | yes | +0.0146 / +0.0098 | yes |
+| PatchTST | 0.3809 / 0.3969 | +0.0098 / +0.0147 | yes | +0.0080 / +0.0139 | yes |
+| FEDformer | 0.4074 / 0.4276 | +0.0363 / +0.0454 | yes | +0.0345 / +0.0446 | yes |
+| ETSformer | 0.4256 / 0.4320 | +0.0545 / +0.0499 | yes | +0.0527 / +0.0491 | yes |
+| Autoformer | 0.4651 / 0.4586 | +0.0940 / +0.0765 | yes | +0.0922 / +0.0757 | yes |
+| Informer | 1.9607 / 1.0169 | +1.5896 / +0.6347 | yes | +1.5878 / +0.6339 | yes |
+| energy: SpikF보다 낮은 칸 | | 16 / 16(최대 비율 0.0210, ETTm1 H720) | yes | 16 / 16(최대 0.0711, ETTm1 H720) | yes |
+| **판정** | | **NOT PASSED**(SpikF) | | **NOT PASSED**(SpikF) | |
+
+- DNN 행의 출처는 20:14 기록대로 TimesNet Table 13과 SpikF Table 11 · 12다. 요약 파일의 "NSMT Table 13" 표기는 값을 옮겨 온 곳이다.
+- 요약 파일의 NSMT 행은 사전등록 때 보고용으로 넣은 것이다. 사용자 정정(20:14)에 따라 쓰지 않는다.
+- energy(syops µJ, 16칸 평균): 첫 튜닝 12.20, 확장 28.60, SpikF 907.98.
+
+**데이터셋별(네 길이 평균, test MSE / MAE; 보고용, 사전등록 판정 아님)**
+
+| 데이터셋 | 첫 튜닝 | 확장 | SpikF | 첫 튜닝 − SpikF | 확장 − SpikF |
+|---|---|---|---|---|---|
+| ETTh1 | 0.4475 / 0.4315 | 0.4507 / 0.4330 | 0.4395 / 0.4280 | **+0.0080 / +0.0035** | **+0.0112 / +0.0050** |
+| ETTh2 | 0.3699 / 0.3919 | 0.3687 / 0.3906 | 0.3717 / 0.3942 | −0.0018 / −0.0024 | −0.0030 / −0.0036 |
+| ETTm1 | 0.3872 / 0.3855 | 0.3932 / 0.3887 | 0.3878 / 0.3852 | −0.0005 / +0.0002 | **+0.0054 / +0.0034** |
+| ETTm2 | 0.2797 / 0.3197 | 0.2790 / 0.3194 | 0.2810 / 0.3200 | −0.0013 / −0.0003 | −0.0020 / −0.0006 |
+
+- 음수가 우리가 낮은(좋은) 쪽이다. 칸별 값은 `summary.md`에 있다.
+- ETTh1을 빼고 12칸만 보면 첫 튜닝은 SpikF보다 MSE +0.0012 · MAE +0.0008 낮다(MAE는 여전히 0.001에 못 미침). 확장은 MSE −0.0001 · MAE +0.0003이다. 사후 계산이고 판정에 쓰지 않는다.
+- ETTh1에서는 두 model 모두 긴 길이(336 · 720)에서 SpikF보다 나쁘다. 첫 튜닝 H720은 0.4925 vs 0.474다.
+- 확장은 ETTm1에서도 나쁘다. ETTm2에서 고른 d_model 256 · block 2 설정이 ETTm1 긴 길이에서 나빠진다(H720 0.4737 vs 0.461). energy도 ETTm 칸에서 첫 튜닝의 약 3.4–5배다.
+- seed 표준편차(칸별 test MSE, 16칸 평균): 첫 튜닝 0.0020, 확장 0.0021.
+
+**사전 예상과 비교:** 4칸에서는 첫 튜닝이 SpikF를 0.0010(경계보다 0.000037 큼)으로 넘었다. 경계에 붙어 있었고, 16칸으로 넓히자 유지되지 않았다. 확장은 4칸에서 여유가 더 컸지만(0.0022), 다른 데이터셋으로 옮긴 설정(ETTm1)에서 오히려 더 나빠졌다.
+
+**해석(내 판단):**
+- 지금 설정으로는 "평균적으로 SpikF보다 낫다"를 주장할 수 없다. 주장할 수 있는 것은 SpikeRNN · iSpikformer · DNN 5행보다 낫고, SpikF와는 거의 같은 수준(16칸 MSE 차이 0.0011)이며, energy는 SpikF의 약 1.3 %(첫 튜닝, 칸 비율 평균 0.0130)라는 것이다.
+- ETTh1 · ETTm1 설정은 ETTh2 · ETTm2에서 고른 것이다. SpikF도 Table 7에서 ETTh와 ETTm에 설정을 하나씩만 썼다(ETTh: T 16, layer 1, patch 32, hidden 720, batch 32, lr 5e-4, epoch 5; ETTm은 epoch 10). 다만 그 설정을 어느 데이터셋의 validation으로 골랐는지는 적혀 있지 않다. 그래서 우리 방식이 SpikF보다 불리하다고 단정할 수는 없다.
+- ETTh1 · ETTm1을 자기 validation으로 다시 튜닝하면 나아질 수 있다(not run). 다만 test를 본 뒤 정하는 일이므로, 한다면 네 데이터셋 모두에 같은 규칙(데이터셋마다 자기 validation으로 선택)을 적용해야 한다(내 의견).
+
+**한계:** 사전등록에 적은 그대로다. 추가: 다른 세션과 GPU를 나눠 쓴 것은 결과 값에는 영향이 없다(학습은 seed로 재현된다는 11-18 확인). 시간만 늘었다.
+
+### artifact
+- Git: `NSMT/cinc_mixer_v1/results/flif-v1-ett-spkmux-full16/{raw.txt, energy_recount.csv, summary.md, summary.json, pool_log.txt}`, `results/ett-full16-20261124/{spikf16/*.csv, spikf16/*_model_info.txt, trace_dnn_sources.py, trace_dnn_sources.txt}`, `results/check-full16-20261124/{check_dry_full.txt, recheck_full16.py, recheck_full16.txt}`, 이 기록과 20:14 기록.
+- local: `driver.log`, queue 파일, run 폴더(checkpoint, TensorBoard event), stdout 파일, `log/full16-20261124/`(SpikF 계산 console), smoke run 폴더.
+
+**사용자 결정 대기:** (가) 지금 결과로 정리, (나) 네 데이터셋 모두 자기 validation으로 다시 튜닝, (다) 그 밖의 방향. 아무것도 시작하지 않았다.
+
+**commit / tag:** 이 기록과 위 파일을 `exp/f-lif-pop-v3`에 commit · push하고, annotated tag `exp/f-lif-pop-v3-full16-20261124`를 붙인다(완료된 학습 실행).
