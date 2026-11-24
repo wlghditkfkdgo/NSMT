@@ -16457,3 +16457,147 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 **사용자 결정 대기:** (가) 지금 결과로 정리, (나) 네 데이터셋 모두 자기 validation으로 다시 튜닝, (다) 그 밖의 방향. 아무것도 시작하지 않았다.
 
 **commit / tag:** 이 기록과 위 파일을 `exp/f-lif-pop-v3`에 commit · push하고, annotated tag `exp/f-lif-pop-v3-full16-20261124`를 붙인다(완료된 학습 실행).
+
+## 2026-11-25 01:39 KST — 사용자 결정 "(나)" + 사전등록(본 학습 전): ETTh1 · ETTm1을 자기 validation으로 다시 튜닝한다(ETTh2 · ETTm2가 거친 절차 그대로; 두 사슬 함께, 새 run 312–444개). 그 뒤 16칸 판정을 같은 규칙으로 다시 한다
+
+**목적:** 바로 앞 기록(11-24 20:31)의 사용자 질문 "(가) 지금 결과로 정리 / (나) 네 데이터셋 모두 자기 validation으로 다시 튜닝 / (다) 그 밖의 방향"에 대한 답이다.
+- 사용자 답(원문): "(나)".
+- 11-24 전체 표에서 ETTh1 · ETTm1은 ETTh2 · ETTm2에서 고른 설정을 그대로 썼다. ETTh2 · ETTm2는 자기 validation으로 설정을 골랐다(11-01 lr → 방향별 mixer 층 수 → 잔차, 11-20 첫 튜닝, 11-20 확장).
+- 이번 실험은 ETTh1 · ETTm1도 **같은 절차로 자기 validation에서** 설정을 고르게 한다. 그러면 네 데이터셋 모두 "자기 validation으로 고른 설정"이라는 같은 규칙을 따른다.
+- ETTh2 · ETTm2의 설정과 값은 바꾸지 않는다. 이미 그 규칙을 따랐기 때문이다.
+
+**공개(먼저 적음): 이 결정은 test 결과를 본 뒤에 내렸다.**
+- 11-24 전체 표에서 두 model 모두 16칸 평균으로 SpikF를 넘지 못했고, 차이의 대부분이 ETTh1이었다(4 길이 평균 MSE가 SpikF보다 +0.0080 / +0.0112).
+- 그래서 재튜닝으로 결과가 좋아지면 "test를 본 뒤 고친 것"이라는 치우침이 있다. 이를 줄이려고 다음을 지킨다.
+  - 나쁜 ETTh1만이 아니라 새로 넣은 두 데이터셋(ETTh1 · ETTm1)에 같은 절차를 적용한다.
+  - 선택은 validation만 쓴다. 단계 요약에는 test 열이 없다.
+  - 판정 규칙은 11-24 18:02 사전등록 그대로다(NSMT 행만 사용자 정정으로 뺌).
+  - 결과가 나빠도(ETTh1 · ETTm1 test가 11-24보다 나빠져도) 새 설정을 판정에 쓴다.
+
+**branch / base:** `exp/f-lif-pop-v3`, base `0f3088285`(11-24 20:31 결과, tag `exp/f-lif-pop-v3-full16-20261124`). 이 기록의 commit이 본 학습 code다. 해시는 결과 기록에 적는다.
+
+### 설계(`NSMT/cinc_mixer_v1/rt_plan.py`)
+- **데이터셋:** ETTh1, ETTm1. 선택에 쓰는 칸은 H96 · H720이다(ETTh2 · ETTm2와 같음, 사용자 결정 12). seed 42 / 7 / 2026. 입력 96.
+- **시작값 = 각 데이터셋의 NSMT 논문 Table 13 값**이다. ETTh2 · ETTm2도 자기 Table 13 값에서 시작했다(`run_ett_mixer.sh`, blob `8b0a3492`).
+  - NSMT는 논문 비교에서 빠졌다(사용자 11-24). 여기서는 탐색의 출발점으로만 쓴다.
+
+| 데이터셋 | lr | 방향별 mixer 층 M | patch | d_model | MLP 비율 | block | weight decay | 최대 epoch |
+|---|---|---|---|---|---|---|---|---|
+| ETTh1 | 5e-4 | 2 | 8 | 32 | 1 | 1 | 0.06 | 50 |
+| ETTm1 | 1e-3 | 2 | 8 | 64 | 1 | 1 | 0.06 | 50 |
+
+- **고정(구조):** muxlin + IAND 잔차, τ 2, T_h 4, batch 64, patience 10, L1 loss, best-validation 가중치로 test.
+- **단계(한 번에 손잡이 하나; 앞 단계 승자를 데이터셋별로 다음 단계에 씀):**
+
+| 단계 | 후보 | 사슬 | 출처 |
+|---|---|---|---|
+| lr | 1e-4, 2.5e-4, 5e-4, 1e-3, 2e-3 | 공통 | 11-01 S1 |
+| layers(M) | 1, 2, 3 | 공통 | 11-01 S2 |
+| patch | a: 4, 8, 16 / x: 4, 8, 16, 24, 32 | a, x | 11-20 첫 튜닝 / 확장 |
+| dmodel | 32, 64, 128, 256 | a, x | 같음 |
+| mlp | 0.5, 1, 2, 4 | a, x | 같음 |
+| blocks | 1, 2, 3 | a, x | 같음 |
+| wd | a: 0, 0.01, 0.06, 0.1 / x: 0, 0.005, 0.01, 0.02, 0.05, 0.06 | a, x | 같음 |
+
+- **두 사슬:** a = 첫 튜닝(patch ≤ 16, weight decay ≤ 0.1), x = 확장(patch ≤ 32, weight decay ≤ 0.06).
+  - 둘 다 공통 단계(lr, M)의 승자에서 출발한다.
+  - 단계마다 함께 돈다. queue는 두 사슬이 필요한 run의 합집합이고, 같은 (칸, seed, 설정)은 한 번만 돈다.
+- **선택 규칙(11-01 · 11-20과 같음, validation만):** 데이터셋과 사슬마다 score(v) = H96 · H720 평균의 [seed 평균 best validation L1(v) / 지금 값의 같은 값].
+  - 가장 낮은 값이 이긴다. 지금 값과 1e-12 안이면 지금 값을 유지한다. 다른 두 값이 같으면 후보 목록의 앞 값을 고른다.
+- **final 단계:** 사슬마다 고른 설정을 H192 · H336 × seed 3으로 돌린다. H96 · H720 값은 튜닝 run 그 자체다(ETTh2 · ETTm2와 같은 방식).
+- **run 수:** lr 60 + M 24 + patch 48 + (dmodel · mlp · blocks · wd · final은 두 사슬의 선택이 갈리는 정도에 따라) = 최소 312, 최대 444.
+
+### ETTh2 · ETTm2 절차와 다른 점(공개)
+1. **잔차 단계는 다시 하지 않는다.** IAND를 구조로 고정한다. ETTh2 · ETTm2는 11-01에 OR 잔차에서 lr을 골랐고, 여기서는 IAND에서 고른다.
+2. ETTh2 · ETTm2의 확장 사슬은 첫 튜닝의 test를 본 뒤(11-20 13:08 사용자 결정) 따로 돌렸다. 여기서는 두 사슬을 처음부터 함께 돌린다.
+3. 최대 epoch는 Table 13 값 50이다(ETTh2는 100). ETTh2 · ETTm2 run은 모두 patience로 일찍 멈췄다(재현 점검 R2 참고).
+4. ETTh1 · ETTm1의 선택에도 H192 · H336은 쓰지 않는다(ETTh2 · ETTm2와 같음).
+
+### 판정(11-24 18:02 사전등록 규칙 그대로; `summarize_rt.py --stage judge`)
+- **model 두 개:**
+  - 첫 튜닝 = ETTh1 · ETTm1은 사슬 a의 새 설정, ETTh2 · ETTm2는 11-20 04:02 최종 설정(바뀌지 않음).
+  - 확장 = ETTh1 · ETTm1은 사슬 x의 새 설정, ETTh2 · ETTm2는 11-20 17:07 최종 설정(바뀌지 않음).
+- 16칸(4 데이터셋 × H 96 / 192 / 336 / 720)마다 seed 평균을 내고, 16칸 평균을 낸다.
+- **정확도:** 참조값 − 우리 값 ≥ 0.001을 MSE와 MAE 둘 다에서 만족해야 한다.
+  - SNN 3행: SpikF, SpikeRNN, iSpikformer(SpikF 논문 Table 12).
+  - DNN 5행: Informer, FEDformer, PatchTST, ETSformer, Autoformer(TimesNet Table 13 / SpikF Table 11 · 12; `refs16.json`).
+- **energy:** syops만 쓴다(`syn_energy_uJ`의 seed 평균). 16칸 모두 SpikF의 syops 값보다 낮아야 한다.
+- PASS = 8행 모두 통과 + energy 통과. NSMT 행은 표에서도 뺀다(사용자 11-24 정정).
+- ETTh2 · ETTm2 칸은 11-24 값을 다시 읽어 쓴다. 다시 계산한 값이 `flif-v1-ett-spkmux-full16/summary.json`과 1e-9 안에서 같아야 한다.
+- **보고만(판정 아님):** 선택 경로, 데이터셋별 표, ETTh1 · ETTm1의 11-24 대비 변화, 데이터셋별 4 길이 평균 vs SpikF, seed 표준편차.
+- **통과에 필요한 양(11-24 값에서 계산):**
+  - 첫 튜닝: 16칸 MSE를 0.0021, MAE를 0.0013 낮춰야 한다. 새 8칸만 바뀌므로 칸당 평균 MSE 0.0042(ETTh1 · ETTm1 MSE의 약 1.0 %), MAE 0.0025다.
+  - 확장: 16칸 MSE 0.0039, MAE 0.0021. 칸당 MSE 0.0078(약 1.85 %), MAE 0.0041이다.
+
+### code(이 commit; runner `run_ett_spk.sh`는 바꾸지 않음)
+- 새 `rt_plan.py`: 계획(시작값, 후보, 순서, tag 규칙, 선택 파일 위치)과 선택 사슬을 걷는 함수.
+- 새 `scripts/make_queue_rt.py <stage>`: 단계 queue.
+  - 도달할 수 있는 항목이 필요한 run 중 suite에 아직 없는 것만, 느린 칸(ETTm1 H96)부터 넣는다.
+  - 앞 선택이 없으면 exit 1이다.
+  - queue 줄은 손잡이 7개와 `EPOCHS=50`을 모두 적는다. runner는 기본값과 같은 값을 "안 준 것"으로 다룬다.
+- 새 `summarize_rt.py --stage <stage>|judge`: 선택(`selected_<stage>.json`, `selected_<a|x>_<stage>.json`, `selection_<stage>.md`; test 열 없음)과 판정(`summary_judge.md`, `judge.json`).
+  - 멈춤 조건(exit 2, 아무것도 쓰지 않음): SKIP 줄, 중복, tag · 필드 · epoch 수 불일치, 어느 단계도 요청하지 않은 설정의 행, 빠진 run, 유한하지 않은 값, 다른 선택 덮어쓰기.
+  - judge의 멈춤 조건: energy 재계산 행이 없거나 맞지 않음(재계산 MSE 1e-5, syops 몸통 + head 1e-3), ETTh2 · ETTm2 값이 11-24 요약과 다름.
+- 새 `recheck_rt.py`: 독립 재계산. 이 저장소의 어떤 모듈도 import하지 않는다.
+  - 계획을 다시 옮겨 적었다. raw.txt만으로 선택 사슬을 다시 만들고 json과 비교한다.
+  - judge에서는 16칸 평균, 여유 8개, 통과 여부, energy 칸 수, 판정을 다시 계산한다. `--sha`로 학습 commit과 그 뒤 code 불변을 확인한다.
+- 새 `scripts/retune_driver.sh`: 단계마다 queue → pool → RESULT 증가 = queue 줄 수, SKIP 0 → 선택 → 독립 재계산을 한다.
+  - 마지막에 final → `energy_recount_ett.py --suite flif-v1-ett-spkmux-retune` → judge → 독립 재계산 → `driver end`.
+  - 실패하면 멈춘다. `FROM=<stage>`로 이어서 시작한다.
+- 새 suite: `flif-v1-ett-spkmux-retune`.
+
+### 점검(`NSMT/cinc_mixer_v1/results/check-retune-20261125/`)
+- **runner 불변:** `run_ett_spk.sh`는 이 commit에서 바뀌지 않았다(`git diff` 없음). 그래서 p0 점검은 새로 하지 않았다. 대신 아래 R1 · R2로 학습 인자가 같음을 run으로 확인했다.
+- **dry run**(`check_dry_rt.py` · `.txt`): ALL PASS. 임시 폴더에서 driver를 흉내 냈다. queue 줄마다 가짜 RESULT 행을 만들었다. 가짜 validation 값은 손잡이 값마다 정한 곱이라 단계 승자를 미리 안다.
+  - A(두 사슬이 두 데이터셋 모두에서 갈림):
+    - queue 크기 60 / 24 / 48 / 72 / 72 / 48 / 96 / 24(합 444)가 손 계산과 같다.
+    - 선택 경로가 미리 정한 것과 같다. 동점이면 지금 값, 다른 두 값이 같으면 앞 값을 고른다.
+    - 단계마다 독립 재계산이 통과했다. judge.json이 따로 계산한 16칸 평균 · 여유 8개 · 통과 여부 · energy 칸 수 · 판정과 같다(가짜 test = SpikF − 0.01 → PASS).
+  - B(ETTm1에서 두 사슬이 같은 patch를 고름): 같은 run은 한 번만 queue에 들어간다. 크기 60 / 24 / 48 / 54 / 54 / 36 / 84 / 18(합 378). 가짜 test = SpikF + 0.01 → NOT PASSED.
+  - 멈춤(모두 exit ≠ 0, 새 파일을 쓰지 않음):
+    - 요약기: SKIP 줄, 빠진 행, 중복 행, 요청하지 않은 설정(lr 3e-4), tag와 필드 불일치, 100 epoch 행, nan.
+    - 사슬 x 행만 빠진 경우(사슬 a 선택 파일도 쓰지 않음), 다른 선택이 이미 있는 경우.
+    - judge: energy 행 하나 빠짐, 재계산 MSE 1e-3 차이.
+    - queue: 앞 선택 없이 다음 단계 queue를 만들려 하면 exit 1이다.
+    - 독립 재계산: 선택 json을 고쳐 넣으면 FAIL이다.
+  - 이어서 시작: 한 단계 행의 절반이 있으면 queue는 나머지 절반이다.
+- **smoke**(`check_smoke_rt.py` · `.txt`; suite `smoke-retune-20261125`, 1 epoch, seed 42, H720, 데이터셋마다 시작값 + 4개 = 10 run): ALL PASS.
+  - 10 RESULT, SKIP 0이다. RESULT 필드 = queue의 손잡이 값이고, tag = `rt_plan.tag()`다.
+  - 저장된 config(patch, d_model, MLP, block, weight decay, M, lr, epoch 1)가 손잡이 값과 같다.
+  - 모양 손잡이는 parameter 수를 바꾼다.
+  - `energy_recount_ett.py --suite smoke-retune-20261125`: 10 run 모두 재계산 MSE가 같고, syops 몸통 + head가 기록된 synapse energy와 같다.
+  - ETTh1 · ETTm1에서 처음 쓰는 값(lr 2.5e-4 / 2e-3 / 1e-4, M 1 / 3, patch 4 / 24 / 32, d_model 128 / 256, MLP 0.5 / 4, block 2 / 3, weight decay 0 / 0.005)을 모두 한 번 이상 넣었다.
+- **재현**(suite `check-retune-repro-20261125`, ETTh1 H96 seed 42, 첫 튜닝 설정, 전체 학습):
+  - R1(11-24 queue 줄 그대로): 공유 필드 36개가 11-24 full16 행과 모두 같다(MSE 0.377761, sha `f547035ea` → `0f3088285`).
+  - R2(재튜닝 형식: 손잡이 7개를 모두 적고 `EPOCHS=50`): 같은 tag, 같은 36개 필드다. 기본값을 적어도 학습이 같고, 이 run에서는 50 epoch 상한이 걸리지 않았다(18 epoch에서 멈춤).
+- **GPU 메모리**(`mem_all.sh`, 2초 간격): 가장 큰 모양(patch 4 + d_model 256 + MLP 4 + block 3 + M 3; 단계별 선택에서 가능한 최댓값)이 21,286 MiB다. 시작 설정은 1.5–1.9 GB다.
+  - GPU당 2개(`SLOTS=0,1,2,3,0,1,2,3`)면 최악 약 42.6 GB < 48 GB다. 지금 다른 세션 pool은 없다(01:39 GPU 4장 모두 12 MiB).
+  - OOM이 나면 SKIP이 생기고 driver가 멈춘다(fail closed). 그때는 `FROM=<stage>`로 이어서 시작한다.
+- **1 epoch syops energy**(H720): 시작 설정 23.2 µJ(ETTh1) · 47.5 µJ(ETTm1), patch 32는 12.5 µJ다. 가장 큰 모양은 814.5 / 833.9 µJ다. SpikF H720(1,050.6 µJ)의 0.78–0.79배다.
+- **내 실수(점검 중):** smoke suite의 energy 재계산을 처음 돌릴 때 `LD_LIBRARY_PATH`를 빠뜨려 timm import 오류로 실패했다. 다시 돌려 통과했다. driver는 `LD_LIBRARY_PATH`를 export한다.
+
+### 사전 예상(확신 낮음)
+- 11-20 첫 튜닝은 ETTh2 · ETTm2에서 튜닝 전보다 test MSE를 R −1.31 % 낮췄다. 첫 튜닝 model이 통과하려면 새 8칸에서 평균 약 1.0 %가 필요하다. 그래서 **첫 튜닝 model은 통과 경계 근처일 것으로 본다(통과 확률 절반 이하, 확신 낮음).**
+  - 걱정 1: validation으로 고른 이득이 H192 · H336에서 덜 나올 수 있다(선택에 쓰지 않은 칸).
+  - 걱정 2: 11-20에도 validation 차이가 0.25 % 안이었고, 칸당 seed 표준편차(약 0.002)와 비슷하다.
+- 확장 model은 약 1.85 %가 필요해서 통과하기 더 어렵다고 본다.
+- ETTh1은 lr과 patch에서 가장 큰 차이가 날 것으로 본다(확신 낮음).
+- energy: 선택은 energy를 보지 않는다. 그래도 지금 energy가 SpikF의 1.3–3 % 수준이라 patch 4나 d_model 256이 골라져도 SpikF보다 낮을 가능성이 크다(확신 높음). 다만 가능한 가장 큰 모양은 1 epoch에서 SpikF H720의 0.78–0.79배까지 커진다(위 점검).
+
+### 예상 시간(내 추정)
+- 지난 run 중앙값: ETTh 263–422 s, ETTm 900–1,412 s(lr 1e-4)다. lr과 M, 모양에 따라 달라진다.
+- 312–444 run이면 GPU 한 자리 기준 약 70–100시간이다. 8자리(GPU당 2개)면 단계 사이 대기를 합쳐 약 10–16시간 걸린다(끝 예상 11-25 오후–저녁).
+
+### 한계(미리 적음)
+- test를 본 뒤의 결정이다(위 공개).
+- 단계별 선택이라 손잡이 사이의 상호작용을 놓친다. 순서는 ETTh2 · ETTm2와 같다.
+- 시작값이 다르면(NSMT Table 13 대신 ETTh2 · ETTm2의 값) 다른 경로가 나올 수 있다.
+- 후보가 많아(공통 단계를 포함해 사슬 a 26개, 사슬 x 30개) validation에 맞춘 선택이 test에서 덜 재현될 수 있다. 최종 H96 · H720 행은 선택에 쓴 run이라 validation 값은 낙관적이다. test 값에는 이 치우침이 직접 들어가지 않는다.
+- 4 데이터셋 중 2개의 설정만 바뀐다. 0.001은 칸당 seed 표준편차(약 0.002)보다 작다.
+
+**실행:** 이 commit · push 뒤 NSMT/에서 `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/retune_driver.sh > /dev/null 2>&1 &`로 시작한다.
+- driver.log는 `results/flif-v1-ett-spkmux-retune/driver.log`(local)다.
+- driver가 도는 동안 code는 고치지 않는다. 기록만 commit하면 `recheck_rt.py --sha <이 commit>,<뒤 commit>`이 code 불변을 확인한다.
+
+**commit:** 이 기록, 위 code, 점검(`check-retune-20261125/`의 script · txt, `smoke-retune-20261125/{raw.txt, energy_recount.csv}`, `check-retune-repro-20261125/raw.txt`)을 `exp/f-lif-pop-v3`에 commit · push한다.
+- local: `mem_all.txt`, pool log, run 폴더, queue 파일.

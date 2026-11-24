@@ -1,0 +1,45 @@
+PASS A stage lr: summarizer rc 0, recheck "ALL CHECKS PASSED"
+PASS A stage layers: summarizer rc 0, recheck "ALL CHECKS PASSED"
+PASS A stage patch: summarizer rc 0, recheck "ALL CHECKS PASSED"
+PASS A stage dmodel: summarizer rc 0, recheck "ALL CHECKS PASSED"
+PASS A stage mlp: summarizer rc 0, recheck "ALL CHECKS PASSED"
+PASS A stage blocks: summarizer rc 0, recheck "ALL CHECKS PASSED"
+PASS A stage wd: summarizer rc 0, recheck "ALL CHECKS PASSED"
+PASS A queue sizes [60, 24, 48, 72, 72, 48, 96, 24] = [60, 24, 48, 72, 72, 48, 96, 24] (total 444)
+PASS A selected path = expected by construction: {'a': {'ETTh1': ['0.00025', '1', '16', '128', '2', '1', '0.01'], 'ETTm1': ['0.001', '3', '4', '64', '0.5', '2', '0.06']}, 'x': {'ETTh1': ['0.00025', '1', '24', '128', '2', '1', '0.005'], 'ETTm1': ['0.001', '3', '24', '64', '0.5', '2', '0.06']}}
+PASS A judge rc 0 , recheck "ALL CHECKS PASSED"
+  A first: 16-cell 0.364309 / 0.376248, verdict PASS (judge.json PASS)
+  A ext: 16-cell 0.363831 / 0.375845, verdict PASS (judge.json PASS)
+PASS A J: judge.json = independent computation
+PASS A: both models PASS (fabricated values below SpikF by 0.01)
+PASS A N9 a missing energy row: exit 2, no judge.json (STOP: no energy row spkmx_lif_muxlin_iand_lr0.001_L3_pt4_mlp0.5_blk2 ETTm1 H96 seed 42)
+PASS A N10 recomputed MSE off by 1e-3: exit 2, no judge.json (STOP: recomputed MSE 0.308200 != 0.3072 (spkmx_lif_muxlin_iand_lr0.001_L3_pt4_mlp0.5_blk2 ETTm1 H96 )
+PASS B stage lr: summarizer rc 0, recheck "ALL CHECKS PASSED"
+PASS B stage layers: summarizer rc 0, recheck "ALL CHECKS PASSED"
+PASS B stage patch: summarizer rc 0, recheck "ALL CHECKS PASSED"
+PASS B stage dmodel: summarizer rc 0, recheck "ALL CHECKS PASSED"
+PASS B stage mlp: summarizer rc 0, recheck "ALL CHECKS PASSED"
+PASS B stage blocks: summarizer rc 0, recheck "ALL CHECKS PASSED"
+PASS B stage wd: summarizer rc 0, recheck "ALL CHECKS PASSED"
+PASS B queue sizes [60, 24, 48, 54, 54, 36, 84, 18] = [60, 24, 48, 54, 54, 36, 84, 18] (total 378)
+PASS B selected path = expected by construction: {'a': {'ETTh1': ['0.00025', '1', '16', '128', '2', '1', '0.01'], 'ETTm1': ['0.001', '3', '4', '64', '0.5', '2', '0.06']}, 'x': {'ETTh1': ['0.00025', '1', '24', '128', '2', '1', '0.005'], 'ETTm1': ['0.001', '3', '4', '64', '0.5', '2', '0.06']}}
+PASS B judge rc 0 , recheck "ALL CHECKS PASSED"
+  B first: 16-cell 0.374309 / 0.386248, verdict NOT PASSED (judge.json NOT PASSED)
+  B ext: 16-cell 0.373831 / 0.385845, verdict NOT PASSED (judge.json NOT PASSED)
+PASS B J: judge.json = independent computation
+PASS B: both models NOT PASSED (fabricated values above SpikF)
+PASS B N9 a missing energy row: exit 2, no judge.json (STOP: no energy row spkmx_lif_muxlin_iand_lr0.001_L3_pt4_mlp0.5_blk2 ETTm1 H96 seed 42)
+PASS B N10 recomputed MSE off by 1e-3: exit 2, no judge.json (STOP: recomputed MSE 0.328200 != 0.3272 (spkmx_lif_muxlin_iand_lr0.001_L3_pt4_mlp0.5_blk2 ETTm1 H96 )
+PASS N1 SKIP line: exit 2, no file written (STOP: SKIP line in /tmp/tmpadovmynd/flif-v1-ett-spkmux-retune/raw.txt: SKIP(rc=1, no result) ds=ETTh1 pl=96 co)
+PASS N2 missing row: exit 2, no file written (STOP: missing runs: ETTm1 H96 EMB=32)
+PASS N3 duplicate row: exit 2, no file written (STOP: duplicate row ('ETTm1', 96, 42, ('0.001', '3', '4', '32', '1', '1', '0.06')))
+PASS N4 unrequested configuration: exit 2, no file written (STOP: row of a configuration no stage asked for: spkmx_lif_muxlin_iand_lr0.0003_L3_pt4_e32 ETTm1 H96 seed 42)
+PASS N5 tag not matching fields: exit 2, no file written (STOP: row tag spkmx_lif_x_muxlin_iand_lr0.001_L3_pt4_e32 != spkmx_lif_muxlin_iand_lr0.001_L3_pt4_e32 from its )
+PASS N6 100-epoch row: exit 2, no file written (STOP: row not trained with 50 epochs: /dry/ETTm1/p96/x+spkmx_lif_muxlin_iand_lr0.001_L3_pt4_e32+seed42+model+s)
+PASS N7 non-finite mse: exit 2, no file written (STOP: ('ETTm1', 96, 42, ('0.001', '3', '4', '32', '1', '1', '0.06')): non-finite mse)
+PASS N11 chain x rows missing: exit 2, no file written (STOP: missing runs: ETTh1 H96 EMB=64; ETTh1 H720 EMB=64; ETTh1 H96 EMB=128; ETTh1 H720 EMB=128; ETTh1 H96 EMB=)
+PASS N8 different selection on disk: exit 2, file unchanged, chain x not written (STOP: /tmp/tmpwc38hj4b/flif-v1-ett-spkmux-retune/selected_a_dmodel.json already selects {'ETTh1': '2)
+PASS N12 queue mlp before dmodel is selected: exit 1 (STOP: stage mlp is not reachable yet (0 of 2 entries; an earlier selection is missing))
+PASS N13 recheck on a tampered selection: exit 1, "1 CHECKS FAILED"
+PASS Q resume: queue holds the 36 missing lines of 72 (want 36)
+ALL PASS
