@@ -10,6 +10,10 @@
   e  every line of the range-2 search queue (select_r2.search_queue, 430 lines) run with the fake python: 430 distinct stdout files and
      430 distinct run folders (log dir, folder tag, lr), and the ETT stdout name without options is the old one. (The first launch
      on 11-23 was stopped because ETT runs that differed only in lr / batch / warmup shared a stdout file.)
+  f  (added 11-24) the runner's run-folder lookup after training: the 340 ETT lines of the search queue first make their folders (fake
+     python), then each line runs again with every other folder made newer than its own; the RESULT line must name the line's own
+     folder. The lookup before 11-24 had no lr when LR was unset and took the newest folder of the same tag (5 search runs got a SKIP
+     line); f_lookup(<old runner root>) is how the failure of the old runners was confirmed.
 usage (classification folder): python check_r2.py     -> exit 1 on any failure
 """
 import math
@@ -159,7 +163,56 @@ def e_queue():
             check(f'/ett_ETTh2_p96_{c}_b32_w1_lr0.001_seed42_' in out, f'e: {os.path.basename(sh)} stdout name with options ({os.path.basename(out)})')
 
 
+FAKE_RUN = r"""#!/usr/bin/env bash
+# fake python for f: '-' = the runner's csv parse; otherwise make the run folder the way config.py names it (the parts the lookup reads)
+if [ "$1" = "-" ]; then echo "mse=1 mae=1"; exit 0; fi
+a=("$@"); ld=; tg=; st=; e=; lr=; wu=; sd=
+for ((i = 0; i < ${#a[@]}; i++)); do case "${a[i]}" in
+  --log_dir) ld=${a[i+1]} ;; --tag) tg=${a[i+1]}; st=${a[i+2]} ;; -e) e=${a[i+1]} ;; -lr) lr=${a[i+1]} ;; --lr_warmup) wu=${a[i+1]} ;; --seed) sd=${a[i+1]} ;;
+esac; done
+D="$ld/261124/261124+$tg+$st+model+x+epoch+$e+lr+$lr+gating+attn/seed${sd}_x${wu:+_wu$wu}"
+if [ ! -d "$D" ]; then mkdir -p "$D/log/last"; echo w > "$D/log/final+result.csv"; echo "1 1 1 1/1" > "$D/log/best_epoch.txt"; echo "$D" > "$FAKE_MADE"; fi
+echo "number of parameters : 1"
+"""
+
+
+def f_lookup(root):
+    """runs the 340 ETT search lines twice with the runners under root; returns (lines whose RESULT names their own folder, lines in all)."""
+    import re
+    import select_r2 as S
+    ett = [ln for ln in S.search_queue() if 'forecasting/scripts' in ln]
+    with tempfile.TemporaryDirectory() as td:
+        fake = os.path.join(td, 'bin', 'python'); os.makedirs(os.path.dirname(fake)); made = os.path.join(td, 'made.txt')
+        open(fake, 'w').write(FAKE_RUN); os.chmod(fake, 0o755)
+        raw = os.path.join(td, 'res', 'raw.txt')
+
+        def run(ln):
+            toks = ln.split(); i = toks.index('bash')
+            for p in (made, raw):
+                if os.path.exists(p):
+                    os.remove(p)
+            e = dict(os.environ, PY=fake, FAKE_MADE=made, RES=os.path.join(td, 'res'), LOG=os.path.join(td, 'log'), **dict(t.split('=', 1) for t in toks[:i]))
+            subprocess.run(toks[i:] + ['0'], env=e, cwd=root, capture_output=True, text=True)
+            got = re.search(r' dir=(\S+)', open(raw).read()) if os.path.exists(raw) else None
+            return open(made).read().strip() if os.path.exists(made) else None, got.group(1) if got else None
+        own = [run(ln)[0] for ln in ett]                               # pass 1: every line makes its own folder
+        if None in own or len(set(own)) != len(ett):
+            return 0, len(ett)
+        ok = 0
+        for k, ln in enumerate(ett):                                   # pass 2: every other folder is newer than the line's own
+            for j, d in enumerate(own):
+                os.utime(d, (2e9, 2e9) if j != k else (1e9, 1e9))
+            m, got = run(ln)
+            ok += (m is None and got == own[k])
+    return ok, len(ett)
+
+
+def f_check():
+    n_ok, n = f_lookup(os.path.abspath(os.path.join(HERE, '..', '..')))
+    check(n == 340 and n_ok == n, f'f: run-folder lookup -- {n_ok} of {n} ETT search lines find their own folder while other folders are newer')
+
+
 if __name__ == '__main__':
-    a_warmup(); b_train_epoch(); c_cosine(); d_runners(); e_queue()
+    a_warmup(); b_train_epoch(); c_cosine(); d_runners(); e_queue(); f_check()
     print(f'{ok_n} passed, {bad_n} failed')
     sys.exit(1 if bad_n else 0)

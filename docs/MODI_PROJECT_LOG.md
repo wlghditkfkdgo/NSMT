@@ -11272,3 +11272,124 @@ ETT는 test MSE 비율 r = A / B − 1(%), 12쌍. MIT-BIH는 macro-F1 차이 d(%
 **GPU:** 다시 시작하는 시점에 다른 대화의 pool이 GPU 4장을 GPU당 2개씩 쓰고 있다. 내 run까지 GPU당 4개가 된다. memory는 충분하다(내 run 최대 4.8 GB, 지금 GPU당 사용 3 GB). 속도는 느려진다.
 
 **Git:** 이 항목과 고친 스크립트, 점검을 하나의 commit으로 묶어 push 한 뒤 다시 시작한다. 새 run의 sha는 이 commit이다.
+
+## 2026-11-24 18:05 KST — 정정 + 범위 2 찾기 단계 결과(validation만) + 공식 고르기 + 확정 단계 준비: 찾기 430 run 중 5개는 학습을 마쳤는데도 SKIP으로 기록됐다(실행 스크립트의 폴더 찾기 패턴에 기본 lr이 없었음). 다시 학습하지 않고 run 폴더에서 결과 줄을 되살리고, 패턴을 고친 뒤 사전 규칙 그대로 골랐다. 확정 단계는 69 run이다
+
+**내 실수 (범위 2에서 두 번째):**
+- 실행 스크립트(`run_ett_dual.sh`, `run_ett_mixer.sh`)는 학습이 끝나면 이름 패턴으로 그 run의 폴더를 찾아 결과를 읽는다.
+- `LR`을 주지 않은 run(데이터셋 기본값 0.0005)은 이 패턴에 lr이 들어가지 않았다.
+- 범위 2에서는 같은 model·batch·warmup의 lr 0.00025 / 0.0005 / 0.001 run이 같은 폴더 tag를 쓴다. 그래서 패턴이 세 lr의 폴더에 모두 맞았고, `ls -td | head -1`이 가장 최근에 바뀐 폴더를 골랐다.
+- 그 폴더가 아직 학습 중인 다른 lr run이면 결과 파일이 없으므로 SKIP으로 기록됐다.
+- 22:41 항목에서 더한 점검 e는 run이 쓰는 stdout 파일과 폴더가 서로 다른지만 봤다. 학습 뒤 폴더를 찾는 패턴은 보지 않았다.
+- 11-24 00:50에 첫 SKIP(아래 표 첫 줄)을 보고 원인을 확인했다. pool이 도는 동안에는 실행 스크립트를 고치지 않으므로(돌고 있는 run이 깨짐) 찾기가 끝나기를 기다렸다.
+
+**찾기 단계 경과:**
+- driver: 11-23 22:41:59 시작, 11-24 15:28:10 끝, sha `2ee28acde`.
+- ETT 335 + MIT-BIH 90 RESULT, SKIP 5. driver는 설계대로 "STOP: search incomplete"에서 멈췄다.
+- GPU는 15:28부터 이 항목의 commit 뒤 확정 단계를 시작할 때까지 비어 있었다(사용자의 다음 메시지 전에는 이어갈 수 없었다).
+
+**영향 (읽기만 하는 점검으로 확인):**
+- 위험에 노출된 run은 `LR`을 주지 않은 ETT 찾기 run 100개(5조합 × 5 model × 4칸)다.
+- SKIP이 된 run은 5개다. 5개 모두 학습이 끝났다. stdout에 "done in"이 있고 Traceback이 없으며, lr 0.0005 폴더가 하나뿐이고 그 안에 결과 파일이 있다.
+- 다른 lr의 폴더를 잘못 읽은 RESULT 줄은 0개다. 425줄 모두 `select_r2.check_row`를 통과했다(줄의 lr / batch / warmup과 폴더의 lr / tag / `_wu` 접미사가 일치).
+- MIT-BIH 실행 스크립트는 폴더 tag에 lr이 늘 들어가므로 영향이 없다.
+
+| SKIP이 된 run (seed 42, lr 0.0005) | 설정 | stdout "done in" | 가장 좋은 validation |
+|---|---|---|---|
+| 기준 pop LIF, ETTm2 H720 | batch 32 | 2667 s | 0.360959 |
+| 기준 pop f-LIF, ETTm2 H720 | batch 128, warmup 1 | 1590 s | 0.361599 |
+| 기준 pop LIF, ETTm2 H96 | batch 32 | 3231 s | 0.236385 |
+| 기준 pop LIF, ETTm2 H96 | batch 128, warmup 1 | 1563 s | 0.237268 |
+| 기준 pop f-LIF, ETTh2 H720 | warmup 1 | 761 s | 0.532518 |
+
+**되살리기 (`classification/recover_r2_rows.py`, 새 파일):**
+- SKIP 줄과 그 stdout 파일 이름에서 model, 데이터, horizon, seed, batch, warmup, lr, sha를 읽는다.
+- lr을 늘 넣은 패턴으로 폴더를 찾는다. 정확히 하나여야 한다.
+- 저장된 설정(`model_state/config.pt`)이 데이터, horizon, seed, lr, batch, warmup, epoch, 입력 96, 범위 1 / 위치 bias 끔 설정(`wd_exclude_1d` 1, `val_per_epoch` 4, `ssa_pe` 0, weight decay 0.06, head dropout 0)과 같아야 한다.
+- 실행 스크립트와 같은 순서와 값으로 RESULT 줄을 만들고 `select_r2.check_row`를 적용한다. 줄 끝에 `out=<SKIP 줄의 stdout> collected=1`을 붙인다.
+- `time_s`는 stdout의 "done in" 초다. 학습과 test 시간이며, 실행 스크립트의 벽시계 시간보다 몇 초 짧다(보고 전용).
+- 모든 검사를 먼저 하고, 하나라도 실패하면 아무것도 쓰지 않는다. 결과는 `raw.txt`에 덧붙인다. SKIP 줄은 남긴다(덧붙이기만 함).
+- **시험:** 정상 기록된 335줄 각각에 가짜 SKIP 줄을 만들어 같은 방법으로 다시 만들었다. 335/335가 실행 스크립트의 줄과 글자 단위로 같았다(`time_s`만 다르고, 그 차이는 0–30 s).
+- 실행: 5줄을 덧붙였다. 다시 실행하면 0줄이다. 이후 ETT 340 / MIT-BIH 90줄 모두 `check_row`를 통과했고, 빠짐 0, 중복 0, sha는 하나(`2ee28acde`)다.
+
+**고친 것:**
+- `forecasting/scripts/run_ett_dual.sh`, `run_ett_mixer.sh`:
+  - 폴더 찾기 패턴에 lr이 늘 들어간다: `+lr+<LR>+`, `LR`이 없으면 `+lr+<데이터셋 HP의 -lr>+`.
+  - lr을 읽지 못하면 python 전에 멈춘다.
+  - 학습 명령줄, 폴더, RESULT 줄은 그대로다. 가짜 python으로 기록한 명령줄 66줄이 고치기 전과 같다.
+- `classification/check_r2.py` 점검 f(새로 더함):
+  - ETT 찾기 대기열 340줄이 가짜 python으로 먼저 각자 폴더를 만든다.
+  - 그다음 줄마다 자기 폴더를 제외한 모든 폴더를 더 최근으로 바꾸고 다시 실행해서, RESULT 줄이 자기 폴더를 가리키는지 본다.
+  - 고친 스크립트는 340/340이다. 고치기 전 스크립트(복사본)는 240/340이었다. 틀린 100개는 정확히 `LR`이 없는 줄이다.
+  - `check_r2.py` 전체(a–f)는 44/44다.
+- `classification/select_r2.py`:
+  - 찾기 파일의 SKIP 줄은 그 stdout을 `out=`으로 가리키는 `collected=1` 줄이 정확히 하나 있을 때만 받아들인다.
+  - 거꾸로, SKIP 줄 없이 `collected=1`인 줄이 있어도 멈춘다.
+  - 고르기 결과 파일에 되살린 줄의 폴더 목록(`collected`)을 적는다.
+  - 고르기 규칙과 점수 계산은 바꾸지 않았다.
+  - 시험(scratch, 답을 심어 둔 가짜 결과): 45/45. 새 경우 5개를 포함한다. 되살린 줄 하나로 답이 된 SKIP은 받아들이고 고른 결과도 같다. 반면 `collected` 줄만 있는 경우, 한 SKIP에 `collected` 줄이 둘인 경우, `out`이 다른 경우, `out=`이 없는 SKIP은 멈춘다.
+- `classification/summarize_r2.py` (새 파일, 11-23에 작성):
+  - 22:37 항목의 판정(T / S1 / S2, 권고)을 계산한다.
+  - 머리말에 되살린 줄의 수를 적는다.
+  - 시험(scratch): 28/28. 설정이 하나도 바뀌지 않았다고 두면 4-2의 숫자를 그대로 재현한다.
+- `classification/scripts/r2_final.sh` (새 파일): `r2_driver.sh`의 3단계(확정 단계 pool)만 돈다. 결과 수가 맞지 않거나 SKIP이 있으면 "STOP: final incomplete"를 남긴다.
+- 학습 code(`train_forecast.py`, `train.py`, `config.py`, `utils.py`)는 22:37 항목 그대로다. 그래서 기본값 재현 smoke는 다시 돌리지 않았다.
+
+**찾기 결과와 공식 고르기:**
+- 기준은 seed 42의 validation이다. test는 읽지 않았다.
+- 명령: `python select_r2.py --select --queue_final scripts/queues/r2-final-20261123.txt` (classification 폴더).
+- 규칙은 22:37 항목 그대로다. ETT 점수 = H96 / H720 평균 (validation 손실 / 지금 설정의 validation 손실 − 1)이고, 0보다 엄밀히 작을 때만 바꾼다. MIT-BIH는 마지막 epoch validation macro-F1이 지금보다 높을 때만 바꾼다.
+
+| model | ETTh2 선택 (점수) | ETTm2 선택 (점수) | ETT 18조합 점수 범위 (ETTh2 / ETTm2) |
+|---|---|---|---|
+| Spikformer(DE) | lr 0.00025, batch 32, warmup 1 (−0.477 %) | batch 32 (−0.059 %) | −0.48..+0.33 / −0.06..+0.36 % |
+| 기준 pop LIF | warmup 1 (−0.376 %) | batch 32, warmup 1 (−0.025 %) | −0.38..+0.40 / −0.03..+0.38 % |
+| 기준 pop f-LIF | lr 0.00025, batch 32, warmup 1 (−0.243 %) | **지금 설정 유지** (새 조합 최고 +0.007 %) | −0.24..+0.62 / 0..+0.28 % |
+| (나) pop LIF | lr 0.001, batch 128 (−0.128 %) | batch 32, warmup 1 (−0.139 %) | −0.13..+0.30 / −0.14..+0.16 % |
+| (나) pop f-LIF | lr 0.001 (−0.062 %) | lr 0.00025, batch 32 (−0.150 %) | −0.06..+0.38 / −0.15..+0.26 % |
+
+(적지 않은 값은 지금 설정 그대로다: lr 0.0005, batch 64, warmup 없음.)
+
+| model | MIT-BIH 지금 설정 validation macro-F1 | 선택 | 선택 validation macro-F1 | 18조합 범위 |
+|---|---|---|---|---|
+| Spikformer(DE) | 91.36 | lr 0.02, batch 256 | 92.61 (+1.25 %p) | 90.87–92.61 |
+| 기준 pop LIF | 91.95 | warmup 없음 | 92.24 (+0.29 %p) | 90.73–92.24 |
+| 기준 pop f-LIF | 91.60 | lr 0.005, batch 256, warmup 없음 | 92.64 (+1.04 %p) | 90.84–92.64 |
+| (나) pop LIF | 91.59 | lr 0.02, batch 1024, warmup 없음 | 92.51 (+0.92 %p) | 91.12–92.51 |
+| (나) pop f-LIF | 91.76 | lr 0.005, batch 256, warmup 없음 | 92.42 (+0.66 %p) | 90.91–92.42 |
+
+(MIT-BIH 지금 설정: lr 0.01, batch 512, cosine warmup 6 epoch.)
+
+- **범위 끝:** 격자의 지금 값이 가운데이므로, 바뀐 lr이나 batch는 모두 시험한 값의 가장 큰 값 또는 가장 작은 값이다. 사전 규칙대로 사용자 결정 없이 범위를 넓히지 않는다.
+- **사전 예측 대조 (지금 확인할 수 있는 것만):**
+  - "새 조합 중 최고도 ETT validation 0.5 % 안": 맞음. 10묶음 모두 |점수| ≤ 0.477 %.
+  - "5 model 중 4개 이상이 어딘가에서 바뀐다": 맞음. 5/5.
+  - T / S1 / S2 예측은 확정 단계 뒤에 대조한다.
+- **해석 (seed 1개의 validation이고 판정이 아니다):**
+  - ETT에서는 18조합이 지금 설정 대비 −0.48..+0.62 % 안에 모여 있다. 이 세 설정은 ETT validation을 거의 바꾸지 않는다. 바뀐 묶음도 아주 작은 차이로 골랐다(가장 작은 차이 −0.025 %).
+  - MIT-BIH에서는 다섯 model 모두 validation이 0.29–1.25 %p 올랐다. Spikformer(DE)가 가장 크고, 기준 pop LIF가 가장 작다.
+
+**확정 단계:**
+- 대기열 69줄(`scripts/queues/r2-final-20261123.txt`, 로컬):
+  - ETT 54 = 바뀐 9묶음 × H96 / H720 × seed 42 / 7 / 2026 (suite `flif-v1-ett-r2f`).
+  - MIT-BIH 15 = 5 model × seed 3, VAL=0 (suite `flif-v1-mitbih-r2f`).
+  - 기준 pop f-LIF ETTm2는 기존 run(`flif-v1-ett-r1`)을 쓴다.
+- 대기열 점검: 69줄 → 서로 다른 stdout 파일 69개, run 폴더 69개. ETT 54줄의 폴더 찾기(점검 f와 같은 방식)는 54/54.
+- 명령 (NSMT 폴더, 이 commit 뒤): `tmux new-session -d -s flif_r2f "bash nsmt_flif_v1/classification/scripts/r2_final.sh 0,1,2,3,0,1,2,3"`. GPU당 2 run이고, 새 run의 sha는 이 commit이다.
+- **GPU:**
+  - 18:01쯤 다른 대화(`wt-flif-pop-v3`, suite `flif-v1-ett-spkmux-full16`)가 학습 8개와 계산 4개를 시작했다. GPU당 약 6.8 GB를 쓴다.
+  - 내 run은 ETT 최대 1.32 GB(찾기 stdout의 최대값), MIT-BIH는 11-23 측정 최대 4.8 GB라 memory는 충분하다. 속도는 느려진다.
+  - 다른 대화의 작업은 건드리지 않는다.
+- 끝나면: `pool_runs.txt` 정리, `energy_recount_ett.py --suite flif-v1-ett-r2f`, `summarize_r2.py`, 결과 항목, tag `exp/nsmt-flif-neo-<날짜>-r2`.
+
+**환경, 데이터:** 22:37 항목과 같다(`snn_recall`, ETTh2 / ETTm2 입력 96, MIT-BIH 4-class 기존 분할).
+
+**산출물:**
+- Git: `forecasting/results/flif-v1-ett-r2s/raw.txt` (RESULT 340, 그중 `collected=1` 5개; SKIP 5), `classification/results/flif-v1-mitbih-r2s/raw.txt` (RESULT 90), `classification/results/flif-v1-r2-selected.json`.
+- 로컬: run 폴더 `forecasting/log/flif-v1-ett-r2s/`, `classification/log/flif-v1-mitbih-r2s/`; pool log `classification/results/flif-v1-r2-pool.log`; 대기열 파일.
+
+**한계:**
+- 되살린 5줄의 `time_s`는 "done in" 값이라 벽시계 시간보다 몇 초 짧다. 판정에는 쓰지 않는다.
+- ETT 선택은 사전 규칙대로 점수가 0보다 작으면 바꾼다. 차이가 아주 작아서, 확정 단계에서 바뀐 설정의 효과(T)가 "뚜렷한 차이 없음"으로 나올 가능성이 크다(사전 예측과 같은 방향).
+
+**Git:** 이 항목, 고친 실행 스크립트 두 개, `check_r2.py`, `select_r2.py`, `recover_r2_rows.py`, `summarize_r2.py`, `r2_final.sh`, 찾기 결과 두 파일과 고르기 결과 파일을 하나의 commit으로 묶어 `exp/nsmt-flif-neo`에 push 한 뒤 확정 단계를 시작한다. tag는 결과 항목에서 붙인다.

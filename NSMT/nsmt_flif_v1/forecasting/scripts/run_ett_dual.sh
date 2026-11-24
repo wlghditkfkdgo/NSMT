@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# MODI 2026-11-24 (fix): the run folder lookup after training always carries the lr: +lr+<LR>+, or +lr+<the dataset's -lr
+#   above>+ when LR is unset. Before, with LR unset the pattern had no lr, matched the folders of every lr with the same tag
+#   (range-2 search: LR=0.00025 / 0.001 runs next to the default-lr run) and took the newest; 5 finished default-lr runs got a
+#   SKIP line (docs/MODI_PROJECT_LOG.md 2026-11-24). Command line, folders and RESULT line unchanged.
 # MODI 2026-11-23 (hyperparameter range 2, user decision 11-23): env BS = batch size (appends '-bs $BS' after the dataset flags,
 #   argparse keeps the last; unset = 64) and WU = lr warmup in epochs, 0 < WU <= 1 (appends '--lr_warmup $WU': linear from lr / W to
 #   lr over the first W = round(WU x steps per epoch) optimizer steps; unset = none). When set, the folder tag becomes
@@ -160,6 +164,8 @@ BS=${BS:-}; WU=${WU:-}                  # MODI 2026-11-23 (hyperparameter range 
 if [ -n "$BS" ]; then [[ $BS =~ ^[1-9][0-9]*$ ]] || { echo "BS: batch size, a positive integer (unset = 64)"; exit 1; }; fi
 if [ -n "$WU" ]; then [[ $WU =~ ^(1|0\.[0-9]*[1-9][0-9]*)$ ]] || { echo "WU: lr warmup in epochs, 0 < WU <= 1 (unset = none)"; exit 1; }; fi
 TX="${BS:+_b$BS}${WU:+_w$WU}"; R2F="${BS:+-bs $BS}${WU:+ --lr_warmup $WU}"
+LRF=${LR:-$(sed -nE 's/.* -lr ([^ ]+) .*/\1/p' <<<"$HP")}   # MODI 2026-11-24: the lr of the folder lookup (LR, else the dataset's -lr in HP)
+[ -n "$LRF" ] || { echo "no lr for the run folder lookup"; exit 1; }
 AUXS=${AUXS:-}                          # MODI 2026-11-20 (aux-target memory check): unset = unchanged
 if [ -n "$AUXS" ]; then
   [[ $AUXS =~ ^-?[1-9][0-9]*$ ]] || { echo "AUXS: a nonzero integer (unset = the token itself)"; exit 1; }
@@ -176,7 +182,7 @@ OUT=$LOG/ett_${DS}_p${PL}_${COND}${TX}${LR:+_lr$LR}_seed${S}_${TS}_${SHA}.stdout
   --data $DS --data_path $DS.csv --root_path "$W/dataset/ETT-small" --seq_len $SEQ --pred_len $PL --features M --target OT \
   $HP $CF ${LR:+-lr $LR} ${DROP:+--head_dropout $DROP} $PEF $R1F $R2F ${AUXS:+--aux_shift=$AUXS} --tag $COND$TX seed$S > "$OUT" 2>&1)
 RC=$?
-D=$(ls -td "$LOG/$DS/p$PL"/*/*"+${COND}${TX}+seed${S}+"*"+epoch+${E}+${LR:+lr+$LR+}"*/seed${S}_*${AUXS:+_auxs$AUXS} 2>/dev/null | head -1)
+D=$(ls -td "$LOG/$DS/p$PL"/*/*"+${COND}${TX}+seed${S}+"*"+epoch+${E}+lr+${LRF}+"*/seed${S}_*${AUXS:+_auxs$AUXS} 2>/dev/null | head -1)
 CSV="$D/log/final+result.csv"; LCSV="$D/log/last/final+result.csv"
 if [ $RC -ne 0 ] || [ ! -s "$CSV" ]; then echo "SKIP(rc=$RC, no result) ds=$DS pl=$PL cond=$COND seed=$S out=$OUT" | tee -a "$RES/raw.txt"; exit 1; fi
 VALS=$($PY - "$CSV" "$LCSV" <<'EOF'

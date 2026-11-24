@@ -20,9 +20,12 @@ Search (seed 42):
 Final (seeds 42 / 7 / 2026), only where the selected setting is not the current one:
   ETT      suite flif-v1-ett-r2f, both horizons of that dataset;   MIT-BIH  suite flif-v1-mitbih-r2f, VAL=0 (full training file).
   The seed-42 ETT run repeats the search run; summarize_r2.py requires the two to agree exactly.
-Fail-closed: a missing / duplicated row, any SKIP line in a search file, a non-finite score, a RESULT lr / bs / wu field or a run folder
+Fail-closed: a missing / duplicated row, a SKIP line in a search file that is not answered by exactly one recovered row (below), a non-finite score, a RESULT lr / bs / wu field or a run folder
 (lr, tag _b / _w, suffix _wu) that does not match the combination, a row that is not range-1 / bias-off / SpikeDE, MIT-BIH not VAL=1 or
 not 30 epochs, more than one sha among the search rows, an existing selection file.
+MODI 2026-11-24: 5 ETT search runs finished but got a SKIP line (the runners' folder lookup had no lr when LR was unset; fixed, check_r2.py
+f). recover_r2_rows.py appended their RESULT lines with out=<the SKIP line's stdout> collected=1. A SKIP line is now accepted only when
+exactly one collected=1 line names its stdout, and every collected=1 line must answer exactly one SKIP line; the selection file lists them.
 usage (classification folder):
   python select_r2.py --queue_search FILE                 write the search queue (430 lines), nothing else
   python select_r2.py --select --queue_final FILE         read the search results, write results/flif-v1-r2-selected.json + the final queue
@@ -118,6 +121,13 @@ def search_queue():
     return L
 
 
+def unanswered(res, skip):
+    """SKIP lines (by stdout) not answered by exactly one collected=1 RESULT line, and collected=1 lines without exactly one SKIP line."""
+    outs = [ln.split(' out=', 1)[1].split()[0] if ' out=' in ln else f'SKIP without out=: {ln.strip()}' for ln in skip]
+    col = [d.get('out') for d in res if d.get('collected') == '1']
+    return [o for o in outs if col.count(o) != 1] + [f'collected without SKIP: {o}' for o in col if outs.count(o) != 1]
+
+
 def read(path):
     res, skip = [], []
     for ln in open(path):
@@ -181,15 +191,16 @@ def select(fc=FC, cl=CL, suites=None):
     S = dict(SEARCH, **(suites or {}))
     rows_e, skip_e = read(os.path.join(fc, S['ett'], 'raw.txt'))
     rows_m, skip_m = read(os.path.join(cl, S['mb'], 'raw.txt'))
-    if skip_e or skip_m:
-        raise RuntimeError(f'SKIP lines: ETT {len(skip_e)}, MIT-BIH {len(skip_m)}')
+    bad = unanswered(rows_e, skip_e) + unanswered(rows_m, skip_m)
+    if bad:
+        raise RuntimeError(f'SKIP lines not answered by a recovered row (or the reverse): {bad}')
     ne, nm = (len(combos('ett')) - 1) * len(MODELS) * len(DATASETS) * len(HORIZONS), len(combos('mb')) * len(MODELS)
     if len(rows_e) != ne or len(rows_m) != nm:
         raise RuntimeError(f'search rows: ETT {len(rows_e)} (expected {ne}), MIT-BIH {len(rows_m)} (expected {nm})')
     shas = {d['sha'] for d in rows_e} | {d['sha'] for d in rows_m}
     if len(shas) != 1:
         raise RuntimeError(f'search shas {shas}')
-    out = dict(sha=next(iter(shas)), ett={}, mb={})
+    out = dict(sha=next(iter(shas)), ett={}, mb={}, collected=sorted(d['dir'] for d in rows_e + rows_m if d.get('collected') == '1'))
     for m in MODELS:
         ref, _ = read(os.path.join(fc, ref_suite('ett', m), 'raw.txt'))
         out['ett'][m] = {}
