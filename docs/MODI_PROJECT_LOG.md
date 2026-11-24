@@ -11393,3 +11393,122 @@ ETT는 test MSE 비율 r = A / B − 1(%), 12쌍. MIT-BIH는 macro-F1 차이 d(%
 - ETT 선택은 사전 규칙대로 점수가 0보다 작으면 바꾼다. 차이가 아주 작아서, 확정 단계에서 바뀐 설정의 효과(T)가 "뚜렷한 차이 없음"으로 나올 가능성이 크다(사전 예측과 같은 방향).
 
 **Git:** 이 항목, 고친 실행 스크립트 두 개, `check_r2.py`, `select_r2.py`, `recover_r2_rows.py`, `summarize_r2.py`, `r2_final.sh`, 찾기 결과 두 파일과 고르기 결과 파일을 하나의 commit으로 묶어 `exp/nsmt-flif-neo`에 push 한 뒤 확정 단계를 시작한다. tag는 결과 항목에서 붙인다.
+
+## 2026-11-24 22:09 KST — 결과: hyperparameter 범위 2 (learning rate × batch 크기 × warmup) — 확정 단계 69 run (사전 고정 `97329e920`, 고르기 `baa782c76`). 조정은 test에서 아무것도 낫게 하지 못했고, 사전 규칙의 권고는 "기준 유지"다((나)가 두 neuron 모두 MIT-BIH에서 "나쁨")
+
+**사용자 결정 (11-23, 원문):** "기준과 (나)를 둘 다 hyperparameter 조정에 넣고 결정하자". 찾기 단계와 고르기는 18:05 항목에 있다. 이 항목은 확정 단계(seed 3개, test)의 결과다.
+
+### 한 줄로
+
+- **조정의 효과(T)는 다섯 model × 두 과제 어디에도 "좋음"이 없다.** (나) pop LIF의 MIT-BIH는 오히려 "나쁨"(−0.67 %p, seed 3개 모두 음수)이다.
+- **사전 규칙의 권고는 "기준 유지"다.** S1((나) − 기준)이 MIT-BIH에서 두 neuron 모두 "나쁨"이라 neuron 한정 후보도 없다. 구조 결정은 사용자가 한다.
+- 기준 − Spikformer(DE)는 두 neuron 모두 두 과제 "차이 없음"이고, 종합은 "weak(방향만)"다. energy는 Spikformer(DE)의 1.24 / 1.50배(ETT, pop LIF / pop f-LIF)로 여전히 높다.
+
+### 나쁜 결과와 틀린 예상 (먼저)
+
+1. **조정이 test를 낫게 하지 못했다.** T는 ETT 다섯 model 모두 "차이 없음"(R −0.37..+0.51 %)이다. MIT-BIH는 네 model이 "차이 없음"(−0.04..+0.06 %p)이고 (나) pop LIF가 "나쁨"(−0.27 / −0.69 / −1.05 %p)이다.
+2. **MIT-BIH의 validation 이득이 test로 옮겨가지 않았다.** 찾기 단계에서 고른 설정은 validation macro-F1을 +0.29..+1.25 %p 올렸지만, 확정 test의 T는 −0.67..+0.06 %p다.
+   - 같은 찾기 run(seed 42, 학습 데이터의 20 %를 validation으로 뗀 run) 안에서도 고른 설정의 test는 지금 설정보다 −0.28..+0.21 %p다.
+   - 사후(사전 고정 아님): 18조합의 validation 순위와 같은 run의 test 순위의 Spearman 상관은 model별 −0.26..+0.62(5개 중 p < 0.05는 (나) pop f-LIF 하나)다. ETT도 17개 새 조합의 validation 점수와 test 점수의 상관이 −0.15..+0.56(10개 중 p < 0.05는 2개)이다. seed 하나의 validation으로 이 범위의 조합을 가려내는 것은 거의 잡음 수준이었다.
+3. **사전 예상 4가 틀렸다.** "S1 MIT-BIH pop LIF는 차이 없음"이라고 했지만 "나쁨"(−0.36 / −1.40 / −0.21 %p, 평균 −0.66)이다.
+   - 지금 설정끼리의 S1 pop LIF MIT-BIH는 +0.08 %p("차이 없음")였다. 바뀐 것은 거의 전부 (나) pop LIF 자체의 조정 효과(T −0.67 %p)에서 온다. 즉 이 "나쁨"은 test로 옮겨가지 않은 설정 선택 때문이다.
+   - pop f-LIF의 S1 MIT-BIH "나쁨"(+0.15 / −0.50 / −1.26, 평균 −0.54 %p)은 지금 설정에서도 "나쁨"(−0.54 %p, 4-2 결과)이었다.
+4. **(나) pop f-LIF ETT의 T는 ETTh2 두 칸이 칸 단위 "나쁨"(+1.10 / +1.24 %)이다.** 12쌍 전체로는 "차이 없음"(R +0.51 %, 5/12 낮음)이다.
+5. **기준은 여전히 Spikformer(DE)보다 energy가 높다**(ETT 1.24 / 1.50배, MIT-BIH 1.31 / 1.45배). 사용자 목표의 "낮은 power"를 기준은 채우지 못한다.
+6. 확정 단계는 다른 대화의 pool과 GPU를 함께 썼다. ETT run 하나가 최대 5435 s(기준 pop LIF, batch 32) 걸렸다. 결과에는 영향이 없다(아래 재현 점검).
+
+### 예상과 맞은 것
+
+| 사전 예상 (22:37 항목) | 결과 |
+|---|---|
+| 1. ETT 가장 좋은 새 조합과 지금 설정의 validation 차이는 0.5 % 안 | 맞음 (가장 큰 것 −0.477 %) |
+| 2. 다섯 중 넷 이상이 적어도 한 곳에서 설정을 바꾼다 | 맞음 (5/5) |
+| 3. T에 "좋음"이 없다 | 맞음 (단, (나) pop LIF MIT-BIH "나쁨") |
+| 4. S1 ETT 두 neuron "차이 없음" / MIT-BIH pop LIF "차이 없음" / pop f-LIF 모름 | ETT 맞음 / pop LIF **틀림**("나쁨") / pop f-LIF "나쁨" |
+| 5. S2 종합에 strong이 없다 | 맞음 (기준 weak / weak, (나) 지지 안 됨 / 지지 안 됨) |
+
+### 결과 (seed 42 / 7 / 2026 평균 ± sd; ETT test MSE, MIT-BIH test macro-F1 %)
+
+| model | 설정 | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 | MIT-BIH |
+|---|---|---|---|---|---|---|
+| Spikformer(DE) | 지금 | 0.2903 ± 0.0032 | 0.4249 ± 0.0087 | 0.1767 ± 0.0002 | 0.4048 ± 0.0015 | 91.20 ± 0.29 |
+| Spikformer(DE) | 확정 | 0.2897 ± 0.0034 | 0.4214 ± 0.0039 | 0.1763 ± 0.0006 | 0.4044 ± 0.0013 | 91.16 ± 0.37 |
+| 기준 pop LIF | 지금 | 0.2902 ± 0.0018 | 0.4196 ± 0.0057 | 0.1756 ± 0.0007 | 0.4034 ± 0.0007 | 91.39 ± 0.41 |
+| 기준 pop LIF | 확정 | 0.2898 ± 0.0008 | 0.4199 ± 0.0045 | 0.1759 ± 0.0007 | 0.4031 ± 0.0003 | 91.45 ± 0.58 |
+| (나) pop LIF | 지금 | 0.2909 ± 0.0043 | 0.4235 ± 0.0066 | 0.1761 ± 0.0011 | 0.4023 ± 0.0019 | 91.46 ± 0.31 |
+| (나) pop LIF | 확정 | 0.2915 ± 0.0033 | 0.4267 ± 0.0080 | 0.1759 ± 0.0005 | 0.4009 ± 0.0005 | 90.79 ± 0.13 |
+| 기준 pop f-LIF | 지금 | 0.2897 ± 0.0047 | 0.4207 ± 0.0074 | 0.1765 ± 0.0009 | 0.4044 ± 0.0012 | 91.57 ± 0.14 |
+| 기준 pop f-LIF | 확정 | 0.2871 ± 0.0030 | 0.4182 ± 0.0048 | (지금과 같음) 0.1765 ± 0.0009 | (지금과 같음) 0.4044 ± 0.0012 | 91.54 ± 0.37 |
+| (나) pop f-LIF | 지금 | 0.2926 ± 0.0031 | 0.4224 ± 0.0045 | 0.1766 ± 0.0008 | 0.4030 ± 0.0011 | 91.02 ± 0.11 |
+| (나) pop f-LIF | 확정 | 0.2958 ± 0.0043 | 0.4277 ± 0.0047 | 0.1761 ± 0.0008 | 0.4029 ± 0.0014 | 91.00 ± 0.36 |
+
+확정 설정(고르기는 validation만, seed 42; 18:05 항목): ETTh2 / ETTm2 / MIT-BIH 순서로 Spikformer(DE) lr 0.00025, batch 32, warmup 1 / batch 32 / lr 0.02, batch 256; 기준 pop LIF warmup 1 / batch 32, warmup 1 / warmup 없음; 기준 pop f-LIF lr 0.00025, batch 32, warmup 1 / 지금 유지 / lr 0.005, batch 256, warmup 없음; (나) pop LIF lr 0.001, batch 128 / batch 32, warmup 1 / lr 0.02, batch 1024, warmup 없음; (나) pop f-LIF lr 0.001 / lr 0.00025, batch 32 / lr 0.005, batch 256, warmup 없음.
+
+### 판정 (사전 규칙; ETT는 12쌍의 test MSE 비율, MIT-BIH는 seed별 macro-F1 차이)
+
+| 비교 | ETT R % (12쌍 중 A가 낮은 쌍) | ETT 판정 | MIT-BIH d %p (42 / 7 / 2026), 평균 | MIT-BIH 판정 | energy A/B (ETT / MIT-BIH) |
+|---|---|---|---|---|---|
+| T Spikformer(DE) 확정 − 지금 | −0.33 (9/12) | 차이 없음 | −0.61 / −0.19 / +0.69, −0.04 | 차이 없음 | 1.00 / 0.90 |
+| T 기준 pop LIF | −0.00 (7/12) | 차이 없음 | −0.19 / +1.16 / −0.78, +0.06 | 차이 없음 | 1.00 / 0.94 |
+| T (나) pop LIF | +0.14 (8/12) | 차이 없음 | −0.27 / −0.69 / −1.05, −0.67 | **나쁨** | 0.99 / 0.92 |
+| T 기준 pop f-LIF | −0.37 (5/12; ETTm2는 바뀌지 않음) | 차이 없음 | −0.54 / +0.00 / +0.44, −0.03 | 차이 없음 | 1.00 / 0.95 |
+| T (나) pop f-LIF | +0.51 (5/12) | 차이 없음 | +0.14 / +0.11 / −0.32, −0.02 | 차이 없음 | 0.99 / 0.97 |
+| S1 pop LIF (나) − 기준, 확정 | +0.43 (7/12) | 차이 없음 | −0.36 / −1.40 / −0.21, −0.66 | **나쁨** | 0.63 / 0.61 |
+| S1 pop f-LIF (나) − 기준, 확정 | +1.18 (6/12) | 차이 없음 | +0.15 / −0.50 / −1.26, −0.54 | **나쁨** | 0.70 / 0.65 |
+| S2 pop LIF 기준 − Spikformer(DE) | −0.22 (10/12) | 차이 없음 | +0.45 / +1.02 / −0.62, +0.29 | 차이 없음 | 1.24 / 1.31 |
+| S2 pop f-LIF 기준 − Spikformer(DE) | −0.39 (9/12) | 차이 없음 | +0.29 / +0.56 / +0.28, +0.37 | 차이 없음 | 1.50 / 1.45 |
+| S2 pop LIF (나) − Spikformer(DE) | +0.20 (7/12) | 차이 없음 | +0.09 / −0.38 / −0.83, −0.37 | 차이 없음 | 0.79 / 0.79 |
+| S2 pop f-LIF (나) − Spikformer(DE) | +0.78 (5/12) | 차이 없음 | +0.44 / +0.05 / −0.98, −0.16 | 차이 없음 | 1.05 / 0.94 |
+
+- S2 종합(`summarize_sde.overall`): 기준 pop LIF weak(방향만), 기준 pop f-LIF weak(방향만), (나) pop LIF 지지 안 됨, (나) pop f-LIF 지지 안 됨.
+- **권고 (사전 규칙):** S1에 "나쁨"이 있으므로 기준 유지. "나쁨"이 두 neuron 모두에 있어 neuron 한정 후보는 없다.
+- 참고(지금 설정끼리, 4-2와 같은 값): 기준 − Spikformer(DE) ETT −0.55 / −0.35 %, MIT-BIH +0.18 / +0.37 %p; (나) − Spikformer(DE) ETT −0.26 / −0.06 %, MIT-BIH +0.26 / −0.18 %p. 조정 뒤 기준의 앞섬은 pop LIF ETT에서 줄었고(−0.55 → −0.22 %) 나머지는 거의 같다.
+
+### 보고 전용
+
+- energy(µJ, ETT 네 칸 평균 / MIT-BIH; 확정): Spikformer(DE) 10.67 / 8.27, 기준 pop LIF 13.26 / 10.81, 기준 pop f-LIF 16.05 / 12.03, (나) pop LIF 8.44 / 6.57, (나) pop f-LIF 11.27 / 7.81. Spikformer(DE)의 MIT-BIH energy는 조정 뒤 0.90배가 됐다(9.18 → 8.27).
+- 발화율, MIT-BIH accuracy(98.27–98.42 %), ETT epoch 수(11–17), run 시간, 18조합 validation 표 전부: `classification/results/flif-v1-r2-summary.md`.
+- ETT best checkpoint가 epoch 0인 run: 확정 설정에서 model별 12 run 중 1–3개.
+
+### 점검
+
+- RESULT: ETT 54/54, MIT-BIH 15/15, SKIP 0, `DONE(rc=0)` 69. 확정 run의 sha는 `baa782c76` 하나다.
+- seed 42 ETT 확정 run 18개가 찾기 run과 test MSE / MAE / 가장 좋은 validation까지 정확히 같다(18/18; 학습이 bit 단위로 재현된다). GPU를 다른 대화와 함께 쓴 것은 결과를 바꾸지 않았다.
+- energy 재계산 54 run: 기록된 test MSE 재현, "all checks passed".
+- `summarize_r2.py`의 멈춤 점검(모든 줄에 `select_r2.check_row`: 조합 값, 폴더 tag, 범위 1 / 위치 bias 끔 / SpikeDE 설정; seed당 한 줄; 확정 파일 줄 수와 SKIP; sha 하나; energy 재계산 존재)을 모두 통과해 표가 만들어졌다.
+- 되살린 찾기 단계 5줄은 고르기에만 쓰였고 판정(test)에는 쓰이지 않는다.
+
+### 환경과 명령
+
+- 서버 GPU 4 × NVIDIA RTX A6000, conda env `snn_recall`, `LD_LIBRARY_PATH=/home/yschoi/.conda/envs/snn_recall/lib`. 데이터와 분할은 22:37 항목과 같다(ETTh2 / ETTm2 입력 96, 표준 분할; MIT-BIH 기존 train / test, 확정 run은 학습 데이터 전부로 학습).
+- 확정(NSMT/): `tmux new-session -d -s flif_r2f "bash nsmt_flif_v1/classification/scripts/r2_final.sh 0,1,2,3,0,1,2,3"` — 18:07:30 시작, 22:01:30 끝.
+- pool log(`classification/results/flif-v1-r2-pool.log`, 로컬) 1–1744행을 찾기 suite 두 개의, 1745–2043행을 확정 suite 두 개의 `pool_runs.txt`로 복사했다.
+- classification/: `python energy_recount_ett.py --suite flif-v1-ett-r2f --device cuda:0`, `python summarize_r2.py`.
+- 사후 상관(사전 고정 아님): `results/flif-v1-r2-selected.json`의 MIT-BIH 표와 찾기 suite의 ETT 줄로 scratchpad에서 계산했다(Spearman, scipy). 저장소에 script는 넣지 않았다.
+- seed 42 / 7 / 2026.
+
+### 산출물
+
+- Git: `forecasting/results/flif-v1-ett-r2f/{raw.txt,pool_runs.txt,energy_recount.csv}`, `classification/results/flif-v1-mitbih-r2f/{raw.txt,pool_runs.txt}`, `forecasting/results/flif-v1-ett-r2s/pool_runs.txt`, `classification/results/flif-v1-mitbih-r2s/pool_runs.txt`, `classification/results/flif-v1-r2-summary.md`.
+- 로컬만: run 폴더 `forecasting/log/flif-v1-ett-r2f/`, `classification/log/flif-v1-mitbih-r2f/`(checkpoint, TensorBoard event), pool log, 대기열 파일.
+
+### 한계
+
+- seed 3개다. 고르기는 seed 42 하나의 validation으로 했고, 위 사후 상관이 보여주듯 이 범위의 조합 차이는 그 validation으로 거의 가려지지 않는다.
+- 격자는 세 값씩이고, 바뀐 lr / batch는 모두 격자 끝 값이다. 사전 규칙대로 범위를 넓히지 않았다.
+- weight decay, epoch 수, 조기 중단 등 다른 학습 설정은 보지 않았다.
+
+### not run
+
+- 격자 밖 값(범위 넓히기), seed 여러 개로 고르기, 다른 학습 설정.
+- aux 본 시험(닫힘), CinC, 이상 탐지.
+
+### 결론
+
+- 이 범위의 learning rate / batch / warmup은 test 결과를 바꾸는 손잡이가 아니다. 지금 설정(NSMT 논문 값)과 고른 설정 사이에 "좋음"은 하나도 없고, 고른 설정이 나빠진 곳이 하나 있다.
+- 사전 규칙의 권고는 기준 유지다. 다만 pop LIF의 S1 "나쁨"은 test로 옮겨가지 않은 설정 선택에서 생겼다(지금 설정끼리는 "차이 없음"). pop f-LIF의 "나쁨"은 두 설정 모두에서 나왔다.
+- 사용자 목표에 비추면: 기준은 정확도에서 Spikformer(DE)보다 방향만 낫고(weak) energy가 1.24–1.50배다. (나) pop LIF는 energy 0.79배지만 정확도는 "지지 안 됨"(확정) / weak(지금 설정)으로, 설정 선택에 따라 방향이 바뀌는 수준이다. 구조와 이후 쓸 설정(지금 / 확정)은 사용자가 정한다.
+
+### Git
+
+- 이 항목과 결과 파일을 하나의 commit으로 묶고 tag `exp/nsmt-flif-neo-20261124-r2`를 단다(이 commit은 tag로 가리킨다). `exp/nsmt-flif-neo`와 그 tag만 push 한다.
