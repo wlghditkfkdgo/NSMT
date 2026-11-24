@@ -16155,3 +16155,65 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 - 어느 code로 돌릴지(원본 iSpikformer / local 수정본)는 사용자 결정이다.
 
 **commit:** 이 기록을 `exp/f-lif-pop-v3`에 commit · push한다(학습 없음, 새 파일 없음).
+
+## 2026-11-24 17:19 KST — 사용자 결정(논문의 SNN baseline에서 Spikformer를 빼고 SpikF 논문의 baseline만 비교) + 원문 확인 + 기존 로그로 다시 판정(학습 없음, 보고용): 두 model 모두 SpikF 논문의 SNN 행 3개와 NSMT DNN 행 5개를 넘는다. 다만 이 결정으로 **energy 기준이 하나도 남지 않는다**. NSMT는 SpikF 논문에 없어서 빠지지만, 두 model보다 MSE가 낮다
+
+**사용자 말(원문, 11-24):** "그렇다면 바로 직전 선행 연구인 SpikF에서도 Spikformer와의 예측성능을 비교하지 않았다는 것이니, 현재 SpikMIxer 연구를 논문으로 작성할 때 SNN baseline들에서는 SPikformer를 제외하고 SpikF의 논문에 실린 baseline들만 비교해도 될 것 같아."
+
+**SpikF 논문 원문 확인**(arXiv PDF의 pdftotext -layout, local scratchpad, md5 `f235757e771fc026e9964449eb7c5df5`; 11-19 전사 검증에 쓴 파일과 같다):
+- Table 1(본문, L = 96, 4 길이 평균): baseline이 **ANN뿐**이다(Autoformer, Crossformer, PatchTST, iTransformer, SCINet, TimesNet, DLinear, RLinear).
+- 부록 E.2 Table 12(ETT, L = 96): SNN 행은 **SpikeRNN과 iSpikformer**("SNN-based models are equipped with SPE")다. ANN 행은 FEDformer와 FITS다.
+- Table 5(Solar-energy, L = 128, RSE): iSpikformer와 iTransformer다. 값은 Lv et al. 2024b에서 가져왔다.
+- Table 4: iSSA(iSpikformer의 attention)는 SpikF 자기 module의 ablation으로만 나온다.
+- 일반 Spikformer는 **서론에서 인용으로만** 나온다. CPG 위치 부호화를 단 Spikformer가 SpikeTCN / SpikeRNN보다 RSE가 2.6 % / 7.7 % 나쁘다는 내용이고, Lv et al. 2024a의 결과다. SpikF 저자가 직접 돌린 run은 없다.
+- → 사용자 전제("SpikF도 Spikformer와 예측 성능을 비교하지 않았다")는 맞다. 다만 SpikF 논문의 baseline에는 **Spikformer 계열인 iSpikformer(inverted Spikformer)가 들어 있다**. 따라서 "SpikF 논문의 baseline만"이면 SNN 행은 SpikF, SpikeRNN, iSpikformer 3개다.
+
+**기존 로그로 다시 판정**(`results/ett-pass-20261124/spikf_rows_only.py`; 학습 없음):
+- 같은 규칙을 쓴다: 4칸(ETTh2 · ETTm2 × H96 · H720) seed 평균의 4칸 평균에서 기준값 − 우리 값 ≥ 0.001이어야 한다. MSE와 MAE 둘 다 만족해야 한다.
+- 우리 값은 summarize_ettune의 loader와 점검을 거친 seed 3개(42 / 7 / 2026) 평균이다.
+- energy는 syops만 쓴다(사용자 11-24).
+
+| 기준 행 | 역할 | 기준 MSE / MAE | 첫 튜닝(patch 16) 여유 MSE / MAE | 확장(patch 24) 여유 MSE / MAE |
+|---|---|---|---|---|
+| SpikF | SNN (SpikF 논문) | 0.3215 / 0.3550 | +0.0010 / +0.0015 → 통과 | +0.0022 / +0.0024 → 통과 |
+| SpikeRNN | SNN (SpikF 논문) | 0.3270 / 0.3550 | +0.0065 / +0.0015 → 통과 | +0.0077 / +0.0024 → 통과 |
+| iSpikformer | SNN (SpikF 논문) | 0.3325 / 0.3605 | +0.0120 / +0.0070 → 통과 | +0.0132 / +0.0079 → 통과 |
+| PatchTST(가장 강한 DNN 행) | DNN (NSMT Table 13) | 0.3275 / 0.3632 | +0.0070 / +0.0098 → 통과 | +0.0082 / +0.0107 → 통과 |
+| 나머지 DNN 4행 | DNN (NSMT Table 13) | — | 모두 통과 | 모두 통과 |
+| NSMT | 보고용(SpikF 논문에 없음) | 0.3177 / 0.3518 | **−0.0027 / −0.0017 → 못 넘음** | **−0.0016 / −0.0008 → 못 넘음** |
+
+| energy(syops µJ, seed 평균) | ETTh2 H96 | ETTh2 H720 | ETTm2 H96 | ETTm2 H720 | 4칸 평균 | / SpikF(칸 비율 평균) | / NSMT |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| 첫 튜닝 | 5.92 | 21.31 | 6.58 | 21.94 | 13.94 | 0.0141 | 0.323 |
+| 확장 | 4.50 | 14.76 | 32.44 | 73.32 | 31.26 | 0.0322 | 0.719(ETTm2 H720은 1.569) |
+
+- 첫 튜닝의 SpikF MSE 여유는 0.001037이다(경계보다 0.000037 큼; 11-23 21:01 기록과 같다).
+- 빠진 기준 (2)는 참고로 계산했다. SF-de patch 8 대비 energy(syops)가 첫 튜닝 0.5616, 확장 1.3971이다(한계는 1.05였다). 00:50 기록과 같다.
+
+**이 결정으로 바뀌는 것, 그리고 사용자가 정할 것**(내 해석; 기록만 했고 판정 규칙은 아직 바꾸지 않았다):
+1. **통과 기준 (2)가 빠진다.** (2)는 SF-de보다 0.001 낮고 energy가 1.05배 이하인 것이었다. 남는 것은 (1) SNN 행과 (3) DNN 행이다.
+   - 그러면 **energy 기준이 하나도 남지 않는다.** 원래 기준에서 energy는 (2)에만 있었다.
+   - 내 제안: "SpikF보다 syops energy가 낮다"를 넣거나, energy는 보고만 한다. 두 model 모두 SpikF의 1.4 % / 3.2 %라서 어느 쪽이든 판정은 같다.
+2. **model 선택이 다시 열린다.** (2)가 빠지면 확장(patch 24)도 통과한다. 11-23에는 energy 때문에 탈락했었다.
+   - 첫 튜닝: SpikF 여유가 경계에 붙어 있다(0.0010). energy는 4칸 평균 13.94 µJ다.
+   - 확장: SpikF 여유가 2배 이상이다(0.0022 / 0.0024). 대신 energy가 2.2배(31.26 µJ)다. ETTm2 H720 한 칸은 NSMT보다 크다(73.32 vs 46.72 µJ).
+3. **NSMT를 SNN 표에 넣을지.**
+   - 글자 그대로 "SpikF 논문의 baseline만"이면 NSMT는 빠진다. SpikF 논문에 없기 때문이다(NSMT Table 14가 SpikF 값을 가져온 쪽이다).
+   - 그런데 DNN baseline은 NSMT 논문에서 가져오기로 했다(11-23).
+   - 넣으면 두 model 모두 NSMT보다 MSE가 높다. 이때 주장은 "정확도는 조금 낮고 energy는 0.32배(첫 튜닝)"가 된다.
+4. **범위.**
+   - SpikF 논문은 예측 과제만 다룬다. 그래서 이 결정은 예측(ETT)에만 해당한다고 본다(내 기본값).
+   - 사용자의 11-18 논문 목표에는 "(수정한) Spikformer보다 평균적으로 좋고 energy가 상대적으로 낮다"가 있다. 이 목표를 세 과제 전체에서 바꾸는지, 예측에서만 바꾸는지는 사용자 결정이다. AD와 분류에는 SpikF 논문 baseline이 없다.
+5. **주장의 범위(정직하게 적어 둘 것).**
+   - (가)에서 같은 patch 16의 SF-de는 우리 model과 정확도 · energy 모두 차이가 없었다(23:07 기록).
+   - Spikformer를 표에서 빼더라도 "mixer가 spiking attention보다 낫다"는 주장은 우리 결과로 뒷받침되지 않는다.
+   - 뒷받침되는 주장은 "SpikF 수준 이상의 정확도를 SpikF의 1–3 % energy로"다.
+   - SpikF 등 논문 값은 seed가 밝혀지지 않은 단일 숫자다. 우리 값은 seed 3개 평균이다.
+6. **(다) 다른 칸 채우기**는 그대로 남아 있다.
+   - SpikF Table 12는 4 데이터셋 × 4 길이다.
+   - 우리 run은 4칸뿐이다(사용자 결정 12).
+
+### artifact
+`NSMT/cinc_mixer_v1/results/ett-pass-20261124/{spikf_rows_only.py, spikf_rows_only.md, spikf_rows_only.json}`
+
+**commit:** 이 기록과 위 파일을 `exp/f-lif-pop-v3`에 commit · push한다(학습 없음, tag 없음).
