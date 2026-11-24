@@ -19,6 +19,9 @@
 #         every earlier value keeps the same training line and tag
 #         2026-11-23 fair-patch test (PROJECT_LOG, user request 11-23 "(가) 실행"): COND=spk_ssa (SF-de) also takes PATCH (tag _pt<v>
 #         before _nalif); its other knobs (EMB MLPR BLOCKS WD) stay refused; without PATCH the SF-de training line and tag are unchanged
+#         2026-11-24 full ETT table (PROJECT_LOG, user decision 11-24 "두 개다 고려한채로 확장하자"): DS also ETTh1 | ETTm1, LIF SpkMixer
+#         conditions only; ETTh1 takes every per-dataset default of ETTh2 and ETTm1 those of ETTm2 (heads, mlp, layers, epochs); the
+#         ETTh2 / ETTm2 training lines and tags are unchanged
 set -u
 DS=${1:?}; PL=${2:?}; S=${3:?}; GPU=${4:?}
 W="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # cinc_mixer_v1: model code, train_forecast.py, results/, log/
@@ -85,10 +88,13 @@ esac
 case $DS in                       # patch emb heads mlp M lr bs epochs   (as run_ett_mixer.sh; heads unused by the SpkMixer)
   ETTh2) L0=1; E=100 ;;           # Table 13: --patch_size 8 -emb 64 -nh 8  --mlp_ratios 0.5 --time_layers 1 -lr 0.0005 -bs 64
   ETTm2) L0=2; E=50 ;;            # Table 13: --patch_size 8 -emb 64 -nh 16 --mlp_ratios 1   --time_layers 2 -lr 0.0005 -bs 64
-  *) echo "bad dataset $DS (ETTh2 / ETTm2 only)"; exit 1 ;;
+  ETTh1) L0=1; E=100 ;;           # 2026-11-24: as ETTh2
+  ETTm1) L0=2; E=50 ;;            # 2026-11-24: as ETTm2
+  *) echo "bad dataset $DS (ETTh1 / ETTh2 / ETTm1 / ETTm2 only)"; exit 1 ;;
 esac
+case $DS in ETTh1|ETTm1) case $COND in spkmx_lif_*) ;; *) echo "ETTh1 / ETTm1: LIF SpkMixer conditions only (2026-11-24)"; exit 1 ;; esac ;; esac
 LR=${LR:-0.0005}; LAYERS=${LAYERS:-$L0}                                  # 2026-11-01 tuning knobs
-case $DS in ETTh2) MLP0=0.5 ;; ETTm2) MLP0=1 ;; esac                      # 2026-11-19 ETT tuning knobs (defaults = Table 13 values)
+case $DS in ETTh2|ETTh1) MLP0=0.5 ;; ETTm2|ETTm1) MLP0=1 ;; esac                      # 2026-11-19 ETT tuning knobs (defaults = Table 13 values)
 PATCH=${PATCH:-8}; EMB=${EMB:-64}; MLPR=${MLPR:-$MLP0}; BLOCKS=${BLOCKS:-1}; WD=${WD:-0.06}
 case $PATCH in 4|8|16|24|32) ;; *) echo "bad PATCH $PATCH (4|8|16|24|32)"; exit 1 ;; esac
 case $EMB in 32|64|128|256) ;; *) echo "bad EMB $EMB (32|64|128|256)"; exit 1 ;; esac
@@ -106,8 +112,8 @@ KTAG=""
   spk_ssa) [ "$KTAG" = "_pt$PATCH" ] || { echo "spk_ssa: only PATCH may differ from its default (2026-11-23 fair-patch test)"; exit 1; } ;;
   *) echo "PATCH / EMB / MLPR / BLOCKS / WD: LIF SpkMixer conditions only"; exit 1 ;; esac
 case $DS in
-  ETTh2) HP="--patch_size $PATCH -emb $EMB -nh 8  --mlp_ratios $MLPR --time_layers $LAYERS -lr $LR -bs 64" ;;
-  ETTm2) HP="--patch_size $PATCH -emb $EMB -nh 16 --mlp_ratios $MLPR   --time_layers $LAYERS -lr $LR -bs 64" ;;
+  ETTh2|ETTh1) HP="--patch_size $PATCH -emb $EMB -nh 8  --mlp_ratios $MLPR --time_layers $LAYERS -lr $LR -bs 64" ;;
+  ETTm2|ETTm1) HP="--patch_size $PATCH -emb $EMB -nh 16 --mlp_ratios $MLPR   --time_layers $LAYERS -lr $LR -bs 64" ;;
 esac
 TAGC="${COND}_lr${LR}_L${LAYERS}${BTAG}${STAG}${KTAG}"
 HM=""; [ "${HEADMEM:-0}" = 1 ] && { HM="--head_mem"; TAGC="${TAGC}_hm"; }   # 2026-11-03 H1 (head_mem.py): HEADMEM=1 -> --head_mem, tag _hm

@@ -16217,3 +16217,134 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 `NSMT/cinc_mixer_v1/results/ett-pass-20261124/{spikf_rows_only.py, spikf_rows_only.md, spikf_rows_only.json}`
 
 **commit:** 이 기록과 위 파일을 `exp/f-lif-pop-v3`에 commit · push한다(학습 없음, tag 없음).
+
+## 2026-11-24 18:02 KST — 사용자 결정 4개(energy 기준은 SpikF보다 낮을 것 / NSMT는 사용자 자신의 논문 / Spikformer 제외는 예측 과제에만, AD는 DNN baseline만, MIT-BIH는 MIT-BIH용 SNN 분류 model만 / 두 model 모두 두고 ETT 칸을 넓힘) + 질문 답(학습 없음): "고성능 · 저전력 말고 주장할 수 있는 contribution" — 기존 기록으로는 "T = N이 temporal 정보를 **더 잘** 잡는다"와 "긴 memory"는 뒷받침되지 않는다. 뒷받침되는 것은 attention 없는 token 섞기, 세 과제 공통 구조, NSMT 대비 energy다
+
+**직전 commit:** `d17ac5cb2`. 브랜치 `exp/f-lif-pop-v3`.
+
+### 사용자 말(원문, 11-24)
+> 1. SpikF보다 energy가 낮아야해.
+> 2. NSMT는 "내 논문"이야.
+> 3. 이 결정은 예측 과제에만 적용하는 것이고, AD는 DNN baseline들만(왜냐하면 AD용 SNN이 없음.) 그리고 MIT-BIH 분류는 SNN MIT-BIH용 분류 모델만 baseline으로 할 거야.
+> 4. 우선, 두 개다 고려한채로 확장하자.
+> ---
+> 5. 만약 현재 SpikMixer를 주장하게 되면, (1) 고성능 (2) 저전력 말고 주장할 수 있는 contribution이 무엇이 더 있어? 예를 들면,
+> - 기존 NSMT 처럼, T=N으로 인한 temporal information/pattern 더 잘 capture
+> - LIF에 내재된 memory 기능을 활용하여 recurrent model처럼 활용 가능
+> 등등
+
+### 결정 적용(내 해석 포함)
+1. **energy 기준:** syops energy(`syn_energy_uJ`)가 SpikF의 syops energy보다 낮아야 한다. 빠진 기준 (2)의 energy 부분을 이것이 대신한다.
+2. **NSMT:** 사용자 자신의 선행 논문이다.
+   - 내 해석: NSMT는 넘어야 하는 기준 행이 아니다. 표에는 "자신의 앞선 model" 행으로 넣어 보고한다(정확도 차이와 energy 비율).
+   - 이 해석이 틀리면 사용자가 바로잡는다. 판정 code에서 NSMT는 보고 행이다.
+3. **baseline 범위:**
+   - 예측(ETT): SNN은 SpikF 논문의 행(SpikF, SpikeRNN, iSpikformer), DNN은 NSMT Table 13의 5행이다.
+   - AD: DNN baseline만 쓴다(AD용 SNN이 없음).
+   - MIT-BIH: MIT-BIH용 SNN 분류 model만 쓴다.
+   - 내 해석: 세 과제 어디에서도 Spikformer(SF-de)는 논문 표의 baseline이 아니다. 11-18 목표의 "(수정한) Spikformer보다 평균적으로 좋다"는 논문 표의 기준에서 빠진다. SF-de 결과는 내부 진단 자료로 남는다.
+4. **확장:** 첫 튜닝 최종 설정과 확장 최종 설정을 둘 다 나머지 ETT 칸에 돌린다(다음 기록의 사전등록). 사용자 결정 12(ETTh2 + ETTm2 × H96 / H720만)는 이 실행에 한해 사용자가 넓혔다.
+
+### 질문 5의 답(새 측정 없음; 값은 모두 해당 기록 그대로)
+**주장 후보와 근거**
+
+| 후보 | 뒷받침하는 기록 | 어긋나는 기록 | 내 판단 |
+|---|---|---|---|
+| (a) T = N이 temporal 정보를 **더 잘** 잡는다 | MIT-BIH · CinC에서 학습된 model의 mixer를 끄면 −68.85 / −34.77 %p, token 순서를 섞으면 −19.68 / −30.16 %p(11-05) | ETT는 mixer를 꺼도 MSE +1.61 %뿐(11-05). 같은 patch의 Spikformer-style과 차이 없음(R +0.16 %, 11-23). 최종 ETT model은 token이 12개(patch 16) · 8개(patch 24)뿐 | "더 잘"은 주장 불가. "attention 없이 neuron의 시간 처리만으로 같은 수준"은 가능. 근거는 ETT가 아니라 분류 과제에 있다 |
+| (b) LIF의 memory를 recurrent model처럼 쓴다 | 구조상 사실: token을 차례로 LIF에 넣고, 막전위가 token 사이 정보를 나르는 유일한 경로다. recurrent weight는 없다 | 실제로 쓰는 문맥은 방향당 4–16 token(ETT · MIT-BIH는 4 token이면 기본과 같음, 11-05). memory가 긴 neuron(f-LIF, population LIF)은 긴 문맥을 쓰지만 점수가 낮다(CinC validation 69.95 / 66.61 vs 72.02). PRF(2024)가 neuron 상태로 token을 섞는 구조를 먼저 냈다(11-08) | "recurrent weight 없이 짧은 범위를 섞는다"는 가능. "긴 memory"는 주장 불가. PRF와의 차이를 밝혀야 한다 |
+| (c) attention 없는 구조(hardware에 쉬움) | Q · K · V 행렬 곱이 없고 연산이 Linear · BN · LIF · bit 연산(AND / OR / 선택)뿐이다. token 수에 대한 계산량이 선형이다 | 선행이 있다(STMixer, SMixer, Attention-free Spikformer, PRF; 11-08). syops는 attention 곱도, 우리 fusion의 abs · 선택 연산도 세지 않아 수치로 보인 적이 없다(not run). MIT-BIH · AD 설정은 ADD 잔차라 "spike만"이 아니다 | 구조의 성질로는 주장 가능. 수치 근거는 아직 없다 |
+| (d) MUX fusion(두 방향 막전위 차이로 경로를 고름) | 11-08 조사 범위에서 선행을 찾지 못한 유일한 요소. CinC +1.56 %p | ETT +0.57 %(나쁜 방향), MIT-BIH +0.00 %p. CinC는 main result가 아니다(사용자 11-04) | 주 contribution으로는 약하다 |
+| (e) 한 구조로 세 과제(예측 · 분류 · AD) | 사용자의 원래 목표(11-18). 예측은 SpikF 논문 SNN 행과 DNN 행을 넘는다(4칸, 16칸은 실행 예정) | AD: 학습한 model이 모두 학습 없는 단순 점수 수준이다(11-03; G5의 AUC-PR도 MSL 14.53 · SMAP 11.82 · PSM 39.14 %). MIT-BIH: beat 단위 70/30 분할이라 문헌의 환자 단위 분할과 맞지 않는다(11-08). 과제마다 잔차 · 층 수 설정이 다르다 | 가장 큰 주장이 될 수 있지만, AD와 MIT-BIH의 비교 조건을 먼저 고쳐야 한다 |
+| (f) NSMT(자신의 논문)의 후속 | 4칸에서 NSMT energy의 0.32배(첫 튜닝). hippocampus / Neocortex 두 경로와 attention이 없다 | 정확도는 NSMT보다 낮다(MSE +0.0027 / +0.0016) | "NSMT의 T = N 생각을 attention 없는 단순 구조로 줄여 energy를 1/3로"는 가능 |
+
+**내 권고**
+- 주 주장: (1) 고성능, (2) 저전력, (e) 세 과제 공통 구조, (c) attention 없는 token 섞기.
+- (a) · (b)는 "더 낫다"는 주장이 아니라 **작동 방식 분석**으로 쓴다. 근거는 분류 과제의 개입 실험과 CinC다.
+- 같은 patch의 Spikformer-style이 우리와 같다는 결과(11-23)는 표에서 빼더라도 주장을 정할 때 지켜야 한다.
+
+**(a) · (b)를 주장하려면 필요한 측정**(모두 not run)
+1. 최종 ETT model 2개와 MIT-BIH model에서 학습 없는 개입(mixer 끄기, token 순서 섞기, 문맥 제한). 11-05 도구(`bottleneck_probe.py`)가 있다. 11-05 값은 patch 8 model의 값이다.
+2. 다시 학습하는 대조: token마다 neuron 상태를 0으로 되돌린 model, token 순서를 섞어 학습한 model. "필요하다"는 이것으로만 말할 수 있다.
+3. CinC fold 1–4(지금은 fold 0뿐).
+
+**한계:** 새 측정이 없다. 위 판단은 기존 기록의 값에 기대고, 표의 "내 판단" 열은 내 해석이다.
+
+**commit:** 다음 기록(사전등록)과 함께 `exp/f-lif-pop-v3`에 commit · push한다.
+
+## 2026-11-24 18:02 KST — 사전등록(본 학습 전): ETT 전체 표(4 데이터셋 × 길이 96 / 192 / 336 / 720, 입력 96) — 첫 튜닝 최종 설정과 확장 최종 설정을 아직 안 돌린 12칸에 돌린다(72 run). 판정은 16칸 평균으로 SpikF 논문 SNN 3행 + NSMT 논문 DNN 5행을 0.001 이상 넘고, 16칸 모두 SpikF보다 syops energy가 낮은가다
+
+**목적:** 사용자 결정 11-24 "우선, 두 개다 고려한채로 확장하자"((다) 나머지 ETT 칸 채우기). SpikF Table 12 · NSMT Table 13 / 14와 같은 16칸에서 두 model을 평가한다. 두 model 중 하나를 고르는 실험이 아니다.
+
+**branch / base:** `exp/f-lif-pop-v3`, base = 이 기록의 commit(앞 commit `d17ac5cb2`).
+
+### model과 설정(새 칸에서는 아무것도 고르지 않는다)
+| model | ETTh1 · ETTh2 | ETTm1 · ETTm2 |
+|---|---|---|
+| 첫 튜닝 최종(first) | lr 5e-4, patch 16, d_model 64, MLP 0.5, block 1, wd 0.1 | lr 1e-4, patch 16, d_model 64, MLP 2, block 1, wd 0.1 |
+| 확장 최종(ext) | lr 5e-4, patch 24, d_model 64, MLP 0.5, block 1, wd 0.005 | lr 1e-4, patch 24, d_model 256, MLP 1, block 2, wd 0.02 |
+
+- 공통: LIF SpkMixer(muxlin, IAND 잔차, 방향별 mixer 층 1), 입력 96, batch 64, L1 loss, patience 10, epoch 상한 100(ETTh) / 50(ETTm), 최고 validation weight로 test.
+- **ETTh1은 ETTh2에서 고른 설정을, ETTm1은 ETTm2에서 고른 설정을 그대로 쓴다.** ETTh1 · ETTm1의 validation으로는 아무것도 고르지 않는다. 길이 192 · 336도 H96 · H720 평균으로 고른 설정 그대로다.
+- seed 42 / 7 / 2026. 새 run = 12칸(ETTh1 · ETTm1 × 4 길이, ETTh2 · ETTm2 × 192 · 336) × 2 model × 3 seed = **72**. 이미 있는 4칸(24 run)은 다시 돌리지 않고 그대로 쓴다.
+
+### code 변경
+- `scripts/run_ett_spk.sh`: DS에 ETTh1 · ETTm1을 받는다(LIF SpkMixer 조건만). ETTh1은 ETTh2의, ETTm1은 ETTm2의 dataset별 기본값(head 수, MLP 비율, 층 수, epoch)을 쓴다. ETTh2 · ETTm2의 학습 명령과 tag는 그대로다.
+- 새 파일:
+  - `scripts/full16_driver.sh`: queue 72줄 → pool → RESULT 72 · SKIP 0 확인 → `energy_recount_ett.py` → SpikF energy 계산(빠진 dataset만) → 요약 → "driver end". 실패하면 멈춘다.
+  - `results/ett-full16-20261124/make_refs16.py` → `refs16.json`: 두 논문의 16칸 + Avg 행(SNN 4행, DNN 5행).
+  - `results/ett-full16-20261124/count_spikf16.py`: SpikF의 syops energy를 16칸에서 센다(학습 없음; 11-23 `count_spikf.py`와 같은 방법).
+  - `results/ett-full16-20261124/summarize_full16.py`: 판정과 표.
+  - `results/check-full16-20261124/{p0_runner_full.sh, check_dry_full.py}`: 점검.
+
+### 판정(사전 고정; model마다 따로)
+- **정확도:** 칸마다 seed 평균을 내고 16칸을 평균한다. 기준 행의 16칸 평균 − 우리 값 ≥ 0.001이어야 한다. MSE와 MAE 둘 다, 아래 8행 모두에 대해서다. 기준 행의 평균은 논문의 Avg 행이 아니라 16칸 값으로 계산한다.
+
+| 기준 행 | 역할 | 16칸 평균 MSE / MAE | 넘으려면(MSE / MAE 이하) |
+|---|---|---|---|
+| SpikF | SNN (SpikF Table 12) | 0.3700 / 0.3819 | 0.3690 / 0.3809 |
+| SpikeRNN | SNN | 0.3761 / 0.3845 | 0.3751 / 0.3835 |
+| iSpikformer | SNN | 0.3875 / 0.3927 | 0.3865 / 0.3917 |
+| PatchTST | DNN (NSMT Table 13) | 0.3809 / 0.3969 | 0.3799 / 0.3959 |
+| FEDformer | DNN | 0.4074 / 0.4276 | 0.4064 / 0.4266 |
+| ETSformer | DNN | 0.4256 / 0.4320 | 0.4246 / 0.4310 |
+| Autoformer | DNN | 0.4651 / 0.4586 | 0.4641 / 0.4576 |
+| Informer | DNN | 1.9607 / 1.0169 | 1.9597 / 1.0159 |
+| NSMT | 보고용(사용자 자신의 논문) | 0.3644 / 0.3788 | 기준 아님 |
+
+- **energy**(사용자 결정 11-24): syops energy(`syn_energy_uJ`, seed 평균)가 **16칸 모두에서** SpikF의 syops energy보다 낮아야 한다.
+  - SpikF 값: H720은 학습된 checkpoint로 세고, 기록된 값(MSE · MAE · energy)을 재현해야 한다. H96 · 192 · 336은 그 checkpoint에서 출력층만 그 길이로 바꿔 센다(MAC은 정확하고, 발화율은 H720 학습 encoder의 것이다).
+- **PASS** = 정확도 8행 모두 + energy.
+- 보고만: 데이터셋별 표(논문 Avg 행 포함), 우리가 더 낮은 칸 수, NSMT 대비 여유와 energy 비율(NSMT energy는 10-14 재현 run, seed 42), seed 표준편차, 11-23의 4칸 값(각 chain의 `final.json`과 같아야 하며, 다르면 멈춘다).
+
+### 기준값 검증(`make_refs16.py` → `refs16_verify.txt`)
+- NSMT Table 14와 SpikF Table 12가 SpikF · SpikeRNN · iSpikformer 20행 모두에서 같다.
+- NSMT Table 13의 NSMT 열이 Table 14의 NSMT 열과 20행 모두 같다.
+- 지금까지 쓴 4칸 값(72개 숫자)이 11-19 · 11-23 전사와 같다.
+- 보고: 논문 Avg 행이 네 길이 평균과 0.0015 넘게 다른 곳은 72곳 중 1곳이다(iSpikformer ETTh2 MAE: Avg 행 0.407, 네 길이 평균 0.4045). 판정은 16칸 값으로 하므로 영향이 없다.
+
+### 점검
+- **p0**(`p0_runner_full.txt`, 53/53 PASS): 고친 runner가 기존 경로 16개에서 학습 명령이 예전과 글자까지 같다. ETTh1 · ETTm1 명령은 ETTh2 · ETTm2 명령과 dataset 이름 3곳(`--log_dir`, `--data`, `--data_path`)만 다르다. 예전 runner는 ETTh1 · ETTm1을 거부했다. SF-de · population 조건의 ETTh1과 모르는 dataset은 학습 전에 거부된다.
+- **queue**(`QUEUE_ONLY=1`): 72줄이고 모두 다르다. (설정, dataset, 길이, seed) 조합도 72개가 모두 달라 stdout 파일과 run 폴더가 겹치지 않는다.
+- **시험 학습**(1 epoch, suite `smoke-full16-20261124`): 2 run 모두 RESULT다. ETTh1 H192 first(seed 42): test MSE 0.4503 / MAE 0.4293, syops 8.25 µJ, params 169,792, 40 s. ETTm1 H336 ext(seed 42): 0.4125 / 0.4005, 48.62 µJ, params 1,487,360, 132 s. 1 epoch 값이라 성능의 뜻은 없다. stdout 파일 이름과 run 폴더에 dataset · 길이 · tag · seed가 들어간다.
+- **SpikF energy 계산:** GPU 4장에서 dataset별로 실행 중이다(학습 없음, 4 thread). 멈춘 첫 실행에서 ETTh1 H720은 기록값을 재현했다(다시 센 MSE 0.474802 / MAE 0.460927 / 1050.59 µJ; 기록 0.474803 / 0.460926 / 1050.59 µJ). 16칸 값과 재현 여부는 결과 기록에 적는다. pool이 끝날 때 파일이 없는 dataset은 driver가 다시 센다.
+- **요약기 dry run**(`check_dry_full.py`): SpikF energy 파일 4개가 모두 있어야 돌 수 있다. 그래서 아직 돌리지 않았다(not run). SpikF 계산이 끝나면 돌리고 결과 기록에 적는다. 이 점검은 요약기만 보므로 학습 내용에는 영향이 없다. 실패하면 요약기를 고치고 그 사실을 적는다.
+- GPU memory: 두 설정 모두 ETTh2 · ETTm2에서 GPU당 2개로 이미 돌린 모양이다(ETTh1 · ETTm1은 변수 수와 길이가 같다). GPU 4장은 시작 시점에 다른 학습이 없다.
+
+### 환경과 명령
+- python `/home/yschoi/.conda/envs/snn_recall/bin/python`, `LD_LIBRARY_PATH=<env>/lib`. GPU A6000 4장, 8 slot.
+- 실행(NSMT/에서): `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/full16_driver.sh > /dev/null 2>&1 &`
+- 산출물: `cinc_mixer_v1/results/flif-v1-ett-spkmux-full16/{raw.txt, energy_recount.csv, summary.md, summary.json, pool_log.txt}`. `driver.log`, queue 파일, run 폴더, checkpoint는 local에 둔다.
+- 예상 시간(내 추정): 기존 run 시간(ETTh 3–5분, ETTm 11–19분)으로 보면 약 1.5–2시간이다.
+
+### 한계(미리 적음)
+- ETTh1 · ETTm1 설정은 다른 dataset에서 고른 것이다. dataset별로 튜닝한 값보다 불리할 수 있다. 반대로 SpikF 등 논문 값이 dataset별로 어떻게 튜닝됐는지는 알 수 없다.
+- 논문 값은 seed가 밝혀지지 않은 단일 숫자이고, 우리 값은 seed 3개 평균이다.
+- SpikF energy의 H96 · 192 · 336 값은 그 길이로 학습한 model의 값이 아니다(위 방법).
+- 16칸 평균은 오차가 큰 칸(ETTh1, 긴 길이)의 비중이 크다.
+- 0.001 차이는 seed 표준편차보다 작을 수 있다.
+
+### 내 실수(기록)
+- SpikF energy 계산을 처음에 thread 수 제한 없이 4개 띄워 CPU를 process당 약 27 core씩 썼다(4분 30초). 다른 세션도 이 서버를 쓰고 있어 멈추고 4 thread로 다시 시작했다.
+- 멈출 때 `ps | grep`과 `kill`을 한 명령에 넣어, 같은 명령 줄에 있던 파일 이름 때문에 내 shell까지 죽였다(다른 process는 죽지 않았다; 죽은 것은 내 계산 process와 그 worker, 내 shell뿐이다). memory의 "PID를 먼저 읽고 따로 kill" 규칙을 어긴 것이다.
+
+**commit:** 이 기록, code, 점검 파일을 `exp/f-lif-pop-v3`에 commit · push한 뒤 driver를 시작한다.
