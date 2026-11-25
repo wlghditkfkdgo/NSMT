@@ -1,0 +1,49 @@
+P1 ours - SpikF (seed means; + = ours higher = worse), per dataset (mean of 4 horizons)
+  first - SpikF-LIF
+    ETTh1: MSE +0.0082  MAE +0.0016
+    ETTh2: MSE +0.0014  MAE +0.0001
+    ETTm1: MSE +0.0116  MAE +0.0048
+    ETTm2: MSE +0.0014  MAE +0.0011
+    cells where ours is lower: MSE 2 / 16, MAE 3 / 16
+  first - SpikF-GELU
+    ETTh1: MSE +0.0049  MAE +0.0000
+    ETTh2: MSE -0.0022  MAE -0.0023
+    ETTm1: MSE +0.0041  MAE +0.0012
+    ETTm2: MSE -0.0006  MAE -0.0002
+    cells where ours is lower: MSE 6 / 16, MAE 7 / 16
+  ext - SpikF-LIF
+    ETTh1: MSE +0.0110  MAE +0.0068
+    ETTh2: MSE +0.0002  MAE -0.0012
+    ETTm1: MSE +0.0138  MAE +0.0054
+    ETTm2: MSE +0.0007  MAE +0.0007
+    cells where ours is lower: MSE 3 / 16, MAE 4 / 16
+  ext - SpikF-GELU
+    ETTh1: MSE +0.0076  MAE +0.0052
+    ETTh2: MSE -0.0034  MAE -0.0035
+    ETTm1: MSE +0.0062  MAE +0.0018
+    ETTm2: MSE -0.0013  MAE -0.0005
+    cells where ours is lower: MSE 8 / 16, MAE 8 / 16
+P2 energy (mean over 48 runs per activation)
+  gelu: AC 1.344 M, MAC 197.133 M, energy 908.02 uJ, MAC share of energy 99.87 %, firing rate 0.6985
+  lif: AC 4.065 M, MAC 169.966 M, energy 785.50 uJ, MAC share of energy 99.53 %, firing rate 0.6014
+  first / SpikF-LIF energy per cell: mean 0.0141, min 0.0066, max 0.0279 (= SpikF-LIF uses 71x on average)
+  ext / SpikF-LIF energy per cell: mean 0.0307, min 0.0057, max 0.0931 (= SpikF-LIF uses 33x on average)
+P3 LIF - GELU
+  seed 42: 16-cell mean MSE -0.0057, MAE -0.0028
+  seed 7: 16-cell mean MSE -0.0027, MAE -0.0017
+  seed 2026: 16-cell mean MSE -0.0040, MAE -0.0021
+  H96: mean r MSE -1.53 %, MAE -0.88 %
+  H192: mean r MSE -1.34 %, MAE -0.65 %
+  H336: mean r MSE -0.99 %, MAE -0.49 %
+  H720: mean r MSE -0.70 %, MAE -0.34 %
+P4 training length
+  gelu: reached the epoch cap 13 / 48; tested epoch = last epoch run 1 / 48; both 1 / 48
+    ETTh1: cap 5, reached 11 / 12, best = last 1 / 12
+    ETTh2: cap 5, reached 2 / 12, best = last 0 / 12
+    ETTm1: cap 10, reached 0 / 12, best = last 0 / 12
+    ETTm2: cap 10, reached 0 / 12, best = last 0 / 12
+  lif: reached the epoch cap 16 / 48; tested epoch = last epoch run 7 / 48; both 7 / 48
+    ETTh1: cap 5, reached 12 / 12, best = last 7 / 12
+    ETTh2: cap 5, reached 4 / 12, best = last 0 / 12
+    ETTm1: cap 10, reached 0 / 12, best = last 0 / 12
+    ETTm2: cap 10, reached 0 / 12, best = last 0 / 12

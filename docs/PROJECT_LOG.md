@@ -16930,3 +16930,131 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 
 **commit:** 이 기록, `spikf_ref/forecasting/`의 code · `PROVENANCE.md` · 점검 script와 txt, check suite들의 `raw.txt`를 `exp/f-lif-pop-v3`에 commit · push한다.
 - local: run 폴더(checkpoint, 그림, `result.json`), stdout, `mem_smoke.txt`, queue 파일.
+
+## 2026-11-26 02:23 KST — 결과 + 실험 완료(SpikF head activation GELU vs LIF, ETT 16칸 × seed 3, 96 run, 사전등록 `ff425911c`, SKIP 0): GELU를 LIF로 바꾸면 SpikF의 **MSE는 좋아지고**(R −1.14 %, 48쌍 중 43쌍 낮음 → "LIF better"; 사전 예상 틀림), MAE는 "no clear difference"(R −0.59 %), energy는 0.87배다. 그래서 SpikF-LIF가 더 강한 비교 대상이 되고, 우리 두 model은 SpikF-LIF에도 **NOT PASSED**다(첫 튜닝 MSE −0.0057 / MAE −0.0019). energy는 16칸 모두 우리가 낮다(첫 튜닝 평균 1/71)
+
+- **목적:** 사용자 요청 11-25 (1). SpikF head의 GELU를 spiking neuron(LIF)으로 바꿨을 때 성능과 energy를 잰다. 사전등록과 점검은 01:02 기록에 있다.
+- **branch / 학습 commit:** `exp/f-lif-pop-v3`, 학습 code = `ff425911c`(01:02 기록의 commit). 96 run 모두 이 commit에서 학습했다(`--sha` 점검).
+- **code / 데이터 / 환경:** 01:02 기록 그대로다. `NSMT/spikf_ref/forecasting/`(SpikF 041e398 복사본 + `--activ`, `--fast_eval`), ETT csv(SpikF가 읽던 파일과 sha256 같음), conda `snn_recall`, A6000 4장에 GPU당 2개.
+- **설정:** 공개 스크립트 그대로다. 입력 96, batch 32, lr 5e-4, patch_dim 32, T 16, hidden 720, MAE loss, Adam, cosine(T_max 20), early stopping(validation L1, delta 0.0002). epoch / patience는 ETTh1 5/3, ETTh2 5/2, ETTm1 10/1, ETTm2 10/1이다. 평가는 best validation 가중치로 한다. seed 42 / 7 / 2026.
+
+### 실행
+- 명령(NSMT/에서): `SLOTS=0,1,2,3,0,1,2,3 nohup bash spikf_ref/forecasting/scripts/spikf_act_driver.sh > /dev/null 2>&1 &`
+- driver: 01:04:02 시작(HEAD `ff425911c`) → 02:21:43 pool 끝(RESULT +96, SKIP 0) → 요약 → 독립 재계산(ALL CHECKS PASSED) → `driver end`.
+- 걸린 시간은 1시간 18분이다(GPU 시간 합 10.2시간). 내 추정 3–5시간보다 훨씬 짧았다. run 하나는 ETTh 124–207 s, ETTm 413–809 s였다.
+
+### 16칸 평균(seed 3개 평균; energy = syops, AC 0.9 pJ / MAC 4.6 pJ)
+| model | MSE | MAE | energy µJ |
+|---|--:|--:|--:|
+| SpikF 논문값(seed 0 한 번) | 0.3700 | 0.3819 | — |
+| SpikF-GELU(이번 run, 공개 model) | 0.3701 | 0.3818 | 908.02 |
+| SpikF-LIF(이번 run) | **0.3659** | **0.3796** | 785.50 |
+| 우리 첫 튜닝(11-25 13:30) | 0.3716 | 0.3815 | 11.11 |
+| 우리 확장(11-25 13:30) | 0.3724 | 0.3826 | 24.09 |
+
+### A. 재현(보고만): SpikF-GELU(이번 run) − 논문값, 데이터셋별 4 horizon 평균
+| | ETTh1 | ETTh2 | ETTm1 | ETTm2 | 16칸 |
+|---|--:|--:|--:|--:|--:|
+| MSE | +0.0016 | +0.0004 | −0.0009 | −0.0007 | +0.0001 |
+| MAE | +0.0001 | −0.0001 | −0.0001 | −0.0001 | −0.0000 |
+- 공개 model을 seed 3개로 돌린 평균이 논문값과 거의 같다. 이번 GELU run을 SpikF 기준으로 써도 된다.
+
+### B. LIF vs GELU(같은 칸 · 같은 seed끼리 짝)
+- **test MSE: R −1.14 %, 48쌍 중 높음 5 / 낮음 43 → "LIF better"**(규칙: R ≤ −1 %이고 32쌍 이상 낮음).
+- **test MAE: R −0.59 %, 높음 6 / 낮음 42 → "no clear difference"**(쌍은 대부분 낮지만 R이 −1 %에 못 미침).
+- **energy LIF / GELU: 칸별 비율 평균 0.8726.**
+
+| 칸 | GELU MSE / MAE | LIF MSE / MAE | r MSE % | GELU µJ | LIF µJ | LIF / GELU |
+|---|---|---|--:|--:|--:|--:|
+| ETTh1 H96 | 0.3823 / 0.3912 | 0.3756 / 0.3888 | −1.75 | 819.23 | 784.06 | 0.9571 |
+| ETTh1 H192 | 0.4339 / 0.4213 | 0.4295 / 0.4199 | −1.02 | 854.81 | 784.77 | 0.9181 |
+| ETTh1 H336 | 0.4765 / 0.4417 | 0.4737 / 0.4405 | −0.57 | 908.22 | 785.78 | 0.8652 |
+| ETTh1 H720 | 0.4716 / 0.4582 | 0.4719 / 0.4571 | +0.06 | 1050.55 | 788.33 | 0.7504 |
+| ETTh2 H96 | 0.2905 / 0.3355 | 0.2861 / 0.3311 | −1.51 | 819.05 | 783.77 | 0.9569 |
+| ETTh2 H192 | 0.3678 / 0.3849 | 0.3626 / 0.3822 | −1.40 | 854.61 | 784.42 | 0.9179 |
+| ETTh2 H336 | 0.4122 / 0.4205 | 0.4076 / 0.4179 | −1.09 | 908.03 | 785.14 | 0.8647 |
+| ETTh2 H720 | 0.4183 / 0.4358 | 0.4177 / 0.4360 | −0.15 | 1050.44 | 787.03 | 0.7492 |
+| ETTm1 H96 | 0.3177 / 0.3445 | 0.3124 / 0.3413 | −1.69 | 819.12 | 784.01 | 0.9571 |
+| ETTm1 H192 | 0.3717 / 0.3728 | 0.3635 / 0.3681 | −2.21 | 854.69 | 784.92 | 0.9184 |
+| ETTm1 H336 | 0.3976 / 0.3929 | 0.3909 / 0.3903 | −1.69 | 908.02 | 786.09 | 0.8657 |
+| ETTm1 H720 | 0.4602 / 0.4304 | 0.4502 / 0.4264 | −2.15 | 1050.54 | 788.90 | 0.7510 |
+| ETTm2 H96 | 0.1749 / 0.2524 | 0.1728 / 0.2507 | −1.19 | 818.76 | 783.74 | 0.9572 |
+| ETTm2 H192 | 0.2399 / 0.2950 | 0.2381 / 0.2941 | −0.73 | 854.34 | 784.35 | 0.9181 |
+| ETTm2 H336 | 0.3010 / 0.3356 | 0.2993 / 0.3342 | −0.59 | 907.83 | 785.38 | 0.8651 |
+| ETTm2 H720 | 0.4053 / 0.3965 | 0.4030 / 0.3956 | −0.56 | 1050.12 | 787.31 | 0.7497 |
+- 칸별로 LIF MSE가 높은 곳은 ETTh1 H720 하나(+0.06 %)다.
+- seed 표준편차(칸별 3 seed, 16칸 평균)는 GELU 0.0027, LIF 0.0028이다.
+- epoch 수(run별)는 `summary.md`에 있다.
+
+### C. 우리 두 model vs SpikF-LIF(그리고 보고용 SpikF-GELU), 11-24 규칙(여유 = 기준 − 우리, MSE와 MAE 둘 다 +0.001 이상이고 16칸 모두 energy가 낮아야 PASS)
+| 우리 model | 기준 | 여유 MSE / MAE | 정확도 | energy 낮은 칸 | 판정 |
+|---|---|---|---|--:|---|
+| 첫 튜닝 | SpikF-LIF | −0.0057 / −0.0019 | 미달 | 16 / 16 | **NOT PASSED** |
+| 첫 튜닝 | SpikF-GELU(이번 run) | −0.0015 / +0.0003 | 미달 | 16 / 16 | **NOT PASSED** |
+| 확장 | SpikF-LIF | −0.0064 / −0.0029 | 미달 | 16 / 16 | **NOT PASSED** |
+| 확장 | SpikF-GELU(이번 run) | −0.0023 / −0.0007 | 미달 | 16 / 16 | **NOT PASSED** |
+- SpikF-GELU(이번 run) 대비 여유는 SpikF 논문값 대비(13:30 기록: 첫 튜닝 −0.0016 / +0.0004)와 거의 같다. A의 재현이 맞다는 뜻이다.
+
+### 사후 분석(사전등록 아님; `results/check-spikf-act-20261125/post_act.py` · `.txt`)
+- **P1 데이터셋별 우리 − SpikF-LIF(4 horizon 평균, + = 우리가 높음 = 나쁨):**
+
+| | ETTh1 | ETTh2 | ETTm1 | ETTm2 | MSE 낮은 칸 |
+|---|--:|--:|--:|--:|--:|
+| 첫 튜닝 MSE | +0.0082 | +0.0014 | +0.0116 | +0.0014 | 2 / 16 |
+| 첫 튜닝 MAE | +0.0016 | +0.0001 | +0.0048 | +0.0011 | (MAE 3 / 16) |
+| 확장 MSE | +0.0110 | +0.0002 | +0.0138 | +0.0007 | 3 / 16 |
+| 확장 MAE | +0.0068 | −0.0012 | +0.0054 | +0.0007 | (MAE 4 / 16) |
+  - SpikF-GELU 대비로는 ETTh2 · ETTm2에서 우리가 낮았지만(첫 튜닝 MSE −0.0022 / −0.0006), SpikF-LIF 대비로는 네 데이터셋 모두 MSE가 높다.
+- **P2 energy 구성(activation별 48 run 평균):**
+  - GELU: AC 1.344 M, MAC 197.133 M, energy 908.02 µJ, 그중 MAC 몫 99.87 %.
+  - LIF: AC 4.065 M, MAC 169.966 M, energy 785.50 µJ, 그중 MAC 몫 **99.53 %**.
+  - LIF로 바꿔도 줄어드는 것은 dense2의 MAC(약 27 M)뿐이다. dense1과 convolution은 입력이 정수 잔차 합이라 MAC로 남는다(01:02 smoke 관찰과 같음).
+  - 우리 / SpikF-LIF energy(칸별 비율): 첫 튜닝 평균 0.0141(최소 0.0066, 최대 0.0279; SpikF-LIF가 평균 약 71배), 확장 평균 0.0307(0.0057–0.0931; 약 33배).
+  - 모든 run에서 energy_uJ = 0.9 pJ × AC + 4.6 pJ × MAC가 성립한다(상대 1e-6, 점검).
+- **P3 LIF − GELU의 일관성:**
+  - seed별 16칸 평균 MSE: seed 42 −0.0057, seed 7 −0.0027, seed 2026 −0.0040. 세 seed 모두 LIF가 낮다.
+  - horizon별 평균 r(MSE): H96 −1.53 %, H192 −1.34 %, H336 −0.99 %, H720 −0.70 %. 짧은 horizon에서 차이가 크다.
+- **P4 학습 길이:**
+  - ETTh1(최대 5 epoch)에서 LIF는 12 run 모두 5 epoch까지 갔고, 7 run은 마지막 epoch이 best validation이었다. GELU는 11 / 12가 5 epoch까지 갔고 마지막 epoch이 best인 것은 1 run이다.
+  - 즉 ETTh1의 LIF는 공개 설정의 epoch 상한에 걸려 덜 학습됐을 수 있다. 더 학습했을 때 test가 어떻게 될지는 확인하지 않았다.
+  - ETTh2는 LIF 4 / 12, GELU 2 / 12가 상한에 닿았고 마지막 epoch이 best인 run은 없다. ETTm1 · ETTm2는 상한(10)에 닿은 run이 없다.
+
+### 사전 예상과 비교
+- 정확도(B): **틀렸다.** "no clear difference"가 가장 가능성 높다고 했지만, MSE는 "LIF better"였다. MAE는 예상대로 "no clear difference"다. smoke에서 LIF가 조금 좋았던 것이 본 학습에서도 이어졌다.
+- energy: **맞았다.** 예상 H96 약 0.96 / H720 약 0.75 / 평균 약 0.87, 실제 0.957 / 0.750 / 0.8726. LIF여도 MAC가 99.5 %다.
+- C: **맞았다.** 두 model 모두 SpikF-LIF에 NOT PASSED, energy는 16칸 모두 우리가 낮다.
+
+### 무엇을 말하고 무엇을 말하지 않는가
+- 말하는 것:
+  - SpikF head의 GELU를 LIF로 바꾸면, 공개 설정 그대로에서 MSE가 평균 1.1 % 낮아지고(43 / 48쌍), energy는 13 % 줄어든다.
+  - 그래서 "GELU가 spiking이 아니다"를 고친 SpikF-LIF는 원래 SpikF보다 **강한** 비교 대상이다. 우리 두 model과의 MSE 격차는 SpikF 논문값 대비보다 커진다(첫 튜닝 −0.0016 → −0.0057).
+  - SpikF-LIF도 energy의 99.5 %가 MAC다. 우리 model은 칸 평균으로 SpikF-LIF의 1.4 %(첫 튜닝) / 3.1 %(확장) energy를 쓴다.
+- 말하지 않는 것:
+  - LIF가 왜 좋아지는지(정규화 효과인지 등)는 재지 않았다.
+  - LIF용 튜닝(lr, threshold, epoch)은 하지 않았다. 튜닝하면 SpikF-LIF가 더 좋아질 수 있다(P4).
+  - SpikF 전체를 spike-driven으로 만든 것(정수 잔차 → MAC를 없애는 수정)은 시험하지 않았다. head activation만 바꿨다.
+- 논문에 대한 의미(내 해석): GELU 지적을 넣으면 SpikF-LIF 행도 함께 보고해야 공정하다. 그 경우 정확도에서 SpikF 계열과의 격차는 더 벌어진다. 남는 주장은 energy(MAC가 대부분이고, 우리는 1–3 %)와 SpikF가 head 말고도 정수 잔차 때문에 spike-driven이 아니라는 점이다. 결정은 사용자에게 맡긴다.
+
+### 한계
+- 공개 설정 그대로이고 LIF용 재튜닝이 없다. ETTh1은 5 epoch 상한에 걸렸다(P4).
+- seed 3개다. 논문값은 seed 0 한 번이다.
+- energy는 syops 규칙 그대로다(FFT 제외, batch 1에서 window 사이 neuron 상태를 reset하지 않음).
+- 빠른 평가의 동등성은 ETTh1 H96 2 epoch에서만 확인했다(01:02 점검 F).
+- 사후 분석 P1–P4는 학습 뒤에 정했다.
+
+### 점검
+- driver 안의 독립 재계산(`recheck_spikf_act.py`): ALL CHECKS PASSED(SKIP 0, 서로 다른 96 run, 16칸 평균, R · 쌍 수 · 판정, energy 비율, C 네 줄).
+- `--sha ff425911c,ff425911c`로 다시 돌림(`recheck_sha.txt`): ALL CHECKS PASSED. 96 run 모두 `ff425911c`에서 학습했다.
+  - 이 점검은 `post_act.py`를 만들기 전에 돌렸다. 그 뒤 commit에는 새 `.py`(`post_act.py`, 학습과 무관한 사후 분석)가 들어가므로, 이 commit을 b로 넣으면 그 파일 하나가 걸린다.
+- `post_act.py`: 96행, SKIP 0, 유한값, energy 식 일치(멈춤 조건 없이 끝남).
+
+### 산출물
+- Git: `NSMT/spikf_ref/forecasting/results/spikf-act-ett/{raw.txt, summary.md, summary.json}`, `results/check-spikf-act-20261125/{recheck_sha.txt, post_act.py, post_act.txt}`.
+- local: `results/spikf-act-ett/{driver.log, pool_log.txt}`, run 폴더 `log/spikf-act-ett/<DS>/p<PL>/<act>_fe256_sy1_seed<S>/`(checkpoint, test 그림, `result.json`; 525 MB), stdout, queue `scripts/queues/spikf-act-ett-20261126.txt`.
+
+### commit / tag
+- 이 기록과 위 Git 산출물을 `exp/f-lif-pop-v3`에 commit · push한다.
+- annotated tag `exp/f-lif-pop-v3-spikfact-20261126`(이 기록의 commit; 완료된 학습 run). 이 기록은 자기 commit을 tag로 가리킨다.
+
+### 다음
+- 사용자 결정을 기다린다: 논문에 SpikF-LIF 행을 어떻게 넣을지, 2층 head(보류 중), batch 64 확인(01:02 기록).
