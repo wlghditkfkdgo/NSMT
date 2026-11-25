@@ -11512,3 +11512,59 @@ ETT는 test MSE 비율 r = A / B − 1(%), 12쌍. MIT-BIH는 macro-F1 차이 d(%
 ### Git
 
 - 이 항목과 결과 파일을 하나의 commit으로 묶고 tag `exp/nsmt-flif-neo-20261124-r2`를 단다(이 commit은 tag로 가리킨다). `exp/nsmt-flif-neo`와 그 tag만 push 한다.
+
+---
+
+## 2026-11-26 00:30 KST — 논의 기록 + 문헌 조사 (학습 없음, 코드 변경 없음): 논문 방향 논의(11-25)와 사용자 결정, 그리고 "순서와 과거 축적이 중요한 시계열 과제" 후보 조사 — 발표된 근거로 세 조건(순서·축적 입증, 신뢰할 baseline, 작은 model 도달 가능)을 모두 만족하는 benchmark는 찾지 못했다
+
+**목적:** range 2 결과(11-24 22:09) 뒤의 사용자 질문에 답한 내용과 사용자 결정을 남긴다. 그리고 사용자 요청(11-25, "CinC 말고 순서가 중요하고 과거 정보와의 축적이 중요한 task 혹은 benchmark를 신뢰도 높은 문헌 기준으로 검토")의 조사 결과를 기록한다.
+
+**branch / 기준 commit:** `exp/nsmt-flif-neo`, HEAD `3a97760dc`. 학습·코드 변경 없음. 도는 pool 없음.
+
+### 내 실수
+
+- 조사 담당에게 준 요청문에 CinC 점수를 "네 class macro-F1 약 66 %"라고 잘못 적었다. 기록(11-01)의 66–68 %는 대회 공식 점수(Normal·AF·Other F1 평균, 5-fold)이고, 네 class macro-F1은 61.39 / 62.36 / 62.27이다. classification 노트의 "격차 4–10점" 추론은 이 잘못된 전제 위에 있다. 보고서는 기록의 값으로 다시 계산했다(격차 약 7–12점).
+
+### 11-25 논의 요약 (분석만, 새 실험 없음)
+
+1. **(나)를 택할 경우:** Spikformer(DE) 비교는 main 표에서 빼도 되지만 ablation으로는 남기기를 권했다. NSMT 논문의 "저주파 기억"과 "Memory Replay(attention)" 주장은 (나)에 없으므로 유지할 수 없다.
+2. **(나) 주장만으로 설득력 있는 논문이 되는가:** 어렵다고 답했다. ETT 4칸 평균 MSE가 (나) pop LIF 0.3232로 SpikF 0.3215, NSMT 논문 0.3178, SpkMixer 0.3205(다른 workstream)보다 높다. T = N은 "쓰인다"는 증거만 있고 "도움이 된다"는 증거가 없다. energy 이득은 같은 틀 대비 0.79배뿐이다. 가까운 선행 연구(DMP, SpikF, SpikeRNN)가 있다.
+3. **원 NSMT 유지:** 결과표는 가장 강하지만(16칸 0.3644 / 0.3788, SpikF 0.3700 / 0.3819), 11-05 점검에서 확인되지 않은 주장(Neocortex 기억, Table 8, Table 9, F1 91.91, Table 7 서술)은 그대로 낼 수 없다고 답했다.
+4. **사용자 (11-25):** "주 contribution은 Neocortex network"이고, hippo-only에서 정확도 대부분이 나오는 것이 크리티컬하다. → ETT·MIT-BIH에서는 시험한 모든 구조에서 Neocortex가 정확도를 올리지 못했고, 도움이 된 곳은 CinC뿐(11-01, 11-03)이라고 답했다.
+
+### 사용자 결정 (11-25)
+
+- CinC는 발표된 baseline이 우리 결과보다 너무 높아 main result로 두기 어렵다. 다른 과제를 문헌으로 검토한다(이 항목).
+- **query form과 key/value form을 둘 다 해 보고, 의도(Neocortex가 contribution이 되는 것)에 맞는 구조를 고른다.** 과제가 정해진 뒤 사전 고정한다. 아직 실험하지 않았다.
+
+### 문헌 조사
+
+- 방법: 네 갈래를 동시에 조사했다(SNN sequence benchmark / 긴 시계열 classification / forecasting·regression·anomaly detection / 순서 입증 방법). 노트 4개는 `NSMT/research_notes/순서와 축적이 중요한 시계열 과제 후보/`(영어), 보고서는 `NSMT/reports/순서와 축적이 중요한 시계열 과제 후보.md`(한국어)다. 11-11 보고서 `SNN 장기 기억 과제 재검토`를 이어받았다.
+- 수치는 조사 담당이 원문 표에서 읽은 값이다. 나는 보고서의 CinC 수치(65.74 / 67.73 / 67.58, 61.39 / 62.36 / 62.27)만 이 log와 대조했다. 다른 논문 수치는 내가 원문으로 다시 확인하지 않았다. review 내용은 자동 요약이라 인용 전에 원문 확인이 필요하다.
+
+**요점:**
+
+- 실제 시계열 dataset에서 "표본마다 순서를 섞어 다시 학습하면 떨어진다"를 보인 심사 통과 논문을 찾지 못했다. 발표된 근거는 대부분 "과거를 더 보면 좋아진다"(축적)까지다.
+- recurrent SNN 문헌에서는 입력 한 step = spiking step 하나가 이미 기본이다(NSA IJCAI 2025; Ma 외 IEEE TNNLS 2026). T = N은 Spikformer식 model과 견줄 때만 새롭다. 비교 상대에 state를 나르는 SNN이 필요하다.
+- CinC 2017: 80 %대(0.825–0.831)는 ensemble·feature 묶음의 hidden test 공식 점수다. 단일 deep network의 5-fold 값은 74.6–79.2(Zihlmann 외)다. 같은 조건의 격차는 약 7–12점이다(뺄셈). SNN baseline은 accuracy로만 있다.
+- ETT: 가까운 순서와 주기만 쓰이고 순서는 flat head가 읽는다는 문헌 근거가 있다(Zeng 외 AAAI 2023; Liang 외 arXiv). 11-20 결과와 같은 방향이다. anomaly detection은 TSB-AD에서 PCA가 신경망과 같은 점수라 순서 근거로 쓸 수 없다.
+- 입증 방법: 섞어서 **재학습**이 받아들여지는 시험이다(ROAR NeurIPS 2019; TRN ECCV 2018). 순서(shuffle 재학습), 긴 context(잘라내기), 축적(memory-less control)을 따로 보인다. 지연 XOR은 두 값을 바꿔도 답이 같아 축적만 보인다. "positional encoding을 준 attention이 격차를 메우는가"가 주장의 모양을 정한다.
+- 확인 시험을 먼저 돌릴 순서(보고서의 추론): 1 Google Speech Commands, 2 Sleep-EDF 수면 단계, 3 WISDM-HAR / OpenBMI EEG-MI(NSA 설정), 4 Electricity look-back 96 → 336, 5 CinC(공식 점수로 재보고, 보조). 함께 둘 것: 순서를 바꾸면 답이 뒤집히는 구성 과제, QTDB, PS-MNIST / sequential CIFAR.
+- 추천하지 않음: UEA의 긴 dataset(EigenWorms 포함), PTB-XL·CPSC 2018·Chapman, CHB-MIT, UCI-HAR류, anomaly detection benchmark(순서 근거로), Metr-la·Pems-bay, Exchange·ILI, C-MAPSS. PPG-DaLiA는 보류 유지, event dataset은 제외 유지.
+
+### 한계
+
+- 순위는 발표된 근거로 "만족이 확인된 순서"가 아니다. 어느 후보도 순서 요구가 확인되지 않았다.
+- 조사 담당이 원문을 읽지 못한 항목이 보고서의 "조사로 확인하지 못한 것" 표(15행)에 있다.
+
+### not run
+
+- 실험 전체. 후보 과제의 확인 시험(shuffle 재학습, 순서를 못 보는 baseline, memory-less control), query form 대 key/value form 비교.
+
+### 결론
+
+- 과제 선택과 주장의 모양은 사용자가 정한다. 정해지면 두 결합 형태의 비교를 포함해 사전 고정 항목을 쓴다.
+
+### Git
+
+- 이 항목, 보고서, 노트 4개를 하나의 commit으로 묶는다(학습이 없어 tag는 달지 않는다). `exp/nsmt-flif-neo`만 push 한다.
