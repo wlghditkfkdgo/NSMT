@@ -16746,3 +16746,56 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 - (나) 그 밖의 방향(구조 변경 등). 정해지면 사전등록부터 한다.
 
 **commit / tag:** 이 기록과 위 파일을 `exp/f-lif-pop-v3`에 commit · push하고, annotated tag `exp/f-lif-pop-v3-retune-20261125`를 붙인다(완료된 학습 실행).
+
+## 2026-11-25 22:51 KST — 사용자 요청 "다른 방향을 살펴보자"(학습 없음, 분석만): SpikF 원본 code와 우리 forecaster를 비교하고 후보 방향을 정리했다. 추천은 (1) SpikF식 2층 head, 그다음 (2) time step 수 늘리기. 사용자 선택을 기다린다
+
+**목적:** 바로 앞 기록(13:30)의 "(나) 그 밖의 방향"에 대한 사용자 답(원문): "다른 방향을 살펴보자." 실험은 시작하지 않았다.
+
+**확인한 사실 1 — SpikF와의 차이는 길이가 아니라 데이터셋에서 나온다**(첫 튜닝 model, 13:30 judge.json과 `refs16.json`; 우리 − SpikF test MSE, + = 우리가 나쁨)
+
+| H | ETTh1 | ETTh2 | ETTm1 | ETTm2 | 4 데이터셋 평균 | MAE 평균 |
+|---|--:|--:|--:|--:|--:|--:|
+| 96 | +0.0043 | +0.0002 | +0.0028 | −0.0002 | +0.0018 | +0.0002 |
+| 192 | +0.0076 | −0.0037 | +0.0010 | −0.0015 | +0.0008 | −0.0004 |
+| 336 | +0.0090 | −0.0029 | +0.0021 | −0.0001 | +0.0020 | −0.0001 |
+| 720 | +0.0048 | −0.0009 | +0.0066 | −0.0032 | +0.0018 | −0.0010 |
+
+- 첫 튜닝은 ETTh1 · ETTm1에서 네 길이 모두 SpikF보다 나쁘고, ETTh2 · ETTm2에서는 8칸 중 7칸이 낫다. 길이에 따른 뚜렷한 경향은 없다.
+- 확장은 길이가 길수록 나빠진다(평균 H96 −0.0006 → H720 +0.0059). ETTh1 H720 +0.0184, ETTm1 H720 +0.0122가 크다.
+
+**확인한 사실 2 — SpikF 원본 code(`/home/yschoi/SpikF`, 읽기만 함)와 우리 forecaster(`forecast_wrap.py`, `train_forecast.py`)의 차이**
+
+| 항목 | SpikF(`models/SpikF.py`, local 스크립트 `scripts/ETT*_SpikF.sh`) | 우리(LIF SpkMixer) |
+|---|---|---|
+| 입력 정규화 | window 평균 · 표준편차(학습 안 함) | 같음 |
+| 학습 loss | MAE(`--loss` 기본값 mae, 스크립트가 바꾸지 않음) | L1(같음) |
+| test loader | batch 1, drop_last 없음 | 전체 window |
+| **head** | **2층: Linear(token 수 × 32 → 720) → BatchNorm → GELU → Linear(720 → H)**, time step마다 적용하고 출력을 T에 대해 평균 | **1층: Linear(token 수 × d_model → H)**, T에 대해 평균한 spike를 읽음 |
+| **time step T** | **16** | **4**(runner가 `--hippo_T 4`로 고정; 이 대화의 ETT run은 모두 4) |
+| token | patch_num 기본 48(스크립트가 바꾸지 않음) → 길이 2인 token 48개, embedding 32 | 길이 8–32인 token 3–12개 |
+| 몸통 | 주파수 선택 block(rfft + spiking selector) 1개 | 방향별 LIF mixer(muxlin) |
+| batch / lr / epoch | 32 / 5e-4 / 최대 5–10, patience 1–3 | 64 / 데이터셋별 선택 / 최대 50–100, patience 10 |
+
+- 위 SpikF 값은 local 스크립트 기준이다. 이 스크립트는 local에서 고친 사본이다(`root_path`가 이 저장소를 가리킴). 논문 Table 7과 다시 대조하지 않았다.
+- **정정 가능성(확인 필요):** 11-24 20:31 기록에 "SpikF Table 7: patch 32"라고 적었다. 그런데 code에서 32는 `patch_dim`, 즉 token embedding 차원이다. token 길이는 96 / 48 = 2다. Table 7의 "patch"가 무엇을 뜻하는지는 원문을 다시 보지 않았다.
+- 정규화와 loss는 같다. 그래서 둘 다 차이의 원인 후보에서 뺀다(MSE loss는 11-07에 이미 시험해 worse였다).
+
+**확인한 사실 3 — 우리 기록에서 ETT가 실제로 쓰는 경로**
+- 11-05 병목 진단: ETT에서 mixer를 끄면 test MSE가 +1.61 %만 나빠진다(CinC −34.77 %p, MIT-BIH −68.85 %p와 대비). ETT 예측은 대부분 embedding과 head가 맡는다.
+- 같은 기록 6번은 "head는 병목이 아니다"라고 결론 냈다. 근거는 H1(head가 막전위도 읽음, ETT +2.81 % worse)과 분류 head 입력 형태 시험이다. **ETT에서 head의 층 수나 hidden 크기는 시험한 적이 없다.**
+- 이미 시험해서 개선이 없었던 방향(다시 제안하지 않음): MSE loss(11-07), H1 막전위 head(11-03), membrane shortcut(11-08), STFT band 입력(11-17), 입력 길이 336 · 720(11-18), mixer 변형 3묶음(11-18), population neuron 여러 배치(11-18 · 11-19), hyperparameter 단계 선택 세 번(11-01, 11-20, 11-25).
+
+### 후보 방향(내 판단; energy는 어림, 확인 안 함)
+
+| | 방향 | 근거 | 반대 근거 · 위험 | energy 어림(SpikF 대비) | 규모 어림 |
+|---|---|---|---|---|---|
+| (1) | **SpikF식 2층 head**: Linear → BatchNorm → GELU → Linear(hidden 720). 완전 spiking 변형(GELU 대신 LIF)도 함께 | SpikF와의 가장 큰 구조 차이이고, ETT가 실제로 쓰는 경로(embedding + head)에 있다. ETT에서 시험한 적이 없다 | 11-05 "head는 병목이 아니다"(H1 근거). 이득이 나면 SpikF 부품 덕이라 "몸통이 낫다"는 주장이 약해진다. GELU hidden은 spiking이 아니다(SpikF도 같음) | head MAC가 H720에서 칸당 약 +17 µJ. 첫 튜닝 ETTh1 H720 21 → 약 38 µJ(SpikF의 약 3.6 %) | head 2종 × 8칸(4 데이터셋 × H96 · H720) × seed 3 = 48 run으로 validation 선택, 채택되면 H192 · H336 24 run. 약 3–5시간 |
+| (2) | **time step 늘리기**: T 4 → 8, 16(SpikF 16) | head가 읽는 값의 단계가 5개에서 17개로 늘어난다. 이 대화에서 ETT T를 바꾼 적이 없다 | 직접 근거는 없다. 막전위처럼 더 풍부한 head 입력(H1)은 도움이 안 됐다 | 몸통 energy가 약 T/4배. 첫 튜닝 ETTh1 H720 약 59 µJ(약 5.6 %), 확장 ETTm2 H720 약 220 µJ(약 21 %) | T 2값 × 8칸 × seed 3 = 48 run, run당 2–4배 느림. 약 5–10시간 |
+| (3) | batch 32(SpikF와 같게) | 손잡이 하나라 싸다 | 두 번의 설정이 16칸 MSE에서 0.0005만 달랐다. 설정에 둔감하다 | 거의 같음 | 24–48 run |
+| — | 추천 안 함: 입력에서 출력으로 바로 가는 선형 경로(DLinear식) | ETT에서 흔히 효과가 있다 | 예측의 상당 부분을 spiking이 아닌 선형 model이 맡게 된다. SpikF에도 없다 | — | — |
+
+- **추천: (1) 먼저, 그다음 (2).** (1)은 SpikF와의 차이 중 ETT가 실제로 쓰는 경로에 있고, energy 여유가 충분하며(지금 SpikF의 1.2 %), 시험한 적이 없다.
+- 어느 방향이든 test 결과(NOT PASSED)를 본 뒤의 탐색이다. 한다면 사전등록하고, 선택은 validation만으로 하며, 판정은 11-24 규칙 그대로 쓴다.
+- (가) 지금 결과로 정리(SpikF와 비슷한 정확도, energy 약 1–3 %)는 여전히 가능하다.
+
+**commit:** 이 기록만 `exp/f-lif-pop-v3`에 commit · push한다. code 변경과 학습은 없다.
