@@ -16799,3 +16799,134 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 - (가) 지금 결과로 정리(SpikF와 비슷한 정확도, energy 약 1–3 %)는 여전히 가능하다.
 
 **commit:** 이 기록만 `exp/f-lif-pop-v3`에 commit · push한다. code 변경과 학습은 없다.
+
+## 2026-11-26 01:02 KST — 사용자 요청 3개 + 질문 1개에 대한 답(학습 없음) + 사전등록(본 학습 전): SpikF의 head GELU를 LIF로 바꾼 실험(ETT 16칸 × seed 3 × {GELU, LIF} = 96 run). batch size는 처음부터 64를 써 왔으므로 바꿀 것이 없다
+
+**사용자 메시지(원문, 11-25 22:51 기록 뒤):**
+> (1) GELU는 Spiking 이 아니기 때문에 논문에서 그를 지적함과 동시에 SpikF에 GeLU 대신 spiking neuron activation으로 교체한 실험을 진행한 것을 넣었으면 좋겠어. 성능과 에너지 소모량 비교 둘 다 해야 되겠지.
+> - 2층 head는 해볼 법해. 하지만 2층으로 늘려서 성능이 개선된다면, 대부분의 성능 개선은 head에서 온다는 것이니 neo-mixer 모듈에서의 contribution이 줄어드는 것 아니야?
+> (3)은 시도해볼법해. NSMT 원문 실험 repository 코드에서 script와 논문에 작성된 실험 세팅 값을 찾아보고, 내가 초기에 ETT에 사용한 batch size를 채택해서 사용하는 게 아마 가장 베스트일 것이라고 생각해. (내가 직접 찾은 값임.)
+> + 추가적으로, energy의 1-3%라는 것은 SpikF 보다 저전력이라는 거야?
+
+### 답 1 — "energy 1–3 %"는 SpikF보다 저전력이라는 뜻이다
+- 16칸 평균 syops energy(입력 window 하나당): SpikF 907.98 µJ, 첫 튜닝 11.11 µJ(칸 비율 평균 1.2 %, 약 82배 적음), 확장 24.09 µJ(2.6 %, 약 38배 적음). 칸별 최대 비율은 2.1 % / 7.0 %이고, 16칸 모두 SpikF보다 낮다(13:30 기록).
+- 같은 계산 규칙이다: syops, AC 0.9 pJ, MAC 4.6 pJ.
+- SpikF energy의 구성(ETTh1 H720 checkpoint, `count_spikf16.py` 출력의 layer별 값): 1,050.6 µJ 중 MAC이 1,049.4 µJ(99.9 %)다. head의 첫 Linear(dense1) 54.3 %, GELU 뒤 둘째 Linear(dense2) 25.5 %, convolution 두 개 19.5 %다.
+- SpikF의 FFT(rfft · irfft)와 복소수 곱은 module이 아니라 함수라서 syops가 세지 않는다. 그래서 SpikF energy는 실제보다 적게 세어진 쪽이다.
+
+### 답 2 — 2층 head와 neo-mixer contribution
+- 맞다. 2층 head로 생긴 이득은 head의 몫이다. 그 이득 덕에 SpikF를 넘는다면 "몸통이 낫다"는 주장이 되지 않는다.
+- ETT에서는 원래 mixer의 몫이 작다. 11-05 진단에서 mixer를 끄면 MSE +1.61 %였고, ETTh2 H96은 끄면 오히려 −0.56 %였다.
+- mixer의 contribution은 같은 head에서 mixer를 켜고 끈 차이로 재야 한다.
+- SpikF의 GELU를 비판한다면, 우리 2층 head도 spiking이어야 한다.
+- 내 추천: 2층 head는 보류하고, SpikF-LIF 결과를 먼저 본다.
+
+### 답 3 — batch size: NSMT 원래 ETT 실행과 스크립트는 모두 64다. 우리는 처음부터 64를 썼다
+
+| 출처 | ETT batch |
+|---|---|
+| NSMT 원 저장소 `main:forecasting/scripts/ETT{h1,h2,m1,m2}_96.sh` | 넷 다 `-bs 64` |
+| 논문 Table 13 수치를 재현하는 저장된 실행(`forecasting/final3/`, `NSMT/papers/NSMT_code_mapping.md` §3) | 넷 다 64 |
+| 논문 본문(`NSMT/papers/NSMT.pdf`, pdftotext 검색) | batch size가 적혀 있지 않다 |
+| 저장된 NSMT ETT 실행 전체 5,517개(`forecasting/**/logargs.txt`) | 64: 3,948개(72 %), 128: 1,410개(26 %), 32 · 16 · 256: 159개 |
+| 각 batch가 처음 쓰인 날짜 | ETTh2 · ETTm1 · ETTm2는 64가 먼저다. ETTh1은 첫날(2025-08-14)에 64와 128을 함께 썼다 |
+| 우리 ETT run(10-31 이후 전부) | 64(runner 고정) |
+
+- 그래서 (3)은 이미 적용된 상태이고 새 run은 없다. 사용자가 128을 뜻했다면 다시 정한다.
+- 정정: 11-25 01:39 사전등록과 그 runner 주석에 "Table 13 값"이라고 적은 설정값은, 논문 표에 적힌 값이 아니다. Table 13의 결과 수치를 재현하는 저장된 실행에서 읽은 값이다(`NSMT_code_mapping.md` §3). 논문의 Table 13은 결과표다.
+
+### 정정(내 말과 앞 기록)
+1. 22:51 이후 메시지에서 "LIF 설정은 SpikF가 주석으로 남긴 설정 그대로"라고 했다. **틀렸다.**
+   - `models/SpikF.py`의 주석 줄 `# self.activ = MultiStepLIFNode(...)`은 local clone에서 고친 줄이다(`git diff` 041e398, 추가된 한 줄).
+   - 공개된(release) SpikF에는 `nn.GELU()`만 있다.
+   - 이번 LIF는 "SpikF의 SFS block이 쓰는 것과 같은 LIF neuron(MultiStepLIFNode, τ 2, threshold 1, detach_reset True)"이다.
+2. 22:51 기록의 SpikF 설정은 local 스크립트(`ETT*_SpikF.sh`) 기준이었다. 공개 스크립트(`run_ETT{h1,h2,m1,m2}.sh`, commit 041e398)는 다음과 같다.
+   - ETTh1 5 epoch / patience 3, ETTh2 5 / 2, ETTm1 10 / 1, ETTm2 10 / 1.
+   - 공통: batch 32, lr 5e-4, levels 1, patch_dim 32, T 16, hidden 720. patch_num은 기본값 48이다(token 길이 2).
+   - 공개 스크립트는 `for seed in 0 42 79`로 돌지만 seed를 넘기지 않는다. 그래서 세 번 모두 seed 0이다.
+   - local ETTh1 스크립트만 10 epoch였다.
+
+### 사전등록: SpikF head activation 실험
+- **목적:** 사용자 요청 (1). SpikF head의 GELU를 spiking neuron(LIF)으로 바꾸면 성능과 energy가 어떻게 되는지 잰다. 논문에서 "SpikF는 head에 spiking이 아닌 GELU를 쓴다"를 지적할 때 근거로 쓴다.
+- **branch / base:** `exp/f-lif-pop-v3`, base `ef00b921b`(22:51 기록). 이 기록의 commit이 학습 code다. 해시는 결과 기록에 적는다.
+- **code:** `NSMT/spikf_ref/forecasting/`. SpikF clone(`/home/yschoi/SpikF`, commit 041e398 + local 수정)을 복사했다. 원본은 읽기만 한다. 출처와 해시는 `PROVENANCE.md`에 있다.
+  - `models/SpikF.py`: `activ='gelu'|'lif'`. LIF는 head hidden 층의 [T·B, D, hidden] 텐서를 [T, B, D, hidden]으로 보고 T 축으로만 돈다. GELU는 공개 경로 그대로다.
+  - `run_long.py`: `--activ`, `--out`(run별 checkpoint · test 폴더, `result.json`), `--fast_eval`, `--eval_bs`, `--syops_bs`. `torch.cuda.set_device(1)` 하드코딩을 `args.rank`로 바꿨다.
+  - `exp/exp_ETT.py`: `activ`를 넘긴다. epoch별 손실과 test에 쓴 epoch을 `result.json`에 적는다. `--fast_eval`일 때는 validation · test를 batch로 돌리고(손실은 batch 크기로 가중), syops 직전에 neuron을 reset한다.
+  - 새 파일: `scripts/run_spikf.sh`(RESULT 줄), `scripts/make_queue_spikf.py`, `scripts/spikf_act_driver.sh`, `summarize_spikf_act.py`.
+- **설정:** 공개 스크립트 그대로다(위 정정 2). 입력 96, features M, MAE loss(기본값), Adam, cosine(T_max 20), early stopping(validation L1, delta 0.0002). 데이터는 우리 ETT csv이고, SpikF가 읽던 파일과 sha256이 같다.
+- **run:** 4 데이터셋 × H 96 / 192 / 336 / 720 × seed 42 / 7 / 2026 × {GELU, LIF} = **96 run**. `--fast_eval`(아래 점검 F), syops는 batch 1.
+  - 같은 seed의 GELU와 LIF는 초기 가중치와 data 순서가 같다(LIF에는 parameter가 없음). 그래서 seed별로 짝을 짓는다.
+- **LIF는 다시 튜닝하지 않는다.** activation만 바꾼 비교다. 한계로 적는다.
+- **보고량(`summarize_spikf_act.py`, 미리 고정):**
+  - A. 재현: SpikF-GELU(이번 run) 16칸 평균 − SpikF 논문값(보고만).
+  - B. LIF vs GELU(칸 × seed 짝): r = 100 (LIF − GELU) / GELU(test MSE), R = 16칸의 seed 평균 r의 평균.
+    - "LIF worse" = R ≥ +1 %이고 48쌍 중 32쌍 이상 높음.
+    - "LIF better" = R ≤ −1 %이고 32쌍 이상 낮음.
+    - 그 밖은 "no clear difference". MAE도 같은 규칙으로 보고한다.
+    - energy는 칸별 LIF / GELU 비율(seed 평균)이다.
+  - C. 우리 두 model(13:30 judge.json) vs SpikF-LIF(그리고 보고용으로 SpikF-GELU): 11-24 규칙 그대로다. 16칸 평균에서 기준 − 우리 ≥ 0.001(MSE와 MAE 둘 다)이고, 16칸 모두 energy가 낮으면 PASS다.
+  - 멈춤(exit 2, 아무것도 쓰지 않음): SKIP 줄, 빠진 run이나 중복 run, 유한하지 않은 값, 평가 설정이나 학습 commit이 섞임, epoch 수 이상.
+- **독립 재계산:** `results/check-spikf-act-20261125/recheck_spikf_act.py`(이 저장소 code를 import하지 않음; `--sha`로 학습 commit 확인).
+
+### 점검(`NSMT/spikf_ref/forecasting/results/check-spikf-act-20261125/` 등)
+- **U(`check_unit.py` · `.txt`): ALL PASS**(학습 없음, local H720 checkpoint 4개).
+  - U1: GELU 복사본의 출력이 공개 model과 비트까지 같다(test 64 window, 네 데이터셋).
+  - U2a: head neuron에 [T, 8, D, hidden]을 한 번에 넣은 것과 sample별로 넣은 것이 같다(torch.equal).
+  - U2b: 전체 출력에서 batch 8과 단독의 차이가 2.4e-7–4.8e-7이다. GELU model 자체의 차이(7e-7–2.9e-6) 이하다.
+  - U3: 비교용으로 local 주석 줄을 그대로 쓰면(T·B를 시간축으로) sample이 섞인다(차이 0.23–1.08).
+  - U4: LIF head 출력은 0/1이고 발화한다(GELU용으로 학습된 가중치에서 0.9–2.3 %).
+  - **내 실수:** 처음 U2는 "차이 정확히 0"을 요구해서 FAIL이었다(`check_unit_v1_strict.txt`). 원인은 batch 크기에 따라 행렬곱 반올림이 달라지는 것이었고, U2a / U2b로 바꿨다.
+- **smoke**(1 epoch, 공개 평가 방식):
+  - **내 실수:** 첫 실행은 runner의 data 경로가 한 단계 위(`NSMT/NSMT/...`)를 가리켜 4개 모두 SKIP이었다(`smoke-spikf-act-20261125-pathbug/raw.txt`). 고친 뒤 다시 돌렸다.
+  - ETTh1 H96: GELU 698 s, LIF 844 s. 1 epoch 학습은 약 1분이고, batch 1인 validation + test가 약 6.5분, syops가 약 4분이다.
+  - energy: H96 GELU 819.0 µJ → LIF 783.8 µJ(−4.3 %). ETTm1 H720 1 epoch: 1,050.2 → 787.9 µJ(−25 %).
+  - LIF에서는 dense2만 덧셈 연산(AC)으로 바뀐다. dense1과 convolution은 그대로 곱셈 연산(MAC)이다. 입력이 spike를 더한 잔차 합(0–4 정수)이기 때문이다.
+- **F — 빠른 평가(`check_fast.py` · `.txt`): ALL PASS.** ETTh1 H96 seed 42, 2 epoch, GELU · LIF에서 공개 방식과 비교했다.
+  - epoch별 학습 손실이 같다(전체 정밀도).
+  - validation / in-loop test 손실 차이는 1e-8 이하다. test에 쓴 epoch이 같다.
+  - 최종 test MSE / MAE가 9자리까지 같다(GELU 0.381950408 / 0.394593030, LIF 0.378449708 / 0.392075956).
+  - syops 총 연산 수가 같고(182,892,617), energy가 같다(819.1412 / 783.9107 µJ).
+  - 시간: 100 / 117 s, 공개 방식은 약 22–24분.
+  - 이 형태에 이르기까지의 실수와 발견:
+    1. 첫 형태는 epoch 안의 test pass를 뺐다. test DataLoader iterator가 torch RNG를 한 번 쓰기 때문에, 2 epoch부터 학습 shuffle이 달라졌다(최종 MSE 차이 약 0.003). 그래서 batch로 돌리는 test pass를 남겼다.
+    2. batch 256 test 뒤 syops가 마지막 batch(225 window)의 neuron 상태를 물고 시작해, 연산 수가 8 % 많게 세어졌다(197.6 M). 그래서 syops 직전에 reset을 넣었다.
+    3. syops batch 64는 같은 이유(상태 shape 불일치)로 실행이 멈췄다. **SpikF의 energy 계산은 batch 1에서 window 사이 neuron 상태를 reset하지 않고 센다.** 이 방식을 그대로 쓴다.
+  - **내 실수:** 공개 방식 비교 run이 도는 동안 `run_spikf.sh`(주석 줄)를 고쳤다. bash가 script를 바이트 위치로 읽기 때문에, 그 run 2개와 ETTm1 smoke 2개의 RESULT 줄이 기록되지 않았다(`result.json`은 정상). memory 규칙 "실행 중인 script를 고치지 않는다"를 어겼다. 비교는 run 폴더의 `result.json`에서 읽었다.
+- **R — 학습 재현(`check-repro-spikf-20261126/raw.txt`):** local ETTh1 H720 run의 조건(seed 0, 10 epoch, patience 3)으로 복사본을 학습했다(빠른 평가).
+  - 결과는 MSE 0.474803 / MAE 0.460926 / energy 1,050.59 µJ다. local run의 기록값(`exp/ETT_results/.../final+result.csv`: 0.474803, 0.460926, 1050.59 uJ)과 같다.
+  - best epoch 3, 6 epoch에서 멈췄다. 공개 설정(5 epoch)이었어도 같은 결과다.
+- **dry run(`check_dry_spikf.py` · `.txt`): ALL PASS.**
+  - D1: 가짜 값(GELU = 논문 + 0.002, LIF = ×1.02)에서 16칸 평균, R +2 %, 48쌍, "LIF worse", energy 비율, C의 여유와 energy 칸 수가 손 계산과 같다. 독립 재계산도 통과했다.
+  - D2: 31쌍 ×1.04, 17쌍 ×0.995(R +2.41 %, 31 < 32) → "no clear difference".
+  - N1–N5: SKIP, 빠진 run, 중복, nan, 평가 설정 섞임에서 모두 exit 2로 멈추고 요약을 쓰지 않았다.
+  - **내 실수:** 처음 D2는 가짜 값을 잘못 만들었다(×1.02 / ×0.99 → R +0.94 %; `check_dry_spikf_v1_badcase.txt`). 요약기 문제가 아니었고, 고친 뒤 통과했다.
+- **queue:** 96줄이고, run 폴더와 stdout 이름이 모두 다르다. 기존 queue 파일은 덮어쓰지 않는다(시험 queue는 지움).
+- **GPU 메모리:** 프로세스 하나는 batch 256 평가 중 최대 약 13–14 GB다. GPU당 2개면 약 28 GB < 48 GB다.
+- 기타: SpikF clone에서 `git status` · `git diff`를 실행해 index의 stat 정보가 갱신됐을 수 있다. 파일 내용은 바뀌지 않았다.
+
+### 사전 예상(확신 낮음)
+- **정확도(B):** smoke에서는 LIF가 오히려 조금 좋았다(ETTh1 H96 1 · 2 epoch 0.3806 / 0.3784 vs GELU 0.3859 / 0.3820, ETTm1 H720 1 epoch 0.4661 vs 0.4718). 그래서 **"no clear difference"가 가장 가능성 높다**고 본다. "LIF worse"는 그다음이다.
+- **energy:** LIF / GELU 비율은 H96 약 0.96, H720 약 0.75로 예상하고, 16칸 평균은 약 0.87이다(dense2의 몫만 줄어든다). LIF여도 SpikF energy는 MAC가 대부분이다.
+- **C:** LIF가 GELU와 비슷하면, 우리 첫 튜닝 model(16칸 MSE 0.3716)은 SpikF-LIF도 넘지 못할 가능성이 크다. energy는 16칸 모두 우리가 낮을 것이다(확신 높음).
+- 그렇게 되면 논문에서 쓸 수 있는 지적은 정확도보다 **energy와 "spike-driven이 아님"** 쪽이다. 근거는 다음이다.
+  - GELU를 LIF로 바꿔도 dense1 · conv가 정수 입력의 MAC로 남는다.
+  - FFT는 세어지지 않는다.
+  - energy 계산이 window 사이 상태를 reset하지 않는다.
+
+### 예상 시간(내 추정)
+- 빠른 평가에서 ETTh run은 약 3–6분, ETTm run은 약 15–25분이다(patience 1이라 대개 몇 epoch에서 멈춤).
+- 8 slot(GPU당 2개)이면 약 3–5시간이다.
+
+### 한계(미리 적음)
+- LIF용 재튜닝이 없다. LIF에 더 맞는 lr이나 threshold가 있을 수 있다.
+- 공개 설정은 seed를 넘기지 않아 논문 값은 seed 0 한 번이다. 우리는 seed 3개를 쓴다.
+- 빠른 평가는 위 점검에서 같다는 것만 확인했다(ETTh1 H96, 2 epoch).
+- energy는 syops 규칙 그대로다(FFT 제외, window 사이 상태 유지).
+
+**실행:** 이 commit · push 뒤 NSMT/에서 `SLOTS=0,1,2,3,0,1,2,3 nohup bash spikf_ref/forecasting/scripts/spikf_act_driver.sh > /dev/null 2>&1 &`로 시작한다.
+- driver.log는 `spikf_ref/forecasting/results/spikf-act-ett/driver.log`(local)다.
+- 실행 중에는 code와 script를 고치지 않는다.
+
+**commit:** 이 기록, `spikf_ref/forecasting/`의 code · `PROVENANCE.md` · 점검 script와 txt, check suite들의 `raw.txt`를 `exp/f-lif-pop-v3`에 commit · push한다.
+- local: run 폴더(checkpoint, 그림, `result.json`), stdout, `mem_smoke.txt`, queue 파일.
