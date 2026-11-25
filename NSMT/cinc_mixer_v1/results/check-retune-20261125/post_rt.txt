@@ -1,0 +1,43 @@
+## 1 run facts
+rows 444; training commit {'b966e35d0': 444}
+epochs run: max 43, rows that reached 50: 0, median 16.0
+best epoch (0-based): median 5.0, rows with best epoch 0: 22 (ETTh1 1, ETTm1 21)
+ETTh1: run time median 347.5 s, max 801 s, sum 23.0 GPU h
+ETTm1: run time median 901.0 s, max 2690 s, sum 64.3 GPU h
+all rows: 87.3 GPU h
+
+## 2 selection cells: 11-24 copied setting (old) vs retuned final (new), seed means
+| model | cell | validation L1 old | new | change | test MSE old | new | change |
+|---|---|--:|--:|--:|--:|--:|--:|
+| first chain | ETTh1 H96 | 0.548743 | 0.546212 | -0.46 % | 0.3775 | 0.3833 | +1.53 % |
+| first chain | ETTh1 H720 | 0.850446 | 0.850252 | -0.02 % | 0.4925 | 0.4788 | -2.77 % |
+| first chain | ETTm1 H96 | 0.402326 | 0.398117 | -1.05 % | 0.3171 | 0.3198 | +0.86 % |
+| first chain | ETTm1 H720 | 0.648489 | 0.646743 | -0.27 % | 0.4645 | 0.4676 | +0.67 % |
+| extension | ETTh1 H96 | 0.548235 | 0.544676 | -0.65 % | 0.3780 | 0.3764 | -0.44 % |
+| extension | ETTh1 H720 | 0.851084 | 0.849895 | -0.14 % | 0.4952 | 0.4924 | -0.56 % |
+| extension | ETTm1 H96 | 0.403647 | 0.398448 | -1.29 % | 0.3204 | 0.3189 | -0.48 % |
+| extension | ETTm1 H720 | 0.650181 | 0.648692 | -0.23 % | 0.4737 | 0.4732 | -0.10 % |
+
+## 3 test MAE per cell and 8-cell means (ETTh1 / ETTm1)
+| model | cell | MAE old | new | change |
+|---|---|--:|--:|--:|
+| first chain | ETTh1 H96 | 0.3897 | 0.3907 | +0.0010 |
+| first chain | ETTh1 H192 | 0.4239 | 0.4213 | -0.0026 |
+| first chain | ETTh1 H336 | 0.4451 | 0.4416 | -0.0035 |
+| first chain | ETTh1 H720 | 0.4674 | 0.4590 | -0.0084 |
+| first chain | ETTm1 H96 | 0.3457 | 0.3458 | +0.0002 |
+| first chain | ETTm1 H192 | 0.3715 | 0.3734 | +0.0018 |
+| first chain | ETTm1 H336 | 0.3930 | 0.3941 | +0.0012 |
+| first chain | ETTm1 H720 | 0.4317 | 0.4321 | +0.0004 |
+| first chain | 8-cell mean MSE | 0.4174 | 0.4184 | +0.0010 (+0.25 %) |
+| first chain | 8-cell mean MAE | 0.4085 | 0.4072 | -0.0012 (-0.31 %) |
+| extension | ETTh1 H96 | 0.3915 | 0.3920 | +0.0005 |
+| extension | ETTh1 H192 | 0.4250 | 0.4272 | +0.0022 |
+| extension | ETTh1 H336 | 0.4483 | 0.4465 | -0.0018 |
+| extension | ETTh1 H720 | 0.4673 | 0.4676 | +0.0003 |
+| extension | ETTm1 H96 | 0.3476 | 0.3451 | -0.0025 |
+| extension | ETTm1 H192 | 0.3738 | 0.3725 | -0.0013 |
+| extension | ETTm1 H336 | 0.3971 | 0.3957 | -0.0014 |
+| extension | ETTm1 H720 | 0.4363 | 0.4344 | -0.0019 |
+| extension | 8-cell mean MSE | 0.4219 | 0.4208 | -0.0011 (-0.25 %) |
+| extension | 8-cell mean MAE | 0.4109 | 0.4101 | -0.0007 (-0.18 %) |
