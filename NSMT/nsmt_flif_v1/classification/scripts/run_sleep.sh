@@ -4,6 +4,7 @@
 # target token). Coupling-form comparison: Spikformer(DE) vs the query form and the key / value form, each with pop LIF / pop f-LIF.
 # usage (from NSMT/, the pool appends the gpu): SUITE=<suite> LR=<lr> bash nsmt_flif_v1/classification/scripts/run_sleep.sh <cond> <fold> <gpu>
 #   cond: spkall_lif | q_pop_lif | q_pop_flif | kv_pop_lif | kv_pop_flif      (seed 42; env SEED, EPOCHS (30), BS (64) for smoke only)
+#         + MODI 2026-11-27: q_pop_<lif|flif>_cshuf (context shuffled), q_pop_<lif|flif>_nml (memoryless Neocortex)
 # Writes one RESULT (or SKIP) line to nsmt_flif_v1/classification/results/<suite>/raw.txt.
 set -u
 COND=$1; FOLD=$2; GPU=$3
@@ -12,7 +13,14 @@ PY=${PY:-/home/yschoi/.conda/envs/snn_recall/bin/python}
 export LD_LIBRARY_PATH="$(dirname "$(dirname "$PY")")/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 S=${SEED:-42}; EP=${EPOCHS:-30}; BS=${BS:-64}; LR=${LR:?LR}; SUITE=${SUITE:?SUITE}
 Q="--model myModel --neo_where both --hippo_T 4 --hippo_xattn --neo_grad 1.0 --neo_res ms --neuron_all lif"
-case $COND in
+XF=""                                    # MODI 2026-11-27 ((나) follow-up): suffix _cshuf = context epochs shuffled per sample
+case $COND in                            # (--ctx_shuffle), _nml = memoryless Neocortex (--neo_memoryless); query forms only
+  *_cshuf) XF="--ctx_shuffle"; BASE=${COND%_cshuf} ;;
+  *_nml)   XF="--neo_memoryless"; BASE=${COND%_nml} ;;
+  *)       BASE=$COND ;;
+esac
+case $BASE in q_pop_lif|q_pop_flif) ;; *) [ -n "$XF" ] && { echo "suffixes only on q_pop_lif / q_pop_flif"; exit 2; } ;; esac
+case $BASE in
   spkall_lif)  CF="--model myModel --hippo_ssa --hippo_T 4 --neuron_all lif" ;;                                  # Spikformer(DE)
   q_pop_lif)   CF="$Q --neo_neuron pop_lif --pop_soma_init 0.5 --hippo_xattn_mode query" ;;                       # = nsmt4q_pop_lif_msn_sde
   q_pop_flif)  CF="$Q --neo_neuron pop_flif --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_xattn_mode query" ;;      # = nsmt4q_pop_flif_msn_sde
@@ -20,6 +28,7 @@ case $COND in
   kv_pop_flif) CF="$Q --neo_neuron pop_flif --neo_alpha 0.5 --pop_soma_init 1.0" ;;
   *) echo "bad cond $COND"; exit 2 ;;
 esac
+CF="$CF $XF"
 RES=$W/results/$SUITE; LOG=$W/log/$SUITE; mkdir -p "$RES" "$LOG"
 SHA=$(cd "$R" && git rev-parse --short HEAD); TS=$(date +%Y%m%d)
 OUT=$LOG/SLEEPEDF_${COND}_f${FOLD}_seed${S}_lr${LR}_ep${EP}_bs${BS}_${TS}_${SHA}.stdout; t0=$(date +%s)

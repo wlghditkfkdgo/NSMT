@@ -70,6 +70,22 @@ def main():
     d_last, d_first = (o1 - out(x2)).abs().max().item(), (o1 - out(x3)).abs().max().item()
     ok('b4 output reacts to the target epoch and (through attention) to the first context epoch', d_last > 1e-4 and d_first > 1e-4,
        f'last {d_last:.3g}, first {d_first:.3g}')
+    # c. MODI 2026-11-27: context shuffle (--ctx_shuffle) -- same epochs, target last, a new order per sample and per training epoch,
+    # a fixed order for validation / test; without the flag the samples are unchanged
+    d0 = rd.build(NS(data='SLEEPEDF', fold=1, ctx_epochs=16, patch_size=1, crop_tokens=0, ctx_shuffle=False), 42)
+    d1 = rd.build(NS(data='SLEEPEDF', fold=1, ctx_epochs=16, patch_size=1, crop_tokens=0, ctx_shuffle=True), 42)
+    a0, a1 = d0['test'][5][0].numpy(), d1['test'][5][0].numpy()
+    same_set = sorted(map(tuple, a0[:, :-1].T.round(6))) == sorted(map(tuple, a1[:, :-1].T.round(6)))
+    ok('c1 shuffled test sample: same 15 context epochs, target last, order changed', same_set and np.array_equal(a0[:, -1], a1[:, -1])
+       and not np.array_equal(a0, a1))
+    ok('c2 test order fixed (two reads equal)', np.array_equal(d1['test'][5][0].numpy(), a1))
+    t0_ = d1['train'][3][0].numpy(); d1['train'].set_epoch(0); t1_ = d1['train'][3][0].numpy(); d1['train'].set_epoch(1); t2_ = d1['train'][3][0].numpy()
+    ok('c3 training order changes with the epoch', not np.array_equal(t1_, t2_) and np.array_equal(t1_[:, -1], t2_[:, -1]))
+    perms = {tuple(np.argsort(d1['test'][k][0].numpy()[0, :-1])) for k in range(40)}
+    ok('c4 orders differ across samples', len(perms) > 35, f'{len(perms)} of 40')
+    d0['train'].set_epoch(3)
+    ok('c5 without --ctx_shuffle samples are unchanged (also after set_epoch)', np.array_equal(d0['train'][3][0].numpy(), rd.build(
+        NS(data='SLEEPEDF', fold=1, ctx_epochs=16, patch_size=1, crop_tokens=0), 42)['train'][3][0].numpy()))
     print('ALL PASS' if not FAILS else f'FAILED: {FAILS}')
     sys.exit(1 if FAILS else 0)
 

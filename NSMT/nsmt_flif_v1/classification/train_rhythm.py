@@ -85,6 +85,8 @@ def main():
     for epoch in range(args.epoch):
         if hasattr(data['train'], 'epoch'):
             data['train'].epoch = epoch
+        if hasattr(data['train'], 'set_epoch'):   # MODI 2026-11-27: Sleep-EDF context shuffle draws per epoch (other data: no attribute)
+            data['train'].set_epoch(epoch)
         dl = rd.loader(data['train'], args.batch_size, shuffle=True, seed=args.seed, epoch=epoch)
         tr = train_epoch(model, dl, criterion, opt, args.alpha, args.device)
         P, Y, _ = re_.predict(model, data['val'], args.device, bs=args.eval_bs)

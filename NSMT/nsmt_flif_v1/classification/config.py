@@ -196,6 +196,8 @@ def parse_arguments():
     snn_arg.add_argument('--val_frac', type=float, default=0.1, help='share of the training part held out for validation')
     snn_arg.add_argument('--token_step', type=int, default=0,       # (--patch_stride is an older, unrelated option: dest stride)
                          help='MODI 2026-11-26: token step of myModel (0 = patch // 2 with end padding, the default; > 0 = this step, no padding)')
+    snn_arg.add_argument('--ctx_shuffle', action='store_true', default=False,
+                         help='MODI 2026-11-27 Sleep-EDF: context epochs in a random order per sample (target last), train / val / test')
     snn_arg.add_argument('--ctx_epochs', type=int, default=16,
                          help='MODI 2026-11-26 Sleep-EDF (SLEEPEDF): the target epoch and the ctx_epochs - 1 epochs before it (1..16)')
     snn_arg.add_argument('--win_s', type=float, default=30.0, help='CinC 2017 window length (s)')
@@ -348,7 +350,7 @@ class Config():
         if int(getattr(args, 'token_step', 0) or 0) > 0:                   # MODI 2026-11-26
             _iso += f"_ts{args.token_step}"
         if str(getattr(args, 'data', '')).upper() == 'SLEEPEDF':           # MODI 2026-11-26 (Sleep-EDF, (나))
-            _iso += f"_f{args.fold}_ctx{args.ctx_epochs}"
+            _iso += f"_f{args.fold}_ctx{args.ctx_epochs}" + ("_cshuf" if getattr(args, 'ctx_shuffle', False) else "")
         if str(getattr(args, 'data', '')).upper() in ('CINC2017', 'SHD'):
             _iso += f"_f{args.fold}" + ("_ce" if getattr(args, 'loss_kind', 'cal') == 'ce' and str(args.data).upper() == 'CINC2017' else '')
             if getattr(args, 'crop_tokens', 0):

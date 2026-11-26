@@ -138,19 +138,30 @@ class SleepPsdSet(Dataset):
     """Sleep-EDF-20 epoch spectra (oc_data.build_sleep_psd; user decision 11-26 "①"): sample i = the target epoch t[i] and the
     L - 1 epochs before it in the same night, x = [60 bins, L epochs] (bins normalised with the training targets), label = the
     stage of the target (last) epoch."""
-    def __init__(self, z, ctx, y, idx, with_index=False):
+    def __init__(self, z, ctx, y, idx, with_index=False, shuffle_ctx=False, seed=0):
         self.z, self.ctx, self.y, self.idx, self.with_index = z, ctx, y, idx, with_index
+        # MODI 2026-11-27 ((나) order control): shuffle_ctx = the L - 1 context epochs of every sample in a random order, the target
+        # epoch stays last. The permutation is drawn from (seed, epoch, sample): a new one every training epoch (set_epoch), a fixed
+        # one for validation / test (epoch -1). False = unchanged.
+        self.shuffle_ctx, self.seed, self.epoch = bool(shuffle_ctx), int(seed), -1
+
+    def set_epoch(self, epoch):
+        self.epoch = int(epoch)
 
     def __len__(self):
         return len(self.idx)
 
     def __getitem__(self, i):
         j = self.idx[i]
-        x = torch.from_numpy(np.ascontiguousarray(self.z[self.ctx[j]].T))      # [60, L]
+        c = self.ctx[j]
+        if self.shuffle_ctx and len(c) > 2:
+            rng = np.random.default_rng([self.seed, self.epoch + 1, int(j)])
+            c = np.concatenate([c[:-1][rng.permutation(len(c) - 1)], c[-1:]])
+        x = torch.from_numpy(np.ascontiguousarray(self.z[c].T))                  # [60, L]
         return (x, int(self.y[j]), int(j)) if self.with_index else (x, int(self.y[j]))
 
 
-def sleep_psd_build(args):
+def sleep_psd_build(args, seed=0):
     import oc_data as D
     d = np.load(D.SL_NPZ)                                                   # labels / targets / nights only (not the raw signal)
     lab, tgt, off = d['lab'], d['tgt'], d['off']
@@ -168,7 +179,9 @@ def sleep_psd_build(args):
         raise RuntimeError('context crosses a night boundary')
     y = lab[t]
     tr, va, te = np.where(trm)[0], np.where(vam)[0], np.where(tem)[0]
-    return dict(train=SleepPsdSet(z, ctx, y, tr), val=SleepPsdSet(z, ctx, y, va, True), test=SleepPsdSet(z, ctx, y, te, True),
+    sh = bool(getattr(args, 'ctx_shuffle', False))
+    return dict(train=SleepPsdSet(z, ctx, y, tr, False, sh, seed), val=SleepPsdSet(z, ctx, y, va, True, sh, seed),
+                test=SleepPsdSet(z, ctx, y, te, True, sh, seed),
                 num_classes=5, num_channels=psd.shape[1], seq_len=L, counts=np.bincount(y[tr], minlength=5),
                 info=dict(split_sizes=(len(tr), len(va), len(te)), ctx_epochs=L, fold=int(args.fold),
                           test_subjects=sorted(set(subj[t[tem]].tolist())), val_subjects=sorted(set(subj[t[vam]].tolist()))))
@@ -203,7 +216,7 @@ def build(args, seed):
                    info=dict(n_train=len(ytr), n_test=len(yte), split_sizes=(len(tr), len(va), len(yte)), steps=T))
         return out
     if data == 'SLEEPEDF':                                                  # MODI 2026-11-26 (Sleep-EDF, (나))
-        return sleep_psd_build(args)
+        return sleep_psd_build(args, seed)
     raise ValueError(f'unknown data {args.data}')
 
 

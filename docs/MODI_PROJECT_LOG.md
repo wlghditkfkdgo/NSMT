@@ -12137,3 +12137,58 @@ AdamW lr 1e-3, weight decay 1e-2, 1 epoch 선형 warm-up 뒤 cosine으로 0(step
 ### Git
 
 - 이 항목, 앞 23:00 분석 항목, `results/flif-v1-sleep{,-lr}/{raw.txt, summary.md, decision.json, selected.json}`, run마다 text 산출물(`logargs.txt`, `log/{final+result.csv, best_log_0.csv, best_epoch.txt, confusion_matrix.csv, neuron_energy.csv, model+info+per+layer.txt}`, `log/last/` 같은 text), `mbip_probe.py`, `results/mbip-probe-20261126/probes.txt`를 한 commit으로 묶고 tag `exp/nsmt-flif-neo-20261126-sleep`를 단다. checkpoint, `test_probs.npz`, TensorBoard event, stdout은 로컬에 둔다.
+
+## 2026-11-27 02:33 KST — 사용자 결정 기록 + 사전 고정 + 구현 (학습 전): (나) 후속 — 같은 lr 비교와 query form의 순서 / 기억 대조 (Sleep-EDF, 32 run). 점검 15/15, 기본 Sleep 경로 재현(값 동일), 요약 script 시험 통과, smoke 4/4
+
+**사용자 결정 (11-27, 원문):** "1. 둘 다 진행해줘." — (나)의 lr을 맞춘 확인과 query form의 순서·기억 확인 둘 다. "2. (가) 우선 시작해보자." — (가) v2(파형 경로 + 간격 sequence 경로, validation으로 기준선부터)를 시작. (가) v2는 따로 기록한다.
+
+**branch / 기준 commit:** `exp/nsmt-flif-neo`, 기준 `0e296adc6`.
+
+### 구현 (기본값이면 지금과 같음)
+
+- `rhythm_data.SleepPsdSet`: `shuffle_ctx`(표본마다 문맥 15 epoch를 무작위 순서로, 대상 epoch는 끝; 순열은 (seed, epoch, 표본)에서 뽑아 학습은 epoch마다 새로, validation / test는 고정), `set_epoch`. `sleep_psd_build(args, seed)`가 `--ctx_shuffle`을 넘긴다.
+- `train_rhythm.py`: 학습 dataset에 `set_epoch`가 있으면 epoch마다 부른다(다른 data에는 없음).
+- `config.py`: `--ctx_shuffle`, run 폴더 `_cshuf`.
+- `scripts/run_sleep.sh`: 조건 접미사 `_cshuf`(문맥 섞기), `_nml`(기억 없는 Neocortex, 기존 `--neo_memoryless`: token마다 Neocortex를 따로 돌림), query form에만.
+
+### run (32개, suite `flif-v1-sleep2`, seed 42)
+
+| 묶음 | 조건 | lr | fold | run |
+|---|---|---|---|---|
+| 같은 lr | Spikformer(DE) | 0.003 | 1–4 | 4 |
+| 같은 lr | query pop LIF / pop f-LIF | 0.001 | 1–4 | 8 |
+| 순서 | query pop LIF / pop f-LIF + 문맥 섞기 | 0.003 | 0–4 | 10 |
+| 기억 | query pop LIF / pop f-LIF + 기억 없는 Neocortex | 0.003 | 0–4 | 10 |
+
+fold 0의 lr 0.001 / 0.003 값과 기존 fold 1–4는 1단계(`flif-v1-sleep-lr`)와 본 비교(`flif-v1-sleep`)의 run을 쓴다.
+
+### 판정 (사전 고정, `summarize_sleep2.py`; test macro-F1 %, fold 5쌍; 문턱: 평균 ≥ +1.0이고 4/5 이상 양수 = 좋음, ≤ −1.0이고 4/5 이상 음수 = 나쁨, 그 밖 = 차이 없음)
+
+- **L (같은 lr):** lr 0.003과 0.001 각각에서 query pop <n> − Spikformer(DE). neuron마다: 두 lr 모두 좋음 = "같은 lr에서 Spikformer(DE)를 넘음", 하나만 = "lr에 달림", 없음 = "지지 안 됨".
+- **O (순서):** query pop <n> − 같은 model + 문맥 섞기(lr 0.003). 좋음 = Neocortex가 epoch 순서에서 이득을 얻음. (Hippocampus는 bias가 꺼져 있고 head는 대상 token을 읽으므로, 문맥 섞기는 Neocortex만 순서를 잃게 한다.)
+- **M (기억):** query pop <n> − 같은 model + 기억 없는 Neocortex(lr 0.003). 좋음 = epoch 사이에 이어지는 Neocortex 상태가 도움.
+- 보고만: accuracy, N1 F1, syops 에너지, 발화율.
+- fail closed: 필요한 (model, lr, fold)가 한 줄씩, epoch 30, batch 64, seed 42, 값 유한, SKIP 없음, suite마다 sha 하나. 이번 suite는 새 code로 돈다 — 기본 Sleep 경로가 이전 run을 그대로 재현함을 아래 smoke로 확인했다.
+
+### 점검
+
+- `check_sleep.py` **15/15 PASS**(기존 10 + 새 5): 섞은 test 표본이 같은 15 epoch를 담고 대상은 끝에 남음, test 순서 고정, 학습 순서는 epoch마다 바뀜, 표본마다 순서가 다름(40/40), `--ctx_shuffle`이 없으면 `set_epoch` 뒤에도 표본이 그대로.
+- **기본 Sleep 경로 재현:** 고친 code로 1 epoch smoke를 다시 돌린 query pop LIF, Spikformer(DE)의 test score, accuracy, class F1, energy가 이전 smoke(`smoke-sleep-20261126b`)와 **모든 자리까지 같다**.
+- `summarize_sleep2.py` 시험(가짜 suite): 심어 둔 답 두 벌(L "넘음" / "지지 안 됨" / "lr에 달림", O, M)을 그대로 냄; 멈춰야 하는 6경우(줄 빠짐, SKIP, sha 둘, 중복, 예상 밖 줄, nan) 모두 멈춤. 첫 시험에서 내 기대값 하나가 틀렸다(심어 둔 값으로는 "지지 안 됨"이 맞았음) — script가 아니라 내 계산 실수였고, "lr에 달림"을 따로 심어 확인했다.
+
+### smoke (실험 아님)
+
+- `results/smoke-sleep2-20261127/raw.txt` 4 run(1 epoch): 위 재현 2개 + `q_pop_lif_cshuf`(run 폴더 `_cshuf`), `q_pop_flif_nml`(`_nomem`). RESULT 4, SKIP 0.
+
+### 실행
+
+- tmux `flif_sleep2`: `bash nsmt_flif_v1/classification/scripts/sleep2_driver.sh 0,1,2,3,0,1,2,3`(큐 `scripts/queues/sleep2-20261127.txt`, pool 로그 `results/flif-v1-sleep2-pool.log`). 끝에 `summarize_sleep2.py`.
+
+### 한계
+
+- seed 하나 / fold. 문맥 섞기와 기억 없는 대조는 lr 0.003에서만.
+- 섞기는 표본마다 다른 순열이라 "순서 정보 전부"를 지운다. 어떤 순서 성질(예: 직전 epoch의 위치)이 중요한지는 가르지 않는다.
+
+### Git
+
+- 이 항목과 code 변경(`rhythm_data.py`, `train_rhythm.py`, `config.py`, `scripts/run_sleep.sh`), `check_sleep.py`, `summarize_sleep2.py`, `scripts/sleep2_driver.sh`, smoke `raw.txt`를 사전 고정 commit으로 묶어 push 한 뒤 시작한다. 도는 동안 commit하지 않는다.
