@@ -11568,3 +11568,95 @@ ETT는 test MSE 비율 r = A / B − 1(%), 12쌍. MIT-BIH는 macro-F1 차이 d(%
 ### Git
 
 - 이 항목, 보고서, 노트 4개를 하나의 commit으로 묶는다(학습이 없어 tag는 달지 않는다). `exp/nsmt-flif-neo`만 push 한다.
+
+## 2026-11-26 17:06 KST — 사용자 결정 기록 + 측정 (학습 없음): 과제 조건을 (A) 긴 시간 축적 / (B) 시간 순서로 정함, Speech Commands · Sleep-EDF의 "순서가 필요한가" 확인 시험을 하기로 함; MIT-BIH가 순서 과제인지 검토(지금 형태로는 근거 없음), PPT(ICLR 2025) 검토와 ACF-CoS 측정(우리 dataset 0.32–0.60, 백색잡음 0.30 — 과제를 가르지 못함)
+
+**목적:** 11-26 사용자 메시지에 답하고, 확인 시험 계획 초안을 만든다. 학습은 없다. 확인 시험은 사용자 승인 뒤에 사전 고정한다.
+
+**branch / 기준 commit:** `exp/nsmt-flif-neo`, 기준 `6cbafbd06`.
+
+### 사용자 메시지 (11-26, 요지)
+
+1. recurrent SNN 논문은 대부분 spatio-temporal task용이고, 순수 time-series dataset을 다루는 논문은 드물다.
+2. `papers/ICLR-2025-ppt-patch-order-do-matters-in-time-series-pretext-task-Paper-Conference.pdf`(PPT)는 patch 순서가 중요한 dataset을 정의하고 pretext task를 제안한다. 참고하기 좋다.
+3. **찾을 과제는 (A) 더 긴 시간 축적이 필요한 task/dataset, (B) 시간 순서가 중요한 task/dataset이다.** 둘 다 찾으면 좋고, 아니면 (A) 또는 (B)로 진행한다. **그 일환으로 Speech Commands와 Sleep-EDF에서 "순서가 필요한 과제인지" 확인한다.**
+4. MIT-BIH도 심장박동의 기본 파형이 중요하니 순서가 중요한 dataset으로 볼 수 있지 않은가. 근거가 충분하면 단일 dataset으로도 논문을 쓸 수 있다(사용자 설명: 전처리가 P, QRS complex, T, (U)를 detection하고 그것을 기준으로 sample을 만든다).
+
+### 확인한 것 1 — MIT-BIH 전처리 (원문 + 데이터)
+
+- 우리(와 NSMT 논문)가 쓰는 MIT-BIH는 Kachuee et al. 2018 [NSMT 논문 참고문헌 19]의 beat dataset이다. 원문(arXiv 1805.00794, Section III-A의 7단계 목록, pdftotext로 읽음): 10 s 창으로 자름 → 0–1 정규화 → 1차 미분 zero-crossing으로 극대점 → **정규화 값 0.9 문턱으로 R-peak 후보** → R-R 간격의 중앙값 = T → **각 R-peak에서 길이 1.2T를 잘라냄** → 0으로 채워 고정 길이. 원문: "we have not used any form of filtering or any processing that makes any assumption about the signal morphology". **P, T, QRS 시작/끝은 찾지 않는다.** 125 Hz, 187점.
+- 데이터 확인(`5class_mitbih_test_3_187.csv`, 32,833 beat): 첫 점이 0.8 이상인 beat 86.4 %(R-peak에서 시작), 0이 아닌 길이의 중앙값 108점(나머지 79점, 약 42 %는 0 채움; 5–95 백분위 72–165점).
+- 그래서 한 sample에는 R-peak 뒤의 QRS 나머지, ST-T, **다음 beat의 P파**(다음 R-peak가 일찍 오면 그것까지)가 들어 있다. **그 beat 자신의 P파와 그 앞 R-R 간격은 sample에 없다.**
+- 사용자 설명(P, QRS, T, U를 찾아 sample을 만든다)은 이 dataset에는 맞지 않는다.
+- 참고: `nsmt_base/classification/ECG/data/denoise_patient_mitbih_{train,test}_{180,250,360,400,500}.csv`가 있다(train 50,084 / test 49,477 beat, label 0–4). 환자 단위 분할처럼 보이지만 만든 code나 출처 기록이 없다. 쓰지 않는다.
+
+### 확인한 것 2 — MIT-BIH에 대한 우리 근거 (기존 기록 다시 읽음)
+
+- 11-19 22:12 항목(bias 끔 시험, MIT-BIH token = patch 32, stride 16, 11개): Spikformer(DE) bias 켬 91.94 ± 0.49, **bias 끔(token 순서를 전혀 못 봄, 평균 head) 91.27 ± 0.16** → 순서를 빼고 다시 학습한 손해 −0.67 %p(3 seed 모두 음수). 기준 pop LIF / pop f-LIF(bias 끔, Neocortex T = N) 91.51 / 91.41, Spikformer(DE) 대비 +0.24 / +0.14 %p("차이 없음").
+- 같은 항목 사후 측정: test에서 token 순서를 섞으면 bias 켬 Spikformer(DE) −19.91 %p(11-20 무작위 섞기 −26.54), 기준 model −8.54 / −6.09 %p. **model이 순서에 기대는 정도는 크지만, 순서가 주는 점수는 0.67 %p 안쪽이다.**
+- 판단: 파형의 순서는 분명히 있지만 대부분 token 하나(256 ms) 안에 있고, patch embedding이 이미 잡는다. token 사이 순서의 값어치는 1 %p 미만이다. **지금 형태의 MIT-BIH로 "순서가 필요한 과제"를 주장할 근거는 없다.**
+- 가능성이 있는 변형(추론, 아직 문헌 확인 안 함): 환자 단위 분할(de Chazal et al. 2004의 DS1/DS2) + 앞 beat들을 함께 넣는 입력. 이 설정에서는 지금 sample에 없는 정보(앞 R-R 간격, 그 beat의 P파, 그 환자의 평소 리듬)가 과거 축적과 순서의 문제가 된다. de Chazal 2004는 R-R 간격 특징(앞/뒤 R-R, 평균 R-R)을 쓴다. 위험: 지금의 MIT-BIH SNN baseline은 모두 무작위 beat 분할이라 비교 대상이 바뀐다. 환자 단위 분할의 SNN 결과가 있는지 모른다.
+
+### 확인한 것 3 — PPT 논문 (원문 pdftotext + 저자 공개 code)
+
+- 순서의 정의(Def. 3.1): 판별 함수가 patch 열과 그 순열을 구별할 수 있으면 순서가 있다.
+- model 쪽 순서 시험은 **test에서만** 섞는 방식이다(Table 3, γ = 40). 다시 학습하지 않는다. 지도 학습 PatchTST / PITS의 정상 → 섞은 test 정확도: SleepEEG 61.6 → 58.5(−3.0 %p) / 55.4 → 55.1(−0.3 %p); PTB ECG 78.6 → 76.3(−2.3) / 82.0 → 71.6(−10.4); Gilon HAR 91.6 → 88.8(−2.8) / 91.6 → 85.3(−6.3).
+- **PPT의 Sleep EEG는 TF-C(Zhang et al. 2022) 전처리본이다: 371,055개 × 178점, 1 channel, 5 class(App. E Table 6).** 표준 30 s epoch 수면 단계 분류가 아니고 정확도도 60 %대다. 그 짧은 조각 안의 순서는 약하다(위 −3.0 / −0.3 %p).
+- ACF-CoS(Sec. 4, Eq. 4): 1 − cos(원 신호의 autocorrelation, patch를 섞은 신호의 autocorrelation). 24개 UEA 과제에서 PPT 이득 비율과의 OLS R² = 0.225(p = 0.019, App. L Table 15).
+- **ACF-CoS 기준점 문제(저자 공개 notebook `github.com/eai-lab/PPT/minimal_implementation_for_acf_cos.ipynb`, 11-26 읽음):**
+  - 백색잡음 칸은 "섞은" autocorrelation을 섞지 않은 원 신호에서 계산한다(`permute_acf = autocorrelation(sample_gaussian_noise)`). 그래서 0.000이 나온다(논문 0.001). 같은 함수로 실제로 섞으면 0.265다(T 100, patch 5, 10번 교환, 2,000번 평균).
+  - 계단 함수 칸(50계단 × 10점, patch 10)은 재현된다: 그 칸의 순열 하나로 0.9279(우리 `acf()`도 같은 순열로 0.9279). 무작위 순열 2,000개 평균은 0.820(범위 0.154–0.964).
+  - 즉 ACF-CoS의 잡음 수준은 0이 아니라 약 0.27–0.30이다.
+
+### 측정 — 우리 dataset의 ACF-CoS (`acf_cos.py`, 학습 없음)
+
+- 실행: `cd NSMT/nsmt_flif_v1/classification && python acf_cos.py` (seed 0, 표본 4,000). 출력 `results/acf-cos-20261126/acf_cos.txt`.
+- 정의: 공개 notebook과 같다(평균을 뺀 autocorrelation, lag 0..T−1, cosine). patch 크기 T // 10, T // 20, T // 40의 평균. 매 표본 무작위 순열.
+
+| 대상 | ACF-CoS |
+|---|---|
+| 백색잡음 (T 512, 실제로 섞음) | 0.301 |
+| 계단 함수 (notebook 구성, 무작위 순열 평균) | 0.817 |
+| 단일 계단 (T 512) | 0.703 |
+| MIT-BIH beat 187점 (model이 보는 그대로) | 0.480 |
+| MIT-BIH, 0 채움 없는 앞 71점 | 0.320 |
+| CinC 2017, 가운데 30 s (3,750점) | 0.464 |
+| ETTh2 / ETTm2 입력 96 (channel마다) | 0.454 / 0.514 |
+
+- 읽기: 모두 잡음 수준(0.30)과 계단(0.82) 사이다. **ETT는 body의 순서 몫이 1 % 안쪽으로 측정됐는데(11-20), ACF-CoS는 MIT-BIH, CinC와 비슷하거나 높다.** MIT-BIH는 0 채움을 빼면 잡음 수준이다. ACF-CoS는 신호의 성질이지 label이 순서에 달렸는지가 아니어서, 우리 과제를 가르는 기준으로 쓸 수 없다. 보고용 서술 값으로만 쓴다.
+
+### 답변 요지 (사용자에게)
+
+- (1) 대체로 동의. 다만 Speech Commands는 recurrent SNN의 대표 benchmark라, main으로 쓰면 비교 상대가 recurrent SNN(95–96 %대)이 되고 T = N의 새로움 주장이 약해진다. Sleep-EDF와 MIT-BIH는 순수 time series 쪽이다.
+- (3) (A) / (B) 틀에 동의. 두 가지를 더한다: 기대는 정도(test에서 섞기, PPT 방식)와 필요(섞어서 다시 학습)를 구분한다 — MIT-BIH가 그 차이를 보여 준다. 순서가 필요한 정도는 token 크기에 달려 있으므로 token 크기를 PPT 규칙(표본당 10–40개)으로 미리 정한다.
+- (4) 위 확인 1, 2.
+
+### 확인 시험 계획 초안 (사용자 승인 대기 — 사전 고정 아님)
+
+- 진단용 reference model(결과표 baseline이 아님): GRU(순서를 구조로 봄)와 PatchTST식 Transformer(학습되는 위치 embedding, PPT의 기준 model 계열).
+- (B) 순서: 정상 순서로 학습 vs 표본마다 token을 무작위로 섞어 학습·평가(매번 새 순열). 차이 = 순서의 값어치.
+- (A) 축적: 입력 길이를 줄여 학습(Speech Commands 가운데 k token, Sleep-EDF 앞 epoch 수 L = 1 / 4 / 16).
+- Speech Commands v0.02, 35단어, 공식 분할, log-mel 40 × 101 frame, token 4 frame(40 ms) → 25개, seed 3개, 정확도.
+- Sleep-EDF-20(Fpz-Cz, 100 Hz, 30 s epoch, 5 class, DeepSleepNet 전처리), 환자 단위 5-fold, macro-F1과 정확도. 두 수준: epoch 하나 안(token 1 s → 30개; PPT와 비교 가능), epoch 사이(앞 L − 1개 epoch + 대상 epoch, 대상은 마지막에 고정하고 앞 epoch만 섞음).
+- MIT-BIH(지금 형태)를 같은 잣대로 함께 잰다(token 17점 → 11개). 이미 약하다고 알려진 경우라 시험의 눈금 확인용이다.
+- 판정 문턱(초안): 순서 값어치 ≥ 3 %p이고 seed/fold 모두 양수 = 강함, 1–3 %p = 중간, 그 밖 = 약함. 축적: 전체 − 가장 짧은 입력 ≥ 2 %p이고 일관 = 필요.
+- 보고만: PPT 방식(test에서만 섞기) 하락, ACF-CoS.
+- 규모(초안): 작은 DNN run 약 80개. 우리 SNN model은 과제를 정한 뒤 구조 비교(query form vs key/value form, pop LIF / pop f-LIF) 단계에서 들어간다.
+
+### 진행 중 (학습 아님)
+
+- 공개 data 내려받기를 시작했다(사용자가 확인하자고 한 두 dataset): Sleep-EDF-20(PhysioNet `sleep-edfx/1.0.0/sleep-cassette`, subject 0–19, PSG 39 + hypnogram 39, 목록 `dataset/sleep_edf20/FILES.txt`, 검증용 `SHA256SUMS_all.txt`)과 Speech Commands v0.02(2,428,923,189 byte, 서버 md5 `a3TzkBIUyywpNOmBloKYNQ==`). 위치 `nsmt_flif_v1/classification/dataset/`(Git 제외). 끝나면 checksum을 확인한다.
+
+### 한계
+
+- MIT-BIH 판단은 bias 켬/끔 Spikformer(DE)와 기준 model의 기존 run(3 seed, token 11개)에 기댄다. 표본마다 섞어 다시 학습하는 시험은 MIT-BIH에서 아직 안 했다.
+- 환자 단위 분할 MIT-BIH에 대한 문헌(특히 SNN 결과)은 확인하지 않았다.
+- ACF-CoS의 dataset 수준 계산 code는 저자가 공개하지 않았다(notebook은 두 기준점만). 우리 구현은 notebook의 함수와 같지만, 논문 Table 13의 수치를 재현했는지는 확인할 수 없다.
+
+### not run
+
+- 확인 시험 전부(사용자 승인 전), Speech Commands / Sleep-EDF의 ACF-CoS(내려받기 중), 환자 단위 MIT-BIH 문헌 조사.
+
+### Git
+
+- 이 항목과 `acf_cos.py`, `results/acf-cos-20261126/acf_cos.txt`를 하나의 commit으로 묶는다(학습이 없어 tag는 달지 않는다). `exp/nsmt-flif-neo`만 push 한다.
