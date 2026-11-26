@@ -1,0 +1,40 @@
+== flif-v1-ett-spkmux-ettune (156 rows)
+  ETTh2 (H 96/720; lr 0.0005, layers 1, patch 16, d_model 64, MLP 0.5, wd 0.06)
+    blocks 1: val 0.423707  MSE 0.3514  MAE 0.3828  energy 13.62 uJ
+    blocks 2: val 0.423993  MSE 0.3539  MAE 0.3839  energy 15.34 uJ  | vs 1: val score +0.06 %, MSE +0.0025, MAE +0.0011, energy x1.13
+    blocks 3: val 0.424275  MSE 0.3541  MAE 0.3843  energy 17.04 uJ  | vs 1: val score +0.12 %, MSE +0.0027, MAE +0.0015, energy x1.25
+  ETTm2 (H 96/720; lr 0.0001, layers 1, patch 16, d_model 64, MLP 2, wd 0.06)
+    blocks 1: val 0.298448  MSE 0.2884  MAE 0.3234  energy 14.28 uJ
+    blocks 2: val 0.298507  MSE 0.2884  MAE 0.3234  energy 16.61 uJ  | vs 1: val score +0.03 %, MSE +0.0000, MAE -0.0001, energy x1.16
+    blocks 3: val 0.298645  MSE 0.2885  MAE 0.3234  energy 18.94 uJ  | vs 1: val score +0.07 %, MSE +0.0001, MAE -0.0001, energy x1.33
+  comparisons found: 2
+== flif-v1-ett-spkmux-ettune2 (180 rows)
+  ETTh2 (H 96/720; lr 0.0005, layers 1, patch 24, d_model 64, MLP 0.5, wd 0.06)
+    blocks 1: val 0.423506  MSE 0.3517  MAE 0.3826  energy 9.61 uJ
+    blocks 2: val 0.423927  MSE 0.3492  MAE 0.3808  energy 10.77 uJ  | vs 1: val score +0.10 %, MSE -0.0024, MAE -0.0017, energy x1.12
+    blocks 3: val 0.423786  MSE 0.3521  MAE 0.3827  energy 11.89 uJ  | vs 1: val score +0.08 %, MSE +0.0004, MAE +0.0002, energy x1.24
+  ETTm2 (H 96/720; lr 0.0001, layers 1, patch 24, d_model 256, MLP 1, wd 0.06)
+    blocks 1: val 0.298018  MSE 0.2870  MAE 0.3227  energy 43.55 uJ
+    blocks 2: val 0.297926  MSE 0.2871  MAE 0.3228  energy 52.70 uJ  | vs 1: val score -0.02 %, MSE +0.0001, MAE +0.0001, energy x1.21
+    blocks 3: val 0.298099  MSE 0.2873  MAE 0.3230  energy 61.95 uJ  | vs 1: val score +0.03 %, MSE +0.0002, MAE +0.0003, energy x1.42
+  comparisons found: 2
+== flif-v1-ett-spkmux-retune (444 rows)
+  ETTh1 (H 96/720; lr 0.00025, layers 1, patch 32, d_model 256, MLP 1, wd 0.06)
+    blocks 1: val 0.697286  MSE 0.4344  MAE 0.4298  energy 34.81 uJ
+    blocks 2: val 0.698228  MSE 0.4333  MAE 0.4291  energy 42.26 uJ  | vs 1: val score +0.13 %, MSE -0.0011, MAE -0.0007, energy x1.21
+    blocks 3: val 0.698074  MSE 0.4351  MAE 0.4309  energy 49.62 uJ  | vs 1: val score +0.11 %, MSE +0.0007, MAE +0.0010, energy x1.43
+  ETTh1 (H 96/720; lr 0.00025, layers 1, patch 8, d_model 32, MLP 4, wd 0.06)
+    blocks 1: val 0.698242  MSE 0.4305  MAE 0.4242  energy 13.74 uJ
+    blocks 2: val 0.699227  MSE 0.4294  MAE 0.4238  energy 16.34 uJ  | vs 1: val score +0.11 %, MSE -0.0011, MAE -0.0004, energy x1.19
+    blocks 3: val 0.698968  MSE 0.4303  MAE 0.4239  energy 18.94 uJ  | vs 1: val score +0.06 %, MSE -0.0002, MAE -0.0003, energy x1.38
+  ETTm1 (H 96/720; lr 0.0005, layers 2, patch 16, d_model 32, MLP 0.5, wd 0.06)
+    blocks 1: val 0.522876  MSE 0.3924  MAE 0.3886  energy 7.00 uJ
+    blocks 2: val 0.523567  MSE 0.3922  MAE 0.3884  energy 8.02 uJ  | vs 1: val score +0.18 %, MSE -0.0001, MAE -0.0002, energy x1.15
+    blocks 3: val 0.522430  MSE 0.3937  MAE 0.3889  energy 9.05 uJ  | vs 1: val score -0.09 %, MSE +0.0013, MAE +0.0004, energy x1.29
+  ETTm1 (H 96/720; lr 0.0005, layers 2, patch 32, d_model 64, MLP 1, wd 0.06)
+    blocks 1: val 0.523516  MSE 0.3946  MAE 0.3894  energy 8.08 uJ
+    blocks 2: val 0.523570  MSE 0.3960  MAE 0.3897  energy 9.37 uJ  | vs 1: val score -0.04 %, MSE +0.0014, MAE +0.0003, energy x1.16
+    blocks 3: val 0.524495  MSE 0.3964  MAE 0.3899  energy 10.66 uJ  | vs 1: val score +0.16 %, MSE +0.0018, MAE +0.0005, energy x1.32
+  comparisons found: 4
+== blocks 2 - blocks 1 over 8 comparisons: val score lower in 2, test MSE lower in 4 (mean -0.0001, range -0.0024 .. +0.0025), MAE lower in 5 (mean -0.0002), energy x1.12 .. x1.21
+== blocks 3 - blocks 1 over 8 comparisons: val score lower in 1, test MSE lower in 1 (mean +0.0009, range -0.0002 .. +0.0027), MAE lower in 2 (mean +0.0004), energy x1.24 .. x1.43

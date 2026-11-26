@@ -17058,3 +17058,50 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 
 ### 다음
 - 사용자 결정을 기다린다: 논문에 SpikF-LIF 행을 어떻게 넣을지, 2층 head(보류 중), batch 64 확인(01:02 기록).
+
+## 2026-11-26 15:13 KST — 사용자 질문(학습 없음, 기존 로그 사후 분석): "지금은 single-layer transformer식 구조인데, 2-layer로 연산하면 성능이 개선될 수 있을까?" — block 수 2 · 3은 이미 세 번의 튜닝에서 네 데이터셋 모두 돌렸다(비교 8개, seed 3). validation은 2 block을 거의 고르지 않았고(8개 중 2개, 차이 0.04 % 이하), test MSE 변화는 평균 −0.0001(−0.0024 .. +0.0025), energy는 1.12–1.21배다. SpikF-LIF와의 격차(MSE 0.0057)를 메울 크기가 아니다. 새 학습은 권하지 않는다
+
+> 사용자 원문: "우리는 지금 single-layer transformer 식 모델 구조를 취하고 있잖아. 2-layer로 연산하게 되면 성능이 개선될 수 있을까?"
+
+- **branch / base:** `exp/f-lif-pop-v3`, base `4be63dbde`. 학습 없음.
+- **해석:** "2-layer" = SpkMixer block(token 섞기 + MLP, transformer 층 하나에 해당)을 2개 쌓는 것(`--layers`, 로그의 `blocks`)으로 읽었다. 01:02 기록의 "2층 head"와는 다르다. head가 아니라 몸통이 깊어지므로, 이득이 생기면 그 몫은 mixer 쪽에 남는다(사용자가 11-25에 걱정한 점과 다름).
+- **정정할 전제:** 지금 model이 모든 칸에서 1 block은 아니다. 튜닝이 block {1, 2, 3}을 이미 고르게 되어 있었다.
+  - 첫 튜닝: ETTh1 1, ETTh2 1, ETTm1 **3**, ETTm2 1.
+  - 확장: ETTh1 1, ETTh2 1, ETTm1 **2**, ETTm2 **2**.
+  - 깊이를 정하는 손잡이가 하나 더 있다. 방향별 mixer 층 수 M(`time_num_layers`, tag의 `_L1` / `_L2`)이다. 11-01(ETTh2 · ETTm2 → 1)과 11-25(ETTh1 → 1, ETTm1 → 2)에서 {1, 2, 3} 중 골랐다.
+
+### 기존 튜닝 run에서 block 수만 다른 비교(`cinc_mixer_v1/results/check-blocks-20261126/post_blocks.py` · `.txt`)
+- 대상: `flif-v1-ett-spkmux-ettune`(11-20 첫 튜닝), `-ettune2`(11-20 확장), `-retune`(11-25). 같은 데이터셋 · lr · M · patch · d_model · MLP · weight decay에서 block만 1 / 2 / 3이고 seed 3개가 다 있는 비교를 찾았다. 8개가 나왔다(각 H96 · H720).
+- validation 변화는 선택 표와 같은 방식(horizon별 seed 평균 validation의 block 1 대비 비율의 평균 − 1)이다. 음수면 2 block이 낫다. test는 선택에 쓰지 않았고 여기서 처음 보고한다.
+
+| suite | 데이터셋(그 단계의 설정) | val 변화(2 block) | test MSE 2 − 1 | test MAE 2 − 1 | energy 2 / 1 | 3 block test MSE − 1 |
+|---|---|--:|--:|--:|--:|--:|
+| ettune | ETTh2(patch 16, d 64) | +0.06 % | +0.0025 | +0.0011 | 1.13 | +0.0027 |
+| ettune | ETTm2(patch 16, d 64) | +0.03 % | +0.0000 | −0.0001 | 1.16 | +0.0001 |
+| ettune2 | ETTh2(patch 24, d 64) | +0.10 % | −0.0024 | −0.0017 | 1.12 | +0.0004 |
+| ettune2 | ETTm2(patch 24, d 256) | −0.02 % | +0.0001 | +0.0001 | 1.21 | +0.0002 |
+| retune | ETTh1(patch 32, d 256) | +0.13 % | −0.0011 | −0.0007 | 1.21 | +0.0007 |
+| retune | ETTh1(patch 8, d 32) | +0.11 % | −0.0011 | −0.0004 | 1.19 | −0.0002 |
+| retune | ETTm1(patch 16, d 32) | +0.18 % | −0.0001 | −0.0002 | 1.15 | +0.0013 |
+| retune | ETTm1(patch 32, d 64) | −0.04 % | +0.0014 | +0.0003 | 1.16 | +0.0018 |
+
+- **2 block − 1 block, 비교 8개:** validation이 낮은 것 2개(둘 다 0.04 % 이하), test MSE가 낮은 것 4개(평균 −0.0001, 범위 −0.0024 .. +0.0025), MAE가 낮은 것 5개(평균 −0.0002), energy 1.12–1.21배.
+- **3 block − 1 block:** validation이 낮은 것 1개, test MSE가 낮은 것 1개(평균 +0.0009), energy 1.24–1.43배.
+- validation이 2 · 3 block을 고른 세 곳(ETTm1 3 block, 확장 ETTm1 2 block, 확장 ETTm2 2 block)에서 test MSE는 오히려 +0.0013 / +0.0014 / +0.0001이었다(사후).
+- 칸별 seed 표준편차는 약 0.003이다(11-25 기록). 위 차이는 대부분 그 안이다.
+
+### 답(내 해석)
+- 지금까지 시험한 범위에서는 **2 block이 성능을 개선한다는 근거가 없다.** validation도 test도 방향이 섞여 있고, energy만 12–21 % 늘어난다.
+- 크기로 봐도 부족하다. 16칸 판정에서 SpikF-LIF를 넘으려면 MSE가 0.0067(현재 여유 −0.0057 + 필요한 0.001), MAE가 0.0029 줄어야 한다. 원래 SpikF(논문값)를 넘으려면 MSE가 0.0026 줄어야 한다. 비교 8개 중 가장 좋은 경우가 한 데이터셋에서 −0.0024였다.
+- 시험하지 않은 것:
+  - block을 늘리면서 lr · warmup을 다시 고르는 것. 튜닝은 한 번에 손잡이 하나만 바꿨다.
+  - 층 사이에 다른 연결(예: membrane shortcut)을 둔 깊은 model. 11-18 mixer 변형(방향 안 2층 membrane shortcut)은 better가 없었다.
+  - 입력 96이 아닌 경우.
+- 참고(문헌, 이번에 다시 확인하지 않음): ETT처럼 작은 데이터셋에서는 얕은 model이나 linear model이 강한 편이라는 보고가 있다(DLinear, Zeng et al. 2023).
+- **권장:** 2 block만 바꾸는 새 학습은 하지 않는다. 기존 비교 8개가 같은 질문에 이미 답한다. 사용자가 원하면 "2 block + lr 재선택"이 남은 시험이다. 비용 추정은 사용자 결정 뒤에 한다.
+
+### 한계
+- 사후 분석이다. 비교는 단계별 튜닝 중간 설정에서 한 것이라, 최종 설정 전체에서 block만 바꾼 비교는 아니다.
+- 데이터셋마다 H96 · H720 두 horizon이다.
+
+**commit:** 이 기록과 `cinc_mixer_v1/results/check-blocks-20261126/{post_blocks.py, post_blocks.txt}`를 `exp/f-lif-pop-v3`에 commit · push한다(해시는 다음 기록에 적는다).
