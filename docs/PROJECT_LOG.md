@@ -17105,3 +17105,80 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 - 데이터셋마다 H96 · H720 두 horizon이다.
 
 **commit:** 이 기록과 `cinc_mixer_v1/results/check-blocks-20261126/{post_blocks.py, post_blocks.txt}`를 `exp/f-lif-pop-v3`에 commit · push한다(해시는 다음 기록에 적는다).
+
+## 2026-11-26 18:40 KST — 사용자 요청(학습 없음): 지금 쓰는 neo-mixer(LIF SpkMixer, muxlin fusion, IAND 잔차) forecaster의 연산을 tensor 차원과 함께 설명. code를 읽고, CPU에서 차원 추적과 논리 점검(`results/check-shapes-20261126/trace_shapes.py`, 9개 ALL PASS)으로 확인했다. 정정 1개(11-19 17:58 표의 token 수)
+
+> 사용자 원문: "지금 사용하고 있는 neo-mixer의 연산 방식에 대해서 아주 상세히 설명해줘. tensor 차원 변환도 함께 병기하며 설명하되, N: token, T: spiking time-step, B: batch_size, D: d_model 등 으로 정하고, 숫자 대신 이 notation을 사용하도록 해."
+
+- **branch / base:** `exp/f-lif-pop-v3`, base `8c4d2ff6d`. 학습 없음.
+- **읽은 code:** `NSMT/cinc_mixer_v1/` — `forecast_wrap.py`(Forecaster), `spk_mixer.py`(SpkMixer, SpkBlock, FuseLinear), `neo_mixer.py`(MixerStack), `model.py`(Embedding, NeoLayer), `layers.py`(SpikLinearLayer, NeoNeuron, build_neo_neuron), `neurons.py`(LIFNeuron, ArcTanSpike), `load_model.py`(load_spk_mixer), `scripts/run_ett_spk.sh`.
+
+### 기호
+| 기호 | 뜻 | code 인자 |
+|---|---|---|
+| B | batch 크기(window 수) | `-bs` |
+| C | 변수(channel) 수 | data |
+| B' | B·C, channel을 서로 독립인 sample로 펼친 batch | Forecaster |
+| L | 입력 길이 | `--seq_len` |
+| H | 예측 길이 | `--pred_len` |
+| P, S | patch 길이, stride S = P/2 | `--patch_size` |
+| N | token 수 = (L − P)/S + 2 | `num_patches` |
+| T | spiking time-step = 같은 patch를 반복해 보여 주는 횟수 | `--hippo_T` |
+| D | d_model | `-emb` |
+| D_h | MLP hidden = r·D(r = MLP 비율) | `--mlp_ratios` |
+| M | 방향별 mixer 층 수 | `--time_layers` |
+| K | block 수 | `--layers` |
+| τ, θ | membrane 시간 상수, 문턱값 | `--neo_tau`(= `--tau`), 1 |
+
+### 연산(위에서 아래로)
+1. **정규화 + channel 독립:** x [B, L, C] → μ, σ = window별 · channel별 평균과 표준편차(L 축, 학습 안 함) → x̃ = (x − μ)/σ → permute · reshape → z [B', 1, L].
+2. **patch:** z 끝에 마지막 값을 S개 복사(ReplicationPad) → [B', 1, L + S] → unfold(크기 P, 간격 S) → [B', 1, N, P] → [B', N, P] → T번 복사 → tok [T, B', N, P]. T개의 복사본은 모두 같다.
+3. **embedding:** [T·B', N, P] → Linear(P → D) → [T·B', N, D] → BN(D, [T·B', D, N]으로 놓고 D마다 나머지 축 통계) → [T, B', D, N] → LIF(**T 축이 시간**, neuron 안에서는 [T, B'·N, D]) → e [T, B', N, D](0/1). 같은 전류가 T step 동안 들어가므로 전류 크기가 T step 동안의 spike 수로 바뀐다.
+4. **block k = 1..K**(입력 x [T, B', N, D]):
+   - 4-1 축 바꾸기: x_m = x.permute(2, 1, 0, 3) → [N, B', T, D]. 이제 token 축이 neuron의 시간축이고, T개의 복사본은 서로 독립인 token 열로 같은 weight를 지난다.
+   - 4-2 정방향 stack(M층, 층마다 Linear(D → D) → BN(D, [N·B'·T, D]) → LIF(**N 축이 시간**, neuron 안에서 [N, B'·T, D])): F [N, B', T, D](0/1)와 마지막 층의 charge H_f − θ [N, B', T, D](실수). token n의 F는 token 1..n을 membrane에 쌓은 결과다.
+   - 4-3 역방향 stack(따로 된 weight): x_m.flip(0) → 같은 연산 → 다시 flip → R, H_r [N, B', T, D]. token n의 R은 token n..N의 결과다.
+   - 4-4 fusion(muxlin):
+     - d = |H_f − H_r| [N, B', T, D](두 방향이 같은 token에서 쌓은 charge의 차이, 실수).
+     - s_d = LIF_d(BN_d(d)) [N, B', T, D](0/1, N 축이 시간). "두 방향의 판단이 크게 다르다"는 spike다.
+     - L = LIF(BN(W_f [F ∨ R ; s_d])): concat [N, B', T, 2D] → Linear(2D → D) → [N, B', T, D] → BN → LIF(N 축) → [N, B', T, D].
+     - m = s_d · L + (1 − s_d) · (F ∧ R) [N, B', T, D]. s_d = 1이면 학습된 L, 0이면 두 방향의 AND를 고른다(선택기 = MUX). 0/1 값에서는 이 식이 선택과 정확히 같다(점검 c4).
+     - m.permute(2, 1, 0, 3) → [T, B', N, D].
+   - 4-5 잔차 1(IAND): x ← x ⊙ (1 − m) = x AND (NOT m). mixer 출력은 embedding spike를 **지우는** 억제 신호다.
+   - 4-6 MLP(token마다 따로): fc1 = [T·B', N, D] → Linear(D → D_h) → BN(D_h) → LIF(**T 축**, neuron 안에서 [T, B'·N, D_h]) → [T, B', N, D_h]; fc2 = Linear(D_h → D) → BN(D) → LIF(T 축) → [T, B', N, D].
+   - 4-7 잔차 2(IAND): x ← x ⊙ (1 − fc2(fc1(x))).
+   - block 출력 [T, B', N, D]은 block 입력의 부분집합이다. 그래서 최종 h는 embedding spike e의 부분집합이다(점검 c2, c7b).
+5. **head:** h [T, B', N, D] → T 평균 → f [B', N, D](값 k/T) → reshape [B', N·D] → Linear(N·D → H) → [B', H] → [B, C, H] → permute [B, H, C] → ·σ + μ.
+6. **학습:** L1 loss([B, H, C]), AdamW, ReduceLROnPlateau, early stopping(validation L1). spike는 Heaviside이고, 역전파에서는 arctan 대리 기울기(κ = surrogate_scale)를 쓴다. reset 항은 기울기를 막는다(detach).
+
+### LIF(spikeDE LIFNeuron, Euler, step 1; t = 그 neuron의 시간축 index, u_0 = 0)
+- H_t = u_t + (I_t − u_t)/τ(입력 전류 I_t를 새면서 쌓은 charge)
+- s_t = Θ(H_t − θ)
+- u_{t+1} = H_t − (θ/τ)·s_t(spike가 나면 θ 전체가 아니라 θ/τ만 뺀다)
+- 점검 c8: 이 식으로 손 계산한 spike와 H − θ가 model의 neuron과 같다.
+
+### 두 개의 시간축(이 구조의 핵심)
+| 부분 | neuron의 시간축 | neuron 안에서 batch로 묶이는 축 |
+|---|---|---|
+| embedding LIF | T | B'·N |
+| 정방향 · 역방향 mixer LIF | N | B'·T |
+| s_d LIF, fusion LIF | N | B'·T |
+| MLP fc1 · fc2 LIF | T | B'·N |
+- token 사이에 정보가 오가는 곳은 mixer와 fusion neuron의 membrane 상태(N 축)뿐이다. 마지막에는 head(Linear N·D → H)가 token을 합친다.
+- 모든 Linear는 token마다 따로 적용된다. 위치 embedding은 없다(pos_emb False). 순서 정보는 mixer의 방향성과 head의 token별 weight로만 들어간다.
+- T개의 복사본은 mixer 안에서 서로 섞이지 않는다. T 축은 embedding · MLP neuron의 시간 변화와 마지막 T 평균에서만 쓰인다.
+- Linear 입력의 종류: embedding Linear는 실수 patch, mixer · fusion · MLP Linear는 0/1 spike, head는 k/T 값이다. |H_f − H_r|는 Linear 없이 BN으로 바로 간다.
+
+### 점검(`NSMT/cinc_mixer_v1/results/check-shapes-20261126/trace_shapes.py` · `.txt`): ALL PASS
+- 설정: 축을 구분하려고 일부러 서로 다른 크기를 썼다(B 2, C 3, L 96, P 16, D 40, r 0.5, H 24, M 2, K 2, T 4). CPU, 무작위 초기값, train mode(BN batch 통계), no_grad. 모든 module의 입력 · 출력 차원을 호출 순서대로 적었다.
+- c1 neuron 출력 0/1(17개 module), c2 h ⊆ e, c3 head 입력이 k/T, c4 muxlin 식 재계산이 model과 같음, c5 출력 [B, H, C], c6 N = (L − P)/S + 2, c7 확인한 tensor마다 spike 있음, c7b IAND가 실제로 spike를 지움, c8 LIF 손 계산 일치.
+- **내 실수:** 첫 버전은 eval mode였다. BN running 통계가 초기값(평균 0, 분산 1)이고 weight 표준편차가 0.02라 spike가 하나도 나오지 않았고, c1–c4가 아무것도 검사하지 않은 채 통과했다(`trace_shapes_v1_eval_silent.txt`). train mode로 바꾸고 c7을 더했다. 차원 줄은 두 버전이 같다.
+
+### 정정(11-19 17:58 기록)
+- 그 기록의 표에 "patch 길이 8 (token 수 N = 12)", "{4, 8, 16} (N 24, 12, 6)"이라고 적었다. **틀렸다.** stride가 P/2라 N = (L − P)/S + 2이고, L 96에서 patch 4 / 8 / 16 / 24 / 32의 N은 48 / 24 / 12 / 8 / 6이다(model을 만들어 확인). 11-20 00:14 이후 기록은 맞는 값을 썼다. 학습과 판정은 code가 N을 계산하므로 영향이 없다.
+
+### 참고: 지금 첫 튜닝 설정의 값(ETTh1 / ETTh2 / ETTm1 / ETTm2)
+- 공통: L 96, T 4, τ 2, θ 1, B 64, mixer LIF, fusion muxlin, 잔차 IAND, bias 없음.
+- P 8 / 16 / 16 / 16(N 24 / 12 / 12 / 12), D 32 / 64 / 32 / 64, r 4 / 0.5 / 0.5 / 2, M 1 / 1 / 2 / 1, K 1 / 1 / 3 / 1.
+
+**commit:** 이 기록과 `results/check-shapes-20261126/{trace_shapes.py, trace_shapes.txt, trace_shapes_v1_eval_silent.txt}`를 `exp/f-lif-pop-v3`에 commit · push한다.
