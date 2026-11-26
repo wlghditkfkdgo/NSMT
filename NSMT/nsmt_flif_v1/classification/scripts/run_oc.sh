@@ -11,7 +11,7 @@ PY=${PY:-/home/yschoi/.conda/envs/snn_recall/bin/python}
 export LD_LIBRARY_PATH="$(dirname "$(dirname "$PY")")/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 C=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 SUITE=${SUITE:-flif-v1-oc}; EPOCHS=${EPOCHS:-30}; MAXB=${MAXB:-0}
-case $DS in SC|MITBIH|MBIP) SEED=$A; FOLD=0; ID=s$A ;; SLEEPIN|SLEEPCTX|SLEEPPSD) SEED=42; FOLD=$A; ID=f$A ;; *) echo "bad DS $DS"; exit 2 ;; esac
+case $DS in SC|MITBIH|MBIP|PTB|PTB30) SEED=$A; FOLD=0; ID=s$A ;; SLEEPIN|SLEEPCTX|SLEEPPSD) SEED=42; FOLD=$A; ID=f$A ;; *) echo "bad DS $DS"; exit 2 ;; esac
 SHA=$(cd "$C" && git rev-parse --short HEAD); TS=$(date +%Y%m%d)
 RES=$C/results/$SUITE; mkdir -p "$RES" "$C/log/$SUITE/stdout"
 D=$C/log/$SUITE/$DS/$TS/${COND}+seed${SEED}+fold${FOLD}+ep${EPOCHS}+$SHA

@@ -38,7 +38,8 @@ from torch.utils.tensorboard import SummaryWriter
 
 import oc_data as D
 
-NCLS = {'SC': 35, 'MITBIH': 5, 'SLEEPIN': 5, 'SLEEPCTX': 5, 'SLEEPPSD': 5, 'MBIP': 4}   # MODI 2026-11-26 (evening): + SLEEPPSD, MBIP
+NCLS = {'SC': 35, 'MITBIH': 5, 'SLEEPIN': 5, 'SLEEPCTX': 5, 'SLEEPPSD': 5, 'MBIP': 4,   # MODI 2026-11-26 (evening): + SLEEPPSD, MBIP
+        'PTB': 2, 'PTB30': 2}   # MODI 2026-11-27: PTB (PPT's ECG set; ppt_data.py), token = 10 (PTB, PPT's patch) or 30 (PTB30) points x 15 leads
 CTXL = {'SLEEPCTX': 16, 'SLEEPPSD': 16, 'MBIP': 17}    # levels whose condition carries _L<L> (L = tokens incl. the target)
 MB_VAL = [201, 118, 223, 114]   # MBIP validation records: DS1 ranked by S beats, ranks 2 / 4 / 6 / 8 (fixed before training)
 EVAL_SEED = 12345                                     # permutations of validation / test draws (fixed, so evaluation is reproducible)
@@ -97,6 +98,13 @@ class Data:
             self.x, self.y = torch.from_numpy(x).to(dev), torch.from_numpy(np.concatenate([ytr, yte])).to(dev)
             n = len(xtr)
             self.split = {'train': np.where(~val)[0], 'val': np.where(val)[0], 'test': n + np.arange(len(xte))}
+        elif ds in ('PTB', 'PTB30'):                                                   # MODI 2026-11-27: PTB heartbeats, PPT split
+            import ppt_data as PD
+            X, y, pid, sp = PD.load_ptb()
+            P = 10 if ds == 'PTB' else 30
+            x = torch.from_numpy(np.ascontiguousarray(X)).reshape(len(y), 300 // P, P * 15)   # token n = points nP..nP+P-1 of all 15 leads
+            self.x, self.y = x.to(dev), torch.from_numpy(y).to(dev)
+            self.split = {k: np.where(sp == v)[0] for k, v in (('train', 0), ('val', 1), ('test', 2))}
         elif ds == 'SLEEPPSD':                                                         # MODI 2026-11-26 (evening): epoch spectra
             _, lab, tgt, subj, rec, off = D.load_sleep()
             psd = D.load_sleep_psd()
@@ -152,7 +160,7 @@ class Data:
 
     def tokens(self, idx):
         i = torch.as_tensor(idx, device=self.dev)
-        if self.ds in ('SC', 'MITBIH'):
+        if self.ds in ('SC', 'MITBIH', 'PTB', 'PTB30'):
             return self.x[i], self.y[i]
         if self.ds == 'SLEEPIN':
             return self.xe[self.ctx[i, -1]].reshape(len(i), 30, 100), self.y[i]

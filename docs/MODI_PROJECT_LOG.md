@@ -12228,6 +12228,32 @@ fold 0의 lr 0.001 / 0.003 값과 기존 fold 1–4는 1단계(`flif-v1-sleep-lr
 
 **Git:** pool이 끝난 뒤 이 항목, `mbip2.py`, `results/mbip2-stage0-20261127/stage0.txt`를 commit한다.
 
+## 2026-11-27 02:54 KST — 사용자 결정 기록 + 사전 고정 + 구현 (학습 전): PTB(PPT의 심전도 dataset) 순서 확인 시험, 24 run. data 검증(198명 label 일치, 환자 단위 분할 142 / 28 / 28), 점검 10/10 + 기존 30/30 · 24/24, 요약 script 시험 통과, smoke 5/5. **Sleep 후속 pool이 끝난 뒤 commit하고 시작한다**
+
+**사용자 질문 / 결정 (11-27, 원문):** "PPT 논문에서 검증에 활용한 time-series dataset을 고려해보는 것은 어때?" → 내 검토(PTB 후보 1, MS-HAR 후보 2, Gilon은 요청 필요, Sleep EEG / EMOPain / UEA는 제외; PPT의 근거는 test 때만 섞은 하락이라 다시 학습으로 확인 필요). 이어서 "1. 지금 우리가 이야기하는 '순서'는 patch token의 순서가 맞지? 2. 확인 시험을 진행하면서, 지금 사용하는 구체적인 확인 방법에 대해서 설명해줘." → 확인 시험 진행.
+
+**data (`nsmt_flif_v1/classification/dataset/ppt_ptb/`, Git 제외):**
+- PPT 저자 Google Drive(`eai-lab/PPT` readme의 link)에는 PTB의 분할 CSV(train / val / test_label.csv)만 있고 신호 file이 없다(MS-HAR도 학습 신호가 없다). 분할 CSV를 받았다: 62,370 표본, 환자 142 / 28 / 28, **겹침 없음**.
+- 신호는 같은 출처의 Medformer 공개본(COMET 전처리; Medformer README의 Google Drive file `14fBIXc2gSHm00wLaejNIsPgitc-wZdXu`, 1,420,305,551 byte, SHA256 `dataset/ppt_ptb/medformer_ptb.zip.sha256`)을 받았다. COMET의 figshare 사본은 이 서버에서 빈 응답(HTTP 202)이었다. 내용: 198명, 박동 64,356개, 각 [300점(250 Hz, R-peak에서 시작, 0 채움), 15 lead], `allow_pickle=False`로만 읽었다(pickle file 없음).
+- **PPT 분할과 대조:** 환자 id와 label이 198 / 198 일치. PPT의 표본 수(62,370)는 환자마다 조금 적고(예: 370 → 360), `trial_id`(1–5,395)는 박동 번호가 아니어서 PPT의 정확한 표본을 재현할 수 없다. **환자 분할은 PPT 그대로, 표본은 그 환자의 박동 전부(64,356)**를 쓴다 — 학습 55,621 / validation 3,543 / test 5,192(MI / 정상 = 47,807 / 7,814, 2,300 / 1,243, 3,758 / 1,434).
+- 도구: `gdown`을 scratchpad에만 설치(환경은 바꾸지 않음).
+
+**구현:** `ppt_data.py`(새 파일; 지금 도는 Sleep pool이 import하는 `oc_data.py`는 건드리지 않음), `order_check.py`에 level `PTB`(token = 10점 × 15 lead = 150값, 30개; PPT 지도 학습의 patch 10)와 `PTB30`(30점, 10개; token 크기 영향 보고용), `run_oc.sh`에 PTB = seed 대응, `check_oc3.py`, `summarize_oc3.py`, `scripts/{make_queue_oc3.sh, oc3_driver.sh}`.
+
+**시험 (다른 진단과 같은 틀):** model = GRU(2층, 마지막 step) / Transformer(2층, 학습되는 위치 embedding, token 평균), 원 순서 vs 표본마다 매번 새로 섞은 순서(학습·validation·test 모두), AdamW 1e-3, wd 1e-2, warm-up + cosine, 30 epoch, batch 256, CE(가중 없음), validation macro-F1 최고 epoch로 test. seed 42 / 7 / 2026. 2 level × 4 조건 × 3 seed = **24 run**.
+
+**판정 (사전 고정, `summarize_oc3.py`; PTB만 판정, PTB30은 보고):** test macro-F1(2 class), d_m = m 원 순서 − m 섞은 순서, V_B = 두 model 중 큰 평균. 강함 ≥ 3.0이고 3/3, 중간 ≥ 1.0이고 ≥ 2/3, 그 밖 약함. **강함 = 순서 주장의 후보 과제(시험 전에 사용자에게 말한 조건 "3 %p 이상"), 중간 = 약한 후보, 약함 = 후보 아님.** 보고만: accuracy 차이, 최고 원 순서 − 최고 섞은 순서, PPT식 test 때만 섞은 하락(PPT Table 3: PatchTST 78.6 → 76.3, PITS 82.0 → 71.6 accuracy), PTB30.
+
+**점검:** `check_oc3.py` **10/10**(박동 수와 모양, 환자 분할 겹침 없음, 모든 환자가 PPT 분할·label과 같음, 환자당 label 하나, token j = 점 jP..jP+P−1의 15 lead 전부, 분할 = PPT 환자, 섞어도 표본의 token 집합 유지; PTB와 PTB30 각각). 기존 `check_oc.py` 30/30, `check_oc2.py` 24/24 다시 통과. `summarize_oc3.py` 시험: 심어 둔 답 세 벌(강함 / 중간 / 약함), 멈춰야 하는 6경우 모두 멈춤.
+
+**smoke (실험 아님):** `results/smoke-oc3-20261127/raw.txt`(1 epoch 5 batch, 3 run) + `-ep1`(1 full epoch 2 run): RESULT 5, SKIP 0. 1 epoch 약 7 s, 최대 memory 1.4 GB. (smoke의 sha 칸은 아직 commit 전 HEAD `43afbb75e`다.)
+
+**실행 (예정):** Sleep 후속 pool(`flif_sleep2`)이 끝나고 그 결과와 이 사전 고정을 commit · push 한 뒤, tmux `flif_oc3`: `bash nsmt_flif_v1/classification/scripts/oc3_driver.sh 0,1,2,3,0,1,2,3`.
+
+**한계:** PPT와 표본 집합이 조금 다르다(64,356 vs 62,370). 단일 박동(1.2 s)이라 (A) 긴 축적은 재지 않는다. 순서는 시간 축 patch 순서만 섞는다(PPT의 channel별 섞기와 다름: 우리는 15 lead를 같이 옮긴다).
+
+**not run:** MS-HAR(PPT 전처리 신호가 공개 Drive에 없어 원 data에서 다시 만들어야 함), Gilon(요청 필요), 우리 SNN의 PTB 학습.
+
 ## 2026-11-27 04:26 KST — 결과: (나) 후속 — 같은 lr 비교와 query form의 순서 / 기억 대조 (32 run, 사전 고정 `43afbb75e`) — **query form의 이점은 lr에 달려 있고(pop LIF: lr 0.001에서 +1.56 "좋음", lr 0.003에서 +0.13 "차이 없음"; pop f-LIF 지지 안 됨), Neocortex의 순서 몫과 기억 몫은 두 neuron 모두 "차이 없음"이다.** 21:54 비교의 "query pop LIF 좋음(+1.10)"은 일부가 lr 차이였다
 
 **실행:** tmux `flif_sleep2`, 02:33:42 – 04:25:51, **RESULT 32 / 32, SKIP 0**, sha 하나(`43afbb75e`). 다른 대화의 ETT 작업 8개가 같은 GPU를 함께 썼다. 요약 `results/flif-v1-sleep2/{summary.md, decision.json}`(driver가 `summarize_sleep2.py`로 냄).
