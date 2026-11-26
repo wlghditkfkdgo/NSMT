@@ -11660,3 +11660,98 @@ ETT는 test MSE 비율 r = A / B − 1(%), 12쌍. MIT-BIH는 macro-F1 차이 d(%
 ### Git
 
 - 이 항목과 `acf_cos.py`, `results/acf-cos-20261126/acf_cos.txt`를 하나의 commit으로 묶는다(학습이 없어 tag는 달지 않는다). `exp/nsmt-flif-neo`만 push 한다.
+
+## 2026-11-26 17:28 KST — 사용자 결정 기록 + 사전 고정 + 구현 (학습 전): 순서 / 축적 확인 시험 — Speech Commands, Sleep-EDF-20(epoch 안 / epoch 사이), MIT-BIH(눈금 확인)에서 진단용 reference model(GRU, PatchTST식 Transformer)을 정상 순서와 token을 섞은 순서로 학습해 비교한다(80 run). data 검증 통과(Sleep-EDF class 개수와 Speech Commands 분할 개수가 발표값과 정확히 같음), 점검 30/30, smoke 14/14
+
+**사용자 결정 (11-26, 원문 요지):** "1. 진행" — 17:06 항목의 확인 시험 계획 초안을 승인. "2. MIT-BIH 환자 단위 분할 + 앞 beat 입력이 선행 연구가 있는 방법이야? 단순 환자 단위 분할만 존재하는 것으로 알고 있는데 우선 선행 연구의 문헌들을 찾아보는 것이 좋겠어." "3. PPT에서는 순서를 섞어서 training을 하지는 않았어?"
+
+**3번 답 (PPT 원문 다시 확인):** PPT는 섞은 patch 열을 학습에 쓴다. 다만 보조 손실(consistency: 원 순서 vs 강하게 섞은 순서를 맞히기, contrastive: 약하게 vs 강하게 섞은 것 구별)에만 쓰고, 분류기(CE)는 원 순서로만 학습한다. App. F: "the permuted sets were used to calculate the consistency and contrastive losses, but no logits from the patch sequences were directly penalized". 순서 시험(Table 3 "Permuted")은 "a previously unseen, strongly permuted (γ = 40) test set"이다. **섞은 data로 분류기를 학습해 정확도를 비교하는 시험은 없다.** 17:06 항목의 "test에서만 섞는다"는 순서 시험에 대해서는 맞지만, 섞은 열이 학습(보조 손실)에 쓰인다는 점을 빠뜨렸다.
+
+**2번:** MIT-BIH 환자 단위 분할 + beat 문맥의 선행 연구 조사를 시작했다(학습 없음; 조사 세 갈래: 문맥을 쓰는 방법과 그 ablation, 환자 단위 분할 규약과 baseline, SNN의 환자 단위 결과). 결과는 따로 기록한다.
+
+**branch / 기준 commit:** `exp/nsmt-flif-neo`, 기준 `6ac3e9102`.
+
+### 목적
+
+과제의 성질을 잰다: (B) token의 순서가 필요한가, (A) 긴 입력(축적)이 필요한가. 우리 SNN model의 성능 비교가 아니다. 통과한 과제에서만 구조 비교(query form vs key/value form × pop LIF / pop f-LIF)를 한다(사용자 결정 11-25).
+
+### data (모두 `nsmt_flif_v1/classification/dataset/`, Git 제외)
+
+- **Speech Commands v0.02** (Warden 2018): `download.tensorflow.org/data/speech_commands_v0.02.tar.gz`, 2,428,923,189 byte, md5(base64) `a3TzkBIUyywpNOmBloKYNQ==` = 서버 값. 35단어, 공식 `validation_list.txt` / `testing_list.txt`, 나머지가 학습. **개수 84,843 / 9,981 / 11,005 = 발표값.** 1 s(16 kHz)로 자르거나 0 채움, log-mel 40 band, 창 25 ms(400), hop 10 ms(160), 101 frame → 마지막 frame 버림 → 40 × 100. 학습 clip으로 band마다 평균 / 표준편차 정규화. cache `speech_commands/sc35_logmel40.npz`(float16).
+- **Sleep-EDF-20** (Kemp et al. 2000; PhysioNet `sleep-edfx/1.0.0/sleep-cassette`, subject 0–19, 39 night): PSG 39 + hypnogram 39 = 78 file, **SHA256 78/78 일치**(`SHA256SUMS_20.txt`). EEG Fpz-Cz, 100 Hz, 30 s epoch. label은 DeepSleepNet(`prepare_physionet.py`) 규칙: W / 1 / 2 / 3 / 4 / R → W / N1 / N2 / N3 / N3 / REM, `Sleep stage ?`·`Movement time` 제거 뒤 첫 non-W 30분 전부터 마지막 non-W 30분 뒤까지(남은 epoch 기준 60개). **target 개수 W 8,285 / N1 2,804 / N2 17,799 / N3 5,703 / REM 7,717 = 42,308, 발표값(DeepSleepNet / AttnSleep 논문의 Sleep-EDF-20 Fpz-Cz)과 정확히 같다.** EDF reader는 직접 썼다(`oc_data.read_edf`; 환경에 pyedflib / mne 없음). 문맥 epoch는 같은 night의 바로 앞 원 epoch들(label과 무관)이고, night마다 첫 target 앞 15개를 남겨 모든 L에서 target 집합이 같다. cache `sleep_edf20/sleepedf20_fpzcz.npz`. 분할: subject 5-fold(fold f의 test = subject 4f..4f+3, validation = 다음 두 subject(순환), 나머지 14 = 학습). 정규화: 학습 target epoch의 전체 평균 / 표준편차.
+- **MIT-BIH** (Kachuee et al. 2018 beat, 지금까지 쓴 파일): train_7 76,612 / test_3 32,833, validation = train의 class별 10 %(seed 0).
+
+### token (PPT 규칙: 표본당 10–40개; SLEEPCTX는 epoch 하나가 token)
+
+| 수준 | 입력 | token | 지표 |
+|---|---|---|---|
+| SC | log-mel 40 × 100 | 4 frame(40 ms) × 40 band = 160값, 25개 | 정확도 |
+| MITBIH | 187점 | 17점, 11개 | macro-F1 |
+| SLEEPIN (epoch 안) | 30 s epoch 하나 | 1 s(100점), 30개 | macro-F1 (정확도 보고) |
+| SLEEPCTX (epoch 사이) | 대상 epoch + 앞 L − 1개 epoch | 30 s epoch(3,000점), L개 | macro-F1 (정확도 보고) |
+
+### model (진단용; 결과표 baseline이 아님)
+
+- token encoder: SC / MITBIH는 MLP(Linear-GELU-Linear-LayerNorm, 128), SLEEPIN은 1 s용 작은 CNN(3 conv, 평균 pooling), SLEEPCTX는 TinySleepNet(Supratak & Guo 2020)식 30 s CNN(conv 128 × k50 s6, maxpool 8, 3 conv k8, maxpool 4, flatten, Linear 128).
+- `gru`: 2층 단방향 GRU(128), 마지막 step을 읽음(순서를 구조로 봄).
+- `tf`: 2층 Transformer encoder(128, 4 head, pre-norm, FF 256) + 학습되는 절대 위치 embedding, token 평균(SLEEPCTX는 마지막 token = 대상 epoch)을 읽음.
+
+### 조건 (`order_check.py`)
+
+- `orig`: 원 순서. `shuf`: 표본마다, 뽑을 때마다 새 무작위 순열(학습, validation, test 모두; 평가 순열은 고정 seed 12345). token 자체는 그대로. SLEEPCTX는 앞 epoch만 섞고 대상 epoch는 마지막에 둔다.
+- (A): SC `_k10` / `_k5` = 가운데 10 / 5 token(0.4 / 0.2 s; 가운데 시작 (25 − k) // 2), SLEEPCTX `_L16` / `_L4` / `_L1`(앞 7.5분 / 1.5분 / 없음).
+- 보고만: `orig`로 학습한 model을 섞은 test로 5번 평가(PPT의 "Permuted" 방식).
+
+### 학습
+
+AdamW lr 1e-3, weight decay 1e-2, 1 epoch 선형 warm-up 뒤 cosine으로 0(step마다), batch 256(SLEEPCTX 64), 30 epoch, CE(class 가중 없음), gradient clip 1.0. 매 epoch validation, 최고 validation epoch(SC 정확도, 나머지 macro-F1)의 model로 test 1번. seed: SC / MITBIH 42 / 7 / 2026, SLEEP* fold 0–4 × seed 42.
+
+### run (80개)
+
+| 수준 | 조건 | 반복 | run |
+|---|---|---|---|
+| SLEEPCTX | gru / tf × orig / shuf (L16), gru orig L4, gru orig L1 | fold 5 | 30 |
+| SLEEPIN | gru / tf × orig / shuf | fold 5 | 20 |
+| SC | gru / tf × orig / shuf, gru orig k5, k10 | seed 3 | 18 |
+| MITBIH | gru / tf × orig / shuf | seed 3 | 12 |
+
+### 판정 (사전 고정, `summarize_oc.py`)
+
+- 차이는 %p, seed 또는 fold로 짝지음.
+- **(B) 순서:** 수준마다, model m ∈ {gru, tf}마다 d = orig − shuf. V_B = 두 model 중 평균 d가 큰 쪽의 평균, 그 model의 양수 쌍 수 pos / n. **강함:** V_B ≥ 3.0이고 pos = n. **중간:** 강함이 아니고 V_B ≥ 1.0이고 pos ≥ n − 1. **약함:** 그 밖.
+- **(A) 축적(gru, 원 순서):** SC d = 정확도(25 token) − 정확도(10 token), 3 seed 모두 양수; SLEEPCTX d = MF1(L16) − MF1(L1), 5 fold 중 4 이상 양수. 평균 d ≥ 2.0이면 **필요**, 아니면 **보이지 않음**. k5와 L4는 보고만.
+- **통과:** (B)가 강함 / 중간이거나 (A)가 필요. MITBIH는 눈금 확인용이다(우리 SNN run에서 순서 몫 0.67 %p; 약함이 예상).
+- fail closed: 80개가 정확히 한 줄씩, epoch 30, batch 제한 없음, 값이 유한, sha 하나; SKIP이 있으면 요약하지 않는다.
+
+### 실행
+
+- tmux `flif_oc`: `bash nsmt_flif_v1/classification/scripts/oc_driver.sh 0,1,2,3,0,1,2,3`(GPU당 2개; 큐 `scripts/queues/oc-20261126.txt`, pool 로그 `results/flif-v1-oc-pool.log`, suite `flif-v1-oc`). 한 run: `SUITE=flif-v1-oc bash nsmt_flif_v1/classification/scripts/run_oc.sh <DS> <cond> <seed|fold> <gpu>`. driver가 끝에 `summarize_oc.py`를 돌린다.
+- 산출물: run마다 `log/flif-v1-oc/<DS>/<날짜>/<cond>+seed<s>+fold<f>+ep30+<sha>/{logargs.txt, log/{best_log_0.csv, final+result.csv, train_0, val_0}, model_state/{config.pt, best+model.pt}}`, `results/flif-v1-oc/{raw.txt, summary.md, decision.json}`.
+
+### 점검 (`check_oc.py`, 30/30 PASS)
+
+- shuffle: 표본의 token 집합 유지, 95.8 %의 token 자리 이동, 64개 표본의 순열이 모두 다름, 같은 generator면 같은 결과, keep_last가 대상 epoch를 유지, L1이면 섞을 것이 없음.
+- 조건 문자열 오류 5종 거부. SC 분할 개수와 token 배치(token j = frame 4j..4j+3), 가운데 자르기(k10 = token 7..16). MITBIH 개수, validation 층화(class별 0.0996–0.1002), token = 연속 17점, 분할 겹침 없음. Sleep target 개수 = 발표값, fold마다 subject 14 / 2 / 4 겹침 없음, 모든 subject가 한 번씩 test, 문맥 = 바로 앞 15 epoch이고 같은 night, SLEEPIN token = 대상 epoch의 j번째 초.
+- model: gru, tf 모두 token 순서를 바꾸면 출력이 바뀜(2.7e-1 / 5.4e-3); tf에서 위치 embedding을 0으로 하면 순서를 못 봄(4.8e-7). 섞은 평가가 재현됨.
+- `summarize_oc.py` 시험(가짜 suite, scratchpad): 심어 둔 답(SC 강함·필요, MITBIH 약함, SLEEPIN 중간(4/5), SLEEPCTX 강함·보이지 않음)을 그대로 냄. 멈춰야 하는 13경우(줄 빠짐, SKIP, 중복, sha 둘, epoch 1, batch 제한, test·validation nan, 섞은 test 없음, 예상 밖 조건, Sleep seed ≠ 42 등)가 모두 멈춤. 첫 시험에서 두 경우는 내 시험 문자열이 틀려 대상을 못 건드렸고(script 문제 아님), 고쳐 다시 돌려 멈춤을 확인했다.
+
+### smoke (실험 아님)
+
+- `results/smoke-oc-20261126/raw.txt`: 10 run(1 epoch, 5 batch; 네 수준, 두 model, orig / shuf, k5, L1), RESULT 10, SKIP 0. L1에서 섞은 test = 정상 test(섞을 것이 없음).
+- `results/smoke-oc-20261126-ep1/raw.txt`: 1 full epoch 4 run, RESULT 4. run 시간(load 포함) MITBIH 7 s, SC 9 s, SLEEPIN 9 s, SLEEPCTX 21 s; 최대 GPU memory 0.2 / 1.7 / 1.7 / 2.5 GB → GPU당 2개.
+
+### 한계
+
+- 진단용 model 두 종류, 한 학습 설정(조정 없음). 순서 몫은 model에 따라 다를 수 있다 — 그래서 두 model 중 큰 값을 쓴다.
+- token 크기 하나(PPT 규칙). token을 더 작게 하면 순서 몫이 커질 수 있다.
+- SC의 가운데 자르기는 단어가 clip 가운데 있다고 가정한다.
+- Sleep-EDF는 subject 20명, 5-fold 한 번. 표준 20-fold와 다르다.
+- SLEEPCTX의 축적 몫에는 "앞 epoch의 단계가 이어지는 성질"도 들어 있다. 순서 몫(B)은 앞 epoch 집합을 같게 두고 순서만 바꾸므로 이것과 분리된다.
+
+### not run
+
+- 우리 SNN model(구조 비교 단계), MIT-BIH 환자 단위 분할(문헌 조사 중), Speech Commands / Sleep-EDF의 ACF-CoS(측정은 돌릴 예정, 보고만).
+
+### Git
+
+- 이 항목과 `oc_data.py`, `order_check.py`, `check_oc.py`, `summarize_oc.py`, `scripts/{run_oc.sh, make_queue_oc.sh, oc_driver.sh}`, smoke `raw.txt` 2개를 사전 고정 commit으로 묶어 push 한 뒤 시작한다. pool이 도는 동안 이 파일들을 고치지 않는다.
