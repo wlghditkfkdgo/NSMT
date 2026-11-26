@@ -12300,3 +12300,44 @@ fold 0의 lr 0.001 / 0.003 값과 기존 fold 1–4는 1단계(`flif-v1-sleep-lr
 ### Git
 
 - 이 항목, `results/flif-v1-sleep2/{raw.txt, summary.md, decision.json}`, run마다 text 산출물을 commit하고 tag `exp/nsmt-flif-neo-20261127-sleep2`를 단다. 같은 commit에 앞의 02:34 / 02:35 항목((가) v2 0단계), `mbip2.py`, `results/mbip2-stage0-20261127/stage0.txt`를 넣는다. PTB 사전 고정(02:54 항목과 code)은 다음 commit으로 따로 한다.
+
+## 2026-11-27 04:31 KST — 결과: PTB 순서 확인 시험 (24 run, 사전 고정 `4320724aa`) — **PTB(token 10점)는 "중간" → 약한 후보.** GRU의 순서 몫은 평균 +5.33 %p지만 seed마다 −3.25 / +13.62 / +5.63으로 크게 흔들리고(2/3), Transformer는 +1.10(1/3)이다. token을 30점으로 키우면 순서 몫이 사라진다(GRU +0.31, Transformer −2.52)
+
+**실행:** tmux `flif_oc3`, 04:27:10 – 04:30:36, **RESULT 24 / 24, SKIP 0**, sha 하나(`4320724aa`). run 평균 PTB 63 s, PTB30 53 s, 최대 memory 1.4 GB. 다른 대화의 작업이 같은 GPU를 함께 썼다. 요약 `results/flif-v1-oc3/{summary.md, decision.json}`.
+
+### 결과 (test %, seed 42 / 7 / 2026, 평균 ± 표준편차)
+
+| level | 조건 | macro-F1 | accuracy | test 때만 섞은 test (macro-F1 / acc, 보고) |
+|---|---|---|---|---|
+| PTB (token 10점, 30개) | gru 원 순서 | 84.04 ± 5.00 | 88.93 ± 2.90 | 53.48 / 74.29 |
+| | gru 섞음 | 78.71 ± 3.62 | 85.42 ± 1.69 | — |
+| | tf 원 순서 | 77.21 ± 2.94 | 84.47 ± 1.87 | 76.29 / 84.16 |
+| | tf 섞음 | 76.11 ± 3.47 | 83.64 ± 1.60 | — |
+| PTB30 (token 30점, 10개; 보고) | gru 원 순서 | 79.01 ± 3.51 | 85.89 ± 1.64 | 54.06 / 74.47 |
+| | gru 섞음 | 78.71 ± 1.67 | 84.82 ± 0.74 | — |
+| | tf 원 순서 | 74.18 ± 3.60 | 83.15 ± 1.80 | 71.42 / 81.98 |
+| | tf 섞음 | 76.70 ± 3.40 | 84.01 ± 2.10 | — |
+
+| 비교 (macro-F1) | seed별 d | 평균 | 양수 |
+|---|---|---|---|
+| PTB gru 원 순서 − 섞음 | −3.25 / +13.62 / +5.63 | **+5.33** | 2/3 |
+| PTB tf 원 순서 − 섞음 | +4.37 / −1.01 / −0.05 | +1.10 | 1/3 |
+| PTB30 gru | +1.52 / −4.49 / +3.88 | +0.31 | 2/3 |
+| PTB30 tf | −2.11 / −2.47 / −2.98 | −2.52 | 0/3 |
+
+- 사전 규칙: PTB = **중간**(V_B +5.33, gru, 2/3; 강함은 3/3이 필요) → **약한 후보**. PTB30 = 약함(보고).
+- 보고만: accuracy로는 gru +3.51(2/3), tf +0.83. PPT식 test 때만 섞은 accuracy 하락은 gru 14.63, tf 0.31(PPT Table 3: PatchTST 2.3, PITS 10.4). 다시 학습한 차이와 비교하면 GRU에서 다시 크게 부풀려진다.
+
+### 읽기 (추론)
+
+- PTB의 순서 신호는 **가는 token(10점 = 40 ms)에서만** 보이고 30점 token에서는 사라진다. 박동 안의 순서 정보가 120 ms 조각 안에 대부분 담긴다는 뜻이다(MIT-BIH의 17점 vs 32점과 같은 양상).
+- **흔들림이 크다:** test는 환자 28명이고 GRU 원 순서의 macro-F1 표준편차가 5.0이다. seed 셋으로는 +5.33이 우연인지 가를 수 없다. 더 확인하려면 seed를 늘리거나 환자 분할을 여러 번 바꿔야 한다(not run).
+- 이 시험은 과제의 성질만 잰다. 우리 SNN(token 10점이면 30 step)이 이 순서를 쓰는지는 따로 재야 한다.
+
+### not run
+
+- seed / 환자 분할 추가, 우리 SNN의 PTB 학습, MS-HAR.
+
+### Git
+
+- 이 항목과 `results/flif-v1-oc3/{raw.txt, summary.md, decision.json}`, run마다 `logargs.txt`, `log/{best_log_0.csv, final+result.csv}`를 commit하고 tag `exp/nsmt-flif-neo-20261127-ptb`를 단다.
