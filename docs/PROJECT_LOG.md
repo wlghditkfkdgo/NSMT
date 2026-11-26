@@ -17261,3 +17261,64 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 4. 시험 범위(데이터셋, neuron, ablation 팔)와 판정 규칙. energy 계산기를 먼저 만든다.
 
 **commit:** 이 기록과 `results/check-attnmask-20261126/{est_energy.py, est_energy.txt}`를 `exp/f-lif-pop-v3`에 commit · push한다.
+
+## 2026-11-26 23:54 KST — 사용자 답 · 질문 5개(학습 없음): Sinkformer는 non-SNN이므로 적극 참고, 두 방향 weight 독립 / 공유 비교, 잔차는 우선 ADD로 고정, 주장할 contribution 세 개, "s_d 유지 + attention" 설계안. 설계 제안과 실험 팔 초안만 적는다. 구현 · 사전등록은 사용자 확인 뒤에 한다
+
+> 사용자 원문(요지): 1. Sinkformer는 SNN 도메인이 아니지? 그렇다면 적극적으로 참고해서 모델 설계를 하자. 2. "두 방향의 channel이 같은 뜻이라는 보장이 없다"에 대해 (1) 현재 구조 유지(독립 weight) (2) weight 공유 두 가지를 실험하면 어떤가? 3. IAND보다 ADD residual로 우선은 고정. 4. 성능이 나오면 주장할 contribution: T = N으로 spiking neuron의 temporal dynamic을 활용해 시계열의 시간 정보를 포착 / (energy 측정 후) energy가 적다 / (3 task 확장 후) task-general model. 5. "s_d는 유지하고 attention을 더하는 안"은 어떻게 설계되는가?
+
+- **branch / base:** `exp/f-lif-pop-v3`, base `bc2ec57c1`. 학습 없음.
+
+### 1. Sinkformer와 SNN 쪽 선행 연구
+- Sinkformer(Sander, Ablin, Blondel, Peyré, AISTATS 2022, arXiv 2110.11773)는 일반(non-spiking) Transformer다. attention의 softmax를 Sinkhorn 반복(행 · 열 정규화를 번갈아)으로 바꿔 attention 행렬을 이중 확률 행렬(행 합과 열 합이 모두 일정)로 만든다. 첫 반복은 softmax와 같으므로 Transformer가 특수한 경우다. 학습된 Transformer의 attention 행렬이 이중 확률 쪽으로 가는 관찰을 근거로 들었다. code: github.com/michaelsdr/sinkformers. (검색 결과 요약으로 확인. PDF 본문은 이번에 읽지 않았다.)
+- SNN에서 Sinkhorn · OT를 attention에 쓴 연구: web 검색 3회(standard 2, extended 1)에서 찾지 못했다. 근처 결과는 non-spiking OT attention(LOTFormer arXiv 2509.23436, ESPFormer arXiv 2502.07962, OTSeg)과 non-spiking 시계열 OT attention 1편(arXiv 2607.10740, 제목만 확인)이다. OpenAlex는 이 IP의 무료 일일 한도 초과로 응답하지 않았다. **"선행 연구 없음"은 확정이 아니다.** 사전등록 전에 다시 찾는다.
+
+### 2. 두 방향 weight: 독립 vs 공유
+- 공유하면(같은 NeoLayer를 두 방향에 씀), 첫 층에서 역방향 입력 전류는 정방향 전류를 뒤집은 것과 정확히 같다. u = BN(W x_m)은 token마다 계산되고 BN 통계도 같은 행 집합에서 나오기 때문이다. 그러면 H_f[n]은 u_1..u_n을, H_r[n]은 u_N..u_n을 같은 neuron 식으로 쌓은 값이 된다. 같은 feature를 반대 방향으로 쌓은 두 값이므로 channel 뜻이 구조상 같다.
+  - 그래서 |H_f − H_r|(s_d), 상관, OT 비용이 처음부터 뜻을 가진다.
+  - mixer parameter가 절반이 되고 연산 수는 같다(energy 같음).
+  - M ≥ 2이면 둘째 층 입력은 방향마다 다르지만 weight가 같으므로 channel 뜻은 계속 같다.
+- 구현: spikeDE neuron은 상태를 forward 안에만 가지므로, 같은 stack을 두 번 부르면 된다. BN을 공유하면 running 통계가 두 방향 입력으로 함께 갱신된다(층 1은 같은 값). 중간안(Linear 공유, BN 따로)도 가능하지만 사용자가 말한 두 팔(독립 / 전체 공유)로 시작한다.
+- 판단: 좋은 비교다. 공유가 이기면 "같은 feature를 두 시간 방향으로 쌓는다"는 해석이 깔끔해진다.
+
+### 3. ADD 잔차를 우선 고정
+- **구조상 이유(찬성):** IAND에서는 mixer가 embedding spike를 지우기만 한다. attention이 다른 token에서 가져온 정보를 더할 수 없다. ADD면 attention 출력이 spike를 더할 수 있다.
+- **기존 ETT 근거(11-02 잔차 단계, muxlin, 그때 설정 patch 8; `results/flif-v1-ett-spkmux-tune/summary_res.md`):**
+  - validation은 두 데이터셋 모두 IAND를 골랐다(점수, 낮을수록 좋음: ETTh2 ADD 1.0041 vs IAND 0.9938, ETTm2 0.9998 vs 0.9927).
+  - test MSE(H96 / H720): ETTh2 ADD 0.2892 / 0.4296, IAND 0.2952 / 0.4218. ETTm2 ADD 0.1797 / 0.4061, IAND 0.1775 / 0.4034.
+  - MIT-BIH muxlin은 ADD를 골랐다(11-02 16:15).
+- **energy(같은 suite, `energy_recount.csv`, seed 3 평균):**
+  - 몸통(syops 규칙: 0/1이 아닌 입력은 MAC): ADD가 IAND의 2.1배(ETTh2 11.6 vs 5.5 µJ), 3.0배(ETTm2 18.3 vs 6.1 µJ)다.
+  - 몸통(정수 규칙: 정수 입력은 값만큼 AC): ADD 5.3–5.9 µJ로 IAND와 거의 같다.
+  - head(step마다 AC로 다시 센 값): 입력이 정수 0–3이 되어 1.7–2.5배다.
+- **규칙의 일관성:** 사용자 결정(11-24)은 energy = syops다. 이 규칙이면 ADD가 우리 energy를 2–3배 올린다. 그래도 SpikF(785–908 µJ) 대비로는 여전히 낮다. 정수 규칙을 쓰려면 SpikF에도 같이 적용해야 공정하다(SpikF도 ADD 잔차라 입력이 0–4 정수).
+- **실험 설계상 주의:** 잔차와 합치기를 동시에 바꾸면 효과가 섞인다. 기준선(지금 muxlin)도 ADD로 돌려야 한다.
+
+### 4. contribution 세 개에 대한 검토
+- (가) "T = N으로 spiking neuron의 temporal dynamic을 활용해 시간 정보를 포착":
+  - 지금 model에서 T(반복)와 N(token)은 다른 축이다. 정확한 문장은 "mixer neuron이 token 축을 시간축으로 쓴다"이다.
+  - 근거가 아직 없다. MODI 쪽 model에서는 ETT 몸통의 순서 사용이 1 % 이하였고, 순서 정보는 대부분 flat head에서 왔다(11-20). 우리 SpkMixer에서는 재지 않았다.
+  - attention 자체는 순서를 모른다(위치 embedding 없음). 순서는 membrane(방향 stack)을 통해서만 들어온다.
+  - 필요한 증거: token 순서 섞기 평가, 기억 없는 neuron 대조(방향 stack의 시간 적분을 없앰), SF-de(T = N 없는 attention)와 비교.
+- (나) energy: SpikF 대비 낮음은 지금도 성립한다(1–4 %). 단 attention 곱 · Sinkhorn 반복 · 원소 연산을 세는 계산기와, 규칙(syops / 정수)의 명시가 필요하다. Sinkhorn의 exp · 나눗셈은 AC / MAC 분류에 없으므로 따로 세어 보고한다.
+- (다) task-general: 같은 구조로 3 task에서 각 task의 baseline(11-24 결정: ETT = SpikF 논문 SNN 행 + DNN 행, AD = DNN, MIT-BIH = SNN MIT-BIH model)과 비교한 결과가 있어야 한다. 지금 ETT는 SpikF에 NOT PASSED다.
+- 추가 후보 (라): module 자체. "membrane으로 구한 OT coupling을 spike attention에 쓰는 양방향 fusion". 위 검색에서는 SNN 선행 연구를 찾지 못했다(확정 아님). 다만 Sinkhorn 부분은 spike 연산이 아니므로 "hybrid"로 정직하게 써야 한다.
+
+### 5. "s_d 유지 + attention" 설계안(공통 차원: F, R, H_f, H_r, s_d [N, B', T, D])
+- **Sinkformer식 mask(공통):**
+  - S[n, n'] = H̄_f[n] · H̄_r[n'] / (√D · ε)(H̄ = T 평균 membrane, [B', N, D]) 또는 비용 C = ‖H̄_f[n] − H̄_r[n']‖².
+  - K = exp(S)(또는 exp(−C/ε)) → Sinkhorn L회(행 · 열 정규화) → Π [B', N, N], 이중 확률 행렬. T개 복사본이 같은 Π를 쓴다(energy 1/T).
+  - spike map A_s = F Rᵀ [B', T, N, N]. 결합 P = A_s ⊙ (N · Π). 또는 K' = A_s ⊙ K를 Sinkhorn에 넣는다(spike map이 "옮길 수 있는 쌍"을 정하고, membrane이 비용을 정함). 이 경우 공통 발화가 없는 token 행이 0이 되므로 작은 하한이 필요하다.
+  - 출력: Z = P V(V = R, [N, B', T, D]) → BN → LIF(N 축) → a [N, B', T, D](0/1).
+  - 해석: Π[n, n']은 "n까지 쌓인 과거 요약"과 "n'부터 쌓인 미래 요약"의 짝이다. 주기 신호라면 과거가 다시 나타나는 위치를 가리킬 수 있다(가설).
+- **안 A(불일치 → attention):** m = s_d · a + (1 − s_d) · (F ∧ R). 지금의 학습된 fusion L 자리를 attention 출력 a가 대신한다. 두 방향이 크게 다르게 본 channel만 다른 시점을 참고하고, 일치하면 AND를 쓴다. MUX의 뜻이 그대로 남는다. Z[n, d]는 s_d[n, d] = 1인 곳에서만 필요하므로, spike-driven 구현에서는 계산을 s_d 발화율만큼 줄일 수 있다(지금 계산기로는 반영되지 않음).
+- **안 B(attention을 fusion 입력에 추가):** L = LIF(BN(W [F ∨ R ; s_d ; a])), W: 3D → D, m = s_d ? L : (F ∧ R). parameter가 D² 늘어난다.
+- **안 C(병렬 가지):** m = 지금 muxlin, a = attention. x ← x + m + a(ADD). 둘 중 하나를 빼는 ablation이 가장 깔끔하다.
+- **권장:** 안 A를 본 후보로, 안 C를 대조로 둔다. 안 B는 A와 겹쳐 뒤로 미룬다.
+
+### 실험 팔 초안(사전등록 전, 사용자 확인 필요)
+- 고정: ADD 잔차, single block(K = 1), 첫 튜닝의 나머지 설정, energy 계산기(행렬곱 · Sinkhorn · 원소 연산 포함)를 먼저 만든다.
+- 1단계(LIF; ETTh1 · ETTm1 × H96 / H720 × seed 3, 격차가 있는 칸): ① muxlin + ADD(독립), ② muxlin + ADD(공유), ③ 안 A mask 없음(공유), ④ 안 A Sinkhorn mask(독립), ⑤ 안 A Sinkhorn mask(공유) → 5팔 × 4칸 × 3 = 60 run.
+- 2단계: 이긴 팔에 population LIF · population f-LIF(상시 규칙)를 더하고, 16칸으로 넓힌다. SpikF 판정은 11-24 규칙 그대로 한다.
+- 정할 것: Sinkhorn 반복 L, ε, 점수(내적 / 거리), K' 형태 여부, V의 출처, 계산기의 exp 세는 법.
+
+**commit:** 이 기록만 `exp/f-lif-pop-v3`에 commit · push한다(code 변경 없음).
