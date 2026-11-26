@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # MODI 2026-11-26: one run of the order / accumulation check (order_check.py; docs/MODI_PROJECT_LOG.md 2026-11-26).
 # usage (from NSMT/, the pool appends the gpu):  SUITE=<suite> bash nsmt_flif_v1/classification/scripts/run_oc.sh <DS> <cond> <seed|fold> <gpu>
-#   DS = SC | MITBIH | SLEEPIN | SLEEPCTX; for SC / MITBIH the third argument is the seed, for SLEEP* it is the fold (seed 42).
+#   DS = SC | MITBIH | SLEEPIN | SLEEPCTX (+ MODI 2026-11-26 evening: MBIP, SLEEPPSD); for SC / MITBIH / MBIP the third argument
+#   is the seed, for SLEEP* it is the fold (seed 42).
 # env: SUITE (default flif-v1-oc), EPOCHS (default 30), MAXB (smoke only: batches per epoch), PY.
 # Writes one RESULT (or SKIP) line to nsmt_flif_v1/classification/results/<suite>/raw.txt.
 set -u
@@ -10,7 +11,7 @@ PY=${PY:-/home/yschoi/.conda/envs/snn_recall/bin/python}
 export LD_LIBRARY_PATH="$(dirname "$(dirname "$PY")")/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 C=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 SUITE=${SUITE:-flif-v1-oc}; EPOCHS=${EPOCHS:-30}; MAXB=${MAXB:-0}
-case $DS in SC|MITBIH) SEED=$A; FOLD=0; ID=s$A ;; SLEEPIN|SLEEPCTX) SEED=42; FOLD=$A; ID=f$A ;; *) echo "bad DS $DS"; exit 2 ;; esac
+case $DS in SC|MITBIH|MBIP) SEED=$A; FOLD=0; ID=s$A ;; SLEEPIN|SLEEPCTX|SLEEPPSD) SEED=42; FOLD=$A; ID=f$A ;; *) echo "bad DS $DS"; exit 2 ;; esac
 SHA=$(cd "$C" && git rev-parse --short HEAD); TS=$(date +%Y%m%d)
 RES=$C/results/$SUITE; mkdir -p "$RES" "$C/log/$SUITE/stdout"
 D=$C/log/$SUITE/$DS/$TS/${COND}+seed${SEED}+fold${FOLD}+ep${EPOCHS}+$SHA

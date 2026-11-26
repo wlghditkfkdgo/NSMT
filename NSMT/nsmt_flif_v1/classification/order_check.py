@@ -38,27 +38,37 @@ from torch.utils.tensorboard import SummaryWriter
 
 import oc_data as D
 
-NCLS = {'SC': 35, 'MITBIH': 5, 'SLEEPIN': 5, 'SLEEPCTX': 5}
+NCLS = {'SC': 35, 'MITBIH': 5, 'SLEEPIN': 5, 'SLEEPCTX': 5, 'SLEEPPSD': 5, 'MBIP': 4}   # MODI 2026-11-26 (evening): + SLEEPPSD, MBIP
+CTXL = {'SLEEPCTX': 16, 'SLEEPPSD': 16, 'MBIP': 17}    # levels whose condition carries _L<L> (L = tokens incl. the target)
+MB_VAL = [201, 118, 223, 114]   # MBIP validation records: DS1 ranked by S beats, ranks 2 / 4 / 6 / 8 (fixed before training)
 EVAL_SEED = 12345                                     # permutations of validation / test draws (fixed, so evaluation is reproducible)
 
 
 def parse_cond(ds, cond):
-    """gru_orig | gru_shuf | tf_orig | tf_shuf, + _k<k> (SC) or _L<L> (SLEEPCTX, required)."""
+    """gru_orig | gru_shuf | tf_orig | tf_shuf, + _k<k> (SC) or _L<L> (SLEEPCTX / SLEEPPSD / MBIP, required);
+    MBIP also gru_orig_L1_rr (the current beat + the mean pre-RR of the 16 beats before it, MODI 2026-11-26 evening)."""
     p = cond.split('_')
+    rr = ds == 'MBIP' and len(p) == 4 and p[3] == 'rr'
+    if rr:
+        p = p[:3]
     if p[0] not in ('gru', 'tf') or p[1] not in ('orig', 'shuf') or len(p) > 3:
         raise SystemExit(f'bad cond {cond}')
     c = dict(model=p[0], order=p[1], k=None, L=None)
+    if ds == 'MBIP':
+        c['rr'] = rr
     if len(p) == 3:
         if p[2].startswith('k') and ds == 'SC':
             c['k'] = int(p[2][1:])
-        elif p[2].startswith('L') and ds == 'SLEEPCTX':
+        elif p[2].startswith('L') and ds in CTXL:
             c['L'] = int(p[2][1:])
         else:
             raise SystemExit(f'bad cond {cond} for {ds}')
-    if ds == 'SLEEPCTX' and c['L'] is None:
-        raise SystemExit('SLEEPCTX needs _L<L>')
-    if c['L'] is not None and not 1 <= c['L'] <= D.CTX_MAX:
-        raise SystemExit(f'L must be 1..{D.CTX_MAX}')
+    if ds in CTXL and c['L'] is None:
+        raise SystemExit(f'{ds} needs _L<L>')
+    if c['L'] is not None and not 1 <= c['L'] <= CTXL[ds]:
+        raise SystemExit(f'L must be 1..{CTXL[ds]}')
+    if rr and c['L'] != 1:
+        raise SystemExit('_rr only with L1')
     if c['k'] is not None and not 1 <= c['k'] <= 25:
         raise SystemExit('k must be 1..25')
     return c
@@ -87,6 +97,43 @@ class Data:
             self.x, self.y = torch.from_numpy(x).to(dev), torch.from_numpy(np.concatenate([ytr, yte])).to(dev)
             n = len(xtr)
             self.split = {'train': np.where(~val)[0], 'val': np.where(val)[0], 'test': n + np.arange(len(xte))}
+        elif ds == 'SLEEPPSD':                                                         # MODI 2026-11-26 (evening): epoch spectra
+            _, lab, tgt, subj, rec, off = D.load_sleep()
+            psd = D.load_sleep_psd()
+            t = np.where(tgt)[0]
+            trm, vam, tem = D.sleep_fold(subj[t], fold)
+            mu, sd = psd[t[trm]].mean(0, keepdims=True), psd[t[trm]].std(0, keepdims=True)   # per bin, training target epochs
+            self.xe = torch.from_numpy((psd - mu) / sd).to(dev)                         # [n_epochs, 60]
+            self.t, self.y = t, torch.from_numpy(lab).to(dev)[torch.from_numpy(t).to(dev)]
+            self.split = {'train': np.where(trm)[0], 'val': np.where(vam)[0], 'test': np.where(tem)[0]}
+            ctx = t[:, None] - np.arange(c['L'] - 1, -1, -1)[None]
+            if (rec[ctx] != rec[t][:, None]).any():
+                raise SystemExit('context crosses a night boundary')
+            self.ctx = torch.from_numpy(ctx).to(dev)
+        elif ds == 'MBIP':                                                             # MODI 2026-11-26 (evening): MIT-BIH beats
+            m = D.load_mitdb()
+            rec, cls, rr, ok = m['rec'], m['cls'], m['rr'], m['ok']
+            K = D.MIT_K
+            idx_in_rec = np.zeros(len(rec), dtype=np.int64)
+            for r in np.unique(rec):
+                w = np.where(rec == r)[0]; idx_in_rec[w] = np.arange(len(w))
+            okp = np.array([ok[max(0, i - K):i + 1].all() for i in range(len(rec))])        # this beat and the 16 before it in the signal
+            tgt = (idx_in_rec >= K + 1) & (cls <= 3) & okp & np.isin(rec, D.DS1 + D.DS2)
+            t = np.where(tgt)[0]
+            if (rec[t - K] != rec[t]).any() or np.isnan(rr[t[:, None] - np.arange(K + 1)[None]]).any():
+                raise SystemExit('MBIP context crosses a record or lacks a pre-RR')
+            trr = np.isin(rec[t], D.DS1) & ~np.isin(rec[t], MB_VAL)
+            # each beat window standardised by its own mean and std (no patient or record statistics; chosen after a validation-only
+            # probe in which one global scale left the models unable to find S in unseen patients, docs/MODI_PROJECT_LOG.md 11-26)
+            w = m['w']; wz = (w - w.mean(1, keepdims=True)) / (w.std(1, keepdims=True) + 1e-6)
+            B = np.concatenate([wz, np.nan_to_num(rr)[:, None]], 1).astype(np.float32)   # token = 117 points + pre-RR (s)
+            self.B = torch.from_numpy(B).to(dev)
+            self.mrr = torch.from_numpy(np.array([rr[i - K:i].mean() for i in t], dtype=np.float32)).to(dev)   # mean pre-RR, 16 beats before
+            self.t, self.y, self.rec_t = t, torch.from_numpy(cls[t]).to(dev), rec[t]
+            self.split = {'train': np.where(trr)[0], 'val': np.where(np.isin(rec[t], MB_VAL))[0], 'test': np.where(np.isin(rec[t], D.DS2))[0]}
+            self.ctx = torch.from_numpy(t[:, None] - np.arange(c['L'] - 1, -1, -1)[None]).to(dev)
+            cnt = np.bincount(cls[t[trr]], minlength=4).astype(np.float64)
+            self.cw = torch.tensor(cnt.sum() / (4 * cnt), dtype=torch.float32, device=dev)   # balanced class weights (training)
         else:
             x, lab, tgt, subj, rec, off = D.load_sleep()
             t = np.where(tgt)[0]
@@ -109,7 +156,12 @@ class Data:
             return self.x[i], self.y[i]
         if self.ds == 'SLEEPIN':
             return self.xe[self.ctx[i, -1]].reshape(len(i), 30, 100), self.y[i]
-        return self.xe[self.ctx[i]], self.y[i]                                         # [B, L, 3000]
+        if self.ds == 'MBIP':
+            x = self.B[self.ctx[i]]                                                    # [B, L, 118]
+            if self.c['rr']:
+                x = torch.cat([x, self.mrr[i].view(-1, 1, 1)], -1)                     # [B, 1, 119]
+            return x, self.y[i]
+        return self.xe[self.ctx[i]], self.y[i]                                         # [B, L, 3000] (SLEEPPSD: [B, L, 60])
 
 
 def shuffle_tokens(x, gen, keep_last):
@@ -165,7 +217,7 @@ class CNN30s(nn.Module):
 class RefModel(nn.Module):
     def __init__(self, ds, c, n_tok, f, d=128):
         super().__init__()
-        self.kind, self.last = c['model'], ds == 'SLEEPCTX'
+        self.kind, self.last = c['model'], ds in ('SLEEPCTX', 'SLEEPPSD', 'MBIP')   # read the target token
         self.enc = CNN30s(d) if ds == 'SLEEPCTX' else CNN1s(d) if ds == 'SLEEPIN' else MLPTok(f, d)
         if self.kind == 'gru':
             self.seq = nn.GRU(d, d, num_layers=2, batch_first=True, dropout=0.1)
@@ -207,6 +259,30 @@ def evaluate(model, data, idx, shuf, keep_last, draw=0):
     return metrics(torch.cat(ys), torch.cat(ps))
 
 
+@torch.no_grad()
+def mbip_metrics(model, data, idx, shuf):
+    """test S / V sensitivity, positive predictivity, F1 (%), and S sensitivity in records 232 and 222 (DS2)."""
+    model.eval()
+    gen = torch.Generator(device=data.dev); gen.manual_seed(EVAL_SEED)
+    ps, ys = [], []
+    for a in range(0, len(idx), 1024):
+        x, y = data.tokens(idx[a:a + 1024])
+        if shuf:
+            x = shuffle_tokens(x, gen, True)
+        ps.append(model(x).argmax(1)); ys.append(y)
+    p, y = torch.cat(ps).cpu().numpy(), torch.cat(ys).cpu().numpy()
+    out = {}
+    for k, name in ((1, 'S'), (2, 'V')):
+        tp, fn, fp = int(((p == k) & (y == k)).sum()), int(((p != k) & (y == k)).sum()), int(((p == k) & (y != k)).sum())
+        se = 100.0 * tp / max(1, tp + fn); pp = 100.0 * tp / max(1, tp + fp)
+        out.update({f'{name}_se': se, f'{name}_pp': pp, f'{name}_f1': 2 * se * pp / (se + pp) if se + pp > 0 else 0.0})
+    r = data.rec_t[idx]
+    for rec in (232, 222):
+        m = (r == rec) & (y == 1)
+        out[f'S_se_{rec}'] = 100.0 * float((p[m] == 1).mean()) if m.any() else float('nan')
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--ds', required=True, choices=list(NCLS)); ap.add_argument('--cond', required=True)
@@ -219,7 +295,7 @@ def main():
     c = parse_cond(a.ds, a.cond)
     a.batch_size = a.batch_size or (64 if a.ds == 'SLEEPCTX' else 256)
     sel = 'acc' if a.ds == 'SC' else 'mf1'
-    keep_last = a.ds == 'SLEEPCTX'
+    keep_last = a.ds in ('SLEEPCTX', 'SLEEPPSD', 'MBIP')
     torch.manual_seed(a.seed); np.random.seed(a.seed)
     dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     t0 = time.time()
@@ -252,7 +328,7 @@ def main():
             x, y = data.tokens(order[b * a.batch_size:(b + 1) * a.batch_size])
             if c['order'] == 'shuf':
                 x = shuffle_tokens(x, gtr, keep_last)
-            loss = F.cross_entropy(model(x), y)
+            loss = F.cross_entropy(model(x), y, weight=data.cw if a.ds == 'MBIP' else None)
             opt.zero_grad(set_to_none=True); loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), 1.0); opt.step(); sched.step()
             tl += float(loss) * len(y); tn += len(y)
@@ -274,6 +350,8 @@ def main():
         res.update(ptest_acc=float(np.mean([m['acc'] for m in d])), ptest_mf1=float(np.mean([m['mf1'] for m in d])))
     else:
         res.update(ptest_acc=float('nan'), ptest_mf1=float('nan'))
+    if a.ds == 'MBIP':                                                                 # MODI 2026-11-26 (evening): per-class, per-record
+        res.update(mbip_metrics(model, data, data.split['test'], c['order'] == 'shuf'))
     res.update(params=npar, time_s=round(time.time() - t0, 1),
                peak_mem_gb=round(torch.cuda.max_memory_allocated() / 2 ** 30, 2) if dev.type == 'cuda' else 0.0)
     with open(os.path.join(a.log_dir, 'log', 'final+result.csv'), 'w', newline='') as f:

@@ -11834,3 +11834,96 @@ AdamW lr 1e-3, weight decay 1e-2, 1 epoch 선형 warm-up 뒤 cosine으로 0(step
 ### Git
 
 - 이 항목, `results/flif-v1-oc/{raw.txt, summary.md, decision.json}`, run마다 `logargs.txt`, `log/{best_log_0.csv, final+result.csv}`(checkpoint, TensorBoard event, stdout은 로컬), `acf_cos.py`와 `results/acf-cos-20261126/acf_cos_sc_sleep.txt`, 보고서와 노트 3개를 한 commit으로 묶고 annotated tag `exp/nsmt-flif-neo-20261126-oc`를 단다. `exp/nsmt-flif-neo`와 그 tag만 push 한다.
+
+## 2026-11-26 21:41 KST — 사용자 결정 기록 + 사전 고정 + 구현 (학습 전): 두 번째 진단 묶음 54 run — (나)의 front end 확인(SLEEPPSD: Sleep-EDF epoch spectrum token)과 (가) MIT-BIH 환자 단위 분할 + 과거 beat 확인(MBIP). data 검증 통과(MIT-BIH header checksum 48/48, 기록 100 / 232 / 222의 beat 수, DS1 / DS2 합계), 점검 24/24 + 기존 30/30, smoke 12/12. validation만 본 사전 탐색 두 번으로 beat 정규화를 정했다
+
+**사용자 결정 (11-26 저녁, 원문):** "1. ①" — (나) Sleep-EDF epoch 사이 구조 비교의 front end는 epoch마다 주파수 spectrum. "2. 병렬로 진행해줘." — (가) MIT-BIH 환자 단위 분할 + 과거 beat 확인 시험을 (나)와 나란히 진행.
+
+**그 사이의 질문과 답 (학습 없음):** 사용자는 (가)의 설명을 두 번 더 요청했다("과거 beat 확인이 기존 환자 단위 분할과 무엇이 다른지 + 참조 문헌", "R-R 숫자 같은 표현을 이해하지 못하겠다, 기초부터"). 내가 "R-R 숫자", "post-RR" 같은 말을 풀지 않고 써서 설명이 전달되지 않았다(내 실수, 용어 규칙 위반). 심전도 파형(P, QRS, T), R-peak, 박동 간격, S / V의 차이, 환자 단위 분할, 과거 박동 입력, 세 질문(축적, 순서, 숫자 두 개 요약)을 기초부터 다시 설명했다.
+
+**branch / 기준 commit:** `exp/nsmt-flif-neo`, 기준 `fe2bedada`.
+
+### 계획 (단계)
+
+1. 지금: 진단 묶음 54 run(SLEEPPSD 30 + MBIP 24), 진단용 GRU / Transformer(첫 묶음과 같은 model과 학습 설정).
+2. (나) SNN 구조 비교는 **SLEEPPSD가 통과할 때만** 시작한다(통과 규칙은 첫 묶음 SLEEPCTX와 같음). 통과하지 않으면 사용자에게 먼저 보고한다. SNN 쪽 code(Sleep-EDF data 경로, token 간격 option, 대상 epoch를 읽는 head)는 이 pool이 도는 동안 따로 구현하고(pool이 import하지 않는 파일만), 이 pool이 끝난 뒤 commit하고 따로 사전 고정한다.
+3. (가)의 SNN 단계는 MBIP 결과를 보고 사용자와 정한다.
+
+### data
+
+- **MIT-BIH Arrhythmia Database** (PhysioNet `mitdb/1.0.0`, 기록 48개 × .dat / .hea / .atr = 144 file, **SHA256 144/144 일치**; `nsmt_flif_v1/classification/dataset/mitdb/`, Git 제외).
+  - reader는 직접 썼다(`oc_data.read_mit_212`, `read_mit_atr`; 환경에 wfdb 없음). **header의 첫 sample 값과 checksum이 48개 기록의 두 signal 모두와 일치**(불일치면 멈춤).
+  - beat = annotation 중 AAMI class로 가는 code(de Chazal 2004 Table I: N = N L R e j, S = A a J S, V = V E, F = F, Q = / f Q).
+  - 검증: 기록 100 = N 2,239 / S 33 / V 1(PhysioNet의 beat 표와 같음), 기록 232 / 222의 S = 1,382 / 209(de Chazal Table VII와 같음). DS1 = 45,866 / 944 / 3,788 / 415 / 8(51,021), DS2 = 44,259 / 1,837 / 3,221 / 388 / 7(49,712) — **널리 인용되는 개수와 정확히 같다.** de Chazal Table II를 더한 값(51,020 / 49,711, 문헌 노트)과는 class마다 1–2개 다르다(어느 쪽이 맞는지는 원 표를 다시 봐야 함).
+  - 신호: MLII lead(기록 114는 둘째 channel), mV = (adu − 1024) / 200, **causal** 2차 Butterworth high-pass 0.5 Hz(앞으로만 거름; 시각 t의 값은 t 뒤의 sample을 쓰지 않음 — 점검 b2).
+  - beat 창: R-peak 앞 90 sample(0.25 s) ~ 뒤 144 sample(0.40 s), 2개씩 평균해 180 Hz, 117값. pre-RR = 직전 beat annotation까지의 거리(s).
+- **Sleep-EDF epoch spectrum** (`oc_data.build_sleep_psd`): 30 s epoch마다 Welch(2 s Hann, 50 % 겹침, 0.5 Hz 간격), 0.5–30 Hz 60 bin, log10(µV²/Hz + 1e-6). 42,954 epoch(첫 묶음과 같은 epoch, 같은 순서).
+
+### MBIP 설계 ((가))
+
+- 분할: DS1 → DS2(de Chazal 2004; paced 102, 104, 107, 217 제외). **validation = DS1 기록 201, 118, 223, 114**(DS1 기록을 S beat 수로 세운 2 / 4 / 6 / 8번째; 학습 전에 정함. S가 가장 많은 209는 학습에 남는다). 학습 = 나머지 DS1 18개, test = DS2 22개.
+- target: N / S / V / F beat 중 기록 안에서 앞에 beat가 17개 이상 있고 자기와 앞 16개의 창이 신호 안에 있는 것. 모든 조건이 같은 target 집합을 쓴다. 학습 N / S / V / F = 37,909 / 635 / 3,034 / 393, validation 7,598 / 309 / 730 / 20, test 43,902 / 1,826 / 3,201 / 388. DS2에서 빠지는 1,826 이외의 S는 11개(기록 시작 17 beat 안 374개 + 기록 끝 창 14개 중; 점검 c4).
+- token = beat 하나 = 창 117값(**beat마다 자기 평균 / 표준편차로 표준화**) + pre-RR(s). L = 과거 beat 수 + 1, 현재 beat가 맨 끝.
+- 조건: `gru_orig_L1 / L2 / L5 / L17`(과거 0 / 1 / 4 / 16 beat), `gru_shuf_L17`, `tf_orig_L17`, `tf_shuf_L17`(과거 16개를 표본마다 섞음, 현재 beat는 끝에 고정), `gru_orig_L1_rr`(현재 beat + pre-RR + **과거 16 beat의 pre-RR 평균**: "숫자 두 개" 요약). seed 42 / 7 / 2026.
+- 학습: 첫 묶음과 같음(AdamW 1e-3, wd 1e-2, warm-up 1 + cosine, 30 epoch, batch 256) + **class 가중 CE(학습 target의 balanced 가중치)**. validation 4-class macro-F1로 epoch 선택.
+- 지표: DS2 test S F1(주), S sensitivity / positive predictivity, V F1, 4-class macro-F1, 기록 232 / 222의 S sensitivity, PPT식 섞은 test.
+
+### validation만 본 사전 탐색 (학습 설정을 정하기 위해; test 값은 읽지 않음)
+
+- 탐색 1(`log/probe-oc2-val-20261126`, seed 42, 30 epoch): 창을 학습 target 전체의 표준편차 하나로 나눔. validation 4-class macro-F1 최고 36.3(L17) / 29.2(L1). validation 혼동표: L1은 N 7,598개 중 2,159개를 V, 1,027개를 S로 부름(S F1 8.4); L17은 S를 하나도 부르지 않음(S F1 0).
+- 탐색 2(`log/probe-oc2-val2-20261126`): **beat마다 표준화**. validation per-class F1(N / S / V / F): L1 88.9 / 6.9 / 50.7 / 0.4, L17 95.5 / 10.8 / 80.2 / 0.0, L1_rr 72.6 / 11.0 / 37.7 / 3.0. V와 N은 좋아졌지만 **S는 처음 보는 환자 넷에서 여전히 약하다.**
+- 결정: beat마다 표준화를 쓴다(환자나 기록의 통계를 쓰지 않는 표준 방법). 더 고치지 않는다 — validation 환자 넷에 맞춰 설정을 계속 고르면 그것도 결과를 고르는 일이 되기 때문이다. S F1이 낮은 상태로 비교한다는 점을 한계에 적는다.
+- 두 탐색의 run은 첫 묶음 code(sha `fe2bedada`) + 작업 중 변경으로 돌렸고 판정에 쓰지 않는다.
+
+### SLEEPPSD 설계 ((나)의 front end 확인)
+
+- SLEEPCTX와 같은 target, fold, 문맥(점검 d2). token = epoch spectrum 60값(bin마다 학습 target으로 정규화), MLP token encoder. 조건: gru / tf × orig / shuf(L16), gru orig L4, gru orig L1; fold 0–4.
+
+### run (54개; `scripts/make_queue_oc2.sh`)
+
+| 수준 | 조건 | 반복 | run |
+|---|---|---|---|
+| MBIP | gru orig L17 / L5 / L2 / L1, gru shuf L17, tf orig / shuf L17, gru orig L1 + 숫자 두 개 | seed 3 | 24 |
+| SLEEPPSD | gru / tf × orig / shuf L16, gru orig L4, gru orig L1 | fold 5 | 30 |
+
+### 판정 (사전 고정, `summarize_oc2.py`)
+
+- **SLEEPPSD** (macro-F1, fold 쌍): (B) d_m = orig_L16 − shuf_L16, V_B = 두 model 중 큰 평균; 강함 ≥ 3.0이고 5/5, 중간 ≥ 1.0이고 ≥ 4/5, 그 밖 약함. (A) gru L16 − L1 ≥ 2.0이고 ≥ 4/5면 필요. **통과 = (B) 강함 / 중간 또는 (A) 필요 → (나) SNN 비교를 시작할 수 있다. 통과하지 못하면 사용자에게 먼저 보고한다.**
+- **MBIP** (DS2 S F1, seed 쌍):
+  - (A) 축적: gru L17 − L1 ≥ 2.0이고 3/3이면 필요.
+  - (B) 순서: d_m = m_orig_L17 − m_shuf_L17, V_B = 큰 평균; 강함 ≥ 3.0이고 3/3, 중간 ≥ 1.0이고 ≥ 2/3, 그 밖 약함.
+  - (C) 숫자 두 개 요약: gru L17 − gru L1_rr ≥ 2.0이고 3/3이면 "요약을 넘음", 아니면 "요약을 넘지 못함".
+  - 읽기: (B) 강함 / 중간 + (C) 넘음 = "숫자 요약 이상으로 순서가 필요"; (A) 필요 + (C) 넘음 + (B) 약함 = "요약 이상의 축적, 순서는 보이지 않음"; (A) 필요 + (C) 넘지 못함 = "과거는 돕지만 숫자 두 개 요약을 넘지 못함"; 그 밖 = "과거 beat가 돕는다는 것이 보이지 않음".
+- 보고만: 같은 차이의 4-class macro-F1과 V F1, 기록 232 / 222 S sensitivity, 최고 원 순서 − 최고 섞은 순서(첫 묶음에서는 사후였고 이번에는 처음부터 보고), PPT식 섞은 test, SLEEPPSD vs 첫 묶음 CNN front end.
+- fail closed: 54개가 한 줄씩, epoch 30, batch 제한 없음, 값 유한(MBIP는 S / V 지표와 기록별 값까지), sha 하나, SKIP 없음.
+
+### 실행
+
+- tmux `flif_oc2`: `bash nsmt_flif_v1/classification/scripts/oc2_driver.sh 0,1,2,3,0,1,2,3`(큐 `scripts/queues/oc2-20261126.txt`, pool 로그 `results/flif-v1-oc2-pool.log`, suite `flif-v1-oc2`). driver가 끝에 `summarize_oc2.py`를 돌린다. run 하나 = `SUITE=flif-v1-oc2 bash nsmt_flif_v1/classification/scripts/run_oc.sh <MBIP|SLEEPPSD> <cond> <seed|fold> <gpu>`(`run_oc.sh`에 MBIP = seed, SLEEPPSD = fold 대응을 더했다).
+
+### 점검
+
+- `check_oc2.py` **24/24 PASS**: reader(기록 100, 232 / 222, DS1 / DS2 합계, 분할 겹침 없음), 창 위치(저장된 창 = 걸러진 MLII R − 90 .. R + 144), high-pass가 causal, pre-RR, 분할(학습 / validation / test 기록), 문맥(같은 기록의 바로 앞 16 beat, 현재 beat 끝), target class, 빠지는 DS2 beat의 이유(시작 17개 374 + 끝 창 14, 그 밖 0), token 모양과 표준화, 숫자 두 개 token의 평균 = 앞 16 beat pre-RR 평균, class 가중치, 잘못된 조건 거부, SLEEPPSD = SLEEPCTX와 같은 target / fold / 문맥, spectrum 정규화, model 출력과 마지막 token 읽기, 섞을 때 현재 beat 유지.
+  - **c4는 처음에 FAIL이었다**: 내 경계(기록당 17개)가 기록 끝 beat(창이 신호 끝을 넘는 경우)를 빠뜨렸다. 이유를 세어(시작 374 + 끝 14, 그 밖 0) data가 맞음을 확인하고 점검을 이유별 검사로 고쳤다.
+- `check_oc.py` 30/30 PASS(첫 묶음 점검, 고친 code로 다시).
+- **기존 수준이 그대로인지:** 첫 묶음 smoke 4개를 새 code로 다시 돌림 → SLEEPCTX / SC / MITBIH는 값이 정확히 같음. SLEEPIN은 validation이 같고 test가 예측 1개 정도 달랐다. 같은 code로 세 번 돌리자 세 번이 서로 달랐고(validation 19.0775 / 19.0775 / 19.0324), 그중 하나가 옛 값(test MF1 24.43336)과 정확히 같았다 → **1 s CNN(SLEEPIN)은 GPU 계산이 run마다 조금 다르다**(code 변경 때문이 아님). 첫 묶음 SLEEPIN 결과도 이 정도의 흔들림을 안고 있다.
+- `summarize_oc2.py` 시험(가짜 suite): 심어 둔 답 두 벌(읽기 "과거는 돕지만 요약을 넘지 못함" / "요약 이상으로 순서가 필요")을 그대로 냄, 멈춰야 하는 9경우 모두 멈춤.
+
+### smoke (실험 아님)
+
+- `results/smoke-oc2-20261126/raw.txt` 6 run(1 epoch, 5 batch) + `-ep1` 2 run(1 full epoch: run 시간 4.4–4.7 s, 최대 memory 0.25 GB → GPU당 2개), `smoke-oc2-20261126b` 4 run(beat 표준화로 바꾼 뒤 MBIP 다시). 모두 RESULT, SKIP 0.
+
+### 한계
+
+- **MBIP의 S는 진단용 model에게도 어렵다**(validation S F1 6.9–11.0). DS2 S F1의 차이는 흔들릴 수 있다. DS2 S beat의 75 %가 기록 232 하나에 있다.
+- validation은 환자 넷이다. 기록 201(validation)과 202(test)는 같은 사람이다(PhysioNet). 201을 학습에 쓰지 않아 이 겹침이 학습 가중치로는 들어가지 않는다.
+- 현재 beat의 창은 R-peak 뒤 0.4 s까지라 판정은 0.4 s 늦다. 다음 beat는 쓰지 않는다. 문헌 수치(대부분 다음 beat를 봄)와 바로 견줄 수 없다.
+- token 하나 = beat 하나로 정했다. 다른 크기는 재지 않는다.
+
+### not run
+
+- 다음 beat 하나까지 보는 판(+post-RR), DS2 → DS1 역방향, MBIP의 SNN 단계, (나) SNN 비교(위 조건부).
+
+### Git
+
+- 이 항목, `oc_data.py`, `order_check.py`, `check_oc2.py`, `summarize_oc2.py`, `scripts/{run_oc.sh, make_queue_oc2.sh, oc2_driver.sh}`, smoke `raw.txt` 3개를 사전 고정 commit으로 묶어 push 한 뒤 시작한다. pool이 도는 동안에는 commit하지 않는다(요약이 sha 하나를 요구).

@@ -201,5 +201,139 @@ def load_mitbih():
     return tr[:, :187], ytr, val, te[:, :187], te[:, 187].astype(np.int64)
 
 
+# ---------------------------------------------------------------- MODI 2026-11-26 (user decision 11-26 evening): Sleep-EDF epoch
+# spectrum front end ((나) ①) and MIT-BIH inter-patient beats with past beats ((가)). Added below; the functions above are unchanged.
+SL_PSD_NPZ = os.path.join(SL_DIR, 'sleepedf20_fpzcz_psd.npz')
+MIT_DIR = os.path.join(HERE, 'dataset', 'mitdb')
+MIT_NPZ = os.path.join(MIT_DIR, 'mitdb_beats_mlii.npz')
+# de Chazal, O'Dwyer & Reilly 2004 (IEEE TBME 51(7)); paced records 102, 104, 107, 217 left out.
+DS1 = [101, 106, 108, 109, 112, 114, 115, 116, 118, 119, 122, 124, 201, 203, 205, 207, 208, 209, 215, 220, 223, 230]
+DS2 = [100, 103, 105, 111, 113, 117, 121, 123, 200, 202, 210, 212, 213, 214, 219, 221, 222, 228, 231, 232, 233, 234]
+# MIT annotation codes (WFDB ecgcodes.h) -> AAMI EC57 class as in de Chazal 2004 Table I: N = N L R e j, S = A a J S, V = V E,
+# F = F, Q = / f Q. Other codes are not beats.
+MIT_SYM = {1: 'N', 2: 'L', 3: 'R', 4: 'a', 5: 'V', 6: 'F', 7: 'J', 8: 'A', 9: 'S', 10: 'E', 11: 'j', 12: '/', 13: 'Q', 34: 'e', 38: 'f'}
+AAMI = {'N': 0, 'L': 0, 'R': 0, 'e': 0, 'j': 0, 'A': 1, 'a': 1, 'J': 1, 'S': 1, 'V': 2, 'E': 2, 'F': 3, '/': 4, 'f': 4, 'Q': 4}
+AAMI_NAMES = ['N', 'S', 'V', 'F', 'Q']
+# de Chazal 2004 Table II class totals (summed by the protocol note, docs/MODI_PROJECT_LOG.md 2026-11-26): N, S, V, F, Q
+DECHAZAL = {'DS1': [45868, 942, 3787, 415, 8], 'DS2': [44258, 1837, 3221, 388, 7]}
+MIT_FS, MIT_PRE, MIT_POST, MIT_K = 360, 90, 144, 16          # window R - 0.25 s .. R + 0.40 s (234 samples), up to 16 past beats
+
+
+def build_sleep_psd():
+    """Welch spectrum of every kept 30-s epoch: 2-s Hann segments (200 points), 50 % overlap, 0.5 Hz bins; bins 0.5..30 Hz (60);
+    log10(power in uV^2/Hz + 1e-6). Same epochs and order as sleepedf20_fpzcz.npz."""
+    from scipy.signal import welch
+    d = np.load(SL_NPZ)
+    f, p = welch(d['x'].astype(np.float64), fs=100.0, window='hann', nperseg=200, noverlap=100, axis=-1)
+    k = (f >= 0.5) & (f <= 30.0)
+    out = np.log10(p[:, k] + 1e-6).astype(np.float32)
+    print('epochs', out.shape, 'bins', f[k][0], '..', f[k][-1], 'Hz,', int(k.sum()), 'bins')
+    np.savez(SL_PSD_NPZ, psd=out, freqs=f[k])
+
+
+def load_sleep_psd():
+    return np.load(SL_PSD_NPZ)['psd']
+
+
+def read_mit_header(rec):
+    lines = [l for l in open(os.path.join(MIT_DIR, 'raw', f'{rec}.hea')) if not l.startswith('#')]
+    name, ns, fs, n = lines[0].split()[:4]
+    sig = []
+    for l in lines[1:1 + int(ns)]:
+        p = l.split()
+        sig.append(dict(fmt=p[1], gain=float(p[2].split('(')[0].split('/')[0]), zero=int(p[4]), init=int(p[5]), checksum=int(p[6]),
+                        desc=' '.join(p[8:])))
+    return int(fs), int(n), sig
+
+
+def read_mit_212(rec, nsig, n):
+    """MIT format 212: two 12-bit two's-complement samples in three bytes, signals interleaved. -> int array [n, nsig]."""
+    b = np.fromfile(os.path.join(MIT_DIR, 'raw', f'{rec}.dat'), dtype=np.uint8).astype(np.int32)
+    m = (len(b) // 3) * 3
+    b = b[:m].reshape(-1, 3)
+    s0 = b[:, 0] | ((b[:, 1] & 0x0F) << 8)
+    s1 = b[:, 2] | ((b[:, 1] & 0xF0) << 4)
+    s = np.stack([s0, s1], 1).reshape(-1)
+    s = np.where(s > 2047, s - 4096, s)
+    return s[:n * nsig].reshape(n, nsig)
+
+
+def read_mit_atr(rec):
+    """MIT annotation file -> (sample positions, codes) of every annotation (WFDB annotation format: 16-bit words, code = bits
+    15-10, interval = bits 9-0; SKIP 59 carries a 32-bit interval, NUM 60 / SUB 61 / CHN 62 change fields, AUX 63 is followed by
+    its bytes, padded to an even count; 0/0 ends the file)."""
+    b = np.fromfile(os.path.join(MIT_DIR, 'raw', f'{rec}.atr'), dtype=np.uint8)
+    i, t, pos, code = 0, 0, [], []
+    while i + 1 < len(b):
+        w = int(b[i]) | (int(b[i + 1]) << 8); i += 2
+        A, I = w >> 10, w & 0x3FF
+        if A == 0 and I == 0:
+            break
+        if A == 59:                                                                # SKIP: PDP-11 long, high word first
+            hi = int(b[i]) | (int(b[i + 1]) << 8); lo = int(b[i + 2]) | (int(b[i + 3]) << 8); i += 4
+            v = (hi << 16) | lo
+            t += v - (1 << 32) if v >= 1 << 31 else v
+        elif A == 63:                                                              # AUX string
+            i += I + (I & 1)
+        elif A in (60, 61, 62):
+            pass
+        else:
+            t += I
+            pos.append(t); code.append(A)
+    return np.array(pos, dtype=np.int64), np.array(code, dtype=np.int64)
+
+
+def build_mitdb():
+    """Per record: MLII in mV ((adu - zero) / gain), causal 2nd-order Butterworth high-pass at 0.5 Hz (forward only, so the
+    filtered value at time t uses no sample after t), beats = annotations whose code maps to an AAMI class. Stored per beat:
+    record, R position, AAMI class, pre-RR in s (NaN for the first beat), and the window R - 90 .. R + 144 averaged in pairs to
+    180 Hz (117 values); beats whose window leaves the signal are kept with a flag (in_signal = 0) and never used as targets."""
+    from scipy.signal import butter, lfilter
+    recs = [int(r) for r in open(os.path.join(MIT_DIR, 'RECORDS')).read().split()]
+    R_, POS, CLS, RR, W, OK, SYM = [], [], [], [], [], [], []
+    hb, ha = butter(2, 0.5, btype='high', fs=MIT_FS)
+    per_rec = {}
+    for rec in recs:
+        fs, n, sig = read_mit_header(rec)
+        if fs != MIT_FS or any(s['fmt'] != '212' for s in sig):
+            raise SystemExit(f'{rec}: fs {fs} formats {[s["fmt"] for s in sig]}')
+        raw = read_mit_212(rec, len(sig), n)
+        for c, s in enumerate(sig):                                                # header check: first value and checksum
+            if raw[0, c] != s['init'] or ((int(raw[:, c].sum()) + 32768) % 65536) - 32768 != s['checksum']:
+                raise SystemExit(f'{rec} signal {c}: first {raw[0, c]} vs {s["init"]}, checksum mismatch')
+        pos, code = read_mit_atr(rec)
+        keep = np.array([c in MIT_SYM for c in code], dtype=bool)
+        pos, sym = pos[keep], [MIT_SYM[c] for c in code[keep]]
+        per_rec[rec] = np.bincount([AAMI[s] for s in sym], minlength=5).tolist()
+        if 'MLII' not in [s['desc'] for s in sig]:
+            continue                                                               # 102, 104 (paced, not in DS1 / DS2)
+        c = [s['desc'] for s in sig].index('MLII')
+        x = lfilter(hb, ha, (raw[:, c] - sig[c]['zero']) / sig[c]['gain'])
+        for j, p in enumerate(pos):
+            a, z = p - MIT_PRE, p + MIT_POST
+            ok = a >= 0 and z <= n
+            w = x[a:z].reshape(-1, 2).mean(1) if ok else np.zeros((MIT_PRE + MIT_POST) // 2)
+            R_.append(rec); POS.append(p); CLS.append(AAMI[sym[j]]); SYM.append(sym[j]); OK.append(ok); W.append(w.astype(np.float32))
+            RR.append((p - pos[j - 1]) / MIT_FS if j > 0 else np.nan)
+    rec_a = np.array(R_)
+    for name, recs_ in (('DS1', DS1), ('DS2', DS2)):
+        tot = np.sum([per_rec[r] for r in recs_], axis=0).tolist()
+        print(f'{name}: annotated beats per AAMI class N S V F Q = {tot} (total {sum(tot)}); de Chazal 2004 Table II: '
+              f'{DECHAZAL[name]} (total {sum(DECHAZAL[name])})')
+    np.savez(MIT_NPZ, rec=rec_a, pos=np.array(POS), cls=np.array(CLS), sym=np.array(SYM), rr=np.array(RR, dtype=np.float32),
+             w=np.stack(W), ok=np.array(OK), per_rec=json_dump(per_rec))
+    return per_rec
+
+
+def json_dump(d):
+    import json
+    return np.array(json.dumps(d))
+
+
+def load_mitdb():
+    d = np.load(MIT_NPZ)
+    return {k: d[k] for k in d.files}
+
+
 if __name__ == '__main__':
-    {'sc': build_sc, 'sleep': build_sleep}[sys.argv[1]]()
+    {'sc': build_sc, 'sleep': build_sleep, 'sleep_psd': build_sleep_psd, 'mitdb': build_mitdb}[sys.argv[1]]()
