@@ -1,0 +1,96 @@
+myModel(
+  (padding_patch_layer): Identity()
+  (encoding): Embedding(
+    (emb_linear): Linear(23.04 k, 1.824% Params, 0.0 Ops, 0.000% ACs, 1.47 M Ops, 66.298% MACs, 100.000% Spike Rate)
+    (emb_bn): BatchNorm1d(768, 0.061% Params, 0.0 Ops, 0.000% ACs, 49.15 K Ops, 2.210% MACs, 100.000% Spike Rate)
+    (emb_lif): NeoNeuron(
+      (neuron): LIFNeuron(0, 0.000% Params, 24.58 K Ops, 0.275% ACs, 0.0 Ops, 0.000% MACs, 12.241% Spike Rate)
+    )
+  )
+  (encoding_neo): Embedding(
+    (emb_linear): Linear(23.04 k, 1.824% Params, 0.0 Ops, 0.000% ACs, 368.64 K Ops, 16.575% MACs, 100.000% Spike Rate)
+    (emb_bn): BatchNorm1d(768, 0.061% Params, 0.0 Ops, 0.000% ACs, 12.29 K Ops, 0.552% MACs, 100.000% Spike Rate)
+    (emb_lif): NeoNeuron(
+      (neuron): PopulationFLIF(
+        (soma): Soma()
+      )
+    )
+  )
+  (data_block): ModuleList(
+    (0): Block(
+      (ssa): SSA_rel_scl(
+        (q_linear): Linear(147.46 k, 11.675% Params, 1.54 M Ops, 17.233% ACs, 0.0 Ops, 0.000% MACs, 16.557% Spike Rate)
+        (q_bn): BatchNorm1d(768, 0.061% Params, 0.0 Ops, 0.000% ACs, 49.15 K Ops, 2.210% MACs, 100.000% Spike Rate)
+        (q_lif): NeoNeuron(
+          (neuron): LIFNeuron(0, 0.000% Params, 24.58 K Ops, 0.275% ACs, 0.0 Ops, 0.000% MACs, 7.635% Spike Rate)
+        )
+        (k_linear): Linear(147.46 k, 11.675% Params, 1.97 M Ops, 22.038% ACs, 0.0 Ops, 0.000% MACs, 21.307% Spike Rate)
+        (k_bn): BatchNorm1d(768, 0.061% Params, 0.0 Ops, 0.000% ACs, 49.15 K Ops, 2.210% MACs, 100.000% Spike Rate)
+        (k_lif): NeoNeuron(
+          (neuron): LIFNeuron(0, 0.000% Params, 24.58 K Ops, 0.275% ACs, 0.0 Ops, 0.000% MACs, 5.449% Spike Rate)
+        )
+        (v_linear): Linear(147.46 k, 11.675% Params, 1.97 M Ops, 22.038% ACs, 0.0 Ops, 0.000% MACs, 21.307% Spike Rate)
+        (v_bn): BatchNorm1d(768, 0.061% Params, 0.0 Ops, 0.000% ACs, 49.15 K Ops, 2.210% MACs, 100.000% Spike Rate)
+        (v_lif): NeoNeuron(
+          (neuron): LIFNeuron(0, 0.000% Params, 24.58 K Ops, 0.275% ACs, 0.0 Ops, 0.000% MACs, 2.185% Spike Rate)
+        )
+        (attn_lif): NeoNeuron(
+          (neuron): LIFNeuron(0, 0.000% Params, 24.58 K Ops, 0.275% ACs, 0.0 Ops, 0.000% MACs, 0.337% Spike Rate)
+        )
+        (proj_linear): SpikLinearLayer(
+          (linear): Linear(147.46 k, 11.675% Params, 213.21 K Ops, 2.385% ACs, 0.0 Ops, 0.000% MACs, 2.318% Spike Rate)
+          (bn): BatchNorm1d(768, 0.061% Params, 0.0 Ops, 0.000% ACs, 49.15 K Ops, 2.210% MACs, 100.000% Spike Rate)
+          (lif): NeoNeuron(
+            (neuron): LIFNeuron(0, 0.000% Params, 24.58 K Ops, 0.275% ACs, 0.0 Ops, 0.000% MACs, 1.867% Spike Rate)
+          )
+        )
+      )
+      (mlp): MLP(
+        (fc1): SpikLinearLayer(
+          (linear): Linear(147.46 k, 11.675% Params, 1.64 M Ops, 18.324% ACs, 0.0 Ops, 0.000% MACs, 17.568% Spike Rate)
+          (bn): BatchNorm1d(768, 0.061% Params, 0.0 Ops, 0.000% ACs, 49.15 K Ops, 2.210% MACs, 100.000% Spike Rate)
+          (lif): NeoNeuron(
+            (neuron): LIFNeuron(0, 0.000% Params, 24.58 K Ops, 0.275% ACs, 0.0 Ops, 0.000% MACs, 3.025% Spike Rate)
+          )
+        )
+        (fc2): SpikLinearLayer(
+          (linear): Linear(147.46 k, 11.675% Params, 934.74 K Ops, 10.457% ACs, 0.0 Ops, 0.000% MACs, 9.846% Spike Rate)
+          (bn): BatchNorm1d(768, 0.061% Params, 0.0 Ops, 0.000% ACs, 49.15 K Ops, 2.210% MACs, 100.000% Spike Rate)
+          (lif): NeoNeuron(
+            (neuron): LIFNeuron(0, 0.000% Params, 24.58 K Ops, 0.275% ACs, 0.0 Ops, 0.000% MACs, 1.302% Spike Rate)
+          )
+        )
+        (dropout): Dropout()
+      )
+      (dropout2): Dropout()
+      (dropout3): Dropout()
+    )
+  )
+  (time_block): TemporalBlock(
+    (Mem): ModuleList(
+      (0): NeoLayer(
+        (w_in): Linear(147.46 k, 11.675% Params, 118.29 K Ops, 1.323% ACs, 0.0 Ops, 0.000% MACs, 5.439% Spike Rate)
+        (bn): BatchNorm1d(768, 0.061% Params, 0.0 Ops, 0.000% ACs, 12.29 K Ops, 0.552% MACs, 100.000% Spike Rate)
+        (lif): NeoNeuron(
+          (neuron): PopulationFLIF(
+            (soma): Soma()
+          )
+        )
+      )
+      (1): NeoLayer(
+        (w_in): Linear(147.46 k, 11.675% Params, 356.78 K Ops, 3.991% ACs, 0.0 Ops, 0.000% MACs, 15.311% Spike Rate)
+        (bn): BatchNorm1d(768, 0.061% Params, 0.0 Ops, 0.000% ACs, 12.29 K Ops, 0.552% MACs, 100.000% Spike Rate)
+        (lif): NeoNeuron(
+          (neuron): PopulationFLIF(
+            (soma): Soma()
+          )
+        )
+      )
+    )
+  )
+  (weak_decoder): Decoder(
+    (recon2): Linear(23.04 k, 1.824% Params, 0.0 Ops, 0.000% ACs, 0.0 Ops, 0.000% MACs, 0.000% Spike Rate)
+  )
+  (head): Linear(1.92 k, 0.152% Params, 956.2758856943462 Ops, 0.011% ACs, 0.0 Ops, 0.000% MACs, 12.675% Spike Rate)
+  (dropout): Dropout()
+)

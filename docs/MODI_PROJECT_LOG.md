@@ -12037,3 +12037,103 @@ AdamW lr 1e-3, weight decay 1e-2, 1 epoch 선형 warm-up 뒤 cosine으로 0(step
 ### Git
 
 - 이 항목과 위 code, `check_sleep.py`, `select_sleep.py`, `summarize_sleep.py`, `scripts/{run_sleep.sh, sleep_driver.sh}`, `results/smoke-sleep-20261126b/raw.txt`를 사전 고정 commit으로 묶어 push 한 뒤 시작한다. 도는 동안 commit하지 않는다.
+
+## 2026-11-26 23:00 KST — 분석 (validation만, DS2 안 씀): MBIP가 S를 찾지 못한 이유 — **손실함수가 아니라 파형 입력이다.** 파형을 빼고 과거 16 beat의 간격 sequence만 주면 validation S F1이 4–17 %에서 49–54 %로 오른다. class 가중치 유무는 결과를 바꾸지 못한다
+
+**사용자 질문 (11-26):** "(가)에서, S를 거의 찾지 못하는 이유가 뭐야? 손실함수?" 그 앞에 사용자가 (가)에 대한 분석 글을 붙였다(대조군 강화: 확장 간격 요약, 과거 간격 sequence, 순서 없는 과거 집합; 시험 때만 섞기 vs 다시 학습 구분; 예시의 한계; 미래 정보 배제; 기록 232; 주장 범위). 23:00 기준 답과 함께 정리했다(아래 "읽기"와 다음 단계).
+
+**방법:** DS1만 쓴다(학습 = DS1에서 201 / 118 / 223 / 114를 뺀 18 기록, validation = 그 4 기록). DS2는 평가에 쓰지 않았다. `mbip_probe.py`(새 파일, pool이 import하지 않음): MBIP와 같은 model(MLP token encoder + 2층 GRU)과 학습(AdamW 1e-3, wd 1e-2, warm-up + cosine, 30 epoch, batch 256), validation 4-class macro-F1 최고 epoch의 validation 값, seed 42, run 하나씩. 출력 `results/mbip-probe-20261126/probes.txt`.
+
+**1. data (label 통계, DS1):** 상대 간격 = 현재 beat의 직전 간격 / 그 앞 16 beat의 직전 간격 평균(과거만).
+
+| 기록 | 쓰임 | S 수 | S 상대 간격 중앙값 | N 상대 간격 중앙값 | 상대 간격 < 0.9인 S 비율 |
+|---|---|---|---|---|---|
+| 209 | 학습 | 383 | 0.84 | 1.01 | 0.60 |
+| 207 | 학습 | 107 | **0.99** | 1.00 | 0.16 |
+| 220 | 학습 | 94 | 0.63 | 1.01 | 0.96 |
+| 124 | 학습 | 31 | **0.97** | 1.00 | 0.10 |
+| 201 | validation | 128 | 0.48 | 1.04 | 1.00 |
+| 118 | validation | 96 | 0.76 | 1.00 | 0.98 |
+| 223 | validation | 73 | 0.81 | 1.01 | 0.84 |
+| 114 | validation | 12 | 0.83 | 1.00 | 0.83 |
+
+- 학습 S 635개의 대부분이 기록 넷(209, 207, 220, 124)에서 온다. 그중 207과 124의 S(138개, 22 %)는 앞 16 beat보다 일찍 오지 않는다.
+- **간격 규칙 하나**("상대 간격 < 0.83이면 S", 문턱은 학습 기록에서 S F1 최대로 정함; 학습 S F1 14.9)가 validation에서 S sensitivity 86.1, positive predictivity 29.1, **S F1 43.5**를 낸다. MBIP 신경망의 validation S F1(6.9–11.0)보다 훨씬 높다.
+
+**2. 학습 설정 비교 (validation, seed 42):**
+
+| 손실 | 입력 | 과거 beat | val S F1 | S Se | S +P | S 예측 / 실제 | V F1 | N F1 |
+|---|---|---|---|---|---|---|---|---|
+| class 가중 | 파형 + 직전 간격 (MBIP) | 0 | 6.9 | 3.9 | 30.0 | 40 / 309 | 50.7 | 88.9 |
+| 가중 없음 | 파형 + 직전 간격 | 0 | 16.8 | 19.7 | 14.7 | 416 / 309 | 39.6 | 81.2 |
+| class 가중 | 파형 + 직전 간격 (MBIP) | 16 | 10.8 | 13.3 | 9.1 | 451 / 309 | 80.2 | 95.5 |
+| 가중 없음 | 파형 + 직전 간격 | 16 | 4.5 | 2.9 | 9.6 | 94 / 309 | 74.5 | 97.1 |
+| class 가중 | 파형 + 직전 간격 + 상대 간격 | 0 | 12.9 | 18.1 | 10.1 | 556 / 309 | 34.0 | 77.7 |
+| class 가중 | 파형 + 직전 간격 + 상대 간격 | 16 | 13.1 | 17.1 | 10.6 | 499 / 309 | 82.8 | 95.5 |
+| 가중 없음 | 파형 + 직전 간격 + 상대 간격 | 16 | 6.0 | 4.8 | 7.8 | 193 / 309 | 66.7 | 95.8 |
+| class 가중 | **직전 간격 + 상대 간격 (파형 없음)** | 0 | 31.0 | 20.4 | 64.3 | 98 / 309 | 59.1 | 96.0 |
+| class 가중 | **직전 간격 sequence (파형 없음)** | 16 | **54.1** | 61.2 | 48.6 | 389 / 309 | 47.1 | 95.0 |
+| 가중 없음 | **직전 간격 sequence (파형 없음)** | 16 | **49.4** | 43.0 | 57.8 | 230 / 309 | 48.2 | 96.4 |
+
+### 읽기 (추론)
+
+- **손실함수(class 가중)는 원인이 아니다.** 가중을 빼도 파형이 있는 model의 S F1은 4.5–16.8에 머문다.
+- **원인은 파형 입력이다.** 파형이 있으면 model은 학습 환자 넷의 S 모양을 외우고(S = 이런 모양), 처음 보는 환자에게 그 모양이 맞지 않는다. 상대 간격을 직접 넣어 줘도 파형이 있으면 거의 쓰지 않는다(12.9–13.1). 파형을 빼면 model은 간격만 써야 하고, 그 규칙은 새 환자에게도 통한다(49.4–54.1).
+- 학습 label의 성질이 이것을 부추긴다: 학습 S의 22 %(207, 124)는 일찍 오지 않아서, 간격만으로는 맞힐 수 없고 모양으로만 맞힐 수 있다.
+- 반대로 **V는 파형이 필요하다**(파형 없으면 V F1 47–59, 있으면 74–83).
+- 간격 sequence(16개)의 54.1은 간격 숫자 두 개(직전 + 상대, 31.0)와 간격 규칙(43.5)보다 높다. 과거 간격의 sequence가 요약보다 많이 담는다는 신호지만, run 하나·validation 환자 넷이라 증거는 아니다.
+
+### 한계
+
+- seed 하나, validation 환자 넷, 최고 validation epoch의 validation 값(낙관적). 원인 진단용이지 판정이 아니다.
+
+### 다음 (사용자 결정 대기)
+
+- (가) v2의 기준 model은 간격 경로를 따로 가져야 한다(예: 파형 경로와 간격 sequence 경로를 나누고 끝에서 합침, 또는 파형 경로에 강한 정규화). 사용자 분석의 "과거 간격 sequence" 대조가 바로 이 경로다. v2 설계는 DS1 validation으로만 정하고, DS2는 사전 고정 뒤 한 번만 연다.
+
+### Git
+
+- 이 항목, `mbip_probe.py`, `results/mbip-probe-20261126/probes.txt`는 지금 도는 Sleep pool이 끝난 뒤 그 결과와 함께 commit한다(pool이 도는 동안 commit하지 않음).
+
+## 2026-11-26 23:31 KST — 결과: (나) Sleep-EDF SNN 결합 형태 비교 (30 run, 사전 고정 `ff583b0bc`) — **query form이 key/value form보다 두 neuron 모두 좋다**(pop LIF +1.83 %p, pop f-LIF +1.43 %p, 각 4/5). Spikformer(DE) 대비는 **query form pop LIF만 "좋음"**(+1.10 %p, 4/5; 문턱 +1.0 바로 위), query form pop f-LIF는 차이 없음(+0.29), key/value form pop LIF 차이 없음(−0.73), key/value form pop f-LIF "나쁨"(−1.14). 사전 규칙의 구조 선택 = **query form**. energy는 query form 1.15배, key/value form 1.04–1.07배
+
+**실행:** tmux `flif_sleep`, 1단계 21:55–22:29(10 / 10), 2단계 22:29–23:29(20 / 20), SKIP 0, sha 하나(`ff583b0bc`). run 13–25분(GPU당 2개). 요약 `results/flif-v1-sleep/{summary.md, decision.json}`, lr 선택 `results/flif-v1-sleep-lr/selected.json`.
+
+**1단계 lr (fold 0 validation macro-F1, 0.001 / 0.003 → 선택):** Spikformer(DE) 77.95 / 77.26 → 0.001; query pop LIF 77.51 / 79.41 → 0.003; query pop f-LIF 76.87 / 77.60 → 0.003; key/value pop LIF 76.92 / 77.54 → 0.003; key/value pop f-LIF 76.75 / 78.21 → 0.003.
+
+### 결과 (test macro-F1 %, fold 0–4, 평균 ± 표준편차)
+
+| model | lr | macro-F1 | accuracy | F1 W / N1 / N2 / N3 / REM | syops energy µJ | × Spikformer(DE) | 발화율 |
+|---|---|---|---|---|---|---|---|
+| Spikformer(DE) | 0.001 | 73.06 ± 3.65 | 79.75 | 83.6 / 36.6 / 85.2 / 86.4 / 73.5 | 16.142 | 1.00 | 0.404 |
+| query form, pop LIF | 0.003 | **74.16 ± 3.26** | 80.50 | 85.6 / 37.4 / 85.3 / 87.2 / 75.4 | 18.547 | 1.15 | 0.453 |
+| query form, pop f-LIF | 0.003 | 73.35 ± 3.29 | 79.96 | 83.8 / 36.5 / 85.3 / 87.4 / 73.8 | 18.630 | 1.15 | 0.453 |
+| key/value form, pop LIF | 0.003 | 72.33 ± 4.90 | 78.81 | 83.3 / 35.5 / 84.6 / 86.4 / 71.9 | 16.799 | 1.04 | 0.446 |
+| key/value form, pop f-LIF | 0.003 | 71.92 ± 3.04 | 79.50 | 82.3 / 32.6 / 85.8 / 87.2 / 71.7 | 17.346 | 1.07 | 0.448 |
+
+| 비교 | fold별 d | 평균 | 양수 | 판정 |
+|---|---|---|---|---|
+| Q1 query pop LIF − Spikformer(DE) | +1.68 / −1.30 / +1.23 / +1.20 / +2.66 | +1.10 | 4/5 | **좋음** |
+| Q1 query pop f-LIF − Spikformer(DE) | −0.00 / −0.44 / +1.26 / −0.21 / +0.85 | +0.29 | 2/5 | 차이 없음 |
+| Q1 key/value pop LIF − Spikformer(DE) | +0.86 / −2.06 / +1.73 / −1.05 / −3.12 | −0.73 | 2/5 | 차이 없음 |
+| Q1 key/value pop f-LIF − Spikformer(DE) | −1.65 / −1.15 / −3.79 / −0.64 / +1.54 | −1.14 | 1/5 | **나쁨** |
+| Q2 pop LIF: query − key/value | +0.82 / +0.76 / −0.49 / +2.25 / +5.78 | +1.83 | 4/5 | **query 좋음** |
+| Q2 pop f-LIF: query − key/value | +1.65 / +0.71 / +5.05 / +0.44 / −0.69 | +1.43 | 4/5 | **query 좋음** |
+
+**구조 (사전 규칙):** query form — "좋음" neuron 1개(pop LIF), Q1 두 neuron 평균 +0.69 %p. key/value form은 "좋음" 0개, 평균 −0.94 %p.
+
+### 읽기와 주의 (추론)
+
+- **결합 형태 선택은 분명하다:** query form이 두 neuron 모두에서 key/value form보다 좋다(CinC 10-31의 방향과 같다).
+- **Spikformer(DE) 대비 이득은 약하다:** query pop LIF +1.10 %p는 문턱(+1.0) 바로 위이고 fold 1은 −1.30이다. pop f-LIF는 차이 없음. energy 1.15배.
+- **lr이 model마다 다르다:** validation이 Spikformer(DE)에는 0.001, Neocortex model 넷에는 0.003을 골랐다. fold 0에서 Spikformer(DE)의 test는 lr 0.003일 때 77.98로 고른 0.001(76.56)보다 높았다(validation은 반대). 그래서 Q1의 +1.10 일부가 lr 차이일 수 있다. 사전 규칙대로 validation 선택을 따른 결과이지만, 같은 lr로 맞춘 비교는 하지 않았다.
+- 진단 model(같은 spectrum token)과 견주면: GRU 75.92, Transformer 73.92(SLEEPPSD). query pop LIF 74.16은 그 사이다.
+- 이 결과는 순서 사용 자체를 재지 않았다(Neocortex만 섞어 다시 학습, 기억 없는 Neocortex 대조는 not run).
+
+### not run
+
+- 같은 lr로 맞춘 Spikformer(DE) 비교, SNN 안의 순서 / 기억 대조(문맥 섞기, 상태 초기화), seed 여럿, 20-fold 표준 평가.
+
+### Git
+
+- 이 항목, 앞 23:00 분석 항목, `results/flif-v1-sleep{,-lr}/{raw.txt, summary.md, decision.json, selected.json}`, run마다 text 산출물(`logargs.txt`, `log/{final+result.csv, best_log_0.csv, best_epoch.txt, confusion_matrix.csv, neuron_energy.csv, model+info+per+layer.txt}`, `log/last/` 같은 text), `mbip_probe.py`, `results/mbip-probe-20261126/probes.txt`를 한 commit으로 묶고 tag `exp/nsmt-flif-neo-20261126-sleep`를 단다. checkpoint, `test_probs.npz`, TensorBoard event, stdout은 로컬에 둔다.
