@@ -17619,3 +17619,81 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 **실행:** 이 commit · push 뒤 NSMT/에서 `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/sxa2_driver.sh > /dev/null 2>&1 &`.
 
 **commit:** 이 기록, 위 code · 점검 파일과 txt, `results/check-sxa2-smoke-20261127/{raw.txt, energy_recount.csv}`, `results/check-sxa2-20261127/{energy_recount_smoke.txt, pool_log_smoke.txt}`를 commit · push한다.
+
+## 2026-11-27 07:24 KST — 결과 + 실험 완료(합치기 재설계 2단계, 36 run, 사전등록 `ee3fdbba6`, SKIP 0): **MUX를 더하면 attention 팔이 "better"**다(Pearson: MSE R −1.10 %, 12쌍 중 9쌍 낮음; OT: −1.01 %, 9쌍). 그러나 muxlin 대비로는 세 팔 모두 no clear difference다(Pearson + MUX −0.70 %). **OT mask는 Pearson과 차이가 없고**(+0.16 / +0.24 %) energy만 5 % 늘었다. 다음 단계로 넘길 형태는 validation으로 **msxdpc 독립**(Pearson + MUX)이 골라졌다
+
+- **목적:** 06:31 사전등록의 실행 결과다(사용자 결정 11-27 "OT는 Pearson 다음", "MUX 추가 버전은 그다음").
+- **branch / 학습 commit:** `exp/f-lif-pop-v3`, 36행 모두 `ee3fdbba6`(`--sha` 재계산). 1단계 행(S, A1)은 `2fed8c580`이다.
+
+### 실행
+- 명령(NSMT/에서): `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/sxa2_driver.sh > /dev/null 2>&1 &`
+- 06:31:46 시작(HEAD `ee3fdbba6`, 1단계 선택 sxdpc 독립) → 07:21:08 pool 끝(RESULT 36, SKIP 0) → energy 재계산 → 요약 → 독립 재계산(ALL CHECKS PASSED) → 07:23:17 `driver end`.
+- GPU 시간 합은 6.2시간이다. 걸린 시간 51분은 예상(1.5시간)보다 짧았다.
+
+### 4칸 평균(seed 평균)
+| 표시 | 팔 | MSE | MAE | best val L1 | energy µJ syops | 정수 규칙 |
+|---|---|--:|--:|--:|--:|--:|
+| A1 | muxlin 독립(1단계) | 0.4173 | 0.4110 | 0.6138 | 16.92 | 4.09 |
+| S | sxdpc 독립(1단계 선택) | 0.4194 | 0.4123 | 0.6146 | 17.27 | 4.52 |
+| OT | sxdot 독립 | 0.4202 | 0.4125 | 0.6144 | 18.05 | 5.19 |
+| PM | msxdpc 독립(Pearson + MUX) | **0.4142** | **0.4094** | 0.6136 | 17.45 | 4.60 |
+| OM | msxdot 독립(OT + MUX) | 0.4151 | 0.4100 | 0.6135 | 18.23 | 5.32 |
+| 참조 | muxlin IAND block 1 | 0.4117 | 0.4067 | 0.6106 | 10.38 | 3.39 |
+
+### 사전등록 비교(`results/flif-v1-ett-sxa-s2/summary.md`)
+| 묶음 | A vs B | MSE R % | 낮음 / 높음 | 판정 | MAE R % / 판정 | energy 비율(syops) |
+|---|---|--:|---|---|---|--:|
+| mask OT vs Pearson | OT vs S | +0.16 | 5 / 7 | no clear difference | +0.06 / no clear difference | 1.052 |
+| mask OT vs Pearson | OM vs PM | +0.24 | 4 / 8 | no clear difference | +0.14 / no clear difference | 1.051 |
+| **MUX 유무** | **PM vs S** | **−1.10** | **9 / 3** | **better** | −0.62 / no clear difference | 1.015 |
+| **MUX 유무** | **OM vs OT** | **−1.01** | **9 / 3** | **better** | −0.53 / no clear difference | 1.014 |
+| muxlin 대비 | OT vs A1 | +0.59 | 6 / 6 | no clear difference | +0.30 / no clear difference | 1.074 |
+| muxlin 대비 | PM vs A1 | −0.70 | 6 / 6 | no clear difference | −0.39 / no clear difference | 1.036 |
+| muxlin 대비 | OM vs A1 | −0.47 | 5 / 7 | no clear difference | −0.24 / no clear difference | 1.089 |
+- 다음 단계 선택(validation만): 점수(A1 대비)는 S 1.00141, OT 1.00173, **PM 0.99954**, OM 0.99971이다. **msxdpc 독립(PM)이 골라졌다**(`selected_s2.json`). MUX 팔 둘만 validation이 A1보다 아주 조금 낮다.
+
+### 사후 분석(사전등록 아님; `results/check-sxa2-20261127/post_s2.py` · `.txt`)
+- **Q1 IAND 참조 대비**(같은 규칙):
+  - MUX 없는 S, OT는 worse다(MSE +1.71 %, +1.87 %; MAE도 worse).
+  - MUX 있는 PM, OM은 no clear difference다(+0.55 %, +0.78 %).
+  - PM의 칸별 값은 ETTh1 H96 +0.12, H720 +2.25, ETTm1 H96 +0.25, H720 −0.44 %다.
+- **Q2 MUX의 이득이 어디서 오는가:** 칸별로 PM − S는 −0.16 / **−3.53** / −0.60 / −0.13 %, OM − OT는 +0.71 / **−3.52** / −0.38 / −0.87 %다. 이득의 대부분은 **ETTh1 H720**에서 온다. MUX 없는 attention이 가장 나빴던 칸이다(1단계 Q1).
+- **Q3 학습 길이:** best epoch 평균 5.4–6.5, 돈 epoch 평균 16.4–17.5다. 상한에 닿은 run은 없다.
+
+### 사전 예상과 비교
+- OT vs Pearson: no clear difference 예상 → **맞았다**.
+- MUX 유무: no clear difference 예상 → **틀렸다**(better, 기준 −1 %를 0.10 / 0.01 차이로 넘음).
+- muxlin 대비: no clear difference 예상 → **맞았다**.
+- OT energy: smoke 기준 +3.6 % 예상 → 실제 +5.2 %.
+
+### 무엇을 말하고 무엇을 말하지 않는가
+- 말하는 것:
+  - 이 조건(LIF, ADD, block 1, 4칸)에서 attention 출력을 MUX의 s_d로 거르면(두 방향이 어긋난 channel에서만 attention을 씀), attention만 쓸 때보다 MSE가 약 1 % 낮다.
+  - 그래도 지금 방식(muxlin)과는 차이가 없고, IAND 참조보다는 여전히 방향상 나쁘다(+0.55 %, 기준 미달).
+  - OT plan mask는 Pearson mask보다 나을 근거가 없고, energy만 5 % 더 든다.
+- 말하지 않는 것:
+  - "better" 두 개는 기준을 근소하게 넘었고, 이득이 대부분 한 칸(ETTh1 H720)에서 온다. 다른 칸 · seed에서 재현되는지는 모른다.
+  - IAND 잔차에서의 attention · MUX는 재지 않았다.
+  - population neuron, 16칸, SpikF 판정은 아직이다.
+
+### 한계
+- 4칸 × seed 3, LIF, ADD, 재튜닝 없음이다.
+- OT의 ε · 반복 수는 정한 값 하나다. 공유 · projection 형태에서의 OT · MUX는 돌리지 않았다(1단계 선택을 따름).
+- 비교 7개 중 2개만 기준을 넘었다. 둘 다 같은 질문(MUX 유무)이고 같은 칸에서 이득이 나왔다.
+
+### 점검
+- driver 안 독립 재계산: ALL CHECKS PASSED.
+- `--sha ee3fdbba6,ee3fdbba6`(`results/check-sxa2-20261127/recheck_s2_sha.txt`): 31개 PASS, ALL CHECKS PASSED. `post_s2.py`(사후, 학습과 무관한 새 `.py`)를 만들기 전에 돌렸다.
+- energy 재계산 · 등식 점검: 요약기가 36 + 24행 모두에서 멈추지 않았다.
+
+### 산출물
+- Git: `results/flif-v1-ett-sxa-s2/{raw.txt, energy_recount.csv, summary.md, summary.json, selected_s2.json}`, `results/check-sxa2-20261127/{recheck_s2_sha.txt, post_s2.py, post_s2.txt}`.
+- local: `driver.log`, `pool_log.txt`, run 폴더, stdout, queue.
+
+### commit / tag
+- 이 기록과 위 산출물을 `exp/f-lif-pop-v3`에 commit · push한다.
+- annotated tag `exp/f-lif-pop-v3-sxa2-20261127`(완료된 학습 run)을 붙인다.
+
+### 다음
+- 계획의 P4(population neuron · 16칸 · SpikF 판정)는 잔차 결정(ADD 유지 / IAND로 되돌림)에 따라 설계가 달라진다. 06:31 보고에서 물은 사용자 결정을 기다린다.
+- 사용자 결정 전까지 새 학습은 시작하지 않는다.
