@@ -17182,3 +17182,82 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 - P 8 / 16 / 16 / 16(N 24 / 12 / 12 / 12), D 32 / 64 / 32 / 64, r 4 / 0.5 / 0.5 / 2, M 1 / 1 / 2 / 1, K 1 / 1 / 3 / 1.
 
 **commit:** 이 기록과 `results/check-shapes-20261126/{trace_shapes.py, trace_shapes.txt, trace_shapes_v1_eval_silent.txt}`를 `exp/f-lif-pop-v3`에 commit · push한다.
+
+## 2026-11-26 23:25 KST — 사용자 제안 검토(학습 없음): neo-mixer 합치기를 "membrane(H_f, H_r)으로 구한 OT plan 또는 상관계수를 연속 mask로 써서, F와 R 사이 spiking attention map에 씌우는" 구조로 바꾸기. 구현은 가능하고 ETT 크기에서는 energy 증가도 작다(SpikF 대비 여전히 1–4 %). 문제는 세 가지다. (1) mask가 spike 연산이 아니다(우리가 SpikF의 GELU에 하려는 지적이 그대로 돌아온다). (2) 지금 energy 계산기는 이 연산을 세지 않는다. (3) 기존 근거로는 ETT 성능 개선 기대가 낮고, 이득이 나와도 attention 몫이 될 수 있다. 권장: OT 대신 상관계수부터, mask는 T 평균 membrane으로 한 번만, 계산기 먼저, ablation을 포함한 사전등록. 사용자 결정 대기
+
+> 사용자 원문(요지): 1. 합치기 부분 수정. 2. 기존 MUX 대신 H_f와 H_r(각 방향 마지막 층 또는 M개 층의 time step별 membrane potential) 사이 OT plan을 구해 "각 time step끼리 얼마나 상관 있는지" 점수로 사용(OT 대신 통계적 상관계수도 가능). 3. 그 점수를 mask로 활용: F와 R(spike) 사이 spiking attention(Spikformer식이 아니어도 됨)의 attention map에 연속 mask를 씌움. 4. 그 뒤 MLP. 5. 우선 single block(attention 도입에 따른 energy 증가 우려).
+
+- **branch / base:** `exp/f-lif-pop-v3`, base `f747038a7`. 학습 없음.
+
+### 내가 이해한 제안(차원; 기호는 18:40 기록)
+- "time step"은 mixer의 시간축인 token 축 N으로 읽었다. H_f, H_r, F, R은 모두 [N, B', T, D]다.
+- (b', t)마다 mask Π ∈ R^{N×N}, Π[n, n'] = score(H_f[n], H_r[n']) → [B', T, N, N].
+- spike map A_s = F Rᵀ(D 축 내적, 값 0..D) → [B', T, N, N]. A = A_s ⊙ Π → z = A V → neuron → m [N, B', T, D] → IAND → MLP.
+
+### 좋은 점
+- 지금 MUX는 같은 위치(n = n')끼리만 합친다. 제안은 다른 위치 사이(n ≠ n') 관계를 쓴다.
+- Pearson 상관과 제곱거리 OT는 H − θ의 θ 이동에 영향을 받지 않는다(10-28 사용자 지적 "θ는 우리가 정한 값"에 대한 답이 된다).
+- ETT의 N(12–24)은 작아서 N² 연산이 작다. single block부터 하는 것은 2 block에 이득이 없던 결과(15:13)와도 맞다.
+- 구현 바탕이 있다(`bix.py` TokenXAttn: q는 F, k / v는 R, head / channel 형태).
+
+### 문제 1: mask는 spike 연산이 아니다
+- 상관계수는 실수 × 실수 곱(N²·D MAC)과 제곱근 · 나눗셈이 필요하다. OT(Sinkhorn)는 여기에 exp와 반복 계산이 더해진다.
+- 논문에서 "SpikF head의 GELU는 spiking이 아니다"라고 지적하면, 같은 논리가 이 mask에 그대로 적용된다.
+- 참고: 지금 model도 완전히 spike만은 아니다. |H_f − H_r| → BN은 실수 원소 연산(O(N·D))이고, s_d가 그것을 spike로 바꾼다. 같은 방법(BN + LIF로 0/1 mask)은 가능하지만 사용자가 원한 "연속 mask"가 아니다.
+
+### 문제 2: 지금 energy 계산기는 이 연산을 세지 않는다
+- syops와 `energy.SynOpRecorder`는 nn.Linear · BatchNorm · neuron module에 걸린 hook으로만 센다. 행렬곱(matmul / einsum), 원소 연산, Sinkhorn 반복은 세지 않는다. 10-26 기록에도 "주의 곱은 세지 않는다"고 적혀 있다. 따라서 과거 SF-de(Spikformer식 SSA)의 energy에도 attention 곱은 빠져 있다.
+- 세지 않고 비교하면 SpikF의 FFT를 세지 않은 것과 같은 결함이 된다. energy를 주장하려면 이 연산을 세는 계산기가 먼저 필요하다.
+
+### 문제 3: energy 추정(`cinc_mixer_v1/results/check-attnmask-20261126/est_energy.py` · `.txt`; 첫 튜닝 shape, single block, test window 하나 = C 7개 channel)
+- mask(Pearson, T개 복사본마다): T·C·N²·D MAC. T 평균 membrane으로 한 번만 만들면 C·N²·D MAC(1/T).
+- spike map과 A V(상한, 모든 원소를 AC로 셈): 2·T·C·N²·D AC.
+- 세지 않은 것: 상관계수의 중심화 · 노름 · 나눗셈, mask 원소곱, neuron, Q / K / V projection(넣을 경우), Sinkhorn 반복.
+
+| 데이터셋 | 지금 energy(H96 → H720, µJ) | mask(복사본마다) | mask(T 평균) | mask + spike 곱 상한 |
+|---|---|---|---|---|
+| ETTh1(N 24, D 32) | 6.04 → 21.46 | +2.37 µJ(+39 → +11 %) | +0.59(+10 → +3 %) | +55 → +15 % |
+| ETTh2(N 12, D 64) | 5.92 → 21.31 | +1.19(+20 → +6 %) | +0.30(+5 → +1 %) | +28 → +8 % |
+| ETTm1(N 12, D 32) | 5.20 → 12.91 | +0.59(+11 → +5 %) | +0.15(+3 → +1 %) | +16 → +6 % |
+| ETTm2(N 12, D 64) | 6.58 → 21.94 | +1.19(+18 → +5 %) | +0.30(+5 → +1 %) | +25 → +8 % |
+- 늘어난 뒤에도 SpikF-LIF(약 785 µJ)의 1–4 % 수준이다. 우리 model 대비 증가는 짧은 horizon(H96)에서 크다. N이 커지는 과제(CinC N 117 등)에서는 N²로 커진다.
+- ETTm1 첫 튜닝은 3 block이다. 위 값은 1 block 기준이다.
+
+### 문제 4: OT plan의 뜻
+- OT(최적 수송) plan은 두 점 집합을 비용이 가장 작게 짝짓는 결합 확률이다. 행 · 열 합이 고정(token마다 1/N)이라 "이 token은 아무와도 관계없다"를 표현하지 못한다. 또 서로 비슷한 쌍도 다른 짝이 더 싸면 작은 값을 받는다. 즉 "관련도"가 아니라 "짝짓기"다.
+- 정규화 세기 ε와 반복 횟수가 새 hyperparameter다. ε가 작으면 거의 순열(하나씩 짝)이 되어 기울기가 불안정하고, 크면 거의 균등해져 정보가 없다.
+- Sinkhorn으로 attention을 이중 확률 행렬로 만든 선행 연구(Sinkformer, Sander et al.)가 있다(기억에 의존, 이번에 원문 재확인 안 함).
+- 권장: 상관계수부터 한다. OT는 상관계수에서 이득이 보일 때만 비교한다.
+
+### 문제 5: 상관계수 형태에서 정할 것
+- D 축 Pearson(H_f[n], H_r[n'])은 중심화한 cosine이므로, projection 없는 실수 attention score와 같다. spike map F Rᵀ는 같은 H를 문턱에서 자른 것이라 두 map이 같은 정보원에서 나온다. spike map은 주로 희소화(공통 발화 channel이 없는 쌍을 0으로)를 더한다.
+- 정방향과 역방향 stack은 weight가 따로라, channel d의 뜻이 두 방향에서 같다는 보장이 없다. 상관(또는 거리)은 학습으로 정렬된다는 가정에 기댄다. 지금의 |H_f − H_r|도 같은 가정이다. 정렬을 보장하려면 W_q, W_k projection이 필요하다(비용 증가).
+- 값 범위 [−1, 1]을 mask로 어떻게 쓸지(ReLU(ρ), (1 + ρ)/2, n' 축 softmax) 미리 정해야 한다.
+- T개 복사본마다 따로 할지, T 평균 membrane으로 한 번만 할지(energy 1/T).
+- "M개 층의 H": M은 ETTm1만 2이고 나머지는 1이라 대부분 해당이 없다.
+
+### 문제 6: spiking attention 형태의 제약
+- N×N mask를 씌우려면 N×N map을 실제로 만드는 형태여야 한다. Spikformer SSA(Q Kᵀ V, softmax 없음)나 SpikingResformer DSSA가 해당한다. Spike-driven Transformer의 SDSA와 QKFormer의 Q-K attention은 N×N map을 만들지 않는 선형 형태라 이 mask를 받을 수 없다(기억에 의존).
+- A V는 실수이므로 IAND 잔차에 넣으려면 neuron으로 다시 0/1로 만들어야 한다. T = N 성격을 지키려면 N 축 neuron이 맞다.
+
+### 문제 7: 기존 근거(성능 기대가 낮다)
+- 10-24 CinC fold 0(옛 배치: T 반복 축 없음, 고른 neuron이 mixer에만): spike BiX − OR은 LIF +0.96, f-LIF +1.36, population LIF −1.13, population f-LIF −1.11이었다. membrane q·k attention(`xattnmem`) − spike BiX는 네 neuron 모두 나빴다(LIF −1.43, f-LIF −1.24, population LIF −5.92, population f-LIF −4.59). 모두 Spikformer식(65.60)에 못 미쳤다. 단, 지금 구조 · 과제와 다르고, mask가 아니라 실수 q·k였다.
+- ETT: 같은 patch에서 SF-de(SSA attention)와 지금 SpkMixer의 차이가 없었다(11-23 23:07, R +0.16 %, 6/12). token 섞는 방식을 바꿔도 ETT에서는 차이가 나지 않았다. 11-18 mixer 변형 3묶음도 better가 없었고, 2 block도 이득이 없었다(15:13).
+- SpikF와의 격차는 ETTh1 · ETTm1에 몰려 있다(11-25 22:51). 원인 후보는 token 섞기보다 head · T · token 길이 차이다(가설, 확인 안 함).
+
+### 문제 8: contribution 귀속
+- 사용자가 2층 head에 대해 걱정한 것과 같은 문제다. 이득이 나오면 Spikformer식 attention의 몫인지, membrane token 축 동역학(Neocortex, T = N)의 몫인지 나눠야 한다.
+- 필요한 비교: (a) 지금 muxlin, (b) mask 없는 spike attention(F × R), (c) mask만(실수 attention), (d) spike attention ⊙ mask, (e) 방향 stack 없는 attention(= SF-de, 기존 run). 상시 규칙대로 population LIF · population f-LIF도 포함한다.
+- MUX를 없애면 CinC에서 이득을 만든 s_d 경로(10-24 ③ → 10-27 sd)도 사라진다. s_d를 남기고 attention을 더하는 안도 비교 후보다.
+
+### 기타
+- ETTm1 첫 튜닝은 3 block이므로, single block 비교의 기준선도 1 block이어야 한다(blocks 단계의 1 block run은 H96 · H720에만 있다).
+- 4번 "출력을 MLP로"는 지금 구조와 같다(IAND 뒤 MLP).
+
+### 사용자 결정이 필요한 것
+1. mask 형태: 상관계수(권장) / OT, 값 범위 처리, 복사본마다 / T 평균(권장).
+2. spike attention 형태: F, R을 바로 Q, K로 / projection 추가(BiX 형태).
+3. MUX(s_d) 제거 / 유지 + attention 추가.
+4. 시험 범위(데이터셋, neuron, ablation 팔)와 판정 규칙. energy 계산기를 먼저 만든다.
+
+**commit:** 이 기록과 `results/check-attnmask-20261126/{est_energy.py, est_energy.txt}`를 `exp/f-lif-pop-v3`에 commit · push한다.
