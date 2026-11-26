@@ -11927,3 +11927,49 @@ AdamW lr 1e-3, weight decay 1e-2, 1 epoch 선형 warm-up 뒤 cosine으로 0(step
 ### Git
 
 - 이 항목, `oc_data.py`, `order_check.py`, `check_oc2.py`, `summarize_oc2.py`, `scripts/{run_oc.sh, make_queue_oc2.sh, oc2_driver.sh}`, smoke `raw.txt` 3개를 사전 고정 commit으로 묶어 push 한 뒤 시작한다. pool이 도는 동안에는 commit하지 않는다(요약이 sha 하나를 요구).
+
+## 2026-11-26 21:47 KST — 결과: 두 번째 진단 묶음 (54 run, 사전 고정 `1d6dafe74`) — **Sleep-EDF spectrum front end는 통과했다**(순서 중간 +1.60 %p, 5/5; 축적 필요 +6.68 %p, 5/5; 앞 1.5분 뒤에도 +2.37 %p 늘어남) → (나) SNN 비교를 시작할 수 있다. **MIT-BIH 환자 단위 + 과거 beat(MBIP)는 답을 주지 못했다**: 진단용 model이 처음 보는 환자에서 S를 거의 찾지 못해(DS2 S F1 3.1–6.3 %, 기록 232의 S sensitivity 0.1–0.4 %) 사전 규칙의 읽기("과거 beat가 돕는다는 것이 보이지 않음")는 바닥 효과다
+
+**실행:** tmux `flif_oc2`, 21:42:24 – 21:46:15, **RESULT 54 / 54, SKIP 0**, sha 하나(`1d6dafe74`). 요약은 driver가 `summarize_oc2.py`로 냈다(`results/flif-v1-oc2/{raw.txt, summary.md, decision.json}`). run 평균 MBIP 34 s, SLEEPPSD 25 s, 최대 memory 0.2 GB.
+
+### SLEEPPSD (Sleep-EDF, token = epoch spectrum; macro-F1 %, 5 fold)
+
+| 조건 | gru orig L16 | gru shuf L16 | tf orig L16 | tf shuf L16 | gru orig L4 | gru orig L1 |
+|---|---|---|---|---|---|---|
+| macro-F1 | 75.92 ± 3.91 | 74.33 ± 3.32 | 73.92 ± 3.04 | 74.41 ± 2.95 | 73.55 ± 3.39 | 69.24 ± 4.29 |
+
+- (B) 순서: gru +1.60(+2.63 / +0.73 / +1.50 / +2.84 / +0.29, 5/5), tf −0.49(4/5, fold 1이 −5.60) → **중간**(V_B +1.60, gru). 최고 원 순서 − 최고 섞은 순서 = +1.51.
+- (A) 축적: L16 − L1 = **+6.68**(5/5) → **필요**. L16 − L4 = +2.37(5/5, 보고만).
+- **통과 → 사전 고정대로 (나) SNN 비교를 시작할 수 있다.**
+- front end 비교(보고만): CNN(첫 묶음) 대비 spectrum이 낮다 — gru L16 78.22 → 75.92, tf L16 77.37 → 73.92, gru L1 75.21 → 69.24. **spectrum은 epoch 하나만으로는 CNN보다 약하고(−6.0 %p), 그 몫을 문맥이 더 많이 메운다.** 그래서 축적 몫(L16 − L1)이 CNN의 +3.01보다 커졌다(+6.68). 이 차이는 front end의 성질이지 과제의 성질만은 아니다(추론).
+
+### MBIP (MIT-BIH DS1 → DS2; S F1 %, seed 3)
+
+| 조건 | S F1 | S Se | S +P | V F1 | macro-F1 (4) | S Se 232 | S Se 222 |
+|---|---|---|---|---|---|---|---|
+| gru orig L17 | 4.07 ± 0.99 | 4.82 | 4.62 | 69.21 | 42.62 | 0.17 | 15.79 |
+| gru shuf L17 | 3.07 ± 1.00 | 3.43 | 2.88 | 61.87 | 39.04 | 0.07 | 14.04 |
+| tf orig L17 | 6.27 ± 1.46 | 8.51 | 5.06 | 64.67 | 40.44 | 0.36 | 43.06 |
+| tf shuf L17 | 4.51 ± 1.45 | 9.18 | 3.13 | 72.92 | 42.49 | 0.12 | 56.30 |
+| gru orig L5 | 5.06 ± 1.44 | 9.44 | 3.88 | 68.26 | 40.30 | 0.07 | 43.38 |
+| gru orig L2 | 3.56 ± 0.53 | 5.55 | 3.47 | 65.02 | 42.98 | 0.22 | 23.60 |
+| gru orig L1 | 5.06 ± 1.27 | 9.55 | 3.76 | 45.14 | 32.87 | 0.22 | 56.94 |
+| gru orig L1 + 숫자 두 개 | 4.79 ± 1.39 | 7.28 | 3.63 | 51.73 | 35.09 | 0.27 | 35.41 |
+
+- 사전 규칙: (A) L17 − L1 = −1.00(0/3) → 보이지 않음; (B) gru +1.00(2/3), tf +1.76(3/3) → 중간(V_B +1.76, tf); (C) L17 − (L1 + 숫자 두 개) = −0.73(1/3) → 넘지 못함. **읽기: "과거 beat가 돕는다는 것이 보이지 않음".**
+- **그러나 이 읽기는 믿을 수 없다(바닥 효과).** 모든 조건의 S F1이 3–6 %이고 S +P가 3–5 %다. 기록 232(DS2 S의 75 %)의 S는 거의 하나도 찾지 못했다(0.1–0.4 %). 문헌의 단일 beat model(S F1 0–31)이나 R-R 숫자만 쓴 XGBoost(S F1 45, Farag 2023)보다도 낮다. 이 진단용 model과 학습 설정으로는 "과거가 S를 돕는가"를 잴 수 없다. 사전 탐색의 validation S F1(6.9–11.0)이 이미 이것을 예고했다.
+- 보고만(macro-F1, 4 class): L17 − L1 = **+9.74**(3/3), L17 − (L1 + 숫자 두 개) = **+7.53**(3/3). 이 이득은 S가 아니라 **V**에서 온다(V F1 45.1 → 69.2). 과거 beat가 그 환자의 평소 beat 모양을 알려 주어 V를 가르는 데 쓰인다는 해석이 가능하다(추론, 사전 고정 아님). 순서(macro): gru +3.58(2/3), tf −2.05(0/3).
+
+### 내 판단과 다음
+
+- (나): 사전 고정대로 SNN 비교를 진행한다. 구현은 이 pool이 도는 동안 따로 했고(아직 commit 안 함): `--token_step`(token 간격; 기존 `--patch_stride`는 다른 옛 option이라 이름을 바꿈), `--head_pool last`(대상 epoch token을 읽음), `--ctx_epochs`, data `SLEEPEDF`(`rhythm_data.sleep_psd_build`), 선택 점수 = macro-F1(`rhythm_eval`), key/value form(`replace`)에서도 `--neuron_all` 허용(두 결합 형태를 같은 SpikeDE 기반에서 비교하려고). 기본 경로 동일성: `fw_identity_xnor.py` 16/16, `fw_identity_head.py` 15/15 identical. 다섯 model(Spikformer(DE), query / key-value × pop LIF / pop f-LIF)이 16 token으로 만들어지고 spikingjelly LIF가 남지 않음, backward 확인. 사전 고정은 다음 항목.
+- (가) MBIP: 설계를 고쳐야 답을 얻을 수 있다. 사용자와 정한다(후보는 보고에 적음).
+
+### 한계
+
+- MBIP는 진단용 model 하나의 학습 설정에 묶여 있다. validation 환자 넷으로 설정을 고른 한계도 그대로다.
+- SLEEPPSD의 순서 몫(+1.60)은 fold 사이 흔들림(표준편차 3–4 %p) 안쪽 크기다. 5 fold 모두 양수라는 점이 근거다.
+
+### Git
+
+- 이 항목, `results/flif-v1-oc2/{raw.txt, summary.md, decision.json}`, run마다 `logargs.txt`, `log/{best_log_0.csv, final+result.csv}`를 한 commit으로 묶고 tag `exp/nsmt-flif-neo-20261126-oc2`를 단다. (나)의 SNN code 변경은 이 commit에 넣지 않는다(다음 사전 고정 commit).
