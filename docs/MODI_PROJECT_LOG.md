@@ -12192,3 +12192,85 @@ fold 0의 lr 0.001 / 0.003 값과 기존 fold 1–4는 1단계(`flif-v1-sleep-lr
 ### Git
 
 - 이 항목과 code 변경(`rhythm_data.py`, `train_rhythm.py`, `config.py`, `scripts/run_sleep.sh`), `check_sleep.py`, `summarize_sleep2.py`, `scripts/sleep2_driver.sh`, smoke `raw.txt`를 사전 고정 commit으로 묶어 push 한 뒤 시작한다. 도는 동안 commit하지 않는다.
+
+## 2026-11-27 02:34 KST — 사전 고정 (학습 전, validation만): (가) v2 0단계 — "파형 경로 + 간격 sequence 경로" 기준 model 고르기. DS2는 쓰지 않는다
+
+**사용자 결정 (11-27):** "(가) 우선 시작해보자." 근거: 23:00 분석(파형 입력 때문에 S를 못 찾음; 간격 sequence만으로 validation S F1 49–54).
+
+**목적:** S와 V를 둘 다 쓸 만하게 찾는 기준 model을 DS1 validation만으로 정한다. 이 기준이 서야 1단계(DS2)에서 과거 간격의 축적·순서, 확장 간격 요약, 순서 없는 과거 집합 같은 대조(사용자 분석 A)를 비교할 수 있다.
+
+**data:** MBIP와 같다(DS1 → DS2, MLII, causal high-pass, 창 R − 0.25 .. R + 0.40 s, beat마다 표준화, pre-RR). 단 target은 **기록 안에서 앞에 beat가 81개 이상** 있는 것으로 바꾼다(1단계에서 과거 80 간격의 긴 평균을 쓰는 대조와 같은 target 집합을 쓰려고). 학습 / validation 기록은 MBIP와 같다.
+
+**model (`mbip2.py`, 새 파일):** 파형 경로 = 현재 beat 창(117) → MLP(128); 간격 경로 = 과거 16 beat + 현재의 pre-RR 17개 → 2층 GRU(64); 두 출력을 이어 붙여 MLP → 4 class. 학습은 MBIP와 같음(AdamW 1e-3, wd 1e-2, warm-up 1 + cosine, 30 epoch, batch 256, clip 1), seed 42, validation 4-class macro-F1 최고 epoch.
+
+**후보 4개:** 손실 {class 가중, 가중 없음} × 파형 경로 출력 dropout {0, 0.5}.
+
+**고르는 규칙:** validation S F1 ≥ 30이고 V F1 ≥ 70인 후보 중 validation macro-F1이 가장 높은 것. 하나도 없으면 1단계로 가지 않고 사용자에게 보고한다. 비교용(고르지 않음): 간격 sequence만(파형 없음), 파형만(간격 경로 없음).
+
+**Git:** 지금 Sleep pool(`flif_sleep2`)이 돌고 있어 commit하지 않는다. 이 항목과 `mbip2.py`, 결과는 pool이 끝난 뒤 commit한다.
+
+## 2026-11-27 02:35 KST — 결과 (validation만): (가) v2 0단계 — **통과한 후보 없음.** 파형 경로와 간격 경로를 이어 붙인 model 넷 모두 validation S F1 13.9–28.6으로 문턱 30에 못 미친다(가장 가까운 것: 가중 없음 + 파형 dropout 0.5, S 28.6 / V 77.8). 간격 경로만 쓰면 S 50.6, 파형만 쓰면 7.7. 사전 규칙대로 1단계(DS2)로 가지 않고 사용자에게 보고한다
+
+**실행:** `mbip2.py`, seed 42, 30 epoch, target = 앞 beat 81개 이상(학습 40,819 / validation 8,401), 출력 `results/mbip2-stage0-20261127/stage0.txt`. Sleep pool(`flif_sleep2`)과 다른 대화의 작업이 같은 GPU에서 돌았다.
+
+| 손실 | 파형 dropout | 경로 | val S F1 | S Se | S +P | S 예측 / 실제 | V F1 | N F1 | F F1 | macro-F1 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 가중 | 0 | 둘 다 | 13.9 | 26.0 | 9.5 | 846 / 308 | 81.8 | 92.5 | 5.0 | 48.3 |
+| 가중 없음 | 0 | 둘 다 | 24.0 | 27.9 | 21.1 | 408 / 308 | 81.1 | 96.7 | 18.2 | 55.0 |
+| 가중 | 0.5 | 둘 다 | 14.8 | 13.3 | 16.7 | 246 / 308 | 72.6 | 92.7 | 1.3 | 45.4 |
+| 가중 없음 | 0.5 | 둘 다 | **28.6** | 26.6 | 30.8 | 266 / 308 | 77.8 | 96.9 | 8.9 | 53.1 |
+| 가중 | 0 | 간격만 (비교) | 50.6 | 45.5 | 57.1 | 245 / 308 | 46.7 | 95.1 | 0.0 | 48.1 |
+| 가중 | 0 | 파형만 (비교) | 7.7 | 5.8 | 11.3 | 159 / 308 | 47.3 | 88.0 | 2.9 | 36.5 |
+
+**읽기 (추론):** 두 경로를 이어 붙이기만 해서는 파형 쏠림이 풀리지 않는다. 간격 경로가 있어도 model은 S를 모양으로 정하려 한다(가중 손실이면 S를 846개나 부른다). dropout과 가중 없음이 조금 돕지만(28.6) 간격만 쓴 50.6에 한참 못 미친다.
+
+**사용자에게 낼 선택지:** (가-1) 질문을 리듬으로 좁힘 — 파형 없이 간격만 쓰는 model로 "과거 간격의 순서·축적이 요약 통계를 넘는가"를 DS2 S로 잰다(사용자 분석 A의 "과거 간격 sequence" 대조가 중심). (가-2) 두 경로를 유지하되 파형 경로가 S를 정하지 못하게 다시 설계(예: S 판정은 간격 경로 head가 맡고 파형 경로는 N / V / F만 배움)하고 0단계를 다시 한다.
+
+**Git:** pool이 끝난 뒤 이 항목, `mbip2.py`, `results/mbip2-stage0-20261127/stage0.txt`를 commit한다.
+
+## 2026-11-27 04:26 KST — 결과: (나) 후속 — 같은 lr 비교와 query form의 순서 / 기억 대조 (32 run, 사전 고정 `43afbb75e`) — **query form의 이점은 lr에 달려 있고(pop LIF: lr 0.001에서 +1.56 "좋음", lr 0.003에서 +0.13 "차이 없음"; pop f-LIF 지지 안 됨), Neocortex의 순서 몫과 기억 몫은 두 neuron 모두 "차이 없음"이다.** 21:54 비교의 "query pop LIF 좋음(+1.10)"은 일부가 lr 차이였다
+
+**실행:** tmux `flif_sleep2`, 02:33:42 – 04:25:51, **RESULT 32 / 32, SKIP 0**, sha 하나(`43afbb75e`). 다른 대화의 ETT 작업 8개가 같은 GPU를 함께 썼다. 요약 `results/flif-v1-sleep2/{summary.md, decision.json}`(driver가 `summarize_sleep2.py`로 냄).
+
+### 결과 (test macro-F1 %, fold 0–4)
+
+| model | lr | macro-F1 | accuracy | N1 F1 | syops energy µJ |
+|---|---|---|---|---|---|
+| Spikformer(DE) | 0.001 | 73.06 ± 3.65 | 79.75 | 36.6 | 16.14 |
+| Spikformer(DE) | 0.003 | 74.03 ± 3.27 | 81.06 | 34.8 | 16.12 |
+| query pop LIF | 0.001 | 74.62 ± 3.88 | 81.06 | 36.9 | 18.19 |
+| query pop LIF | 0.003 | 74.16 ± 3.26 | 80.50 | 37.4 | 18.55 |
+| query pop f-LIF | 0.001 | 73.13 ± 3.03 | 79.93 | 34.7 | 18.22 |
+| query pop f-LIF | 0.003 | 73.35 ± 3.29 | 79.96 | 36.5 | 18.63 |
+| query pop LIF + 문맥 섞기 | 0.003 | 73.63 ± 3.15 | 80.40 | 36.2 | 18.54 |
+| query pop f-LIF + 문맥 섞기 | 0.003 | 73.99 ± 3.19 | 80.74 | 37.0 | 18.45 |
+| query pop LIF + 기억 없는 Neocortex | 0.003 | 73.41 ± 2.74 | 80.17 | 36.0 | 16.23 |
+| query pop f-LIF + 기억 없는 Neocortex | 0.003 | 72.89 ± 4.06 | 79.96 | 34.6 | 16.49 |
+
+| 비교 | fold별 d | 평균 | 양수 | 판정 |
+|---|---|---|---|---|
+| L pop LIF, lr 0.003 | +0.26 / −3.34 / +1.04 / +2.21 / +0.47 | +0.13 | 4/5 | 차이 없음 |
+| L pop LIF, lr 0.001 | +0.24 / +4.44 / +1.07 / +0.77 / +1.26 | +1.56 | 5/5 | **좋음** |
+| L pop f-LIF, lr 0.003 | −1.42 / −2.49 / +1.07 / +0.80 / −1.34 | −0.68 | 2/5 | 차이 없음 |
+| L pop f-LIF, lr 0.001 | −2.65 / +0.26 / +1.08 / +0.57 / +1.07 | +0.07 | 4/5 | 차이 없음 |
+| O pop LIF (원 순서 − 문맥 섞기) | +0.69 / −1.05 / +0.63 / +1.52 / +0.87 | +0.53 | 4/5 | 차이 없음 |
+| O pop f-LIF | −1.17 / −1.86 / +1.27 / −0.03 / −1.37 | −0.63 | 1/5 | 차이 없음 |
+| M pop LIF (기억 있음 − 없음) | +1.56 / −2.04 / +1.70 / +2.36 / +0.18 | +0.75 | 4/5 | 차이 없음 |
+| M pop f-LIF | −0.77 / +1.58 / −1.13 / +1.00 / +1.64 | +0.47 | 3/5 | 차이 없음 |
+
+**사전 규칙의 읽기:** pop LIF = "lr에 달림", pop f-LIF = "지지 안 됨". 순서(O)와 기억(M)은 두 neuron 모두 "차이 없음".
+
+### 읽기 (추론)
+
+- **21:54 비교의 "query pop LIF 좋음"은 lr 차이를 일부 안고 있었다.** Spikformer(DE)는 validation이 0.001을 골랐지만 0.003에서 test가 +0.97 %p 높았다(74.03). 같은 lr 0.003에서는 query pop LIF가 +0.13이다.
+- **SNN 안에서 Neocortex는 epoch 순서를 쓰지 않는다**(섞어 다시 학습해도 차이 없음). 같은 spectrum token에서 진단용 GRU는 순서 몫이 +1.60(5/5)이었다(21:47). 과제에는 순서 정보가 조금 있지만 지금 query form의 Neocortex는 그것을 점수로 바꾸지 못한다.
+- **기억 없는 Neocortex도 거의 같다**(+0.75 / +0.47, 차이 없음)이고 energy는 더 낮다(16.2–16.5 µJ). 문맥 epoch를 모으는 일은 Hippocampus attention(순서는 못 보지만 16 epoch 전부를 봄)이 하는 것으로 보인다.
+- 이 양상은 ETT, MIT-BIH에서 본 것과 같다: Neocortex가 있어도 순서·기억으로 얻는 점수가 보이지 않는다.
+
+### 한계
+
+- fold마다 seed 하나, 5 fold, fold 사이 표준편차 3–4 %p. 순서 / 기억 대조는 lr 0.003에서만 했다.
+
+### Git
+
+- 이 항목, `results/flif-v1-sleep2/{raw.txt, summary.md, decision.json}`, run마다 text 산출물을 commit하고 tag `exp/nsmt-flif-neo-20261127-sleep2`를 단다. 같은 commit에 앞의 02:34 / 02:35 항목((가) v2 0단계), `mbip2.py`, `results/mbip2-stage0-20261127/stage0.txt`를 넣는다. PTB 사전 고정(02:54 항목과 code)은 다음 commit으로 따로 한다.
