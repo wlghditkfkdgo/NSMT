@@ -16,7 +16,7 @@ Anchors checked against the authors' public notebook (github.com/eai-lab/PPT, mi
     'anchor white noise' below uses a real shuffle, so the noise level of this score is about 0.3, not 0.
 A high score means shuffling patches changes the autocorrelation a lot (the paper's "orderness"); it is a property of the signal, not of
 the labels.
-usage (classification folder): python acf_cos.py [--n 4000] [--sets mitbih,cinc,ett,anchors]
+usage (classification folder): python acf_cos.py [--n 4000] [--sets anchors,mitbih,cinc,ett,sc,sleep]
 """
 import argparse
 import os
@@ -97,6 +97,23 @@ def main():
             w = np.stack([v[i:i + 96] for i in range(0, len(v) - 96, 96)])           # [n, 96, 7]
             x = w.transpose(0, 2, 1).reshape(-1, 96)
             report(f'{ds} input window (96, per channel)', x[rng.permutation(len(x))[:a.n]], rng)
+    extra(sets, a, rng)
+
+
+def extra(sets, a, rng):
+    """MODI 2026-11-26 (added while the order-check pool ran; report only): Speech Commands and Sleep-EDF-20 caches of oc_data.py."""
+    if 'sc' in sets:                                                    # log-mel 40 x 100 frames, each band a series (as the model's frames)
+        d = np.load(os.path.join(HERE, 'dataset', 'speech_commands', 'sc35_logmel40.npz'))
+        i = rng.permutation(len(d['y']))[:a.n // 10]
+        x = d['x'][i, :, :100].astype(np.float64).reshape(-1, 100)
+        report('Speech Commands log-mel band (100 frames)', x, rng)
+        report('Speech Commands, model token 4 frames (25)', x, rng, [4])
+    if 'sleep' in sets:                                                 # Sleep-EDF-20 Fpz-Cz target epochs, 30 s = 3000 points
+        d = np.load(os.path.join(HERE, 'dataset', 'sleep_edf20', 'sleepedf20_fpzcz.npz'))
+        t = np.where(d['tgt'])[0]
+        x = d['x'][rng.permutation(t)[:a.n]].astype(np.float64)
+        report('Sleep-EDF-20 epoch (3000)', x, rng)
+        report('Sleep-EDF-20, model token 1 s (30)', x, rng, [100])
 
 
 if __name__ == '__main__':

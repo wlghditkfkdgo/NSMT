@@ -11755,3 +11755,82 @@ AdamW lr 1e-3, weight decay 1e-2, 1 epoch 선형 warm-up 뒤 cosine으로 0(step
 ### Git
 
 - 이 항목과 `oc_data.py`, `order_check.py`, `check_oc.py`, `summarize_oc.py`, `scripts/{run_oc.sh, make_queue_oc.sh, oc_driver.sh}`, smoke `raw.txt` 2개를 사전 고정 commit으로 묶어 push 한 뒤 시작한다. pool이 도는 동안 이 파일들을 고치지 않는다.
+
+## 2026-11-26 18:16 KST — 결과: 순서 / 축적 확인 시험 (80 run, 사전 고정 `4263abe29`) — **"강함"인 순서 과제는 없다.** 사전 규칙으로 Speech Commands(순서 중간 +2.06 %p, 축적 필요 +14.06 %p)와 Sleep-EDF epoch 사이(순서 중간 +1.15 %p, 축적 필요 +3.01 %p)가 통과하고, Sleep-EDF epoch 안은 약함(−0.57 %p)이다. 그러나 Speech Commands의 순서 몫은 GRU에만 있고, 섞은 token으로 학습한 Transformer가 93.19 %로 가장 좋은 원 순서 model(93.42 %)에 0.23 %p 차이다. Sleep-EDF의 축적은 앞 4 epoch(1.5분)에서 포화한다(L16 − L4 = +0.18). 눈금용 MIT-BIH는 "약함" 예상과 달리 중간(+2.65 %p)이 나왔다 — token 17점에서는 순서 몫이 커진다. 함께: MIT-BIH 환자 단위 분할 + beat 문맥 문헌 보고서, Speech Commands / Sleep-EDF ACF-CoS
+
+**branch / 기준:** `exp/nsmt-flif-neo`, 사전 고정 commit `4263abe29`(모든 RESULT 줄의 sha).
+
+**실행:** tmux `flif_oc`, `oc_driver.sh 0,1,2,3,0,1,2,3`, 17:30:24 – 18:14:40. **RESULT 80 / 80, SKIP 0.** 요약은 driver가 `summarize_oc.py`로 냈다(`results/flif-v1-oc/{raw.txt, summary.md, decision.json}`). run 시간: SC 44–113 s, MITBIH 39–90 s, SLEEPIN 132–206 s, SLEEPCTX 148–726 s(GPU당 2개). 최대 GPU memory 2.5 GB. 다른 대화의 작업은 GPU에 없었다.
+
+### 결과 (사전 규칙; SC 정확도, 나머지 macro-F1, %, 평균 ± 표준편차)
+
+| 수준 | gru orig | gru shuf | tf orig | tf shuf |
+|---|---|---|---|---|
+| SC (seed 3) | 93.40 ± 0.07 | 91.34 ± 0.15 | 93.42 ± 0.23 | 93.19 ± 0.17 |
+| MITBIH (seed 3) | 91.72 ± 0.31 | 89.08 ± 0.05 | 91.48 ± 0.38 | 89.85 ± 0.40 |
+| SLEEPIN (fold 5) | 73.94 ± 4.50 | 74.55 ± 3.18 | 73.09 ± 4.27 | 73.65 ± 4.74 |
+| SLEEPCTX L16 (fold 5) | 78.22 ± 3.61 | 77.07 ± 2.91 | 77.37 ± 4.09 | 76.78 ± 4.90 |
+
+| 수준 | (B) 순서 d = orig − shuf (gru / tf, 양수 쌍) | 판정 | (A) 축적 | 판정 | 통과 |
+|---|---|---|---|---|---|
+| SC | +2.06 (3/3) / +0.23 (3/3) | 중간 | 25 − 10 token +14.06 (3/3); 25 − 5 token +32.63 | 필요 | 예 |
+| MITBIH | +2.65 (3/3) / +1.63 (3/3) | 중간 | — | — | 예 (눈금용) |
+| SLEEPIN | −0.60 (3/5) / −0.57 (2/5) | 약함 | — | — | 아니오 |
+| SLEEPCTX | +1.15 (4/5) / +0.59 (3/5) | 중간 | L16 − L1 +3.01 (4/5); L16 − L4 +0.18 (2/5, 보고만) | 필요 | 예 |
+
+- SLEEPCTX 축적 곡선(gru orig, MF1): L1 75.21, L4 78.04, L16 78.22. 정확도: 82.70, 83.71, 84.33.
+- PPT 방식(test에서만 섞기, 보고만) 하락: SC gru 60.47 / tf 2.21, MITBIH 65.78 / 52.57, SLEEPIN 2.46 / 0.17, SLEEPCTX 5.15 / 1.08 %p. **섞어 다시 학습한 차이(최대 2.65 %p)보다 몇 배에서 수십 배 크다.** 기대는 정도와 필요는 다르다는 11-19 / 11-20의 관찰이 진단용 DNN에서도 같다.
+
+### 사후 계산 (사전 고정 아님): 가장 좋은 원 순서 model − 가장 좋은 섞은 순서 model
+
+| 수준 | 원 순서 최고 | 섞은 순서 최고 | 차이 |
+|---|---|---|---|
+| SC | 93.42 (tf) | 93.19 (tf) | +0.23 |
+| MITBIH | 91.72 (gru) | 89.85 (tf) | +1.87 |
+| SLEEPIN | 73.94 (gru) | 74.55 (gru) | −0.60 |
+| SLEEPCTX | 78.22 (gru) | 77.07 (gru) | +1.15 |
+
+- 사전 규칙은 model 안의 차이(orig − shuf)다. SC에서 GRU의 +2.06은 GRU가 "순서 없는 token 묶음"을 잘 못 다루는 탓이 섞여 있다(GRU shuf 91.34 vs tf shuf 93.19). 순서를 못 보는 model 중 가장 좋은 것과 비교하면 SC의 순서 몫은 0.23 %p다.
+- 위치 embedding을 준 Transformer는 GRU와 거의 같다: SC 93.42 vs 93.40, MITBIH 91.48 vs 91.72, SLEEPCTX 77.37 vs 78.22(fold 표준편차 3.6–4.1 안).
+
+### 사전 예상과 다른 점
+
+- **MITBIH(눈금용)는 "약함"을 예상했는데 "중간"(+2.65 / +1.63, 모두 3/3)이 나왔다.** 11-19 SNN 결과(Spikformer(DE) bias 켬 − 끔 = +0.67 %p)는 token 32점(stride 16, 겹침, 11개)이었고, 이번은 겹침 없는 17점 token 11개다. token이 짧으면 token 안에 담긴 파형이 줄어 순서 몫이 커진다(추론). 사전 고정의 한계 항목("token을 더 작게 하면 순서 몫이 커질 수 있다")이 실제로 나타났다. 그래서 이 시험의 순서 몫은 token 크기를 함께 적어야 의미가 있다.
+
+### 읽기 (추론)
+
+- **어느 과제도 "강함"(≥ 3 %p)이 아니다.** 순서 몫은 많아야 2–3 %p이고, 순서를 못 보는 model과의 차이는 SC 0.23, Sleep 사이 1.15, MIT-BIH(17점) 1.87 %p다.
+- **Speech Commands:** 40 ms frame의 순서 없는 묶음만으로 93.19 %다. 축적 필요(+14 %p)는 단어가 clip 전체에 걸쳐 있다는 뜻이고, attention도 clip 전체를 본다. Neocortex의 순서 처리가 더할 몫은 작다.
+- **Sleep-EDF epoch 사이:** 앞 1.5분(L4)이 +2.8 %p를 주고 그 뒤는 늘지 않는다. 순서 몫은 GRU +1.15(4/5), Transformer +0.59(3/5)로 fold 사이 흔들림(표준편차 3–5 %p)과 비슷한 크기다. 두 조건을 통과했지만 "긴" 축적은 아니다.
+- **Sleep-EDF epoch 안:** PPT의 짧은 Sleep EEG 결과와 같은 방향(순서 몫 없음).
+
+### 함께 기록: MIT-BIH 환자 단위 분할 + beat 문맥 문헌 조사 (학습 없음)
+
+- 보고서 `NSMT/reports/MIT BIH 환자 단위 beat 문맥.md`(사용자에게 보냄), 노트 `NSMT/research_notes/MIT BIH 환자 단위 beat 문맥/{interpatient_context_methods.md, interpatient_protocol_baselines.md, snn_ecg_interpatient.md}`.
+- 요점: 이웃 beat 정보(RR feature)는 de Chazal 2004부터 기본 설정이다(12 configuration 모두 RR 4개 포함; 사용자의 "단순 환자 단위 분할만 있다"는 전제와 다름). 여러 beat 파형 입력도 2018–19년부터 있다. 비어 있는 곳: 과거 beat만 쓰는 다중 beat 입력은 드묾, beat / RR 순서를 섞은 시험은 없음, DS1/DS2에서 앞 beat를 network 입력으로 받는 SNN은 없음. DNN 기준 S F1 약 76–82 / V F1 약 90–95(거의 모두 다음 beat를 봄), SNN 최선 S Se 67 / +P 46. 위험: 순서 없는 요약(앞 RR, 과거 평균 RR)이 이득 대부분을 가져갈 수 있음, DS2 S beat의 75 %가 record 232, Mousavi & Afghah 2019의 sequence 구성 문제(저자 인정).
+- 보고서는 이전 보고서의 "SVEB F1 51.08 → 61.25"를 고쳤다(Guo 2019 초록 값, 표는 61.94이고 ablation이 아님).
+
+### 함께 기록: ACF-CoS (보고만; `acf_cos.py`에 `sc`, `sleep` 추가, pool과 무관한 파일)
+
+- `results/acf-cos-20261126/acf_cos_sc_sleep.txt`: Speech Commands log-mel band(100 frame) 0.526, Sleep-EDF epoch(3,000점) 0.448(백색잡음 0.301). 이번 시험에서 순서 몫이 다른 과제들(SC 0.23 ~ 2.06, SLEEPIN −0.6)이 비슷한 값을 받는다 — 17:06 항목의 판단(과제를 가르지 못함)과 같다.
+
+### 한계
+
+- 진단용 model 두 종류, 한 학습 설정, 한 token 크기. 순서 몫은 token 크기와 model에 따라 달라진다(MITBIH가 보여 줌).
+- Sleep-EDF는 5-fold 한 번(fold 사이 표준편차 3–5 %p).
+- SC 가운데 자르기는 단어가 가운데 있다고 가정한다.
+
+### not run
+
+- 우리 SNN model의 구조 비교(query form vs key/value form × pop LIF / pop f-LIF): 과제 선택은 사용자가 한다.
+- MIT-BIH 환자 단위 + 과거 beat 확인 시험(새 data 필요), 다른 token 크기.
+
+### 결론
+
+- 사전 규칙으로 통과: Speech Commands, Sleep-EDF epoch 사이(그리고 눈금용 MIT-BIH 17점 token). 통과 못함: Sleep-EDF epoch 안.
+- 그러나 순서 몫은 어디서도 3 %p에 못 미치고, 순서를 못 보는 가장 좋은 model과의 차이는 0.2–1.9 %p다. 이 과제들에서 Neocortex의 순서 처리로 보일 수 있는 이득의 상한이 이 정도다(추론).
+- 다음 과제 선택은 사용자가 한다.
+
+### Git
+
+- 이 항목, `results/flif-v1-oc/{raw.txt, summary.md, decision.json}`, run마다 `logargs.txt`, `log/{best_log_0.csv, final+result.csv}`(checkpoint, TensorBoard event, stdout은 로컬), `acf_cos.py`와 `results/acf-cos-20261126/acf_cos_sc_sleep.txt`, 보고서와 노트 3개를 한 commit으로 묶고 annotated tag `exp/nsmt-flif-neo-20261126-oc`를 단다. `exp/nsmt-flif-neo`와 그 tag만 push 한다.
