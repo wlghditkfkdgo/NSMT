@@ -22,22 +22,36 @@ by their usual hooks. Ledger rules (Horowitz 45 nm: AC 0.9 pJ = one real additio
                               MAC: 2 N B' D (1 / T) + 2 N B' D + 2 N B' (norms, sqrt) + B' N^2 D (dot products)
                                    + 3 B' N^2 (norm product, division, / 2) + B' T N^2 (mask x map)
     division and square root are counted as one MAC each (assumption); the D^-1/2 scale folds into the BN after it (not counted).
+
+2026-11-27 stage 2 (PROJECT_LOG stage-2 pre-registration; user decision 11-27: "the plain OT plan computed by Sinkhorn, used as the
+attention mask", not the Sinkformer attention):
+    mask 'ot'  points Hbar_f[n] and Hbar_r[n'] (T-mean charges, [B', N, D]) with uniform weights 1/N; cost C = ||x - y||^2 / D;
+               entropic OT solved by `ot_iters` log-domain Sinkhorn iterations with eps = ot_eps x mean(C) per window (detached);
+               plan P (sums to 1, columns exactly 1/N) -> mask M = N * P (each column sums to 1, rows close to 1); unrolled, so the
+               gradient flows through the iterations.
+    ledger     T means / 1/T and the dot products as for 'pc'; cost: 2 B' N D (norms) MAC + 2 B' N^2 AC + 2 B' N^2 MAC; eps: B' N^2 AC
+               + 2 B' MAC; -C / eps: B' N^2 MAC; each half-iteration (logsumexp over N^2 entries): 3 B' N^2 + 2 B' N AC and
+               B' N^2 + B' N MAC (exp and log counted as one MAC each, assumption; the max is a comparison, not counted); plan:
+               2 B' N^2 AC + B' N^2 MAC; N * P: B' N^2 MAC; mask x map: B' T N^2 MAC.
 """
 import torch
 import torch.nn as nn
 
+import math
+
 __all__ = ['AttnMath', 'SpkXAttn', 'attn_syops_hook', 'MASKS']
 
-MASKS = ('none', 'pc')
+MASKS = ('none', 'pc', 'ot')                                                 # 'ot': 2026-11-27 stage 2
 
 
 class AttnMath(nn.Module):
     """Parameter-free leaf: (Q, K, V, H_f, H_r) [N, B', T, D] -> Z [N, B', T, D] (pre-BN), with the op ledger."""
-    def __init__(self, dim, mask='none'):
+    def __init__(self, dim, mask='none', ot_iters=20, ot_eps=0.1):
         super().__init__()
         if mask not in MASKS:
             raise ValueError(f'mask must be one of {MASKS}')
         self.dim, self.mask = int(dim), mask
+        self.ot_iters, self.ot_eps = int(ot_iters), float(ot_eps)
         self.scale = self.dim ** -0.5
         self._ops = (0., 0.)
         self.last_mask = None                                                  # [B', N, N] of the last call (checks / probes)
@@ -53,6 +67,25 @@ class AttnMath(nn.Module):
         den = cf.norm(dim=-1).unsqueeze(-1) * cr.norm(dim=-1).unsqueeze(-2) + eps
         return (1. + num / den) / 2.
 
+    @staticmethod
+    def ot_plan(hf, hr, iters=20, eps_rel=0.1):
+        """hf, hr [N, B', T, D] -> entropic OT plan [B', N, N] between the T-mean charges (uniform weights, cost ||x - y||^2 / D),
+        log-domain Sinkhorn; also returns eps [B', 1, 1]."""
+        x = hf.mean(2).transpose(0, 1)                                         # [B', N, D]
+        y = hr.mean(2).transpose(0, 1)
+        B, N, D = x.shape
+        cost = ((x * x).sum(-1).unsqueeze(-1) + (y * y).sum(-1).unsqueeze(-2) - 2. * (x @ y.transpose(-1, -2))) / D
+        cost = cost.clamp_min(0.)
+        eps = (eps_rel * cost.mean(dim=(-1, -2), keepdim=True)).detach().clamp_min(1e-6)
+        logk = -cost / eps
+        loga = -math.log(N)
+        f = torch.zeros(B, N, 1, dtype=x.dtype, device=x.device)
+        g = torch.zeros(B, 1, N, dtype=x.dtype, device=x.device)
+        for _ in range(int(iters)):
+            f = loga - torch.logsumexp(logk + g, dim=-1, keepdim=True)
+            g = loga - torch.logsumexp(logk + f, dim=-2, keepdim=True)
+        return torch.exp(logk + f + g), eps
+
     def forward(self, q, k, v, hf=None, hr=None):
         N, B, T, D = q.shape
         a = torch.einsum('nbtd,mbtd->btnm', q, k)                              # [B', T, N, N]
@@ -64,6 +97,15 @@ class AttnMath(nn.Module):
             a = a * m.unsqueeze(1)
             ac += 2. * T * N * B * D + 4. * N * B * D + 2. * B * N * N
             mac += 2. * N * B * D + 2. * N * B * D + 2. * N * B + float(B) * N * N * D + 3. * B * N * N + float(B) * T * N * N
+        elif self.mask == 'ot':                                                # 2026-11-27 stage 2
+            p, _ = self.ot_plan(hf, hr, self.ot_iters, self.ot_eps)
+            m = N * p
+            self.last_mask = m.detach()
+            a = a * m.unsqueeze(1)
+            L, BN2, BN = self.ot_iters, float(B) * N * N, float(B) * N
+            ac += 2. * T * N * B * D + 2. * BN2 + BN2 + L * 2. * (3. * BN2 + 2. * BN) + 2. * BN2
+            mac += (2. * N * B * D + 2. * N * B * D + BN2 * D + 2. * BN2 + 2. * B + BN2 + L * 2. * (BN2 + BN) + BN2 + BN2
+                    + float(B) * T * N * N)
         z = torch.einsum('btnm,mbtd->nbtd', a, v) * self.scale                 # [N, B', T, D]
         self._ops = (ac, mac)
         return z
@@ -97,14 +139,14 @@ class _Proj(nn.Module):
 
 class SpkXAttn(nn.Module):
     """F, R, H_f, H_r [N, B', T, D] -> spikes [N, B', T, D]. make_neuron() -> a token-axis neuron module (one per call)."""
-    def __init__(self, dim, mask='none', proj=False, make_neuron=None, bias=False):
+    def __init__(self, dim, mask='none', proj=False, make_neuron=None, bias=False, ot_iters=20, ot_eps=0.1):
         super().__init__()
         self.proj = bool(proj)
         if self.proj:
             self.q = _Proj(dim, dim, make_neuron(), bias)
             self.k = _Proj(dim, dim, make_neuron(), bias)
             self.v = _Proj(dim, dim, make_neuron(), bias)
-        self.core = AttnMath(dim, mask)
+        self.core = AttnMath(dim, mask, ot_iters, ot_eps)
         self.bn = nn.BatchNorm1d(dim)
         self.neuron = make_neuron()
         self.dim = int(dim)

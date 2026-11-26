@@ -1,0 +1,39 @@
+PASS s0 build (ref): saved 13
+PASS s0 build (new): saved 13
+PASS s0 muxlin_IAND_False: parameters / buffers and outputs bitwise equal to the stage-1 code
+PASS s0 muxlin_ADD_False: parameters / buffers and outputs bitwise equal to the stage-1 code
+PASS s0 muxlin_ADD_True: parameters / buffers and outputs bitwise equal to the stage-1 code
+PASS s0 or_IAND_False: parameters / buffers and outputs bitwise equal to the stage-1 code
+PASS s0 sdlin_OR_False: parameters / buffers and outputs bitwise equal to the stage-1 code
+PASS s0 sxd_ADD_False: parameters / buffers and outputs bitwise equal to the stage-1 code
+PASS s0 sxd_ADD_True: parameters / buffers and outputs bitwise equal to the stage-1 code
+PASS s0 sxdpc_ADD_False: parameters / buffers and outputs bitwise equal to the stage-1 code
+PASS s0 sxdpc_ADD_True: parameters / buffers and outputs bitwise equal to the stage-1 code
+PASS s0 sxp_ADD_False: parameters / buffers and outputs bitwise equal to the stage-1 code
+PASS s0 sxp_ADD_True: parameters / buffers and outputs bitwise equal to the stage-1 code
+PASS s0 sxppc_ADD_False: parameters / buffers and outputs bitwise equal to the stage-1 code
+PASS s0 sxppc_ADD_True: parameters / buffers and outputs bitwise equal to the stage-1 code
+PASS s1 OT plan equals a float64 numpy Sinkhorn (plain domain): max |diff| 3.5e-08
+PASS s1 plan >= 0, total 1, columns 1/N: row sums deviate up to 1e-05 from 1/N = 0.0909
+PASS s2 identical point sets, eps 0.01: diagonal mass > 0.9: min diagonal mass 1.000
+PASS s3 msxdpc: MUX = where(s_d, a, min(F, R)) and all four fire: f 0.041, r 0.041, a 0.041, sd 0.080
+PASS s3 msxpot: MUX = where(s_d, a, min(F, R)) and all four fire: f 0.041, r 0.041, a 0.026, sd 0.080
+PASS s4 sxdot indep.: every parameter of sxdpc equal; extra none
+PASS s4 sxdot shared: every parameter of sxdpc equal; extra none
+PASS s4 sxpot indep.: every parameter of sxppc equal; extra none
+PASS s4 sxpot shared: every parameter of sxppc equal; extra none
+PASS s4 msxdpc indep.: every parameter of sxdpc equal; extra ['inner.blocks.0.sd_bn.bias', 'inner.blocks.0.sd_bn.weight']
+PASS s4 msxdpc shared: every parameter of sxdpc equal; extra ['inner.blocks.0.sd_bn.bias', 'inner.blocks.0.sd_bn.weight']
+PASS s4 msxppc indep.: every parameter of sxppc equal; extra ['inner.blocks.0.sd_bn.bias', 'inner.blocks.0.sd_bn.weight']
+PASS s4 msxppc shared: every parameter of sxppc equal; extra ['inner.blocks.0.sd_bn.bias', 'inner.blocks.0.sd_bn.weight']
+PASS s4 msxdot indep.: every parameter of sxdpc equal; extra ['inner.blocks.0.sd_bn.bias', 'inner.blocks.0.sd_bn.weight']
+PASS s4 msxdot shared: every parameter of sxdpc equal; extra ['inner.blocks.0.sd_bn.bias', 'inner.blocks.0.sd_bn.weight']
+PASS s4 msxpot indep.: every parameter of sxppc equal; extra ['inner.blocks.0.sd_bn.bias', 'inner.blocks.0.sd_bn.weight']
+PASS s4 msxpot shared: every parameter of sxppc equal; extra ['inner.blocks.0.sd_bn.bias', 'inner.blocks.0.sd_bn.weight']
+PASS s5 OT ledger equals the hand formula: (87615.0, 36044.0) vs (87615.0, 36044.0)
+PASS s5 sxdot: syops with - without = ledger per window (AC 164494 / 164494, MAC 95774 / 95774; spikes 10270)
+PASS s5 sxdot: SynOpRecorder adds the same ledger
+PASS s5 msxpot: syops with - without = ledger per window (AC 164663 / 164663, MAC 95774 / 95774; spikes 10439)
+PASS s5 msxpot: SynOpRecorder adds the same ledger
+PASS s6 a loss through the OT mask alone reaches the shared stack (non-zero gradient)
+ALL PASS

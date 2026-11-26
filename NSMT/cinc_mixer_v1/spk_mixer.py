@@ -64,6 +64,12 @@ unchanged):
   mixer_share  the reverse stack IS the forward stack (one set of weights run over the token sequence and over its reverse). The
                reverse stack is still built and initialised (so the random stream and every other initial weight equal the
                independent model's) and removed after the global init.
+
+2026-11-27 stage 2 (PROJECT_LOG stage-2 pre-registration; user decisions 11-27: OT after Pearson, MUX after no MUX):
+  mixer_comb   + 'sxdot' / 'sxpot': the mask is the entropic OT plan between the T-mean charges (sxa.AttnMath mask 'ot'), x N;
+               + 'msx<d|p><pc|ot>': the MUX is kept and the attention output a takes the learned fusion's place:
+               m = s_d ? a : (F ^ R) = s_d * a + (1 - s_d) * min(F, R), s_d = neuron(BN(|H_f - H_r|)) as in muxlin (design A of
+               11-26 23:54). s_d's BN and neuron draw no random numbers, so initial weights stay paired with the no-MUX arms.
 """
 import json
 import os
@@ -81,7 +87,8 @@ from sxa import SpkXAttn                                                     # 2
 __all__ = ['SpkMixer', 'apply_gain_table', 'COMBS', 'CONNECTS', 'NEURONS', 'XCOMBS']
 
 NEURONS = ('lif', 'flif', 'pop_lif', 'pop_flif', 'popg_lif', 'popg_flif')
-XCOMBS = ('sxd', 'sxdpc', 'sxp', 'sxppc')                                    # 2026-11-27: spike cross-attention, no MUX
+XCOMBS = ('sxd', 'sxdpc', 'sxp', 'sxppc',                                    # 2026-11-27: spike cross-attention, no MUX
+          'sxdot', 'sxpot', 'msxdpc', 'msxppc', 'msxdot', 'msxpot')          # 2026-11-27 stage 2: OT plan mask; MUX versions
 COMBS = ('or', 'sdor', 'sdlin', 'linmx', 'muxor', 'muxlin') + XCOMBS       # muxor / muxlin: 10-30 fusion MUX
 CONNECTS = ('IAND', 'OR', 'ADD', 'MS')                                       # MS: 2026-11-08 membrane shortcut (SpkBlock.forward_ms)
 POOLS = ('none', 'max', 'mean')                                              # 2026-11-17 mixer variants
@@ -143,7 +150,7 @@ class SpkBlock(nn.Module):
             fn = lambda: make_neuron(dim, N, 'ND', reset=mixer_reset)
         self.mixer = MixerStack(dim, mixer_layers, fn, bias)
         self.mixer_rev = MixerStack(dim, mixer_layers, fn, bias)
-        if comb in ('sdor', 'sdlin', 'muxor', 'muxlin'):
+        if comb in ('sdor', 'sdlin', 'muxor', 'muxlin') or comb.startswith('msx'):   # 2026-11-27: + the MUX attention arms
             self.sd_bn = nn.BatchNorm1d(dim)
             self.sd_neuron = make_neuron(dim, N, 'ND')
         if comb in ('sdlin', 'linmx', 'muxlin'):
@@ -158,7 +165,8 @@ class SpkBlock(nn.Module):
             self.fuse.linear._skip_global_init = True
         if comb in XCOMBS:                                                    # 2026-11-27: same fork / skip pattern as the fusion Linear
             with torch.random.fork_rng(devices=[]):
-                self.xattn = SpkXAttn(dim, mask=('pc' if comb.endswith('pc') else 'none'), proj=comb.startswith('sxp'),
+                self.xattn = SpkXAttn(dim, mask=('pc' if comb.endswith('pc') else ('ot' if comb.endswith('ot') else 'none')),
+                                      proj=comb.lstrip('m').startswith('sxp'),
                                       make_neuron=lambda: make_neuron(dim, N, 'ND'), bias=bias)
                 for lin in self.xattn.linears():
                     trunc_normal_(lin.weight, std=.02)
@@ -225,6 +233,11 @@ class SpkBlock(nn.Module):
             r, hr = r.flip(0), hr.flip(0)
             if self.comb in XCOMBS:                                           # 2026-11-27: spike cross-attention, no MUX
                 m = self.xattn(f, r, hf, hr)
+                if self.comb.startswith('msx'):                               # 2026-11-27 stage 2: MUX, a in the learned fusion's place
+                    d = (hf - hr).abs()
+                    N, B, K, D = d.shape
+                    sd = self.sd_neuron(self.sd_bn(d.reshape(-1, D)).reshape(N, B, K, D).contiguous())
+                    m = sd * m + (1. - sd) * torch.minimum(f, r)
             elif self.comb == 'linmx':
                 m = self.fuse(torch.cat([hf, hr, (hf - hr).abs()], dim=-1))
             else:

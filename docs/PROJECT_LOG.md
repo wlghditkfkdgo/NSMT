@@ -17552,3 +17552,70 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 ### 다음
 - 계획대로 2단계(OT plan mask, Pearson + MUX, OT + MUX; sxdpc 독립 형태; ADD; 36 run)의 code를 합치고, 점검 · 사전등록 뒤 시작한다.
 - ADD의 손해는 보고에서 따로 짚고, 잔차를 다시 정할지 사용자에게 묻는다.
+
+## 2026-11-27 06:31 KST — 사전등록 + 구현 · 점검(본 학습 전): 합치기 재설계 2단계. 1단계가 고른 형태(sxdpc 독립: F · R 직접, weight 독립)로 (a) OT plan mask(MUX 없음), (b) Pearson mask + MUX, (c) OT mask + MUX를 시험한다(LIF, ADD, block 1; ETTh1 · ETTm1 × H96 / H720 × seed 3; 36 run). 점검 모두 통과
+
+- **목적:** 계획(02:18 기록)의 P2 · P3이다. 사용자 결정 11-27 "OT plan은 Pearson 다음", "MUX 추가는 MUX 없는 버전 다음"을 따른다.
+- **branch / base:** `exp/f-lif-pop-v3`, base `1000050b9`(1단계 결과). 이 기록의 commit이 학습 code다.
+- **잔차:** ADD 그대로다(사용자 결정 "우선은 ADD"). 1단계에서 ADD가 IAND보다 worse였다(06:28 기록). 그래도 이번 2단계 비교(OT vs Pearson, MUX 유무)는 모두 ADD 안에서의 비교라 그대로 진행한다. 잔차를 다시 정할지는 보고 때 사용자에게 묻는다.
+
+### 구현(1단계 pool이 도는 동안 scratchpad 사본에서 개발 · 점검, pool이 끝난 06:29 뒤 합침)
+- `sxa.py`: mask `'ot'`.
+  - T 평균 membrane 점 집합 H̄_f[n], H̄_r[n']에 균등 무게 1/N을 준다. 비용은 C = ‖x − y‖²/D다.
+  - 엔트로피 OT를 log-domain Sinkhorn으로 L = 20회 반복한다. ε = 0.1 × 창별 평균 비용(detach).
+  - plan P(합 1, 열 합 정확히 1/N) → mask M = N · P. 반복을 펼쳐 미분한다.
+  - 장부: 비용 계산, ε, 반복(logsumexp: exp · log는 MAC 하나로 셈, 가정), plan, N · P, mask × map(식은 `sxa.py` 머리글).
+- `spk_mixer.py`: comb `sxdot` / `sxpot`(OT, MUX 없음), `msx<d|p><pc|ot>`(MUX).
+  - MUX: m = s_d · a + (1 − s_d) · min(F, R), s_d = LIF(BN(|H_f − H_r|)). muxlin의 s_d와 같은 module이고, attention 출력 a가 학습된 fusion L 자리에 들어간다(11-26 23:54의 안 A).
+  - s_d의 BN · neuron은 난수를 쓰지 않는다. 그래서 초기 weight가 MUX 없는 팔과 짝을 이룬다.
+- `config.py`(choices · 이름), `scripts/run_ett_spk.sh`(comb 목록 한 줄과 주석만 바뀜).
+- 새 파일: `scripts/make_queue_sxa2.py`(`selected_s1.json`을 읽음), `scripts/sxa2_driver.sh`, `summarize_sxa2.py`, `results/check-sxa-20261127/{recheck_sxa2.py, dry_sxa2.py}`, `results/check-sxa2-20261127/{check_s2.py, s0_build.py}`.
+
+### 2단계 설계(사전등록)
+- 형태: `selected_s1.json` = sxdpc 독립이므로 Q = F, K = V = R이고 weight는 독립이다.
+- 새 팔 3개 × 4칸 × seed 3 = **36 run**(suite `flif-v1-ett-sxa-s2`):
+  - OT = `sxdot`
+  - PM = `msxdpc`(Pearson + MUX)
+  - OM = `msxdot`(OT + MUX)
+- 재사용(1단계 suite, 같은 seed · 짝을 이룬 초기값): S = sxdpc 독립, A1 = muxlin 독립.
+- 설정 · 판정 규칙 · energy 규칙(syops 판정, 정수 규칙 보고)은 1단계와 같다.
+- **비교 7개**(test MSE 판정, MAE · energy 비율 보고):
+  - mask OT vs Pearson: OT vs S, OM vs PM
+  - MUX 유무: PM vs S, OM vs OT
+  - muxlin 대비: OT, PM, OM vs A1
+- **다음 단계로 넘길 선택**(validation만): S, OT, PM, OM 중 A1 대비 validation 점수가 가장 낮은 것을 고른다. 동점(< 1e-12)이면 energy가 낮은 쪽이다. 결과는 `selected_s2.json`이다.
+- 멈춤 조건: 1단계와 같다. 추가로 예상하지 않은 팔의 행, 1단계 S · A1 행이 빠진 경우에도 멈춘다.
+- driver: `scripts/sxa2_driver.sh`. queue → pool → RESULT 36 · SKIP 0 → energy 재계산 → `summarize_sxa2.py` → `recheck_sxa2.py` → driver end 순서이고, 실패하면 STOP한다.
+
+### 점검(모두 통과)
+- **`check_s2.py` · `.txt`(39 PASS):**
+  - s0: 1단계 code(`2fed8c580`과 같은 worktree 사본)와 비교해, 기존 조건과 1단계 8팔이 parameter · buffer · 출력에서 비트 단위로 같다.
+  - s1: OT plan이 float64 numpy Sinkhorn(일반 영역)과 3.5e-8 안에서 같다. 열 합은 1/N, 행 합은 1e-5 안이다.
+  - s2: 같은 점 집합이고 ε이 작으면 대각선에 질량이 1.000 있다.
+  - s3: MUX 식이 맞고 F · R · a · s_d가 모두 발화한다.
+  - s4: 2단계 6개 comb × 독립 / 공유가 대응하는 1단계 팔의 parameter를 모두 같은 값으로 가진다. MUX 팔은 sd_bn(weight 1, bias 0)만 더한다.
+  - s5: OT 장부가 손 공식과 같고, syops hook 차이와 recorder가 장부와 같다(spike가 있음).
+  - s6: OT mask만 지나는 손실의 기울기가 공유 stack에 닿는다.
+- **`dry_sxa2.py` · `.txt`:** 판정(better / worse), energy 비율, 선택, 독립 재계산이 맞는다. SKIP · 35행 · 예상 밖 팔 · nan · commit 섞임 · energy 행 없음 · 등식 깨짐 · 1단계 S 행 없음에서 모두 exit 2로 멈춘다.
+- **smoke**(`check-sxa2-smoke-20261127`; 3팔 × ETTh1 H720 × seed 42 × 1 epoch):
+  - RESULT 3, SKIP 0, 40–42 s.
+  - syops energy: sxdot 35.63, msxdpc 34.61, msxdot 35.86 µJ. 1단계 smoke의 sxdpc 독립은 34.38 µJ였다.
+  - energy 재계산은 "all checks passed"였다.
+- **queue:** 시험 이름으로 만든 queue가 36줄이다(3팔 × 12, 모두 WSHARE=0). 시험 queue는 지웠다.
+
+### 사전 예상(확신 낮음)
+- OT vs Pearson: no clear difference(1단계에서 mask 자체에 효과가 없었다).
+- MUX 유무: no clear difference.
+- muxlin 대비: no clear difference.
+- energy: OT는 Pearson보다 조금 높을 것이다(smoke +3.6 %).
+
+### 예상 시간(내 추정)
+- 1단계 run과 비슷하게 ETTh1 약 6–10분, ETTm1 약 15–20분이다. 8 slot이면 약 1.5시간이다.
+
+### 한계
+- 1단계와 같다(4칸 × seed 3, LIF, ADD, 재튜닝 없음).
+- OT의 ε · L은 미리 정한 값 하나다. 공유 · projection 형태의 OT와 MUX는 이번에 돌리지 않는다(1단계 선택을 따름).
+
+**실행:** 이 commit · push 뒤 NSMT/에서 `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/sxa2_driver.sh > /dev/null 2>&1 &`.
+
+**commit:** 이 기록, 위 code · 점검 파일과 txt, `results/check-sxa2-smoke-20261127/{raw.txt, energy_recount.csv}`, `results/check-sxa2-20261127/{energy_recount_smoke.txt, pool_log_smoke.txt}`를 commit · push한다.
