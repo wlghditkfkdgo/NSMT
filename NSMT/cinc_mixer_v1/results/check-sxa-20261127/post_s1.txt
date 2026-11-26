@@ -1,0 +1,34 @@
+Q1 each ADD arm vs the IAND reference (test MSE; stage-1 rule; post hoc)
+  muxlin indep.  R +1.26 %  lower  4 / higher  8  worse                per cell -0.49 +3.56 +1.38 +0.60
+  muxlin shared  R +1.08 %  lower  3 / higher  9  worse                per cell +0.60 +3.28 +0.75 -0.33
+  sxd indep.     R +1.62 %  lower  3 / higher  9  worse                per cell +0.10 +5.16 +1.01 +0.21
+  sxd shared     R +0.89 %  lower  5 / higher  7  no clear difference  per cell +0.08 +3.68 -0.05 -0.14
+  sxdpc indep.   R +1.71 %  lower  3 / higher  9  worse                per cell +0.28 +5.98 +0.87 -0.29
+  sxdpc shared   R +1.04 %  lower  5 / higher  7  no clear difference  per cell -0.67 +4.52 +0.16 +0.14
+  sxp indep.     R +1.34 %  lower  2 / higher 10  worse                per cell +1.18 +3.09 +1.81 -0.73
+  sxp shared     R +0.79 %  lower  5 / higher  7  no clear difference  per cell +0.51 +3.29 -0.17 -0.47
+  sxppc indep.   R +1.37 %  lower  2 / higher 10  worse                per cell +0.18 +3.97 +1.08 +0.23
+  sxppc shared   R +0.65 %  lower  3 / higher  9  no clear difference  per cell +0.19 +2.42 +0.72 -0.71
+Q2 integer-rule energy (body_syn_int_uJ + head_AC_corr x 0.9 pJ), 4-cell mean of seed means
+  IAND ref: 3.39 uJ (cells 3.85 4.86 2.08 2.78)
+  muxlin indep.: 4.09 uJ; syops 16.92 uJ (IAND ref syops 10.38)
+  sxdpc indep.: 4.52 uJ; syops 17.27 uJ (IAND ref syops 10.38)
+  sxppc shared: 5.02 uJ; syops 17.83 uJ (IAND ref syops 10.38)
+Q3 sharing: seed-mean MSE shared - independent per cell (ETTh1 96, 720, ETTm1 96, 720)
+  muxlin  +0.0042 -0.0013 -0.0020 -0.0044   cells lower 3/4
+  sxd     -0.0001 -0.0071 -0.0034 -0.0016   cells lower 4/4
+  sxdpc   -0.0036 -0.0068 -0.0023 +0.0020   cells lower 3/4
+  sxp     -0.0025 +0.0010 -0.0063 +0.0012   cells lower 2/4
+  sxppc   +0.0000 -0.0074 -0.0012 -0.0045   cells lower 3/4
+Q4 best epoch : epochs run (mean over 12 runs) and runs that reached the epoch cap (ETTh1 100, ETTm1 50)
+  muxlin indep.  best   7.8  run  18.8  at cap 0
+  muxlin shared  best   6.3  run  17.3  at cap 0
+  sxd indep.     best   7.2  run  18.2  at cap 0
+  sxd shared     best   8.4  run  19.4  at cap 0
+  sxdpc indep.   best   6.5  run  17.5  at cap 0
+  sxdpc shared   best   6.4  run  17.4  at cap 0
+  sxp indep.     best   7.8  run  18.8  at cap 0
+  sxp shared     best   8.4  run  19.4  at cap 0
+  sxppc indep.   best   7.8  run  18.8  at cap 0
+  sxppc shared   best   6.2  run  17.2  at cap 0
+  IAND ref       best   7.1  run  18.1  at cap 0

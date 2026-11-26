@@ -17459,3 +17459,96 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 
 **commit:** 이 기록, 위 code · script · 점검 파일과 txt, `results/check-sxa-repro-20261127/raw.txt`, `results/check-sxa-smoke-20261127/{raw.txt, energy_recount.csv}`, `results/check-sxa-20261127/{energy_recount_smoke.txt, pool_log_smoke.txt}`를 `exp/f-lif-pop-v3`에 commit · push한다.
 - local: run 폴더, stdout, `mem_smoke.txt`, queue 파일.
+
+## 2026-11-27 06:28 KST — 결과 + 실험 완료(합치기 재설계 1단계, 120 run, 사전등록 `2fed8c580`, SKIP 0): 구조 비교 21개(attention vs muxlin, mask, projection, weight 공유)는 **모두 "no clear difference"**다. **ADD 잔차는 IAND보다 "worse"**다(muxlin: MSE R +1.26 %, 12쌍 중 8쌍 높음; MAE +1.01 %, 11쌍 높음). syops energy는 1.73배다. 2단계로 넘길 형태는 validation으로 **sxdpc 독립**(F · R 직접 + Pearson mask, weight 독립)이 골라졌다
+
+- **목적:** 02:18 사전등록의 실행 결과다(사용자 결정 11-26 / 11-27).
+- **branch / 학습 commit:** `exp/f-lif-pop-v3`, 120행 모두 `2fed8c580`에서 학습했다(`--sha` 재계산).
+- **설정:** 02:18 기록 그대로다(LIF, ADD, block 1, 첫 튜닝 설정; ETTh1 · ETTm1 × H96 / H720 × seed 42 / 7 / 2026).
+
+### 실행
+- 명령(NSMT/에서): `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/sxa_driver.sh > /dev/null 2>&1 &`
+- driver: 02:18:20 시작(HEAD `2fed8c580`) → 06:19:50 pool 끝(RESULT 120, SKIP 0) → energy 재계산("all checks passed") → 요약 → 독립 재계산(ALL CHECKS PASSED) → 06:26:35 `driver end`.
+- GPU 시간 합 31.9시간, 가장 긴 run 4,026 s다. 02:33부터 다른 세션(`exp/nsmt-flif-neo`)의 Sleep-EDF 학습이 같은 GPU에서 돌았다. 예상(3–5시간) 안에서 끝났다.
+
+### 4칸 평균(seed 평균; energy = syops 판정 규칙 / 정수 규칙)
+| 팔 | MSE | MAE | best val L1 | energy µJ syops | 정수 규칙 |
+|---|--:|--:|--:|--:|--:|
+| ① muxlin 독립 | 0.4173 | 0.4110 | 0.6138 | 16.92 | 4.09 |
+| ② muxlin 공유 | 0.4164 | 0.4115 | 0.6146 | 16.93 | 4.23 |
+| ③ sxd 독립 | 0.4190 | 0.4123 | 0.6147 | 16.70 | 3.97 |
+| ④ sxd 공유 | 0.4160 | 0.4105 | 0.6143 | 16.70 | 3.93 |
+| ⑤ sxdpc 독립 | 0.4194 | 0.4123 | 0.6146 | 17.27 | 4.52 |
+| ⑥ sxdpc 공유 | 0.4168 | 0.4109 | 0.6145 | 17.27 | 4.52 |
+| ⑦ sxp 독립 | 0.4171 | 0.4116 | 0.6155 | 17.25 | 4.49 |
+| ⑧ sxp 공유 | 0.4155 | 0.4107 | 0.6150 | 17.26 | 4.48 |
+| ⑨ sxppc 독립 | 0.4178 | 0.4121 | 0.6150 | 17.83 | 5.05 |
+| ⑩ sxppc 공유 | 0.4145 | 0.4102 | 0.6151 | 17.83 | 5.02 |
+| 참조: muxlin IAND block 1(기존 run) | **0.4117** | **0.4067** | 0.6106 | 10.38 | 3.39(사후, Q2) |
+
+### 사전등록 비교(`results/flif-v1-ett-sxa-s1/summary.md`; test MSE, R = 4칸의 seed 평균 % 변화의 평균)
+| 묶음 | 비교 | MSE R % | 낮음 / 높음 | 판정 | energy 비율(syops) |
+|---|---|--:|---|---|--:|
+| main | ③ sxd 독립 vs ① | +0.36 | 3 / 9 | no clear difference | 0.980 |
+| main | ④ sxd 공유 vs ① | −0.36 | 6 / 6 | no clear difference | 0.980 |
+| main | ⑤ sxdpc 독립 vs ① | +0.44 | 5 / 7 | no clear difference | 1.021 |
+| main | ⑥ sxdpc 공유 vs ① | −0.21 | 6 / 6 | no clear difference | 1.021 |
+| main | ⑦ sxp 독립 vs ① | +0.10 | 6 / 6 | no clear difference | 1.028 |
+| main | ⑧ sxp 공유 vs ① | −0.44 | 8 / 4 | no clear difference | 1.029 |
+| main | ⑨ sxppc 독립 vs ① | +0.12 | 5 / 7 | no clear difference | 1.069 |
+| main | ⑩ sxppc 공유 vs ① | −0.58 | 7 / 5 | no clear difference | 1.070 |
+| mask | ⑤−③ / ⑥−④ / ⑨−⑦ / ⑩−⑧ | +0.09 / +0.15 / +0.03 / −0.13 | — | 넷 다 no clear difference | 1.04 |
+| projection | ⑦−③ / ⑧−④ / ⑨−⑤ / ⑩−⑥ | −0.24 / −0.09 / −0.30 / −0.35 | — | 넷 다 no clear difference | 1.05 |
+| 공유 | ②−① / ④−③ / ⑥−⑤ / ⑧−⑦ / ⑩−⑨ | −0.17 / −0.70 / −0.63 / −0.53 / −0.69 | 5/7, 10/2, 7/5, 7/5, 7/5 | 다섯 다 no clear difference | 1.00 |
+| **ADD** | **① vs IAND 참조** | **+1.26** | **4 / 8** | **worse**(MAE +1.01 %, 1 / 11, worse) | **1.731** |
+- MAE 판정은 21개 구조 비교 모두 no clear difference다.
+- 2단계 선택(validation만): 점수(①의 best validation L1 대비 비율)는 sxdpc 독립 1.00141, sxdpc 공유 1.00163, sxppc 공유 1.00202, sxppc 독립 1.00212다. **sxdpc 독립이 골라졌다**(`selected_s1.json`). Pearson 팔 넷 다 validation에서 ①보다 조금 높다(나쁘다).
+
+### 사후 분석(사전등록 아님; `results/check-sxa-20261127/post_s1.py` · `.txt`)
+- **Q1 각 ADD 팔 vs IAND 참조**(같은 규칙): 10팔 중 6팔이 worse다(R +1.08 ~ +1.71 %). 공유 4팔(sxd · sxdpc · sxp · sxppc)은 no clear difference다(+0.65 ~ +1.04 %). better는 없다.
+  - 나빠지는 곳은 주로 **ETTh1 H720**이다(+2.4 ~ +6.0 %, 10팔 모두 양수). 다른 칸은 −0.7 ~ +1.8 %다.
+- **Q2 energy 규칙별 비교:**
+  - 정수 규칙에서 IAND 참조는 3.39 µJ, ADD 팔은 3.93–5.05 µJ(1.16–1.49배)다.
+  - syops 규칙에서는 10.38 대 16.70–17.83 µJ(1.61–1.72배)다.
+  - ETTh1 H96은 syops로 3.0배다(6.04 → 18.37 µJ). ADD에서는 MLP 입력이 0/1이 아니어서 MAC로 세어진다.
+- **Q3 weight 공유의 방향:** 다섯 합치기 모두 R이 음수다(공유가 낮음, −0.17 ~ −0.70 %). 칸별로는 20칸 중 15칸에서 공유가 낮다. 판정 기준(−1 %)에는 못 미친다. validation은 공유를 고르지 않았다(sxdpc 공유 점수가 독립보다 높음).
+- **Q4 학습 길이:** best epoch 평균 6.2–8.4, 돈 epoch 평균 17.2–19.4다. epoch 상한에 닿은 run은 없다. IAND 참조(7.1 / 18.1)와 비슷하다.
+
+### 사전 예상과 비교
+- 구조 비교(main · mask · projection · 공유): "no clear difference"로 예상했고 **맞았다**.
+- ADD vs IAND: "no clear difference"로 예상했지만 **틀렸다**(worse). energy도 1.3–1.6배로 예상했지만 실제 1.73배였다(**더 큼**).
+- attention 팔 energy: 1.0–1.05배로 예상했고, 실제 0.98–1.07배였다(sxppc가 조금 넘음).
+
+### 무엇을 말하고 무엇을 말하지 않는가
+- 말하는 것:
+  - 이 4칸 · LIF · ADD · block 1 조건에서, Pearson mask를 씌운 spike cross-attention은 지금의 muxlin과 MSE 차이가 없다(±0.6 % 안).
+  - mask, projection, weight 공유 모두 판정 기준만큼의 효과가 없다.
+  - ADD 잔차는 IAND보다 나쁘고(주로 ETTh1 H720), syops energy를 1.7배 늘린다.
+- 말하지 않는 것:
+  - IAND 잔차에서 attention이 어떤지는 재지 않았다(이번 팔은 모두 ADD).
+  - population neuron, 다른 칸(H192 / H336, ETTh2 / ETTm2)은 아직이다.
+  - 공유의 일관된 방향(Q3)은 사후 관찰이고 기준 미달이다.
+- 함의(내 해석): 사용자가 "우선" 고정한 ADD가 지금 가장 큰 손해 요인이다. 2단계(OT, MUX)도 ADD로 돌리면 같은 손해를 안고 비교하게 된다. 잔차를 다시 정할지는 사용자 결정이다.
+
+### 한계
+- 4칸 × seed 3이고 LIF만 썼다. 비교가 22개라 일부 판정은 우연일 수 있다(이번에는 ADD 하나만 기준을 넘음).
+- 첫 튜닝 설정을 그대로 썼다. ADD나 attention에 맞춘 재튜닝은 없다.
+- energy 장부의 나눗셈 · 제곱근은 MAC로 센 가정이다. 잔차 덧셈은 세지 않았다.
+- IAND 참조는 다른 suite(11-25)의 run이다. 학습 code가 그때와 비트 단위로 같다는 것은 k0 · k1로 확인했다.
+
+### 점검
+- driver 안 독립 재계산: ALL CHECKS PASSED.
+- `--sha 2fed8c580,2fed8c580`(`results/check-sxa-20261127/recheck_s1_sha.txt`): 85개 PASS, ALL CHECKS PASSED. 120 run 모두 `2fed8c580`이다. 이 점검은 `post_s1.py`(사후 분석, 학습과 무관한 새 `.py`)를 만들기 전에 돌렸다.
+- energy 재계산: 120 run 모두 "body + head MAC = syn_energy_uJ"가 성립했다(요약기가 멈추지 않음). 다시 계산한 MSE도 기록값과 같다.
+
+### 산출물
+- Git: `cinc_mixer_v1/results/flif-v1-ett-sxa-s1/{raw.txt, energy_recount.csv, summary.md, summary.json, selected_s1.json}`, `results/check-sxa-20261127/{recheck_s1_sha.txt, post_s1.py, post_s1.txt}`.
+- local: `driver.log`, `pool_log.txt`, run 폴더(checkpoint, TensorBoard), stdout, queue.
+
+### commit / tag
+- 이 기록과 위 Git 산출물을 `exp/f-lif-pop-v3`에 commit · push한다.
+- annotated tag `exp/f-lif-pop-v3-sxa1-20261127`(완료된 학습 run). 이 기록은 자기 commit을 tag로 가리킨다.
+
+### 다음
+- 계획대로 2단계(OT plan mask, Pearson + MUX, OT + MUX; sxdpc 독립 형태; ADD; 36 run)의 code를 합치고, 점검 · 사전등록 뒤 시작한다.
+- ADD의 손해는 보고에서 따로 짚고, 잔차를 다시 정할지 사용자에게 묻는다.
