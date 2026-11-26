@@ -128,7 +128,7 @@ def parse_arguments():
     # MODI 2026-10-21 (stage 9 cause-separation): 1-B position, 1-C hippocampus T_h with token cross-attention over neocortex tokens
     snn_arg.add_argument('--ssa_pe', type=int, choices=[0, 1], default=1, help='relative position bias in SSA / hippo_xattn (0 = none)')
     snn_arg.add_argument('--pos_emb', action='store_true', default=False, help='learned absolute position in the hippocampus / mixer embedding')
-    snn_arg.add_argument('--mixer_comb', choices=['or', 'xattn', 'xattn_ch', 'lin', 'linmem', 'linmx', 'xattnmem', 'linxor', 'linsd', 'sdor', 'sdlin', 'muxor', 'muxlin'], default='or',   # sdor / sdlin: spkMixer (2026-10-29); muxor / muxlin: fusion MUX (10-30)
+    snn_arg.add_argument('--mixer_comb', choices=['or', 'xattn', 'xattn_ch', 'lin', 'linmem', 'linmx', 'xattnmem', 'linxor', 'linsd', 'sdor', 'sdlin', 'muxor', 'muxlin', 'sxd', 'sxdpc', 'sxp', 'sxppc'], default='or',   # sdor / sdlin: spkMixer (2026-10-29); muxor / muxlin: fusion MUX (10-30); sx*: 2026-11-27 spike cross-attention (sxa.py)
                          help='MODI 2026-10-21 BiX: how the two mixer directions are combined (OR, or token-axis cross-attention q = forward, k/v = reverse)')
     snn_arg.add_argument('--attn_bn', action='store_true', default=False, help='BN in front of the SSA attention neuron (spk_ssa_abn)')
     snn_arg.add_argument('--ms_shortcut', action='store_true', default=False, help='2026-11-08: membrane shortcut in the Spikformer-style blocks (needs --hippo_ssa)')
@@ -142,6 +142,7 @@ def parse_arguments():
     snn_arg.add_argument('--spk_mixpool', choices=['none', 'max', 'mean'], default='none', help='spkMixer: pool the T_h repeats before the mixer (run it once), copy its output back')
     snn_arg.add_argument('--mixer_ms', action='store_true', default=False, help='spkMixer: membrane shortcut between the layers of each directional stack')
     snn_arg.add_argument('--mixer_reset', choices=['spikede', 'subtract', 'zero'], default='spikede', help='spkMixer: reset of the directional-stack LIF neurons')
+    snn_arg.add_argument('--mixer_share', action='store_true', default=False, help='2026-11-27 spkMixer: the reverse directional stack shares the forward stack weights')
     # 2026-11-18 (exp/f-lif-pop-v3, neuron implementation / placement, user request 11-18)
     snn_arg.add_argument('--neuron_all', choices=['sj_lif', 'lif'], default='sj_lif', help='myModel --hippo_ssa: every spikingjelly LIF -> the spikeDE LIF of the SpkMixer')
     snn_arg.add_argument('--spk_neuron_scope', choices=['all', 'mixer'], default='all', help='spkMixer population: all = every neuron layer; mixer = only the token-axis neurons (directional stacks + fusion), embedding / MLP the single neuron of the same family')
@@ -260,7 +261,8 @@ class Config():
         if getattr(args, 'mixer_comb', 'or') != 'or':                    # MODI 2026-10-21 (BiX)
             _iso += {'xattn': '_xa', 'xattn_ch': '_xach', 'lin': '_lin', 'linmem': '_linmem', 'linmx': '_linmx',
                      'xattnmem': '_xamem', 'linxor': '_linxor', 'linsd': '_linsd',
-                     'sdor': '_sdor', 'sdlin': '_sdlin', 'muxor': '_muxor', 'muxlin': '_muxlin'}[args.mixer_comb]   # 10-23 / 24 / 27: membrane fusion, spike xor, spiking difference; 10-29 spkMixer
+                     'sdor': '_sdor', 'sdlin': '_sdlin', 'muxor': '_muxor', 'muxlin': '_muxlin',
+                     'sxd': '_sxd', 'sxdpc': '_sxdpc', 'sxp': '_sxp', 'sxppc': '_sxppc'}[args.mixer_comb]   # 10-23 / 24 / 27: membrane fusion, spike xor, spiking difference; 10-29 spkMixer
         if getattr(args, 'attn_bn', False):
             _iso += "_abn"
         if getattr(args, 'ms_shortcut', False):                          # 2026-11-08 membrane shortcut
@@ -281,6 +283,8 @@ class Config():
             _iso += f"_na{args.neuron_all}"
         if getattr(args, 'spk_neuron_scope', 'all') != 'all':
             _iso += f"_ns{args.spk_neuron_scope}"
+        if getattr(args, 'mixer_share', False):                           # 2026-11-27 shared directional stacks
+            _iso += "_ws"
         if str(getattr(args, 'data', '')).upper() in ('CINC2017', 'SHD'):
             _iso += f"_f{args.fold}" + ("_ce" if getattr(args, 'loss_kind', 'cal') == 'ce' and str(args.data).upper() == 'CINC2017' else '')
             if getattr(args, 'crop_tokens', 0):

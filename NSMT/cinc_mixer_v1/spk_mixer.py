@@ -53,6 +53,17 @@ apply_gain_table (fail closed when the table is missing). Loss, optimiser, data 
                pop_flif); the embedding and MLP neurons (repeat axis, T_h steps) are the single spikeDE neuron of the same family
                (lif / flif). The population soma has no random init, so at the same seed every weight equals the 'all' model's.
                Needs an explicit gain table (only the population layers are calibrated); rep layout, no band, no connect MS.
+
+2026-11-27 (fusion redesign stage 1, PROJECT_LOG pre-registration; user decisions 11-26 / 11-27; defaults leave every earlier path
+unchanged):
+  mixer_comb   + 'sxd' / 'sxdpc' / 'sxp' / 'sxppc': no MUX; the mixer output is a spike cross-attention between the two directions
+               (sxa.SpkXAttn): Q = F, K = V = R ('sxd*') or Spikformer-like projections of them ('sxp*'), map A_s = Q K^T, times the
+               mask (1 + rho) / 2 of the Pearson correlation between the T-mean charges H_f[n], H_r[n'] ('*pc'), then A V -> BN ->
+               token-axis neuron. Built inside a forked RNG and skipped by the global init (as the fusion Linear), so every other
+               weight equals the muxlin model's at the same seed.
+  mixer_share  the reverse stack IS the forward stack (one set of weights run over the token sequence and over its reverse). The
+               reverse stack is still built and initialised (so the random stream and every other initial weight equal the
+               independent model's) and removed after the global init.
 """
 import json
 import os
@@ -65,11 +76,13 @@ from layers import SpikLinearLayer, build_neo_neuron, GroupNeuron, group_gamma
 from model import Embedding
 from neo_mixer import MixerStack
 from spk_band import BANDS, GroupBandEmbedding, MemberBandEmbedding, member_order, stft_band_dims, stft_values
+from sxa import SpkXAttn                                                     # 2026-11-27 fusion redesign
 
-__all__ = ['SpkMixer', 'apply_gain_table', 'COMBS', 'CONNECTS', 'NEURONS']
+__all__ = ['SpkMixer', 'apply_gain_table', 'COMBS', 'CONNECTS', 'NEURONS', 'XCOMBS']
 
 NEURONS = ('lif', 'flif', 'pop_lif', 'pop_flif', 'popg_lif', 'popg_flif')
-COMBS = ('or', 'sdor', 'sdlin', 'linmx', 'muxor', 'muxlin')                 # muxor / muxlin: 10-30 fusion MUX
+XCOMBS = ('sxd', 'sxdpc', 'sxp', 'sxppc')                                    # 2026-11-27: spike cross-attention, no MUX
+COMBS = ('or', 'sdor', 'sdlin', 'linmx', 'muxor', 'muxlin') + XCOMBS       # muxor / muxlin: 10-30 fusion MUX
 CONNECTS = ('IAND', 'OR', 'ADD', 'MS')                                       # MS: 2026-11-08 membrane shortcut (SpkBlock.forward_ms)
 POOLS = ('none', 'max', 'mean')                                              # 2026-11-17 mixer variants
 RESETS = ('spikede', 'subtract', 'zero')
@@ -114,8 +127,9 @@ class FuseLinear(nn.Module):
 
 class SpkBlock(nn.Module):
     def __init__(self, dim, mixer, mixer_layers, mlp_ratio, make_neuron, N, T_h, comb, connect, bias=False, token_axis=False,
-                 mix_pool='none', mixer_ms=False, mixer_reset='spikede', make_rest=None):
+                 mix_pool='none', mixer_ms=False, mixer_reset='spikede', make_rest=None, share=False):
         super().__init__()
+        self.share = bool(share)                                              # 2026-11-27: reverse stack = forward stack
         rest = make_neuron if make_rest is None else make_rest               # 2026-11-18: embedding / MLP neuron (neuron_scope)
         self.token_axis = bool(token_axis)                                    # 2026-11-16: x is [N, B, 1, D] (T_h = the token steps here)
         self.mix_pool, self.mixer_ms, self.mixer_reset = mix_pool, bool(mixer_ms), mixer_reset   # 2026-11-17
@@ -142,6 +156,16 @@ class SpkBlock(nn.Module):
                 if self.fuse.linear.bias is not None:
                     nn.init.constant_(self.fuse.linear.bias, 0)
             self.fuse.linear._skip_global_init = True
+        if comb in XCOMBS:                                                    # 2026-11-27: same fork / skip pattern as the fusion Linear
+            with torch.random.fork_rng(devices=[]):
+                self.xattn = SpkXAttn(dim, mask=('pc' if comb.endswith('pc') else 'none'), proj=comb.startswith('sxp'),
+                                      make_neuron=lambda: make_neuron(dim, N, 'ND'), bias=bias)
+                for lin in self.xattn.linears():
+                    trunc_normal_(lin.weight, std=.02)
+                    if lin.bias is not None:
+                        nn.init.constant_(lin.bias, 0)
+            for lin in self.xattn.linears():
+                lin._skip_global_init = True
         hidden = int(dim * mlp_ratio)
         self.fc1 = SpikLinearLayer(dim, hidden, lif_bias=bias, neuron=rest(hidden, T_h, 'ND'))   # repetition axis, T_h steps
         self.fc2 = SpikLinearLayer(hidden, dim, lif_bias=bias, neuron=rest(dim, T_h, 'ND'))
@@ -190,15 +214,18 @@ class SpkBlock(nn.Module):
         reps = xm.shape[2]                                                    # 2026-11-17 (not K: the fusion reuses that name)
         if self.mix_pool != 'none':                                           # 2026-11-17: one token sequence [N, B, 1, D]
             xm = xm.amax(2, keepdim=True) if self.mix_pool == 'max' else xm.mean(2, keepdim=True)
+        rev = self.mixer if self.share else self.mixer_rev                    # 2026-11-27: shared weights run both directions
         if self.comb == 'or':
             f = self.stack(self.mixer, xm)
-            r = self.stack(self.mixer_rev, xm.flip(0)).flip(0)
+            r = self.stack(rev, xm.flip(0)).flip(0)
             m = torch.maximum(f, r)
         else:
             f, hf = self.stack(self.mixer, xm, True)
-            r, hr = self.stack(self.mixer_rev, xm.flip(0), True)
+            r, hr = self.stack(rev, xm.flip(0), True)
             r, hr = r.flip(0), hr.flip(0)
-            if self.comb == 'linmx':
+            if self.comb in XCOMBS:                                           # 2026-11-27: spike cross-attention, no MUX
+                m = self.xattn(f, r, hf, hr)
+            elif self.comb == 'linmx':
                 m = self.fuse(torch.cat([hf, hr, (hf - hr).abs()], dim=-1))
             else:
                 d = (hf - hr).abs()
@@ -232,8 +259,14 @@ class SpkMixer(nn.Module):
                  mixer_layers=2, T_h=4, neo_tau=2.0, neo_alpha=0.5, fde_method='pred', fde_step=1.0, fde_memory=0,
                  pop_taus=(4., 8., 16., 32.), bias=False, tau=2.0, train_mode='training', in_channels=1, pop_soma_init=None,
                  mixer_comb='or', connect_f='IAND', tau_calib=True, band='none', taxis='rep', gain_table=None, mix_pool='none',
-                 mixer_ms=False, mixer_reset='spikede', neuron_scope='all', **kwargs):
+                 mixer_ms=False, mixer_reset='spikede', neuron_scope='all', mixer_share=False, **kwargs):
         super().__init__()
+        if mixer_share and (connect_f == 'MS' or band != 'none' or taxis != 'rep' or mixer in CALIBRATED):   # 2026-11-27
+            raise NotImplementedError('mixer_share: rep layout, no band, no connect MS, no calibrated population (gain tables name '
+                                      'the reverse stack)')
+        if mixer_comb in XCOMBS and (connect_f == 'MS' or band != 'none' or taxis != 'rep' or mix_pool != 'none'):
+            raise NotImplementedError(f'{mixer_comb}: rep layout, no band, no connect MS, no mix_pool')
+        self.mixer_share = bool(mixer_share)
         if neuron_scope not in SCOPES:                                        # 2026-11-18 neuron placement
             raise ValueError(f'neuron_scope must be one of {SCOPES}')
         if neuron_scope != 'all' and (mixer not in ('pop_lif', 'pop_flif') or band != 'none' or taxis != 'rep' or connect_f == 'MS'):
@@ -301,10 +334,13 @@ class SpkMixer(nn.Module):
                                   pe=False, bias=bias, tau=tau, pos_emb=False, neuron=(make_rest or make_neuron)(D, steps, 'DN'))
         self.blocks = nn.ModuleList([SpkBlock(D, mixer, self.mixer_layers, mlp_ratios, make_neuron, N, steps, mixer_comb, connect_f, bias,
                                               token_axis=tok_ax, mix_pool=mix_pool, mixer_ms=mixer_ms, mixer_reset=mixer_reset,
-                                              make_rest=make_rest)
+                                              make_rest=make_rest, share=self.mixer_share)
                                      for _ in range(self.depths)])
         self.head = nn.Linear(D, num_classes, bias=bias)
         self.apply(self._init_weights)
+        if self.mixer_share:                                                  # 2026-11-27: built and initialised above, then removed
+            for blk in self.blocks:
+                del blk.mixer_rev
         if band != 'none':
             # 2026-11-16: the default embedding was built and initialised above, so at the same seed every other weight and the
             # random state after construction equal those of the band-less model; the band Linears come from a forked RNG.

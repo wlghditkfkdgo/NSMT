@@ -35,6 +35,7 @@ from config import Config, parse_arguments, set_random_seed
 from load_model import LOAD_MODEL
 from utils import EpochLog, get_scheduler, get_energy_consumption
 from energy import FiringRateRecorder
+from sxa import AttnMath, attn_syops_hook                             # 2026-11-27 fusion redesign: op ledger of the attention products
 from neurons import LIFNeuron, FLIFNeuron
 from forecast_wrap import Forecaster
 from data_provider.data_factory import data_provider
@@ -106,7 +107,8 @@ def final_test(args, model, dl, out_dir, H, tag):
     with open(os.path.join(out_dir, 'model+info+per+layer.txt'), 'w', encoding='utf-8') as fo:
         ops, params, fr = get_model_complexity_info(model=model, input_res=(tuple(x0.shape[1:]),), dataloader=dl, as_strings=False,
                                                     print_per_layer_stat=True, verbose=False, ost=fo,
-                                                    custom_modules_hooks={LIFNeuron: LIF_syops_counter_hook, FLIFNeuron: LIF_syops_counter_hook})
+                                                    custom_modules_hooks={LIFNeuron: LIF_syops_counter_hook, FLIFNeuron: LIF_syops_counter_hook,
+                                                                          AttnMath: attn_syops_hook})   # 2026-11-27 attention products (sxa.py)
     syn_uJ = get_energy_consumption(O_ac=ops[1], O_mac=ops[2], unit='u')
     en = rec.summary(syn_energy_J=get_energy_consumption(O_ac=ops[1], O_mac=ops[2]) * 1e-12)
     rec.write_layers(os.path.join(out_dir, 'neuron_energy.csv'))

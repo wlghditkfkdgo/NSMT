@@ -27,6 +27,7 @@ import torch.nn as nn
 from spikingjelly.clock_driven.neuron import MultiStepLIFNode, LIFNode
 
 from neurons import LIFNeuron, FLIFNeuron
+from sxa import AttnMath                                                 # 2026-11-27 attention op ledger
 
 __all__ = ['E_AC', 'E_MAC', 'KAPPA', 'e_lif', 'e_flif_fft', 'e_flif_direct', 'FiringRateRecorder', 'COLUMNS']
 
@@ -186,9 +187,18 @@ class SynOpRecorder:
                 self.handles.append(m.register_forward_hook(self._bn_hook))
             elif isinstance(m, (LIFNeuron, FLIFNeuron, MultiStepLIFNode, LIFNode)):
                 self.handles.append(m.register_forward_hook(self._neuron_hook))
+            elif isinstance(m, AttnMath):                                  # 2026-11-27: the ledger of the attention products
+                self.handles.append(m.register_forward_hook(self._attn_hook))
 
     def _neuron_hook(self, module, inp, out):
         self.neuron_ac += inp[0].numel()
+
+    def _attn_hook(self, module, inp, out):
+        """2026-11-27: AttnMath's ledger (sxa.py) under both rules (its operands are 0/1 spikes, integer maps or real charges; the
+        ledger already separates additions (AC) from multiplications (MAC)), the same numbers as sxa.attn_syops_hook adds to syops."""
+        ac, mac = module._ops
+        self.lin['ac'] += ac; self.lin['mac'] += mac
+        self.lin['ac_int'] += ac; self.lin['mac_int'] += mac
 
     @staticmethod
     def _binary(x):

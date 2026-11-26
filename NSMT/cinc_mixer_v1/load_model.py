@@ -207,6 +207,8 @@ def _mixer_variants(args):
         kw['mixer_reset'] = args.mixer_reset
     if getattr(args, 'spk_neuron_scope', 'all') != 'all':             # 2026-11-18 neuron placement
         kw['neuron_scope'] = args.spk_neuron_scope
+    if getattr(args, 'mixer_share', False):                           # 2026-11-27 shared directional stacks
+        kw['mixer_share'] = True
     return kw
 
 

@@ -17322,3 +17322,140 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 - 정할 것: Sinkhorn 반복 L, ε, 점수(내적 / 거리), K' 형태 여부, V의 출처, 계산기의 exp 세는 법.
 
 **commit:** 이 기록만 `exp/f-lif-pop-v3`에 commit · push한다(code 변경 없음).
+
+## 2026-11-27 02:18 KST — 사용자 결정 + 계획 + 사전등록 + 구현 · 점검(본 학습 전): neo-mixer 합치기 재설계 1단계. MUX 대신 "두 방향 membrane의 Pearson 상관 mask를 씌운 spike cross-attention"을 쓰고, 두 방향 weight 독립 / 공유 × Q·K·V 직접 / projection × mask 유무를 비교한다(LIF, ADD 잔차, block 1; ETTh1 · ETTm1 × H96 / H720 × seed 3; 10팔 120 run). 점검 k0–k8 모두 통과
+
+> 사용자 결정(11-27 00시대, 원문 요지):
+> 1. "sinkformer의 sinkhorn 방법은 내가 초기에 생각했던 방법이 아니야. 우리는 일반적인 OT의 plan을 sinkhorn 방법으로 구한 다음에 '그 plan'을 attention mask로 사용하는 것으로 하자."
+> 2. "우선 1번은 피어슨 상관계수 방법으로 시도해본 뒤에 시도하는 것으로 할게."
+> 3. "MUX에 대해서는, MUX가 우선 없는 버전으로 시도해보고, 이후에 MUX 추가 버전을 도입하자."
+> 4. "현재까지 논의한 새 설계사항들을 전부 plan에 정리해주고, 우선순위를 정한 뒤 바로 수정/구현 및 실험 착수 해줘."
+> 질문 답(AskUserQuestion): mask 변환 = (1 + ρ)/2, Q / K / V = "둘 다 시도"(직접과 Spikformer식 projection), neuron 범위 = 1단계 LIF만, 2단계에 추가.
+> 앞선 결정(11-26 23:54 기록): 두 방향 weight 독립 / 공유 비교, 잔차는 우선 ADD, single block.
+
+- **branch / base:** `exp/f-lif-pop-v3`, base `f2df15b95`. 이 기록의 commit이 학습 code다(해시는 결과 기록에 적는다).
+- **계획 파일:** `/home/yschoi/.claude/plans/ancient-wobbling-tarjan.md`(사용자 승인). 우선순위는 다음과 같다.
+  - P1(지금): energy 장부 → 새 합치기 → 점검 → 1단계 120 run.
+  - P2(1단계가 도는 동안 scratchpad 사본에서): OT plan mask와 MUX 버전 구현 · 점검. pool이 끝난 뒤 합친다.
+  - P3: 1단계 결과 → 2단계(OT, MUX)를 바로 시작한다.
+  - P4: f-LIF · population LIF · population f-LIF, 16칸, SpikF 판정.
+  - P5: 순서 사용 평가 등 contribution 근거, MIT-BIH · AD.
+
+### 새 합치기(`cinc_mixer_v1/sxa.py`, `spk_mixer.py`; 차원 기호는 11-26 18:40 기록)
+- 방향 stack은 지금과 같다: F, H_f = stack_f(x_m), R, H_r = flip(stack_r(flip(x_m))), 모두 [N, B', T, D].
+  - **공유**(`--mixer_share`, tag `_ws`): stack_r = stack_f다. mixer_rev는 만들고 초기화한 뒤 전체 초기화가 끝나면 지운다. 그래서 같은 seed에서 다른 모든 weight가 독립 팔과 같다(점검 k2).
+- Q / K / V:
+  - **직접**(`sxd*`): Q = F, K = V = R. parameter가 없다.
+  - **projection**(`sxp*`): Q = P_q(F), K = P_k(R), V = P_v(R). 각 P는 Linear(D→D) → BN → LIF(N 축)이고, forked RNG 안에서 만든다.
+- spike map: A_s = Q Kᵀ(D 축 합) [B', T, N, N], 값 0..D.
+- mask(`*pc`): ρ[n, n'] = Pearson(H̄_f[n], H̄_r[n'])이다. D 축 상관이고, H̄는 T 평균 membrane이다. M = (1 + ρ)/2 ∈ [0, 1], [B', N, N]이고 T개 복사본이 같이 쓴다.
+- 출력: Z = (A_s ⊙ M) V · D^−½(mask 없으면 A_s V) → BN(D) → LIF(N 축) → m [N, B', T, D] → 잔차 ADD(x ← x + m) → MLP(ADD) → head(그대로).
+- MUX는 없다(사용자 결정 3). muxlin 팔은 기준선이다.
+
+### energy 장부(attention 곱을 세는 법; 계획 P1)
+- syops와 `energy.SynOpRecorder`는 Linear · BN · neuron module만 센다. 그래서 attention 곱을 하는 부분을 parameter 없는 leaf module `AttnMath`로 분리했다. 이 module은 호출마다 `_ops = (AC, MAC)`를 tensor에서 계산해 둔다.
+  - syops는 hook이 걸린 module의 자식을 다시 합산하지 않는다(`engine.accumulate_syops`). 그래서 projection · BN · neuron은 `AttnMath` 밖(`SpkXAttn`)에 두어 원래 hook으로 센다.
+- 규칙(Horowitz 45 nm: AC 0.9 pJ = 실수 덧셈, MAC 4.6 pJ = 곱 + 덧셈):
+  - Q Kᵀ는 nnz(Q)·N AC, P V는 nnz(V)·N AC다.
+  - Pearson mask: AC = 2·T·N·B'·D(T 평균) + 4·N·B'·D(중심화) + 2·B'·N². MAC = 2·N·B'·D(1/T) + 2·N·B'·D + 2·N·B'(노름 · 제곱근) + B'·N²·D(내적) + 3·B'·N²(곱 · 나눗셈 · /2) + B'·T·N²(mask × map).
+  - 나눗셈 · 제곱근을 MAC 하나로 센 것은 가정이다. D^−½는 뒤의 BN에 접혀 세지 않는다.
+- 반영:
+  - `train_forecast.py`의 syops `custom_modules_hooks`에 `AttnMath: attn_syops_hook`을 넣었다. 그래서 기록되는 `syn_energy_uJ`(판정 규칙 = syops, 11-24 사용자 결정)에 들어간다.
+  - `SynOpRecorder._attn_hook`에도 같은 장부를 넣었다.
+- 세지 않는 것(명시): 잔차 덧셈, muxlin의 |H_f − H_r| 뺄셈(요약에 분석 값만 보고: 창 하나에 ETTh1 0.019 µJ, ETTm1 0.0097 µJ), neuron 항.
+- 정수 규칙(ADD 입력 = 값만큼 AC)은 보고만 한다. `energy_recount_ett.py`의 body_syn_int_uJ + head_AC_corr × 0.9 pJ다.
+
+### 바꾼 파일
+- 새 파일: `sxa.py`, `scripts/make_queue_sxa.py`, `scripts/sxa_driver.sh`, `summarize_sxa.py`, `results/check-sxa-20261127/{check_sxa.py, k0_build.py, recheck_sxa.py, dry_sxa.py}`.
+- 수정:
+  - `spk_mixer.py`: `XCOMBS`, `SpkBlock(share)`, `mix()`의 `rev` 분기, `SpkMixer(mixer_share)`, 초기화 뒤 `del mixer_rev`.
+  - `config.py`: `--mixer_comb` choices와 이름 사전, `--mixer_share`, run 폴더 `_ws`.
+  - `load_model.py`(`_mixer_variants`), `train_forecast.py`(hook), `energy.py`(recorder).
+  - `scripts/run_ett_spk.sh`: comb 목록, `WSHARE=1` → `--mixer_share` + tag `_ws`. 값을 주지 않으면 명령 글자가 같다(점검 k0b).
+
+### 1단계 설계(사전등록)
+- 칸: ETTh1 · ETTm1 × H96 / H720(SpikF 격차가 몰린 데이터셋). seed 42 / 7 / 2026. LIF, ADD, block 1.
+- 설정은 첫 튜닝 그대로다.
+  - ETTh1: lr 2.5e-4, M 1, P 8, D 32, r 4, wd 0.1.
+  - ETTm1: lr 5e-4, M 2, P 16, D 32, r 0.5, wd 0.06, block 1(첫 튜닝은 3).
+  - patience 10, epoch 최대 100 / 50, batch 64, T 4, τ 2, L1 loss, best validation 가중치로 test한다.
+- 팔 10개 × 4칸 × seed 3 = **120 run**(suite `flif-v1-ett-sxa-s1`):
+  - ① muxlin 독립, ② muxlin 공유
+  - ③ sxd 독립, ④ sxd 공유, ⑤ sxdpc 독립, ⑥ sxdpc 공유
+  - ⑦ sxp 독립, ⑧ sxp 공유, ⑨ sxppc 독립, ⑩ sxppc 공유
+  - 참조(새 run 없음): muxlin IAND block 1의 기존 run(`flif-v1-ett-spkmux-retune` raw: ETTh1 `…_lr0.00025_L1_e32_mlp4_wd0.1`, ETTm1 `…_lr0.0005_L2_pt16_e32_mlp0.5`, H96 / H720 × seed 3).
+- **판정**(`summarize_sxa.py`, test MSE): r = 100(A − B)/B(칸 × seed 짝), R = 4칸의 seed 평균 r의 평균.
+  - better: R ≤ −1 %이고 12쌍 중 8쌍 이상 낮음. worse는 대칭. 그 밖은 no clear difference.
+  - MAE는 같은 규칙으로 보고한다. energy 비율 = 칸별 seed 평균 E_A / E_B의 평균(syops, 정수 규칙은 보고).
+- **비교 22개:**
+  - main 8: 각 attention 팔 vs ①
+  - mask 4: ⑤−③, ⑥−④, ⑨−⑦, ⑩−⑧
+  - projection 4: ⑦−③, ⑧−④, ⑨−⑤, ⑩−⑥
+  - 공유 5: ②−①, ④−③, ⑥−⑤, ⑧−⑦, ⑩−⑨
+  - ADD 1: ① vs IAND 참조
+- **2단계로 넘길 선택**(validation만): Pearson 팔 ⑤⑥⑨⑩ 중 점수가 가장 낮은 것을 고른다. 점수 = 4칸의 seed 평균 best validation L1을 ①로 나눈 비율의 평균. 차이가 1e-12 미만이면 4칸 평균 syops energy가 낮은 쪽을 고른다. 결과는 `selected_s1.json`이고, 다른 값으로는 덮어쓰지 않는다.
+- **멈춤**(exit 2, 아무것도 쓰지 않음): SKIP 줄, 120개가 아님, 빠진 / 중복 run, 유한하지 않은 값, 학습 commit이 섞임, block ≠ 1, energy_recount 행 없음, energy 등식(body + head MAC × 4.6 pJ = syn_energy_uJ, 상대 1e-3)이 깨짐, 참조 행이 12개가 아님.
+- **독립 재계산:** `results/check-sxa-20261127/recheck_sxa.py`(이 저장소 code를 import하지 않음, `--sha`).
+- **driver:** `scripts/sxa_driver.sh`. queue → pool → RESULT 120 · SKIP 0 → `energy_recount_ett.py` → 요약 → 재계산 → driver end 순서이고, 실패하면 STOP한다.
+
+### 2단계(계획; 1단계 뒤 사전등록에서 확정)
+- 1단계에서 고른 형태(Q / K / V, 공유)로 같은 4칸 · seed · LIF · ADD · block 1에서 돌린다.
+- 팔: (a) OT plan mask(MUX 없음), (b) Pearson + MUX, (c) OT + MUX → 36 run.
+- OT 초안:
+  - T 평균 membrane 점 집합에 균등 무게 1/N, 비용 ‖·‖²/D.
+  - 엔트로피 OT를 log-domain Sinkhorn L = 20회 반복, ε = 0.1 × 평균 비용(detach).
+  - plan Π → mask N·Π.
+- MUX: m = s_d · a + (1 − s_d) · (F ∧ R).
+
+### 점검(`NSMT/cinc_mixer_v1/results/check-sxa-20261127/`): 모두 통과
+- **k0a 기존 경로 불변**(`check_sxa.py` · `.txt`): HEAD `f2df15b95` 사본과 새 code가 같은 seed에서 parameter · buffer와 출력을 비트 단위로 같게 냈다(train / eval). 대상은 muxlin IAND / ADD, or IAND, sdlin OR, muxlin IAND 3 block 다섯 조건이다.
+- **k0b runner 불변:** 가짜 python으로 학습 인자를 받아 비교했다. 기존 다섯 조건 · 설정의 인자가 글자까지 같다. `WSHARE=1`은 `--mixer_share`와 `_ws`만 더한다.
+- **k1 재현**(`k1_repro.txt`): IAND 참조 ETTm1 H96 seed 42를 새 code로 2 epoch 학습했다. epoch 0 · 1의 학습 · validation 손실이 기준 stdout과 같다.
+- **k2 초기값 짝:** 두 데이터셋 shape에서 10팔의 공통 parameter가 ①과 같다. 공유 팔에는 역방향 stack이 없다(ETTh1 −1,088, ETTm1 −2,176 parameter). projection은 +3,264 parameter다.
+- **k3 공유:**
+  - 첫 층 역방향 전류 = 정방향 전류를 뒤집은 것이다. eval BN에서는 정확히 같고, train BN에서는 4.8e-7 차이다(BN 합산 순서가 다름).
+  - 공유 stack은 두 방향에서 기울기를 받는다. 두 기울기의 합이 함께 계산한 기울기와 같다.
+- **k4 계산:**
+  - `AttnMath`가 (b, t)마다 반복문으로 다시 계산한 값과 같다(mask 없음 0, mask 3e-7).
+  - Pearson mask가 numpy corrcoef와 같고(1.6e-7) [0, 1] 안에 있다.
+  - train mode에서 F, R, Q, K, V, attention 출력이 모두 발화한다(3.6–4.8 %).
+- **k5 장부:**
+  - `_ops`가 손 공식과 같다.
+  - syops에서 hook을 넣은 값 − 뺀 값 = 창당 장부다(sxdpc AC 44,279 / MAC 50,232, sxppc 44,469 / 50,232, muxlin 0). 그 pass에 Q · V spike가 약 1만 개 있었다.
+  - `SynOpRecorder`도 같은 장부를 더한다(두 규칙 모두).
+  - **내 실수:** 첫 실행에서는 eval mode 발화를 위한 BN 데우기를 30회로 했다. running 분산에 초기값 1이 약 4 % 남아 eval에서 spike가 0이었고, k5의 spike 항이 아무것도 검사하지 않은 채 통과했다(AC가 두 형태에서 상수 34,272로 같았다). 120회로 바꾸고, spike 수가 0보다 커야 통과하도록 고쳤다. 첫 출력은 콘솔에만 있고 파일은 없다.
+- **k6 smoke**(suite `check-sxa-smoke-20261127`; 10팔 × ETTh1 H720 × seed 42 × 1 epoch; 02:12–02:15):
+  - RESULT 10, SKIP 0, run 44–72 s.
+  - 최대 GPU 메모리는 프로세스당 1,636 MiB이므로 GPU당 2개(8 slot)로 정했다.
+  - `energy_recount_ett.py`를 smoke에 돌리니 "all checks passed"였다. 10팔 모두 body + head MAC = syn_energy_uJ(상대 차이 0)이고, 다시 계산한 MSE가 기록값과 같다.
+  - 1 epoch syops energy: muxlin 33.77 / 33.78, sxd 33.49 / 33.49, sxdpc 34.38 / 34.38, sxp 34.22 / 34.22, sxppc 35.12 / 35.11 µJ(독립 / 공유). 정수 규칙으로는 6.1–7.9 µJ다.
+  - 참고: 같은 칸의 첫 튜닝(IAND, 완전히 학습된 run)은 21.46 µJ였다. ADD는 syops 규칙에서 몸통 Linear 입력이 0/1이 아니어서 MAC로 세어진다.
+- **k7 dry run**(`dry_sxa.py` · `.txt`):
+  - 가짜 값에서 판정(R −3 % better, +2 % worse, 같으면 no clear difference), energy 비율, 정수 규칙 비율, 선택(validation), 동점 처리(energy), 경계(R −1.46 %에 7쌍 → no clear difference)가 손 계산과 같다. 독립 재계산도 통과했다.
+  - SKIP / 빠짐 / 중복 / nan / commit 섞임 / energy 행 없음 / 등식 깨짐 / block 2에서 모두 exit 2로 멈추고 아무것도 쓰지 않는다.
+- **k8 queue:** 시험 이름으로 만든 queue가 120줄이다. (데이터셋, horizon, seed) 12조합 × 10팔이고, run 폴더 · stdout 이름이 모두 다르다. 시험 queue는 지웠다.
+
+### 사전 예상(확신 낮음)
+- main 8개: **"no clear difference"가 가장 가능성 높다.** 근거는 다음과 같다.
+  - ETT에서 같은 patch의 SF-de(SSA attention)와 SpkMixer가 차이 없었다(11-23).
+  - CinC에서 membrane q·k attention이 spike BiX보다 나빴다(10-24).
+  - mixer 변형과 2 block에도 이득이 없었다.
+- mask · projection · 공유 효과: 대부분 no clear difference일 것이다. 공유는 parameter가 적어 차이가 작을 것이다.
+- ADD vs IAND: 11-02 ETT에서 validation이 IAND를 골랐고 test는 엇갈렸다. no clear difference로 예상한다. energy(syops)는 ADD가 1.3–1.6배로 예상한다(smoke의 1 epoch 값 기준, 학습 뒤 발화율에 따라 다름).
+- attention 팔의 energy: muxlin ADD 대비 1.0–1.05배로 예상한다(smoke).
+
+### 예상 시간(내 추정)
+- 참조 run은 ETTh1 370–420 s, ETTm1 820–1,060 s였다. 새 팔은 비슷하거나 1.2배로 본다.
+- 8 slot이면 학습 약 3–4시간, energy 재계산 약 30–60분이다.
+
+### 한계(미리 적음)
+- 4칸(두 데이터셋 × 두 horizon) × seed 3이다. LIF만 쓴다(population 등은 2단계 이후, 사용자 승인).
+- ADD와 합치기를 함께 바꿨다. ①(muxlin ADD)과 IAND 참조로 나눠 본다.
+- 첫 튜닝 설정을 그대로 쓴다. attention 팔용 재튜닝은 없다.
+- energy 장부의 나눗셈 · 제곱근을 MAC로 센 것은 가정이다. 잔차 덧셈은 세지 않는다.
+- 비교가 22개라 일부는 우연히 판정이 날 수 있다. 결과 해석에서 함께 적는다.
+
+**실행:** 이 commit · push 뒤 NSMT/에서 `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/sxa_driver.sh > /dev/null 2>&1 &`로 시작한다. driver.log는 `cinc_mixer_v1/results/flif-v1-ett-sxa-s1/driver.log`(local)다. 실행 중에는 worktree code와 script를 고치지 않는다(2단계 개발은 scratchpad 사본에서 한다).
+
+**commit:** 이 기록, 위 code · script · 점검 파일과 txt, `results/check-sxa-repro-20261127/raw.txt`, `results/check-sxa-smoke-20261127/{raw.txt, energy_recount.csv}`, `results/check-sxa-20261127/{energy_recount_smoke.txt, pool_log_smoke.txt}`를 `exp/f-lif-pop-v3`에 commit · push한다.
+- local: run 폴더, stdout, `mem_smoke.txt`, queue 파일.

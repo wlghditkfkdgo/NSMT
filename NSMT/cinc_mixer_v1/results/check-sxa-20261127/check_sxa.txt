@@ -1,0 +1,50 @@
+PASS k0a build in the old code: saved /tmp/k0_hp13j2fc/old.pt 5
+PASS k0a build in the new code: saved /tmp/k0_hp13j2fc/new.pt 5
+PASS k0a muxlin_IAND_M2_K1: same parameters / buffers (72) and outputs (train / eval) bitwise
+PASS k0a muxlin_ADD_M2_K1: same parameters / buffers (72) and outputs (train / eval) bitwise
+PASS k0a or_IAND_M1_K1: same parameters / buffers (41) and outputs (train / eval) bitwise
+PASS k0a sdlin_OR_M2_K1: same parameters / buffers (72) and outputs (train / eval) bitwise
+PASS k0a muxlin_IAND_M2_K3: same parameters / buffers (198) and outputs (train / eval) bitwise
+PASS k0b runner spkmx_lif_muxlin_iand ETTm1 LR=0.0005/LAYERS=2/PATCH=16/EMB=32/MLPR=0.5: same training arguments
+PASS k0b runner spkmx_lif_muxlin_add ETTm1 LR=0.0005/LAYERS=2/PATCH=16/EMB=32/MLPR=0.5: same training arguments
+PASS k0b runner spkmx_lif_muxlin_iand ETTh1 LR=0.00025/LAYERS=1/EMB=32/MLPR=4/WD=0.1: same training arguments
+PASS k0b runner spkmx_lif_sdlin_or ETTh2 : same training arguments
+PASS k0b runner spk_ssa ETTh2 LR=0.0005/PATCH=16: same training arguments
+PASS k0b WSHARE=1 adds only --mixer_share and _ws
+PASS k2 ETTh1 muxlin indep.: 21 common parameters equal to muxlin indep. at the same seed, embedding / stacks / MLP / head present, reverse stack present: params 86912 (new 0, dropped 0, reverse stack 1088)
+PASS k2 ETTh1 muxlin shared: 18 common parameters equal to muxlin indep. at the same seed, embedding / stacks / MLP / head present, reverse stack absent: params 85824 (new 0, dropped 1088, reverse stack 1088)
+PASS k2 ETTh1 sxd indep.: 16 common parameters equal to muxlin indep. at the same seed, embedding / stacks / MLP / head present, reverse stack present: params 84800 (new 64, dropped 2176, reverse stack 1088)
+PASS k2 ETTh1 sxd shared: 13 common parameters equal to muxlin indep. at the same seed, embedding / stacks / MLP / head present, reverse stack absent: params 83712 (new 64, dropped 3264, reverse stack 1088)
+PASS k2 ETTh1 sxdpc indep.: 16 common parameters equal to muxlin indep. at the same seed, embedding / stacks / MLP / head present, reverse stack present: params 84800 (new 64, dropped 2176, reverse stack 1088)
+PASS k2 ETTh1 sxdpc shared: 13 common parameters equal to muxlin indep. at the same seed, embedding / stacks / MLP / head present, reverse stack absent: params 83712 (new 64, dropped 3264, reverse stack 1088)
+PASS k2 ETTh1 sxp indep.: 16 common parameters equal to muxlin indep. at the same seed, embedding / stacks / MLP / head present, reverse stack present: params 88064 (new 3328, dropped 2176, reverse stack 1088)
+PASS k2 ETTh1 sxp shared: 13 common parameters equal to muxlin indep. at the same seed, embedding / stacks / MLP / head present, reverse stack absent: params 86976 (new 3328, dropped 3264, reverse stack 1088)
+PASS k2 ETTh1 sxppc indep.: 16 common parameters equal to muxlin indep. at the same seed, embedding / stacks / MLP / head present, reverse stack present: params 88064 (new 3328, dropped 2176, reverse stack 1088)
+PASS k2 ETTh1 sxppc shared: 13 common parameters equal to muxlin indep. at the same seed, embedding / stacks / MLP / head present, reverse stack absent: params 86976 (new 3328, dropped 3264, reverse stack 1088)
+PASS k2 ETTm1 muxlin indep.: 27 common parameters equal to muxlin indep. at the same seed, embedding / stacks / MLP / head present, reverse stack present: params 45088 (new 0, dropped 0, reverse stack 2176)
+PASS k2 ETTm1 muxlin shared: 21 common parameters equal to muxlin indep. at the same seed, embedding / stacks / MLP / head present, reverse stack absent: params 42912 (new 0, dropped 2176, reverse stack 2176)
+PASS k2 ETTm1 sxd indep.: 22 common parameters equal to muxlin indep. at the same seed, embedding / stacks / MLP / head present, reverse stack present: params 42976 (new 64, dropped 2176, reverse stack 2176)
+PASS k2 ETTm1 sxd shared: 16 common parameters equal to muxlin indep. at the same seed, embedding / stacks / MLP / head present, reverse stack absent: params 40800 (new 64, dropped 4352, reverse stack 2176)
+PASS k2 ETTm1 sxdpc indep.: 22 common parameters equal to muxlin indep. at the same seed, embedding / stacks / MLP / head present, reverse stack present: params 42976 (new 64, dropped 2176, reverse stack 2176)
+PASS k2 ETTm1 sxdpc shared: 16 common parameters equal to muxlin indep. at the same seed, embedding / stacks / MLP / head present, reverse stack absent: params 40800 (new 64, dropped 4352, reverse stack 2176)
+PASS k2 ETTm1 sxp indep.: 22 common parameters equal to muxlin indep. at the same seed, embedding / stacks / MLP / head present, reverse stack present: params 46240 (new 3328, dropped 2176, reverse stack 2176)
+PASS k2 ETTm1 sxp shared: 16 common parameters equal to muxlin indep. at the same seed, embedding / stacks / MLP / head present, reverse stack absent: params 44064 (new 3328, dropped 4352, reverse stack 2176)
+PASS k2 ETTm1 sxppc indep.: 22 common parameters equal to muxlin indep. at the same seed, embedding / stacks / MLP / head present, reverse stack present: params 46240 (new 3328, dropped 2176, reverse stack 2176)
+PASS k2 ETTm1 sxppc shared: 16 common parameters equal to muxlin indep. at the same seed, embedding / stacks / MLP / head present, reverse stack absent: params 44064 (new 3328, dropped 4352, reverse stack 2176)
+PASS k3 shared first layer (eval BN): reverse current = flipped forward current: max |diff| 0
+PASS k3 shared first layer (train BN): reverse current = flipped forward current: max |diff| 4.8e-07
+PASS k3 shared stack gets gradients from both directions (each non-zero, different; joint = sum within 1e-6)
+PASS k4 AttnMath (none) equals the per-(b, t) loop: max |diff| 0
+PASS k5 ledger (none) equals the hand formula: (9378.0, 0.0) vs (9378.0, 0.0)
+PASS k4 Pearson mask equals numpy corrcoef (1 + rho) / 2 and lies in [0, 1]: max |diff| 1.6e-07
+PASS k4 AttnMath (pc) equals the per-(b, t) loop: max |diff| 3e-07
+PASS k5 ledger (pc) equals the hand formula: (15048.0, 7371.0) vs (15048.0, 7371.0)
+PASS k4 sxdpc train mode fires: F, R, Q, K, V and the attention output all have spikes (non-vacuous): q 0.041, k 0.042, v 0.042, f 0.041, r 0.042, out 0.048
+PASS k4 sxppc train mode fires: F, R, Q, K, V and the attention output all have spikes (non-vacuous): q 0.044, k 0.046, v 0.041, f 0.041, r 0.042, out 0.045
+PASS k5 sxdpc: syops with the hook - without = ledger per window (AC 44279.0 / 44279.0, MAC 50232.0 / 50232.0; Q + V spikes in the syops pass 10007)
+PASS k5 sxdpc: SynOpRecorder adds the same ledger (both rules)
+PASS k5 sxppc: syops with the hook - without = ledger per window (AC 44469.0 / 44469.0, MAC 50232.0 / 50232.0; Q + V spikes in the syops pass 10197)
+PASS k5 sxppc: SynOpRecorder adds the same ledger (both rules)
+PASS k5 muxlin: syops with the hook - without = ledger per window (AC 0.0 / 0.0, MAC 0.0 / 0.0; Q + V spikes in the syops pass 0)
+PASS k5 muxlin: SynOpRecorder adds the same ledger (both rules)
+ALL PASS

@@ -22,6 +22,9 @@
 #         2026-11-24 full ETT table (PROJECT_LOG, user decision 11-24 "두 개다 고려한채로 확장하자"): DS also ETTh1 | ETTm1, LIF SpkMixer
 #         conditions only; ETTh1 takes every per-dataset default of ETTh2 and ETTm1 those of ETTm2 (heads, mlp, layers, epochs); the
 #         ETTh2 / ETTm2 training lines and tags are unchanged
+#         2026-11-27 fusion redesign (PROJECT_LOG stage-1 pre-registration): COND spkmx_lif_<sxd|sxdpc|sxp|sxppc>_<cf> (spike
+#         cross-attention fusion, sxa.py) and WSHARE=1 -> --mixer_share (reverse stack shares the forward weights), tag _ws; without
+#         WSHARE the training line and tag of every earlier condition are unchanged
 set -u
 DS=${1:?}; PL=${2:?}; S=${3:?}; GPU=${4:?}
 W="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # cinc_mixer_v1: model code, train_forecast.py, results/, log/
@@ -33,7 +36,7 @@ case $COND in
   spk_ssa) CF="--model myModel --hippo_ssa --hippo_T 4" ;;
   spkmx_lif_*)
     CFX=${COND##*_}; REST=${COND%_*}; COMB=${REST##*_}
-    case $COMB in or|sdor|sdlin|muxor|muxlin) ;; *) echo "bad comb in $COND"; exit 1 ;; esac
+    case $COMB in or|sdor|sdlin|muxor|muxlin|sxd|sxdpc|sxp|sxppc) ;; *) echo "bad comb in $COND"; exit 1 ;; esac
     case $CFX in iand) CFA=IAND ;; or) CFA=OR ;; add) CFA=ADD ;; ms) CFA=MS ;; *) echo "bad connect in $COND"; exit 1 ;; esac
     [ "$REST" = "spkmx_lif_$COMB" ] || { echo "bad cond $COND"; exit 1; }
     CF="--model spkMixer --mixer lif --mixer_comb $COMB --connect_f $CFA --hippo_T 4" ;;
@@ -116,6 +119,7 @@ case $DS in
   ETTm2|ETTm1) HP="--patch_size $PATCH -emb $EMB -nh 16 --mlp_ratios $MLPR   --time_layers $LAYERS -lr $LR -bs 64" ;;
 esac
 TAGC="${COND}_lr${LR}_L${LAYERS}${BTAG}${STAG}${KTAG}"
+WS=""; case ${WSHARE:-0} in 0) ;; 1) case $COND in spkmx_lif_*) WS=" --mixer_share"; TAGC="${TAGC}_ws" ;; *) echo "WSHARE: LIF SpkMixer only"; exit 1 ;; esac ;; *) echo "bad WSHARE"; exit 1 ;; esac   # 2026-11-27
 HM=""; [ "${HEADMEM:-0}" = 1 ] && { HM="--head_mem"; TAGC="${TAGC}_hm"; }   # 2026-11-03 H1 (head_mem.py): HEADMEM=1 -> --head_mem, tag _hm
 [ "${MS:-0}" = 1 ] && { [ "$COND" = spk_ssa ] || { echo "MS=1 is for spk_ssa (the SpkMixer uses cond spkmx_lif_<comb>_ms)"; exit 1; }; HM="$HM --ms_shortcut"; TAGC="${TAGC}_ms"; }   # 2026-11-08 membrane shortcut
 case ${NALL:-sj_lif} in sj_lif) ;; lif) { [ "$COND" = spk_ssa ] && [ "${MS:-0}" != 1 ]; } || { echo "NALL=lif is for spk_ssa without MS"; exit 1; }
@@ -131,7 +135,7 @@ OUT=$LOG/ett_${DS}_p${PL}_${TAGC}_seed${S}_${TS}_${SHA}.stdout; t0=$(date +%s)
   --log_dir "$LOG/$DS/p$PL" --seed $S -s -nd 0 --gating attn --no-bias --scheduler reduce -e $E --warm_up_epoch 0 \
   --layers $BLOCKS --tau 2.0 --weight_decay $WD --patience $P \
   --data $DS --data_path $DS.csv --root_path "$W/../forecasting/dataset/ETT-small" --seq_len $SEQ --pred_len $PL --features M --target OT \
-  $HP $CF $BX $HM $TL --tag $TAGC seed$S > "$OUT" 2>&1)
+  $HP $CF$WS $BX $HM $TL --tag $TAGC seed$S > "$OUT" 2>&1)
 RC=$?
 D=$(ls -td "$LOG/$DS/p$PL"/*/*"+${TAGC}+seed${S}+"*"+epoch+${E}+"*/seed${S}_* 2>/dev/null | head -1)
 CSV="$D/log/final+result.csv"; LCSV="$D/log/last/final+result.csv"
