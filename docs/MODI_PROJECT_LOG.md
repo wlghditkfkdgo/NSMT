@@ -11973,3 +11973,67 @@ AdamW lr 1e-3, weight decay 1e-2, 1 epoch 선형 warm-up 뒤 cosine으로 0(step
 ### Git
 
 - 이 항목, `results/flif-v1-oc2/{raw.txt, summary.md, decision.json}`, run마다 `logargs.txt`, `log/{best_log_0.csv, final+result.csv}`를 한 commit으로 묶고 tag `exp/nsmt-flif-neo-20261126-oc2`를 단다. (나)의 SNN code 변경은 이 commit에 넣지 않는다(다음 사전 고정 commit).
+
+## 2026-11-26 21:54 KST — 사전 고정 + 구현 (학습 전): (나) Sleep-EDF SNN 결합 형태 비교 — Spikformer(DE) vs query form vs key/value form × pop LIF / pop f-LIF, epoch spectrum token 16개(대상 epoch + 앞 15개), 5 fold. 1단계 lr 고르기(fold 0 validation, 10 run) → 2단계 fold 1–4(20 run). 기본 경로 동일 16/16 + 15/15, 점검 10/10, 고르기·요약 script 시험 통과, smoke 5/5
+
+**근거:** 사용자 결정 11-25("query form과 key/value form 둘다 해보고 의도에 잘 부합할 수 있도록 하는 구조를 선택"), 11-26("(나) Sleep-EDF epoch 사이로 구조 비교", front end "①"). 사전 고정한 관문(21:41 항목): SLEEPPSD 통과 → 21:47 결과에서 통과했다.
+
+**branch / 기준 commit:** `exp/nsmt-flif-neo`, 기준 `c0361f434`.
+
+### 구현 (기본값이면 지금과 같음)
+
+- `model.py`: `token_step`(> 0이면 token 간격 = 그 값, 끝 padding 없음; 0 = 지금처럼 patch // 2 + padding), `head_pool 'last'`(마지막 token = 대상 epoch를 읽음), `--neuron_all`을 key/value form(`hippo_xattn_mode replace`)에도 허용(두 결합 형태를 같은 전부-SpikeDE 기반에서 비교하려고; spikingjelly LIF가 남으면 멈추는 기존 검사는 그대로).
+- `config.py`: `--token_step`(기존 `--patch_stride`는 dest `stride`인 다른 옛 option이라 처음 붙인 이름이 충돌해서 바꿈), `--head_pool last`, `--ctx_epochs`(기본 16); run 폴더 이름에 `_ts{n}`, Sleep-EDF는 `_f{fold}_ctx{L}`.
+- `load_model.py`: `token_step` 전달. `rhythm_data.py`: data `SLEEPEDF`(`SleepPsdSet`, `sleep_psd_build`: 표본 = [60 bin, 16 epoch], bin마다 학습 target으로 정규화, label = 대상(마지막) epoch). `rhythm_eval.py`: SLEEPEDF의 선택 점수 = 5-class macro-F1.
+
+### model (5개, 모두 spikeDE neuron, relative position bias 끔)
+
+| 이름 | 무엇 | 설정 |
+|---|---|---|
+| `spkall_lif` | Spikformer(DE) — Hippocampus만, token 순서를 못 봄 | `--hippo_ssa --hippo_T 4 --neuron_all lif` |
+| `q_pop_lif` / `q_pop_flif` | query form(지금의 기준 model) | `nsmt4q_pop_<n>_msn_sde`와 같은 option |
+| `kv_pop_lif` / `kv_pop_flif` | key/value form(원 NSMT 방식) | 위와 같고 `--hippo_xattn_mode`만 기본(replace) |
+
+공통: `--data SLEEPEDF --ctx_epochs 16 --patch_size 1 --token_step 1 --head_pool last --ssa_pe 0`, `-emb 384 -nh 8 --layers 1 --time_layers 2`, **aux loss 끔**(`--alpha 0`, 지금 기준 model과 같음), CE(class 가중 없음), AdamW weight decay 1e-4, cosine, batch 64, 30 epoch, seed 42. 최고 validation macro-F1 epoch로 test 1번(`train_rhythm.py`). parameter: Spikformer(DE) 915,072, 나머지 1,262,976.
+
+### 단계
+
+1. **lr 고르기(validation만):** fold 0, 5 model × lr {0.001, 0.003} = 10 run(suite `flif-v1-sleep-lr`). model마다 최고 validation macro-F1이 높은 lr; 같으면 0.001(`select_sleep.py` → `results/flif-v1-sleep-lr/selected.json`).
+2. **본 비교:** 고른 lr로 fold 1–4, 5 model = 20 run(suite `flif-v1-sleep`). fold 0은 1단계의 고른 lr run을 쓴다.
+
+### 판정 (사전 고정, `summarize_sleep.py`; test macro-F1 %, fold 5쌍)
+
+- **Q1 (Neocortex model − Spikformer(DE)):** 평균 ≥ +1.0이고 5 중 4 이상 양수면 "좋음", ≤ −1.0이고 4 이상 음수면 "나쁨", 그 밖 "차이 없음".
+- **Q2 (query − key/value, neuron마다):** 같은 문턱으로 "query 좋음" / "key/value 좋음" / "차이 없음".
+- **구조 고르기:** Q1에서 "좋음"인 neuron이 더 많은 형태; 같으면 두 neuron Q1 평균이 큰 형태. 어느 형태도 "좋음"이 없으면 "어느 형태도 Spikformer(DE)를 넘지 못함"이라고 쓰고, 평균이 큰 쪽은 "방향만"으로 적는다.
+- 보고만: accuracy, class별 F1(W / N1 / N2 / N3 / REM), syops 에너지(syn_energy_uJ)와 Spikformer(DE) 대비 배율, 발화율, 1단계 validation 값.
+- fail closed: (model, fold)마다 한 줄, 고른 lr, epoch 30, batch 64, seed 42, 값 유한, 두 suite에 걸쳐 sha 하나, SKIP 없음.
+
+### 실행
+
+- tmux `flif_sleep`: `bash nsmt_flif_v1/classification/scripts/sleep_driver.sh 0,1,2,3,0,1,2,3`(GPU당 2개; pool 로그 `results/flif-v1-sleep-pool.log`; 큐 `scripts/queues/sleep-{lr,main}-20261126.txt`). run 하나 = `SUITE=<suite> LR=<lr> bash nsmt_flif_v1/classification/scripts/run_sleep.sh <model> <fold> <gpu>`.
+
+### 점검
+
+- 기본 경로 동일: 고치기 전 저장 → 고친 뒤 비교, `fw_identity_xnor.py` **16/16 identical**, `fw_identity_head.py` **15/15 identical**.
+- `check_sleep.py` **10/10 PASS**: fold 0 / 3에서 SNN 분할 = 진단 SLEEPPSD 분할, SNN 입력 = 진단 token의 전치(같은 label), model 입력 모양 [60, 16]; token 16개(간격 1, padding 없음), token n = epoch n의 60 bin, head가 마지막 token을 읽음, 출력이 대상 epoch와 첫 문맥 epoch 모두에 반응. **b4는 처음에 FAIL이었다**: 초기화 직후 eval mode에서는 head까지 spike가 오지 않아 출력이 늘 0이었다(작은 입력 변화에 반응 없음). train mode(BN batch 통계)로 고쳐 통과(대상 epoch 변화 0.592, 첫 epoch 변화 0.114).
+- 다섯 model 생성: 모두 token 16개, spikingjelly LIF 0개, backward 됨.
+- `select_sleep.py` / `summarize_sleep.py` 시험(가짜 suite): 심어 둔 lr 선택(같은 값이면 0.001 포함), 2단계 큐 20줄, 심어 둔 판정(Q1 좋음 / 차이 없음 / 나쁨, Q2 query 좋음, 구조 = query form)을 그대로 냄. 멈춰야 하는 8경우 모두 멈춤.
+
+### smoke (실험 아님)
+
+- 첫 smoke(`log/smoke-sleep-20261126`, 1 epoch, 5 model): 학습은 모두 끝났지만 **runner의 run 폴더 찾는 줄에 따옴표 하나가 남아 있어**(`_ctx16"*`) bash가 그 줄에서 문법 오류로 멈췄고 RESULT 줄이 없었다. 고친 뒤 다시: `results/smoke-sleep-20261126b/raw.txt` **RESULT 5, SKIP 0**. 1 epoch 약 50 s(GPU 공유), 최대 memory 0.34 GB. 같은 설정 두 번의 test 값이 같았다(SNN 학습 bit 재현).
+
+### 한계
+
+- epoch spectrum front end는 진단에서 CNN보다 약했다(epoch 하나 기준 −6 %p). 결과는 이 front end에 묶인다.
+- lr 두 값만 고르고, 다른 설정은 고르지 않는다. fold마다 seed 하나.
+- aux loss 끔(지금 기준 model과 같음).
+
+### not run
+
+- SNN의 순서 사용 측정(문맥 epoch를 섞어 다시 학습, Neocortex만 섞기), 기억 없는 Neocortex 대조, MBIP 재설계(사용자 결정 대기).
+
+### Git
+
+- 이 항목과 위 code, `check_sleep.py`, `select_sleep.py`, `summarize_sleep.py`, `scripts/{run_sleep.sh, sleep_driver.sh}`, `results/smoke-sleep-20261126b/raw.txt`를 사전 고정 commit으로 묶어 push 한 뒤 시작한다. 도는 동안 commit하지 않는다.

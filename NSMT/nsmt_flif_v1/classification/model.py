@@ -632,9 +632,15 @@ class myModel(nn.Module):
         self.stride = data_patch_size // 2
         self.num_channels = num_channels
         
-        self.num_patches = int((seq_len - data_patch_size) / (self.stride) + 1)
-        self.padding_patch_layer = nn.ReplicationPad1d((0, self.stride))
-        self.num_patches = self.num_patches + 1
+        _ps = int(kwargs.get('token_step', 0) or 0)
+        if _ps > 0:                                   # MODI 2026-11-26 (Sleep-EDF, (나)): token step = token_step, no end padding
+            self.stride = _ps                         # (patch 1 + stride 1 on [B, C, L] = one token per time step, here one per epoch)
+            self.num_patches = int((seq_len - data_patch_size) / (self.stride) + 1)
+            self.padding_patch_layer = nn.Identity()
+        else:                                         # default (unchanged): stride = patch // 2, replication pad of one stride
+            self.num_patches = int((seq_len - data_patch_size) / (self.stride) + 1)
+            self.padding_patch_layer = nn.ReplicationPad1d((0, self.stride))
+            self.num_patches = self.num_patches + 1
         self.T = self.num_patches
         # stage 9: multichannel tokens (a token = P time steps x C channels, flattened) and a Spikformer-style Hippo-only
         # with its own number of repetitions T_h (SSA does not need T = N). Defaults keep the ECG model unchanged.
@@ -888,8 +894,11 @@ class myModel(nn.Module):
         if self.neuron_all != 'sj_lif':
             if self.neuron_all not in ('lif', 'flif', 'pop_lif', 'pop_flif'):
                 raise ValueError('neuron_all in {sj_lif, lif, flif, pop_lif, pop_flif}')
-            if not (self.hippo_ssa or (self.hippo_xattn and self.hippo_xattn_mode in ('cat', 'query') and neo_neuron != 'sj_lif' and not self.neo_streams)):
-                raise NotImplementedError('neuron_all: Spikformer-style (hippo_ssa) or the B / query form with a spikeDE neocortex only')
+            # MODI 2026-11-26 ((나) Sleep-EDF, user decision 11-25 "query form과 key/value form 둘다"): + the key / value form
+            # (hippo_xattn_mode 'replace'), so both coupling forms can run on the same all-spikeDE basis; the check below that no
+            # spikingjelly LIF is left still applies.
+            if not (self.hippo_ssa or (self.hippo_xattn and self.hippo_xattn_mode in ('cat', 'query', 'replace') and neo_neuron != 'sj_lif' and not self.neo_streams)):
+                raise NotImplementedError('neuron_all: Spikformer-style (hippo_ssa) or the B / query / key-value form with a spikeDE neocortex only')
             nh = swap_sj_neurons(self.encoding, self.neuron_all, self.T_h, **_neo) + swap_sj_neurons(self.data_block, self.neuron_all, self.T_h, **_neo)
             left = [n for n, m_ in self.named_modules() if isinstance(m_, MultiStepLIFNode)]
             if left:
@@ -919,8 +928,8 @@ class myModel(nn.Module):
         # reads sum_n a_n x_n instead of the token mean. q starts at 0 (a = 1/N: exactly the mean head at init) and is built
         # after every other module with the CPU RNG forked, so the rest of the model is initialised as without it.
         self.head_pool = str(kwargs.get('head_pool', 'mean'))
-        if self.head_pool not in ('mean', 'attn'):
-            raise ValueError('head_pool in {mean, attn}')
+        if self.head_pool not in ('mean', 'attn', 'last'):          # MODI 2026-11-26: last = the last token (Sleep-EDF target epoch)
+            raise ValueError('head_pool in {mean, attn, last}')
         if self.head_pool == 'attn':
             with torch.random.fork_rng(devices=[]):
                 self.head_score = nn.Linear(embed_dim, 1, bias=False)
@@ -958,9 +967,11 @@ class myModel(nn.Module):
                     module.eval()
 
     def _pool(self, x):
-        """x [T, B, N, D] -> [T, B, D]: token mean (default) or the H2 attention pooling."""
+        """x [T, B, N, D] -> [T, B, D]: token mean (default), the H2 attention pooling, or the last token (MODI 2026-11-26)."""
         if self.head_pool == 'mean':
             return x.mean(2)
+        if self.head_pool == 'last':
+            return x[:, :, -1]
         a = torch.softmax(self.head_score(x).squeeze(-1) / x.shape[-1] ** 0.5, dim=2)   # [T, B, N]
         return (a.unsqueeze(-1) * x).sum(2)
 

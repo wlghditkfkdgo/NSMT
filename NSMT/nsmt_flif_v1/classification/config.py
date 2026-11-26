@@ -154,7 +154,7 @@ def parse_arguments():
     snn_arg.add_argument('--neo_shuffle', action='store_true', default=False,
                          help='MODI 2026-11-02 order control: the Neocortex runs the tokens in a shuffled order and its outputs go back to the '
                               'original positions (hippocampus order unchanged)')
-    snn_arg.add_argument('--head_pool', choices=['mean', 'attn'], default='mean',
+    snn_arg.add_argument('--head_pool', choices=['mean', 'attn', 'last'], default='mean',   # MODI 2026-11-26: + last (Sleep-EDF target epoch)
                          help='MODI 2026-11-04 (H2): token pooling in front of the classification head (attn = learned-query attention pooling)')
     snn_arg.add_argument('--fc_head', choices=['flat', 'h6'], default='flat',
                          help='MODI 2026-11-04 (H6, ETT): flat = Linear(N*D -> H); h6 = linear shortcut Linear(L -> H) on the normalised input '
@@ -194,6 +194,10 @@ def parse_arguments():
                          help='MIT-BIH (train.py, MODI 2026-11-01): hold out fold 0 of a stratified 5-fold split of the training file as validation (80 / 20)')
     snn_arg.add_argument('--fold', type=int, default=0, help='CinC 2017: test fold 0..4 of the record-wise stratified 5-fold split')
     snn_arg.add_argument('--val_frac', type=float, default=0.1, help='share of the training part held out for validation')
+    snn_arg.add_argument('--token_step', type=int, default=0,       # (--patch_stride is an older, unrelated option: dest stride)
+                         help='MODI 2026-11-26: token step of myModel (0 = patch // 2 with end padding, the default; > 0 = this step, no padding)')
+    snn_arg.add_argument('--ctx_epochs', type=int, default=16,
+                         help='MODI 2026-11-26 Sleep-EDF (SLEEPEDF): the target epoch and the ctx_epochs - 1 epochs before it (1..16)')
     snn_arg.add_argument('--win_s', type=float, default=30.0, help='CinC 2017 window length (s)')
     snn_arg.add_argument('--hop_s', type=float, default=15.0, help='CinC 2017 evaluation window hop (s)')
     snn_arg.add_argument('--fs_target', type=float, default=125.0, help='CinC 2017 resampling rate (Hz)')
@@ -341,6 +345,10 @@ class Config():
             _iso += f"_rst{args.neo_reset}"
         if getattr(args, 'mitbih_val', False):                            # MODI 2026-11-01
             _iso += "_mbval"
+        if int(getattr(args, 'token_step', 0) or 0) > 0:                   # MODI 2026-11-26
+            _iso += f"_ts{args.token_step}"
+        if str(getattr(args, 'data', '')).upper() == 'SLEEPEDF':           # MODI 2026-11-26 (Sleep-EDF, (나))
+            _iso += f"_f{args.fold}_ctx{args.ctx_epochs}"
         if str(getattr(args, 'data', '')).upper() in ('CINC2017', 'SHD'):
             _iso += f"_f{args.fold}" + ("_ce" if getattr(args, 'loss_kind', 'cal') == 'ce' and str(args.data).upper() == 'CINC2017' else '')
             if getattr(args, 'crop_tokens', 0):

@@ -75,6 +75,8 @@ def metrics(P, Y, data):
         m['score'] = float(f[:3].mean())                                # challenge score: N, AF, Other
         tp = c[1, 1]; fn = c[1].sum() - tp; fp = c[:, 1].sum() - tp; tn = c.sum() - tp - fn - fp
         m['af_sens'] = float(tp / max(1, tp + fn)); m['af_spec'] = float(tn / max(1, tn + fp))
+    elif str(data).upper() == 'SLEEPEDF':                               # MODI 2026-11-26: selection by 5-class macro-F1
+        m['score'] = m['macro_f1']
     else:
         m['score'] = m['acc']
     return m, c
