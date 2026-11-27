@@ -17888,3 +17888,61 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 **실행:** commit · push 뒤 NSMT/에서 `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/sxa4_driver.sh > /dev/null 2>&1 &`.
 
 **commit:** 이 기록, 위 code · 점검 파일과 txt, `results/check-sxa4-smoke-20261127/{raw.txt, energy_recount.csv}`, `results/check-sxa4-20261127/{energy_recount_smoke.txt, pool_log_smoke.txt}`.
+
+## 2026-11-27 19:38 KST — 결과 + 실험 완료(합치기 재설계 4단계, 24 run, 사전등록 `3d63b0ea2`, SKIP 0): mask를 **더해도** 사전등록 비교 4개가 **모두 "no clear difference"**다. 덧셈 vs 곱셈 −0.20 %, OT vs Pearson +0.31 %, muxlin IAND 대비 Pearson 덧셈 +0.20 %, OT 덧셈 +0.51 %다. model은 덧셈 mask를 실제로 쓴다(학습된 α: Pearson은 ETTh1 0.10–0.18, ETTm1 0.56–1.01). 그러나 정확도는 바뀌지 않았다
+
+- **목적:** 18:17 사전등록의 실행 결과다(사용자 "진행").
+- **branch / 학습 commit:** `exp/f-lif-pop-v3`, 24행 모두 `3d63b0ea2`(`--sha` 재계산).
+- **실행:** 18:17:08 시작 → 19:35:29 pool 끝(RESULT 24, SKIP 0) → energy 재계산 → 요약 → 독립 재계산(ALL CHECKS PASSED) → 19:37:10 `driver end`.
+  - GPU 시간 합은 9.9시간이다. 다른 세션 학습과 GPU를 함께 써서 ETTm1 run이 3a단계의 약 1.6–2배(1,611–1,755 s)였다. 그래서 예상(40–50분)보다 길어 1시간 20분이 걸렸다.
+  - 명령: `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/sxa4_driver.sh > /dev/null 2>&1 &`.
+
+### 결과(`results/flif-v1-ett-sxa-s4/summary.md`; 4칸 평균, seed 평균)
+| 팔 | MSE | MAE | best val L1 | energy µJ syops | 정수 규칙 |
+|---|--:|--:|--:|--:|--:|
+| Pearson 덧셈(msxdpca) | 0.4128 | 0.4076 | 0.6111 | 10.90 | 3.92 |
+| OT 덧셈(msxdota) | 0.4142 | 0.4077 | 0.6110 | 11.68 | 4.71 |
+| Pearson 곱셈(msxdpc, 3a단계) | 0.4137 | 0.4069 | 0.6109 | 10.92 | 3.94 |
+| muxlin IAND(기준) | **0.4117** | **0.4067** | 0.6106 | **10.38** | 3.39 |
+
+| 비교 | MSE R % | 낮음 / 높음 | 판정 | MAE R % / 판정 | energy 비율 syops |
+|---|--:|---|---|---|--:|
+| 덧셈 vs 곱셈(Pearson) | −0.20 | 7 / 5 | no clear difference | +0.14 / no clear difference | 0.998 |
+| OT vs Pearson(둘 다 덧셈) | +0.31 | 5 / 7 | no clear difference | +0.01 / no clear difference | 1.091 |
+| Pearson 덧셈 vs muxlin IAND | +0.20 | 8 / 4 | no clear difference | +0.19 / no clear difference | 1.066 |
+| OT 덧셈 vs muxlin IAND | +0.51 | 5 / 7 | no clear difference | +0.20 / no clear difference | 1.165 |
+- 칸별 r(MSE, muxlin IAND 대비): Pearson 덧셈 −1.11 / **+1.89** / +0.16 / −0.14 %, OT 덧셈 −0.78 / **+2.59** / +0.12 / +0.09 %(ETTh1 H96, H720, ETTm1 H96, H720). 이번에도 ETTh1 H720이 나쁘고, ETTh1 H96은 좋은 방향이다.
+
+### 사후 분석(사전등록 아님; `results/check-sxa4-20261127/post_s4.py` · `.txt`; 스크립트는 결과 전에 작성)
+- **학습된 α**(best validation 가중치):
+  - Pearson 덧셈: ETTh1 H96 +0.15 ~ +0.18, H720 +0.10 ~ +0.18, ETTm1 H96 +0.56 ~ +0.97, H720 +0.86 ~ +1.01.
+  - OT 덧셈: ETTh1 −0.09 ~ +0.08(거의 0), ETTm1 H96 +0.70 ~ +1.09, H720 +0.18 ~ +0.71.
+  - 12 seed × 칸 모두 Pearson의 α는 양수다. 특히 ETTm1에서는 α · M(M 평균 약 0.5)이 A_s 평균(0.3 안팎, 3a 측정)과 비슷하거나 더 크다. 즉 membrane 상관 경로가 map의 큰 몫을 차지한다.
+- 따라서 "mask가 쓰이지 않아서 효과가 없다"는 해석은 덧셈에서는 맞지 않는다. 쓰이지만 정확도 이득이 없다.
+
+### 사전 예상과 비교
+- 비교 4개 모두 no clear difference 예상 → **맞았다**.
+- "α가 거의 움직이지 않을 것"(smoke 근거) → **틀렸다**(ETTm1에서 0.5–1.0).
+- energy: Pearson ≈ 곱셈(0.998배)은 맞았다. OT +5 % 예상은 실제 +9 %였다.
+
+### 1–4단계 종합(192 run, 사전등록 판정만)
+- 지금 방식(muxlin IAND)을 넘은 새 합치기는 없다. 가장 가까운 것은 Pearson 덧셈 + MUX(+0.20 %, energy 1.07배)다.
+- 효과가 있었던 것은 MUX(attention만 쓸 때 대비, ADD 안에서)와 IAND(ADD 대비, muxlin에서; energy 0.58배)뿐이다.
+- mask 형태(없음 / Pearson / OT, 곱셈 / 덧셈), projection, weight 공유는 판정 기준만큼의 효과가 없다.
+- 새 구조가 나쁜 칸은 매번 ETTh1 H720이었다(muxlin IAND 대비 +1.9 ~ +6 %).
+
+### 한계
+- 4칸 × seed 3, LIF만, 재튜닝이 없다. α는 block에 하나뿐이고 weight decay를 받는다.
+- 다른 세션과 GPU를 함께 썼다. 결과에는 영향이 없다(학습은 비트 재현 가능, SKIP 0).
+
+### 점검
+- driver 안 독립 재계산: ALL CHECKS PASSED.
+- `--sha 3d63b0ea2,3d63b0ea2`(`recheck_s4_sha.txt`): 21개 PASS, ALL CHECKS PASSED.
+
+### 산출물 · commit / tag
+- Git: `results/flif-v1-ett-sxa-s4/{raw.txt, energy_recount.csv, summary.md, summary.json}`, `results/check-sxa4-20261127/{recheck_s4_sha.txt, post_s4.py, post_s4.txt}`.
+- local: driver.log, pool_log, run 폴더, stdout, queue.
+- annotated tag `exp/f-lif-pop-v3-sxa4-20261127`(완료된 학습 run)을 붙인다.
+
+### 다음
+- 사용자 결정을 기다린다. 합치기 재설계를 닫고 base를 muxlin IAND로 유지할지, 다른 방향(T 늘리기, 순서 사용 평가 등)으로 갈지다.
