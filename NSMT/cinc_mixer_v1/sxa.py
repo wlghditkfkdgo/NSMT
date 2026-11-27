@@ -33,6 +33,13 @@ attention mask", not the Sinkformer attention):
                + 2 B' MAC; -C / eps: B' N^2 MAC; each half-iteration (logsumexp over N^2 entries): 3 B' N^2 + 2 B' N AC and
                B' N^2 + B' N MAC (exp and log counted as one MAC each, assumption; the max is a comparison, not counted); plan:
                2 B' N^2 AC + B' N^2 MAC; N * P: B' N^2 MAC; mask x map: B' T N^2 MAC.
+
+2026-11-27 stage 4 (PROJECT_LOG stage-4 pre-registration; user question "mask를 더하면? spike형태여서 웬만한 칸이 0" and "진행"):
+    combine 'mul'  (default, every earlier arm) P = A_s * M
+            'add'  P = A_s + alpha * M, alpha a learnable scalar initialised to 0 (at initialisation the map is A_s exactly, the
+                   no-mask attention); ledger: alpha * M  B' N^2 MAC and the addition B' T N^2 AC replace the mask x map B' T N^2 MAC.
+                   Most entries of A_s are 0 (78-96 % on the trained checkpoints, check-maskdiag-20261127), so the mask reaches the
+                   zero entries only in this form.
 """
 import torch
 import torch.nn as nn
@@ -46,10 +53,15 @@ MASKS = ('none', 'pc', 'ot')                                                 # '
 
 class AttnMath(nn.Module):
     """Parameter-free leaf: (Q, K, V, H_f, H_r) [N, B', T, D] -> Z [N, B', T, D] (pre-BN), with the op ledger."""
-    def __init__(self, dim, mask='none', ot_iters=20, ot_eps=0.1):
+    def __init__(self, dim, mask='none', ot_iters=20, ot_eps=0.1, combine='mul'):
         super().__init__()
         if mask not in MASKS:
             raise ValueError(f'mask must be one of {MASKS}')
+        if combine not in ('mul', 'add') or (combine == 'add' and mask == 'none'):
+            raise ValueError("combine must be 'mul' or 'add' (add needs a mask)")
+        self.combine = combine
+        if combine == 'add':                                                    # 2026-11-27 stage 4: zero init, no random numbers
+            self.alpha = nn.Parameter(torch.zeros(1))
         self.dim, self.mask = int(dim), mask
         self.ot_iters, self.ot_eps = int(ot_iters), float(ot_eps)
         self.scale = self.dim ** -0.5
@@ -94,18 +106,23 @@ class AttnMath(nn.Module):
         if self.mask == 'pc':
             m = self.pearson_mask(hf, hr)
             self.last_mask = m.detach()
-            a = a * m.unsqueeze(1)
             ac += 2. * T * N * B * D + 4. * N * B * D + 2. * B * N * N
-            mac += 2. * N * B * D + 2. * N * B * D + 2. * N * B + float(B) * N * N * D + 3. * B * N * N + float(B) * T * N * N
+            mac += 2. * N * B * D + 2. * N * B * D + 2. * N * B + float(B) * N * N * D + 3. * B * N * N
         elif self.mask == 'ot':                                                # 2026-11-27 stage 2
             p, _ = self.ot_plan(hf, hr, self.ot_iters, self.ot_eps)
             m = N * p
             self.last_mask = m.detach()
-            a = a * m.unsqueeze(1)
             L, BN2, BN = self.ot_iters, float(B) * N * N, float(B) * N
             ac += 2. * T * N * B * D + 2. * BN2 + BN2 + L * 2. * (3. * BN2 + 2. * BN) + 2. * BN2
-            mac += (2. * N * B * D + 2. * N * B * D + BN2 * D + 2. * BN2 + 2. * B + BN2 + L * 2. * (BN2 + BN) + BN2 + BN2
-                    + float(B) * T * N * N)
+            mac += 2. * N * B * D + 2. * N * B * D + BN2 * D + 2. * BN2 + 2. * B + BN2 + L * 2. * (BN2 + BN) + BN2 + BN2
+        if self.mask != 'none':
+            if self.combine == 'mul':
+                a = a * m.unsqueeze(1)
+                mac += float(B) * T * N * N                                    # mask x map
+            else:                                                              # 2026-11-27 stage 4
+                a = a + self.alpha * m.unsqueeze(1)
+                mac += float(B) * N * N                                        # alpha x mask
+                ac += float(B) * T * N * N                                     # map + alpha mask
         z = torch.einsum('btnm,mbtd->nbtd', a, v) * self.scale                 # [N, B', T, D]
         self._ops = (ac, mac)
         return z
@@ -139,14 +156,14 @@ class _Proj(nn.Module):
 
 class SpkXAttn(nn.Module):
     """F, R, H_f, H_r [N, B', T, D] -> spikes [N, B', T, D]. make_neuron() -> a token-axis neuron module (one per call)."""
-    def __init__(self, dim, mask='none', proj=False, make_neuron=None, bias=False, ot_iters=20, ot_eps=0.1):
+    def __init__(self, dim, mask='none', proj=False, make_neuron=None, bias=False, ot_iters=20, ot_eps=0.1, combine='mul'):
         super().__init__()
         self.proj = bool(proj)
         if self.proj:
             self.q = _Proj(dim, dim, make_neuron(), bias)
             self.k = _Proj(dim, dim, make_neuron(), bias)
             self.v = _Proj(dim, dim, make_neuron(), bias)
-        self.core = AttnMath(dim, mask, ot_iters, ot_eps)
+        self.core = AttnMath(dim, mask, ot_iters, ot_eps, combine)
         self.bn = nn.BatchNorm1d(dim)
         self.neuron = make_neuron()
         self.dim = int(dim)

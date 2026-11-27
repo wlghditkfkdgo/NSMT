@@ -128,7 +128,7 @@ def parse_arguments():
     # MODI 2026-10-21 (stage 9 cause-separation): 1-B position, 1-C hippocampus T_h with token cross-attention over neocortex tokens
     snn_arg.add_argument('--ssa_pe', type=int, choices=[0, 1], default=1, help='relative position bias in SSA / hippo_xattn (0 = none)')
     snn_arg.add_argument('--pos_emb', action='store_true', default=False, help='learned absolute position in the hippocampus / mixer embedding')
-    snn_arg.add_argument('--mixer_comb', choices=['or', 'xattn', 'xattn_ch', 'lin', 'linmem', 'linmx', 'xattnmem', 'linxor', 'linsd', 'sdor', 'sdlin', 'muxor', 'muxlin', 'sxd', 'sxdpc', 'sxp', 'sxppc', 'sxdot', 'sxpot', 'msxdpc', 'msxppc', 'msxdot', 'msxpot'], default='or',   # sdor / sdlin: spkMixer (2026-10-29); muxor / muxlin: fusion MUX (10-30); sx*: 2026-11-27 spike cross-attention (sxa.py)
+    snn_arg.add_argument('--mixer_comb', choices=['or', 'xattn', 'xattn_ch', 'lin', 'linmem', 'linmx', 'xattnmem', 'linxor', 'linsd', 'sdor', 'sdlin', 'muxor', 'muxlin', 'sxd', 'sxdpc', 'sxp', 'sxppc', 'sxdot', 'sxpot', 'msxdpc', 'msxppc', 'msxdot', 'msxpot', 'msxdpca', 'msxdota'], default='or',   # sdor / sdlin: spkMixer (2026-10-29); muxor / muxlin: fusion MUX (10-30); sx*: 2026-11-27 spike cross-attention (sxa.py)
                          help='MODI 2026-10-21 BiX: how the two mixer directions are combined (OR, or token-axis cross-attention q = forward, k/v = reverse)')
     snn_arg.add_argument('--attn_bn', action='store_true', default=False, help='BN in front of the SSA attention neuron (spk_ssa_abn)')
     snn_arg.add_argument('--ms_shortcut', action='store_true', default=False, help='2026-11-08: membrane shortcut in the Spikformer-style blocks (needs --hippo_ssa)')
@@ -263,7 +263,8 @@ class Config():
                      'xattnmem': '_xamem', 'linxor': '_linxor', 'linsd': '_linsd',
                      'sdor': '_sdor', 'sdlin': '_sdlin', 'muxor': '_muxor', 'muxlin': '_muxlin',
                      'sxd': '_sxd', 'sxdpc': '_sxdpc', 'sxp': '_sxp', 'sxppc': '_sxppc', 'sxdot': '_sxdot', 'sxpot': '_sxpot',
-                     'msxdpc': '_msxdpc', 'msxppc': '_msxppc', 'msxdot': '_msxdot', 'msxpot': '_msxpot'}[args.mixer_comb]   # 10-23 / 24 / 27: membrane fusion, spike xor, spiking difference; 10-29 spkMixer
+                     'msxdpc': '_msxdpc', 'msxppc': '_msxppc', 'msxdot': '_msxdot', 'msxpot': '_msxpot',
+                     'msxdpca': '_msxdpca', 'msxdota': '_msxdota'}[args.mixer_comb]   # 10-23 / 24 / 27: membrane fusion, spike xor, spiking difference; 10-29 spkMixer
         if getattr(args, 'attn_bn', False):
             _iso += "_abn"
         if getattr(args, 'ms_shortcut', False):                          # 2026-11-08 membrane shortcut

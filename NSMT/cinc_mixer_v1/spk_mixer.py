@@ -66,6 +66,8 @@ unchanged):
                independent model's) and removed after the global init.
 
 2026-11-27 stage 2 (PROJECT_LOG stage-2 pre-registration; user decisions 11-27: OT after Pearson, MUX after no MUX):
+  mixer_comb   2026-11-27 stage 4: + 'msxdpca' / 'msxdota': as msxdpc / msxdot but the mask is ADDED to the spike map, P = A_s +
+               alpha M with a learnable alpha initialised to 0 (sxa.AttnMath combine 'add').
   mixer_comb   + 'sxdot' / 'sxpot': the mask is the entropic OT plan between the T-mean charges (sxa.AttnMath mask 'ot'), x N;
                + 'msx<d|p><pc|ot>': the MUX is kept and the attention output a takes the learned fusion's place:
                m = s_d ? a : (F ^ R) = s_d * a + (1 - s_d) * min(F, R), s_d = neuron(BN(|H_f - H_r|)) as in muxlin (design A of
@@ -88,7 +90,9 @@ __all__ = ['SpkMixer', 'apply_gain_table', 'COMBS', 'CONNECTS', 'NEURONS', 'XCOM
 
 NEURONS = ('lif', 'flif', 'pop_lif', 'pop_flif', 'popg_lif', 'popg_flif')
 XCOMBS = ('sxd', 'sxdpc', 'sxp', 'sxppc',                                    # 2026-11-27: spike cross-attention, no MUX
-          'sxdot', 'sxpot', 'msxdpc', 'msxppc', 'msxdot', 'msxpot')          # 2026-11-27 stage 2: OT plan mask; MUX versions
+          'sxdot', 'sxpot', 'msxdpc', 'msxppc', 'msxdot', 'msxpot',          # 2026-11-27 stage 2: OT plan mask; MUX versions
+          'msxdpca', 'msxdota')                                              # 2026-11-27 stage 4: the mask is added (sxa combine 'add')
+ADDCOMBS = ('msxdpca', 'msxdota')
 COMBS = ('or', 'sdor', 'sdlin', 'linmx', 'muxor', 'muxlin') + XCOMBS       # muxor / muxlin: 10-30 fusion MUX
 CONNECTS = ('IAND', 'OR', 'ADD', 'MS')                                       # MS: 2026-11-08 membrane shortcut (SpkBlock.forward_ms)
 POOLS = ('none', 'max', 'mean')                                              # 2026-11-17 mixer variants
@@ -165,8 +169,9 @@ class SpkBlock(nn.Module):
             self.fuse.linear._skip_global_init = True
         if comb in XCOMBS:                                                    # 2026-11-27: same fork / skip pattern as the fusion Linear
             with torch.random.fork_rng(devices=[]):
-                self.xattn = SpkXAttn(dim, mask=('pc' if comb.endswith('pc') else ('ot' if comb.endswith('ot') else 'none')),
-                                      proj=comb.lstrip('m').startswith('sxp'),
+                mb = comb[:-1] if comb in ADDCOMBS else comb                  # 2026-11-27 stage 4: trailing 'a' = additive mask
+                self.xattn = SpkXAttn(dim, mask=('pc' if mb.endswith('pc') else ('ot' if mb.endswith('ot') else 'none')),
+                                      proj=comb.lstrip('m').startswith('sxp'), combine=('add' if comb in ADDCOMBS else 'mul'),
                                       make_neuron=lambda: make_neuron(dim, N, 'ND'), bias=bias)
                 for lin in self.xattn.linears():
                     trunc_normal_(lin.weight, std=.02)

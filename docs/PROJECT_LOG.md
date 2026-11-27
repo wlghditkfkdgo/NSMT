@@ -17828,3 +17828,63 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 - 정할 것: α(학습 · 초기값 0 / 고정 1), Pearson과 OT를 함께 돌릴지 순서대로 돌릴지.
 
 **commit:** 이 기록과 `results/check-maskdiag-20261127/{diag_mask.py, diag_mask.txt}`.
+
+## 2026-11-27 18:17 KST — 사용자 "진행" + 사전등록 · 구현 · 점검(본 학습 전): 합치기 재설계 4단계. mask를 spike map에 **더한다**(P = A_s + α · M, α는 학습하는 scalar로 초기값 0). Pearson 덧셈과 OT 덧셈을 함께 돌린다(MUX, IAND, weight 독립, LIF, block 1; ETTh1 · ETTm1 × H96 / H720 × seed 3; 24 run)
+
+> 사용자 원문: "진행" — 직전 기록 제안의 권장값(α 학습 · 초기값 0, Pearson과 OT 함께 24 run)을 따른다.
+
+- **branch / base:** `exp/f-lif-pop-v3`, base `3dc4a4888`. 이 기록의 commit이 학습 code다.
+
+### 구현
+- `sxa.py`: `AttnMath(combine='mul' | 'add')`.
+  - `'add'`이면 `alpha = nn.Parameter(zeros(1))`(난수 없음)이고, P = A_s + α · M이다.
+  - 장부: α · M은 B'·N² MAC, 더하기는 B'·T·N² AC다. 곱셈의 mask × map B'·T·N² MAC 대신 들어간다.
+  - 기본값 `'mul'`은 예전 모든 팔과 같다.
+- `spk_mixer.py`: comb `msxdpca` / `msxdota`(끝 글자 a = 덧셈).
+- `config.py`(choices · 이름), `scripts/run_ett_spk.sh`(comb 목록 한 줄과 주석).
+- 새 파일: `summarize_sxa4.py`, `scripts/sxa4_driver.sh`, `results/check-sxa4-20261127/{check_s4.py, s4_build.py, recheck_sxa4.py, dry_sxa4.py}`.
+- α는 다른 parameter와 같이 AdamW로 학습한다(weight decay도 받음). 학습된 α는 결과 때 checkpoint에서 읽어 보고한다.
+
+### 설계(사전등록)
+- 새 팔 2개 × 4칸 × seed 3 = **24 run**(suite `flif-v1-ett-sxa-s4`):
+  - PA = `spkmx_lif_msxdpca_iand`(Pearson 덧셈)
+  - OA = `spkmx_lif_msxdota_iand`(OT 덧셈)
+  - 설정은 1–3a단계와 같다.
+- 기준(재사용): PMI = msxdpc IAND(3a단계, 곱셈 Pearson), IREF = muxlin IAND(기존 run).
+- **비교 4개**(test MSE 판정, 규칙은 같음; MAE · energy 비율 보고):
+  - 덧셈 vs 곱셈: PA vs PMI
+  - OT vs Pearson(둘 다 덧셈): OA vs PA
+  - muxlin IAND 대비: PA vs IREF, OA vs IREF
+- 멈춤: SKIP, 24행(12 + 12)이 아님, 예상 밖 행, nan, commit 섞임, block ≠ 1, energy 행 없음 / 등식 깨짐, 기준 행 부족.
+
+### 점검(모두 통과)
+- **`check_s4.py` · `.txt`:**
+  - t0: 4단계 전 code(`3dc4a4888` 사본)와 비교해, 기존 조건과 1 · 2 · 3a단계의 모든 팔 20개가 비트 단위로 같다.
+  - t1: α = 0이면 출력이 mask 없는 map과 정확히 같다. α = 0.7이면 (A_s + 0.7 M) V / √D와 같다(차이 0).
+  - t2: 같은 seed에서 msxdpca / msxdota가 msxdpc의 parameter를 모두 같은 값으로 가지고, 더해진 것은 α(0)뿐이다.
+  - t3: 장부가 손 공식과 같다. syops hook 차이와 recorder가 장부와 같다(spike가 있음).
+  - t4: α가 `model.parameters()`에 있고, α = 0에서 기울기가 0이 아니다.
+- **`dry_sxa4.py` · `.txt`:** 판정(better / worse / no clear difference), energy 비율, 비교 4개, 독립 재계산이 맞는다. SKIP · 23행 · 예상 밖 행 · nan · commit 섞임 · 등식 깨짐에서 exit 2로 멈춘다.
+- **smoke**(`check-sxa4-smoke-20261127`; 2팔 × ETTh1 H720 × seed 42 × 1 epoch):
+  - RESULT 2, SKIP 0, 72–73 s.
+  - syops energy: msxdpca 22.15, msxdota 23.40 µJ. 3a단계 smoke의 msxdpc IAND는 22.19 µJ였다.
+  - energy 재계산은 "all checks passed"였다.
+  - 1 epoch 뒤 α는 −0.0043 / −0.0045다.
+
+### 사전 예상(확신 낮음)
+- 덧셈 vs 곱셈: no clear difference. smoke에서 α가 거의 움직이지 않았다.
+- OT vs Pearson(덧셈): no clear difference.
+- muxlin IAND 대비: no clear difference.
+- energy: 곱셈과 거의 같다(Pearson). OT는 약 +5 %다.
+
+### 예상 시간
+- 24 run을 8 slot으로 돌리면 약 40–50분이다. 다른 세션이 GPU를 함께 쓰고 있다(GPU당 약 3.6 GB, 사용률 90 % 이상).
+
+### 한계
+- 4칸 × seed 3, LIF만, 재튜닝이 없다.
+- α에 weight decay가 걸린다. α가 커지는 것을 조금 막을 수 있다.
+- α는 block에 하나뿐이다(head · channel별이 아님).
+
+**실행:** commit · push 뒤 NSMT/에서 `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/sxa4_driver.sh > /dev/null 2>&1 &`.
+
+**commit:** 이 기록, 위 code · 점검 파일과 txt, `results/check-sxa4-smoke-20261127/{raw.txt, energy_recount.csv}`, `results/check-sxa4-20261127/{energy_recount_smoke.txt, pool_log_smoke.txt}`.

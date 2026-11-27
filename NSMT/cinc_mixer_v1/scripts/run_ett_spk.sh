@@ -26,6 +26,7 @@
 #         cross-attention fusion, sxa.py) and WSHARE=1 -> --mixer_share (reverse stack shares the forward weights), tag _ws; without
 #         WSHARE the training line and tag of every earlier condition are unchanged
 #         2026-11-27 stage 2: + COND spkmx_lif_<sxdot|sxpot|msxdpc|msxppc|msxdot|msxpot>_<cf> (OT plan mask; MUX versions)
+#         2026-11-27 stage 4: + COND spkmx_lif_<msxdpca|msxdota>_<cf> (the mask is added to the spike map, learnable alpha init 0)
 set -u
 DS=${1:?}; PL=${2:?}; S=${3:?}; GPU=${4:?}
 W="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # cinc_mixer_v1: model code, train_forecast.py, results/, log/
@@ -37,7 +38,7 @@ case $COND in
   spk_ssa) CF="--model myModel --hippo_ssa --hippo_T 4" ;;
   spkmx_lif_*)
     CFX=${COND##*_}; REST=${COND%_*}; COMB=${REST##*_}
-    case $COMB in or|sdor|sdlin|muxor|muxlin|sxd|sxdpc|sxp|sxppc|sxdot|sxpot|msxdpc|msxppc|msxdot|msxpot) ;; *) echo "bad comb in $COND"; exit 1 ;; esac
+    case $COMB in or|sdor|sdlin|muxor|muxlin|sxd|sxdpc|sxp|sxppc|sxdot|sxpot|msxdpc|msxppc|msxdot|msxpot|msxdpca|msxdota) ;; *) echo "bad comb in $COND"; exit 1 ;; esac
     case $CFX in iand) CFA=IAND ;; or) CFA=OR ;; add) CFA=ADD ;; ms) CFA=MS ;; *) echo "bad connect in $COND"; exit 1 ;; esac
     [ "$REST" = "spkmx_lif_$COMB" ] || { echo "bad cond $COND"; exit 1; }
     CF="--model spkMixer --mixer lif --mixer_comb $COMB --connect_f $CFA --hippo_T 4" ;;
