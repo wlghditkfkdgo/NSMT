@@ -17697,3 +17697,47 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 ### 다음
 - 계획의 P4(population neuron · 16칸 · SpikF 판정)는 잔차 결정(ADD 유지 / IAND로 되돌림)에 따라 설계가 달라진다. 06:31 보고에서 물은 사용자 결정을 기다린다.
 - 사용자 결정 전까지 새 학습은 시작하지 않는다.
+
+## 2026-11-27 13:54 KST — 사용자 결정 "(가) IAND로 바꿔서 실험해보자" + 사전등록(본 학습 전): 합치기 재설계 3a단계. 2단계에서 고른 Pearson + MUX(msxdpc 독립)를 IAND 잔차로 학습해 muxlin IAND(기존 run)와 비교한다(LIF, block 1; ETTh1 · ETTm1 × H96 / H720 × seed 3; 12 run)
+
+> 사용자 원문: "(가) IAND로 바꿔서 실험해보자."
+> 07:24 보고의 (가): IAND로 되돌리고, 이긴 attention 구조를 IAND로 다시 비교한다(Pearson + MUX를 IAND로 돌려 muxlin IAND와 비교, 12 run).
+
+- **branch / base:** `exp/f-lif-pop-v3`, base `73eee552e`. 이 기록의 commit이 학습 code다.
+- **model code 변경 없음.** msxdpc + IAND는 이미 있는 경로다(`spk_mixer.py`의 `connect`). 새 파일은 `summarize_sxa3.py`, `scripts/sxa3_driver.sh`(queue를 안에서 만듦), `results/check-sxa3-20261127/{recheck_sxa3.py, dry_sxa3.py}`다.
+
+### 설계(사전등록)
+- 새 팔 N: `spkmx_lif_msxdpc_iand`, weight 독립. 설정은 1 · 2단계와 같다(첫 튜닝 설정, block 1). 4칸 × seed 42 / 7 / 2026 = **12 run**(suite `flif-v1-ett-sxa-s3`).
+- 기준(재사용, 새 run 없음):
+  - IREF: muxlin IAND block 1(`flif-v1-ett-spkmux-retune`)
+  - PMA: msxdpc ADD(2단계)
+  - A1A: muxlin ADD(1단계)
+- **비교 3개**(test MSE 판정, 규칙은 1 · 2단계와 같음):
+  - main: N vs IREF(지금 방식 대비 새 합치기, 둘 다 IAND)
+  - residual: N vs PMA(같은 구조에서 잔차만 바꿈)
+  - 보고: N vs A1A
+  - MAE와 energy 비율(syops 판정, 정수 규칙 보고)도 적는다.
+- 멈춤: SKIP, 12개가 아님, 예상 밖 행, nan, commit 섞임, block ≠ 1, energy 행 없음 / 등식 깨짐, 기준 행 부족.
+
+### 점검
+- **model code가 바뀌지 않았다.** `git diff 73eee552e -- '*.py'`에는 새 파일만 있다. 1 · 2단계의 k0 · s0(기존 조건 비트 단위 동일)과 k1(IAND 기준 run 2 epoch 재현)이 그대로 적용된다.
+- **dry run**(`dry_sxa3.py` · `.txt`): 진짜 IAND 기준 행 × 0.98은 better(R −2 %, 12쌍)이고, × 1.005는 no clear difference다. energy 비율이 손 계산과 같고 독립 재계산도 통과했다. SKIP · 11행 · 예상 밖 행 · nan · commit 섞임 · 등식 깨짐에서 모두 exit 2로 멈춘다.
+- **smoke**(`check-sxa3-smoke-20261127`; ETTh1 H720 seed 42, 1 epoch):
+  - RESULT 1개, 30 s.
+  - syops energy는 22.19 µJ다. 같은 칸의 ADD smoke(1 · 2단계)는 33.5–35.9 µJ였다. IAND에서는 MLP 입력이 0/1이라 덧셈 연산으로 센다.
+  - energy 재계산은 "all checks passed"이고 rule은 binary다. 몸통 syops와 정수 규칙 값이 같다(4.385 µJ).
+
+### 사전 예상(확신 낮음)
+- main: no clear difference. ADD에서 PM − muxlin은 −0.70 %였다. IAND 기준은 이미 더 낮다.
+- residual: IAND가 ADD보다 좋을 것이다(1단계 ADD 효과 +1.26 %, ETTh1 H720 중심).
+- energy: N은 IREF의 약 1.05–1.1배(attention 장부와 s_d), PMA의 약 0.6배.
+
+### 예상 시간
+- 12 run을 8 slot으로 돌리면 약 25–35분이다.
+
+### 한계
+- 4칸 × seed 3, LIF만, 재튜닝이 없다. IAND에서 다른 attention 형태(공유, projection, OT)는 돌리지 않는다.
+
+**실행:** commit · push 뒤 NSMT/에서 `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/sxa3_driver.sh > /dev/null 2>&1 &`.
+
+**commit:** 이 기록, 새 파일, `results/check-sxa3-20261127/{dry_sxa3.txt, energy_recount_smoke.txt}`, `results/check-sxa3-smoke-20261127/{raw.txt, energy_recount.csv}`.
