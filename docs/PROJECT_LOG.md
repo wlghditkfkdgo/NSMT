@@ -17946,3 +17946,64 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 
 ### 다음
 - 사용자 결정을 기다린다. 합치기 재설계를 닫고 base를 muxlin IAND로 유지할지, 다른 방향(T 늘리기, 순서 사용 평가 등)으로 갈지다.
+
+## 2026-11-27 19:53 KST — 사용자 질문 · 결정 3개 + 사전등록(본 학습 전): T(반복 step)를 4에서 8로 늘린다. muxlin IAND와 Pearson 덧셈 + MUX IAND(msxdpca), 4칸 × seed 3 = 24 run이다. 튜닝 필요성과 "성능 개선으로 시간 정보 학습을 증명"하는 방법은 아래에 답을 적고 사용자 결정을 기다린다
+
+> 사용자 원문: "1. 하이퍼파라미터 튜닝이 필요한 것은 아닐까? 2. T를 8로 늘려보자. 3. 성능 개선으로 시간 정보를 잘 학습한다는 것을 증명하고 싶었어."
+
+- **branch / base:** `exp/f-lif-pop-v3`, base `19d7c89a4`. 이 기록의 commit이 학습 code다.
+
+### 답 1 — 튜닝(내 해석)
+- 1–4단계의 새 팔은 모두 **muxlin에 맞춰 validation으로 고른 첫 튜닝 설정**을 그대로 썼다. 그래서 비교가 muxlin 쪽으로 기울어 있을 수 있다. 튜닝 필요성은 타당한 지적이다.
+- 근거:
+  - 모든 팔이 epoch 5–8 근처에서 best였고 상한에 닿지 않았다(덜 학습됐다는 신호는 없음).
+  - 팔 사이 validation 차이는 0.6106–0.6155로 작다.
+  - 11-20 ETT 튜닝에서 큰 이득은 patch 길이(−1.3 %)였고, 나머지 손잡이는 아주 작았다.
+- 제안: 공정하게 하려면 **같은 예산으로 두 쪽(base와 이긴 새 팔)을 함께** 튜닝한다. lr부터 하고(가장 민감), validation으로 고른다. T 실험 결과(T가 최적 lr을 바꿀 수 있음) 뒤에 사전등록한다. 비용 예: lr 4값 × 2팔 × 12 = 96 run 중 새로 72 run, 약 2–3시간.
+
+### 답 3 — "성능 개선으로 시간 정보 학습을 증명"(내 해석)
+- 성능이 오르는 것만으로는 "시간 정보를 학습한다"는 증명이 되지 않는다. parameter · 연산 · 학습 설정 같은 다른 차이가 함께 바뀌기 때문이다.
+- **T(반복 step)는 token 축이 아니다.** mixer neuron은 token 축 N을 시간으로 쓴다. T를 늘리면 같은 patch를 더 오래 보여 주어 발화율 해상도(k/T)가 좋아질 뿐, token 사이의 시간 처리가 바뀌지는 않는다. 그래서 T8 결과가 좋아도 "T = N 시간 처리" 주장의 직접 근거는 아니다.
+- 설득력 있는 설계: 같은 구조에서 **시간 처리 기구만** 바꾸는 통제 실험.
+  - (a) **기억 없는 mixer neuron:** token마다 membrane을 reset해 token 사이 전달을 없앤다. 성능이 떨어지면 neuron의 시간 동역학이 기여한다는 근거가 된다. parameter · 연산 수가 같다.
+  - (b) **순서 섞기:** test만, 또는 학습부터 token 순서를 섞는다. 떨어지면 순서를 쓴다는 근거다. test만 섞는 것은 학습 없이 할 수 있다.
+  - (c) 방향 ablation: 정방향만 / 역방향만 / 둘 다.
+- 주의: forecast head(Linear N·D → H)는 token 위치를 그대로 본다. 그래서 neuron 동역학이 없어도 순서 정보를 쓸 수 있다. (a)가 이것을 가른다.
+- 제안: base(muxlin IAND)로 (b) 평가(학습 없음, 수 분)와 (a) 12 run을 먼저 한다.
+
+### 사전등록: T 실험
+- 팔(새 run): M8 = `spkmx_lif_muxlin_iand` + TH=8, P8 = `spkmx_lif_msxdpca_iand` + TH=8. weight 독립, LIF, block 1, 첫 튜닝 설정이다. ETTh1 · ETTm1 × H96 / H720 × seed 42 / 7 / 2026 = **24 run**(suite `flif-v1-ett-t8`).
+- 기준(재사용): M4 = muxlin IAND T4(기존 run), P4 = msxdpca IAND T4(4단계).
+- **비교 3개**(test MSE 판정, 규칙은 같음; MAE · energy 비율 보고):
+  - T 효과: M8 vs M4, P8 vs P4
+  - T 8에서 구조: P8 vs M8
+- 멈춤: SKIP, 24행(12 + 12, 모두 _T8)이 아님, nan, commit 섞임, block ≠ 1, energy 행 없음 / 등식 깨짐, 기준 행 부족.
+- code:
+  - `scripts/run_ett_spk.sh`: `TH=<4|8|16>`이면 `--hippo_T `(LIF SpkMixer만)이고 tag에 `_T<TH>`를 붙인다. TH가 없으면 명령이 같다.
+  - 새 파일: `summarize_t8.py`, `scripts/t8_driver.sh`, `results/check-t8-20261127/{check_t8.py, recheck_t8.py, dry_t8.py}`.
+  - model code는 바뀌지 않았다(`hippo_T`는 원래 있던 인자).
+
+### 점검(모두 통과)
+- **`check_t8.py` · `.txt`:**
+  - r0: 바꾸기 전 runner와 비교해, 기존 다섯 조건의 학습 인자가 글자까지 같다. TH=8은 `--hippo_T 4 → 8`과 `_T8`만 바꾼다. spk_ssa에 TH=8을 주면 거부한다.
+  - r1: T 8 model이 [8, B', N, P] token을 만들고, 같은 seed에서 parameter가 T 4와 같다.
+- **`dry_t8.py` · `.txt`:** 판정, energy 비율, 독립 재계산이 맞는다. SKIP · 23행 · T4 행 섞임 · nan · commit 섞임 · 등식 깨짐에서 exit 2로 멈춘다.
+- **smoke**(`check-t8-smoke-20261127`; 2팔 × ETTh1 H720 × seed 42 × 1 epoch, TH=8):
+  - RESULT 2, SKIP 0, 38–39 s.
+  - syops energy: muxlin 25.03, msxdpca 25.83 µJ.
+  - 최대 GPU 메모리 1,982 MiB(GPU당 2개 가능). energy 재계산은 "all checks passed"였다.
+
+### 사전 예상(확신 낮음)
+- T 효과: no clear difference가 가장 가능성 높고, 좋아진다면 −1 % 안팎일 것이다. SpikF는 T 16을 쓴다.
+- T 8에서 구조: no clear difference(T 4와 같음).
+- energy: 몸통은 약 2배다. head(T 평균에 한 번)는 같으므로 전체는 H96에서 약 1.6–1.9배, H720에서 약 1.2배일 것이다.
+
+### 예상 시간
+- T 8은 run당 약 1.5–2배다. 다른 세션이 GPU를 함께 쓰면 더 길다. 약 1.5–2.5시간으로 본다.
+
+### 한계
+- 4칸 × seed 3, LIF만, 재튜닝 없음(T 8에 맞는 lr이 다를 수 있음).
+
+**실행:** commit · push 뒤 NSMT/에서 `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/t8_driver.sh > /dev/null 2>&1 &`.
+
+**commit:** 이 기록, runner, 새 파일, 점검 txt, `results/check-t8-smoke-20261127/{raw.txt, energy_recount.csv}`, `results/check-t8-20261127/{energy_recount_smoke.txt, pool_log_smoke.txt}`. local: `mem_smoke.txt`.

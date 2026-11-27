@@ -27,8 +27,11 @@
 #         WSHARE the training line and tag of every earlier condition are unchanged
 #         2026-11-27 stage 2: + COND spkmx_lif_<sxdot|sxpot|msxdpc|msxppc|msxdot|msxpot>_<cf> (OT plan mask; MUX versions)
 #         2026-11-27 stage 4: + COND spkmx_lif_<msxdpca|msxdota>_<cf> (the mask is added to the spike map, learnable alpha init 0)
+#         2026-11-27 T test (user "T를 8로 늘려보자"): TH=<4|8|16> -> --hippo_T (repetition steps of the embedding / MLP neurons) for
+#         spkmx_lif_* conditions, tag _T<TH>; without TH (or TH=4) the training line and tag are unchanged
 set -u
 DS=${1:?}; PL=${2:?}; S=${3:?}; GPU=${4:?}
+TH=${TH:-4}; case $TH in 4|8|16) ;; *) echo "bad TH $TH (4|8|16)"; exit 1 ;; esac   # 2026-11-27 T test
 W="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # cinc_mixer_v1: model code, train_forecast.py, results/, log/
 R="$(cd "$W/../.." && pwd)"                            # worktree root
 PY=${PY:-/home/yschoi/.conda/envs/snn_recall/bin/python}
@@ -41,7 +44,7 @@ case $COND in
     case $COMB in or|sdor|sdlin|muxor|muxlin|sxd|sxdpc|sxp|sxppc|sxdot|sxpot|msxdpc|msxppc|msxdot|msxpot|msxdpca|msxdota) ;; *) echo "bad comb in $COND"; exit 1 ;; esac
     case $CFX in iand) CFA=IAND ;; or) CFA=OR ;; add) CFA=ADD ;; ms) CFA=MS ;; *) echo "bad connect in $COND"; exit 1 ;; esac
     [ "$REST" = "spkmx_lif_$COMB" ] || { echo "bad cond $COND"; exit 1; }
-    CF="--model spkMixer --mixer lif --mixer_comb $COMB --connect_f $CFA --hippo_T 4" ;;
+    CF="--model spkMixer --mixer lif --mixer_comb $COMB --connect_f $CFA --hippo_T $TH" ;;
   spkmx_pop_lif_muxlin_*)                                # 2026-11-16 STFT band test: population LIF in every layer (soma init 0.5, gain table below)
     CFX=${COND##*_}; COMB=muxlin
     case $CFX in iand) CFA=IAND ;; or) CFA=OR ;; add) CFA=ADD ;; *) echo "bad connect in $COND"; exit 1 ;; esac
@@ -121,6 +124,7 @@ case $DS in
   ETTm2|ETTm1) HP="--patch_size $PATCH -emb $EMB -nh 16 --mlp_ratios $MLPR   --time_layers $LAYERS -lr $LR -bs 64" ;;
 esac
 TAGC="${COND}_lr${LR}_L${LAYERS}${BTAG}${STAG}${KTAG}"
+if [ "$TH" != 4 ]; then case $COND in spkmx_lif_*) TAGC="${TAGC}_T$TH" ;; *) echo "TH: LIF SpkMixer conditions only"; exit 1 ;; esac; fi   # 2026-11-27
 WS=""; case ${WSHARE:-0} in 0) ;; 1) case $COND in spkmx_lif_*) WS=" --mixer_share"; TAGC="${TAGC}_ws" ;; *) echo "WSHARE: LIF SpkMixer only"; exit 1 ;; esac ;; *) echo "bad WSHARE"; exit 1 ;; esac   # 2026-11-27
 HM=""; [ "${HEADMEM:-0}" = 1 ] && { HM="--head_mem"; TAGC="${TAGC}_hm"; }   # 2026-11-03 H1 (head_mem.py): HEADMEM=1 -> --head_mem, tag _hm
 [ "${MS:-0}" = 1 ] && { [ "$COND" = spk_ssa ] || { echo "MS=1 is for spk_ssa (the SpkMixer uses cond spkmx_lif_<comb>_ms)"; exit 1; }; HM="$HM --ms_shortcut"; TAGC="${TAGC}_ms"; }   # 2026-11-08 membrane shortcut
