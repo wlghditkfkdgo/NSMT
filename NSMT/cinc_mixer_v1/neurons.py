@@ -218,8 +218,10 @@ class LIFNeuron(nn.Module):
         # 'spikede' (default, unchanged: -theta*s/tau inside F, i.e. theta/tau = 0.5 at tau 2), 'subtract' (exactly theta, soft
         # reset), 'zero' (to exactly 0, hard reset as spikingjelly). Same definitions as exp/nsmt-flif-neo --neo_reset (10-31).
         # LIFNeuron only for now (the population stage adds its own).
-        if reset not in ('spikede', 'subtract', 'zero'):
-            raise ValueError("reset must be 'spikede', 'subtract' or 'zero'")
+        # 2026-11-27 (PROJECT_LOG memoryless control, user "(a)도 진행해줘"): 'memoryless' sets the membrane to 0 after every step, so
+        # nothing is carried from one step to the next (H_t = I_t / tau; spike iff I_t / tau >= theta). LIFNeuron only.
+        if reset not in ('spikede', 'subtract', 'zero', 'memoryless'):
+            raise ValueError("reset must be 'spikede', 'subtract', 'zero' or 'memoryless'")
         if reset != 'spikede' and type(self) is not LIFNeuron:
             raise NotImplementedError('reset options are implemented for LIFNeuron only')
         self.reset_mode = reset   # not 'reset': spikingjelly reset_net calls m.reset()
@@ -275,6 +277,8 @@ class LIFNeuron(nn.Module):
     def _apply_reset(self, nxt, s):
         """2026-11-17: 'subtract' / 'zero' lower the updated (Euler) membrane of the neurons that spiked by theta / by all of it,
         spike detached (detach_reset). 'spikede' or no spikes: unchanged."""
+        if getattr(self, 'reset_mode', 'spikede') == 'memoryless':        # 2026-11-27: no state carried to the next step
+            return torch.zeros_like(nxt)
         if getattr(self, 'reset_mode', 'spikede') == 'spikede' or s is None:
             return nxt
         sd = s.detach()

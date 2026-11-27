@@ -1,0 +1,14 @@
+PASS m0 build (ref): saved 20
+PASS m0 build (new): saved 20
+PASS m0 20 earlier conditions / arms bitwise equal
+PASS m1 memoryless LIF: spikes = [I / tau >= theta], H - theta = I / tau - theta (no carried state)
+FAIL m2 muxlin: token_memory off -> only token 5 changes; on -> other tokens change too: off changed [], on changed [3, 4, 6, 8], mixer rate off 0.000 on 0.000
+PASS m3 muxlin: same parameters with token_memory on / off at the same seed
+FAIL m2 msxdpca: token_memory off -> only token 5 changes; on -> other tokens change too: off changed [], on changed [3], mixer rate off 0.000 on 0.000
+PASS m3 msxdpca: same parameters with token_memory on / off at the same seed
+PASS m4 spkmx_lif_muxlin_iand ETTh1: same training arguments without TMEM
+PASS m4 spkmx_lif_muxlin_iand ETTm1: same training arguments without TMEM
+PASS m4 spkmx_lif_msxdpca_iand ETTm1: same training arguments without TMEM
+PASS m4 spk_ssa ETTh2: same training arguments without TMEM
+PASS m4 TMEM=off adds only --token_memory off and _tmoff
+2 FAIL

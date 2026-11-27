@@ -1,0 +1,14 @@
+PASS m0 build (ref): saved 20
+PASS m0 build (new): saved 20
+PASS m0 20 earlier conditions / arms bitwise equal
+PASS m1 memoryless LIF: spikes = [I / tau >= theta], H - theta = I / tau - theta (no carried state)
+PASS m2 muxlin: token_memory off -> only token 5 changes; on -> other tokens change too (mixer fires): off changed [5], on changed [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], mixer rate off 0.007 on 0.008
+PASS m3 muxlin: same parameters with token_memory on / off at the same seed
+PASS m2 msxdpca: token_memory off -> other tokens still change through the attention (expected; the control is for muxlin): off changed [0, 1, 3, 5, 6, 7, 9, 10, 11], on changed [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], mixer rate off 0.009 on 0.008
+PASS m3 msxdpca: same parameters with token_memory on / off at the same seed
+PASS m4 spkmx_lif_muxlin_iand ETTh1: same training arguments without TMEM
+PASS m4 spkmx_lif_muxlin_iand ETTm1: same training arguments without TMEM
+PASS m4 spkmx_lif_msxdpca_iand ETTm1: same training arguments without TMEM
+PASS m4 spk_ssa ETTh2: same training arguments without TMEM
+PASS m4 TMEM=off adds only --token_memory off and _tmoff
+ALL PASS

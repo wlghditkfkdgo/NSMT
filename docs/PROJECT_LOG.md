@@ -18098,3 +18098,51 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 - (a) 기억 없는 mixer neuron 학습(12 run): 순서를 쓰는 것이 성능에 기여하는지를 같은 parameter의 통제 실험으로 본다. 곧 사전등록한다.
 
 **commit:** 이 기록과 `results/check-order-20261127/{order_base.txt, order_pmux.txt, order_base.json, order_pmux.json, summarize_order.py, summary_order.md, summary_order.json}`.
+
+## 2026-11-27 23:13 KST — 사전등록 · 구현 · 점검(본 학습 전): (a) 기억 없는 mixer neuron 통제 실험. base(muxlin IAND T4)에서 **mixer의 token 축 neuron만 매 token마다 membrane을 0으로 reset**해, mixer 안에서 token 사이로 정보가 흐르지 못하게 한다. weight · embedding · MLP · head는 그대로다. 4칸 × seed 3 = 12 run이다
+
+- **목적:** 사용자 결정 "(a)도 진행해줘"(3번 질문 "성능 개선으로 시간 정보를 잘 학습한다는 것을 증명")의 통제 실험이다. (b)에서 학습된 mixer가 순서에 의존한다는 것은 보였다. (a)는 neuron의 token 축 시간 동역학이 **성능에 기여하는지**를 같은 parameter 수 · 같은 초기값 · 같은 연산 구조로 본다.
+- **branch / base:** `exp/f-lif-pop-v3`, base `d2c6436fa`. 이 기록의 commit이 학습 code다.
+
+### 구현(scratchpad 사본에서 개발 · 점검 뒤 합침)
+- `neurons.py`: `LIFNeuron(reset='memoryless')`. 매 step 뒤 membrane을 0으로 둔다(`_apply_reset`). 그래서 H_t = I_t / τ이고 spike는 [I_t / τ ≥ θ]다. 이전 step의 상태가 넘어가지 않는다.
+- `spk_mixer.py`: `SpkMixer(token_memory='on' | 'off')`. 'off'이면 블록의 token 축 neuron 전부(두 방향 stack, s_d, fusion neuron, attention neuron)가 memoryless LIF가 된다. 반복 축(T) neuron(embedding · MLP)은 그대로다. LIF · rep 배치만 허용한다.
+- `config.py`(`--token_memory`, run 폴더 `_tmoff`), `load_model.py`, `scripts/run_ett_spk.sh`(`TMEM=off` → `--token_memory off`, tag `_tmoff`; TMEM이 없으면 명령이 같음).
+- 새 파일: `summarize_memoff.py`, `scripts/memoff_driver.sh`, `results/check-memoff-20261127/{check_mem.py, m0_build.py, recheck_memoff.py, dry_memoff.py}`.
+
+### 설계(사전등록)
+- 새 팔: `spkmx_lif_muxlin_iand` + TMEM=off(weight 독립, LIF, block 1, T4, 첫 튜닝 설정)다. ETTh1 · ETTm1 × H96 / H720 × seed 42 / 7 / 2026 = **12 run**(suite `flif-v1-ett-memoff`).
+- 기준(재사용): muxlin IAND T4(기존 run, 같은 seed, 같은 초기 weight).
+- **판정**(test MSE, 같은 규칙):
+  - memoryless가 "worse"(R ≥ +1 %, 8 / 12 이상 높음)이면 → **token 축 neuron 동역학이 성능에 기여한다**.
+  - "no clear difference"이면 → 기여한다는 근거가 없다.
+  - "better"이면 → 오히려 해롭다.
+  - MAE · energy 비율도 보고한다.
+- 멈춤: SKIP, `_tmoff` muxlin IAND 12행이 아님, nan, commit 섞임, block ≠ 1, energy 행 없음 / 등식 깨짐, 기준 행 부족.
+
+### 점검(모두 통과)
+- **`check_mem.py` · `.txt`(14 PASS):**
+  - m0: 바꾸기 전 code(`24570a05d`와 같은 사본)와 비교해, 기존 조건 · 팔 20개가 비트 단위로 같다.
+  - m1: memoryless LIF가 손 계산(H = I / τ, spike = [I / τ ≥ θ])과 같다.
+  - m2: muxlin에서 token_memory off이면 한 token(5)의 mixer 입력을 바꿨을 때 그 token의 출력만 바뀐다. on이면 12 token 모두 바뀐다(eval BN, mixer가 발화함).
+  - m3: on / off의 parameter가 같은 seed에서 같다.
+  - m4: TMEM이 없으면 runner 인자가 같다(TH=8 경우 포함). TMEM=off는 `--token_memory off`와 `_tmoff`만 더한다.
+  - **내 실수 두 개:**
+    - m2 첫 버전은 BN을 model 입력으로 데워, 시험 입력에서 mixer가 전혀 발화하지 않았다(발화율 0, 무의미한 결과; `check_mem_v1_silent.txt`). 시험 입력과 같은 분포로 데우고 "발화해야 통과"를 더했다.
+    - 둘째 버전은 msxdpca(attention 있음)에도 "다른 token은 안 바뀜"을 기대했다. 틀린 기대였다. attention은 neuron 기억과 무관하게 token을 섞는다(`check_mem_v2_wrong_expectation.txt`). 이 통제는 muxlin용이고, msxdpca는 "섞임이 남는다"를 확인하는 항목으로 바꿨다.
+- **`dry_memoff.py` · `.txt`:** worse 판정(R +3 %, 12쌍), no clear difference, energy 비율, 독립 재계산이 맞는다. SKIP · 11행 · `_tmoff` 없는 행 · nan · commit 섞임 · 등식 깨짐에서 exit 2로 멈춘다.
+- **smoke**(`check-memoff-smoke-20261127`; ETTh1 H720 seed 42, 1 epoch): RESULT 1개, 47 s, syops 21.35 µJ. 저장된 config에 `token_memory off`가 있다. energy 재계산은 "all checks passed"였다.
+
+### 사전 예상(확신 낮음)
+- no clear difference가 가장 가능성 높다(+0–1 %). 근거:
+  - head가 위치 정보를 이미 갖는다.
+  - 11-23에 순서를 모르는 SF-de와 차이가 없었다.
+  - 기억이 없어도 학습으로 적응할 수 있다.
+- 다만 (b)에서 학습된 mixer가 순서에 꽤 의존했다(+5 %, ETTm1에서 더 큼). 그래서 ETTm1에서 worse 쪽으로 기울 가능성도 있다.
+
+### 예상 시간
+- 12 run을 8 slot으로 돌리면 약 25–40분이다(다른 세션이 GPU를 함께 쓰면 더 김).
+
+**실행:** commit · push 뒤 NSMT/에서 `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/memoff_driver.sh > /dev/null 2>&1 &`.
+
+**commit:** 이 기록, 위 code · 점검 파일과 txt, `results/check-memoff-smoke-20261127/{raw.txt, energy_recount.csv}`, `results/check-memoff-20261127/energy_recount_smoke.txt`.

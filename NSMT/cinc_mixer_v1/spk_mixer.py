@@ -66,6 +66,10 @@ unchanged):
                independent model's) and removed after the global init.
 
 2026-11-27 stage 2 (PROJECT_LOG stage-2 pre-registration; user decisions 11-27: OT after Pearson, MUX after no MUX):
+  token_memory 2026-11-27 memoryless control (PROJECT_LOG; user "(a)도 진행해줘"): 'on' (default) | 'off'. With 'off' every token-axis
+               neuron of the block (both directional stacks, s_d, the fusion neuron, attention neurons) is the LIF with reset
+               'memoryless' (membrane set to 0 after every token), so no information moves along the token axis inside the mixer;
+               the embedding / MLP neurons (repetition axis) and every weight are unchanged (same parameters at the same seed).
   mixer_comb   2026-11-27 stage 4: + 'msxdpca' / 'msxdota': as msxdpc / msxdot but the mask is ADDED to the spike map, P = A_s +
                alpha M with a learnable alpha initialised to 0 (sxa.AttnMath combine 'add').
   mixer_comb   + 'sxdot' / 'sxpot': the mask is the entropic OT plan between the T-mean charges (sxa.AttnMath mask 'ot'), x N;
@@ -138,7 +142,7 @@ class FuseLinear(nn.Module):
 
 class SpkBlock(nn.Module):
     def __init__(self, dim, mixer, mixer_layers, mlp_ratio, make_neuron, N, T_h, comb, connect, bias=False, token_axis=False,
-                 mix_pool='none', mixer_ms=False, mixer_reset='spikede', make_rest=None, share=False):
+                 mix_pool='none', mixer_ms=False, mixer_reset='spikede', make_rest=None, share=False, token_reset='spikede'):
         super().__init__()
         self.share = bool(share)                                              # 2026-11-27: reverse stack = forward stack
         rest = make_neuron if make_rest is None else make_rest               # 2026-11-18: embedding / MLP neuron (neuron_scope)
@@ -152,17 +156,20 @@ class SpkBlock(nn.Module):
         fn = lambda: make_neuron(dim, N, 'ND')                            # mixer / fusion neurons: token axis, N steps
         if mixer_reset != 'spikede':                                          # 2026-11-17: reset of the directional stacks only
             fn = lambda: make_neuron(dim, N, 'ND', reset=mixer_reset)
+        tokn = lambda: make_neuron(dim, N, 'ND')                          # 2026-11-27: every other token-axis neuron (s_d, fusion, attention)
+        if token_reset != 'spikede':                                          # 2026-11-27 memoryless control: all token-axis neurons
+            fn = tokn = lambda: make_neuron(dim, N, 'ND', reset=token_reset)
         self.mixer = MixerStack(dim, mixer_layers, fn, bias)
         self.mixer_rev = MixerStack(dim, mixer_layers, fn, bias)
         if comb in ('sdor', 'sdlin', 'muxor', 'muxlin') or comb.startswith('msx'):   # 2026-11-27: + the MUX attention arms
             self.sd_bn = nn.BatchNorm1d(dim)
-            self.sd_neuron = make_neuron(dim, N, 'ND')
+            self.sd_neuron = tokn()
         if comb in ('sdlin', 'linmx', 'muxlin'):
             # built and initialised inside a forked RNG (continuing the current state, restored afterwards) and skipped by the
             # global init: at the same seed every other weight (embedding, mixer, MLP, head) is identical across the four
             # fusions and the three residuals (check s3), so the fusion comparisons are paired on the same initial model
             with torch.random.fork_rng(devices=[]):
-                self.fuse = FuseLinear((3 if comb == 'linmx' else 2) * dim, dim, make_neuron(dim, N, 'ND'), bias)
+                self.fuse = FuseLinear((3 if comb == 'linmx' else 2) * dim, dim, tokn(), bias)
                 trunc_normal_(self.fuse.linear.weight, std=.02)
                 if self.fuse.linear.bias is not None:
                     nn.init.constant_(self.fuse.linear.bias, 0)
@@ -172,7 +179,7 @@ class SpkBlock(nn.Module):
                 mb = comb[:-1] if comb in ADDCOMBS else comb                  # 2026-11-27 stage 4: trailing 'a' = additive mask
                 self.xattn = SpkXAttn(dim, mask=('pc' if mb.endswith('pc') else ('ot' if mb.endswith('ot') else 'none')),
                                       proj=comb.lstrip('m').startswith('sxp'), combine=('add' if comb in ADDCOMBS else 'mul'),
-                                      make_neuron=lambda: make_neuron(dim, N, 'ND'), bias=bias)
+                                      make_neuron=tokn, bias=bias)
                 for lin in self.xattn.linears():
                     trunc_normal_(lin.weight, std=.02)
                     if lin.bias is not None:
@@ -277,8 +284,13 @@ class SpkMixer(nn.Module):
                  mixer_layers=2, T_h=4, neo_tau=2.0, neo_alpha=0.5, fde_method='pred', fde_step=1.0, fde_memory=0,
                  pop_taus=(4., 8., 16., 32.), bias=False, tau=2.0, train_mode='training', in_channels=1, pop_soma_init=None,
                  mixer_comb='or', connect_f='IAND', tau_calib=True, band='none', taxis='rep', gain_table=None, mix_pool='none',
-                 mixer_ms=False, mixer_reset='spikede', neuron_scope='all', mixer_share=False, **kwargs):
+                 mixer_ms=False, mixer_reset='spikede', neuron_scope='all', mixer_share=False, token_memory='on', **kwargs):
         super().__init__()
+        if token_memory not in ('on', 'off'):                                # 2026-11-27 memoryless control
+            raise ValueError("token_memory must be 'on' or 'off'")
+        if token_memory == 'off' and (mixer != 'lif' or connect_f == 'MS' or band != 'none' or taxis != 'rep' or mixer_reset != 'spikede'):
+            raise NotImplementedError('token_memory off: LIF, rep layout, no band, no connect MS, default mixer_reset')
+        self.token_memory = token_memory
         if mixer_share and (connect_f == 'MS' or band != 'none' or taxis != 'rep' or mixer in CALIBRATED):   # 2026-11-27
             raise NotImplementedError('mixer_share: rep layout, no band, no connect MS, no calibrated population (gain tables name '
                                       'the reverse stack)')
@@ -352,7 +364,8 @@ class SpkMixer(nn.Module):
                                   pe=False, bias=bias, tau=tau, pos_emb=False, neuron=(make_rest or make_neuron)(D, steps, 'DN'))
         self.blocks = nn.ModuleList([SpkBlock(D, mixer, self.mixer_layers, mlp_ratios, make_neuron, N, steps, mixer_comb, connect_f, bias,
                                               token_axis=tok_ax, mix_pool=mix_pool, mixer_ms=mixer_ms, mixer_reset=mixer_reset,
-                                              make_rest=make_rest, share=self.mixer_share)
+                                              make_rest=make_rest, share=self.mixer_share,
+                                              token_reset=('memoryless' if token_memory == 'off' else 'spikede'))
                                      for _ in range(self.depths)])
         self.head = nn.Linear(D, num_classes, bias=bias)
         self.apply(self._init_weights)

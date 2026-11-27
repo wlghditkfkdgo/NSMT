@@ -209,6 +209,8 @@ def _mixer_variants(args):
         kw['neuron_scope'] = args.spk_neuron_scope
     if getattr(args, 'mixer_share', False):                           # 2026-11-27 shared directional stacks
         kw['mixer_share'] = True
+    if getattr(args, 'token_memory', 'on') != 'on':                    # 2026-11-27 memoryless control
+        kw['token_memory'] = args.token_memory
     return kw
 
 

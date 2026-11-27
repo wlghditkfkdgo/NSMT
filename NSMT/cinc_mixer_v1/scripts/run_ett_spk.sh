@@ -29,6 +29,8 @@
 #         2026-11-27 stage 4: + COND spkmx_lif_<msxdpca|msxdota>_<cf> (the mask is added to the spike map, learnable alpha init 0)
 #         2026-11-27 T test (user "T를 8로 늘려보자"): TH=<4|8|16> -> --hippo_T (repetition steps of the embedding / MLP neurons) for
 #         spkmx_lif_* conditions, tag _T<TH>; without TH (or TH=4) the training line and tag are unchanged
+#         2026-11-27 memoryless control (user "(a)도 진행해줘"): TMEM=off -> --token_memory off (every token-axis neuron resets after each
+#         token), tag _tmoff; LIF SpkMixer conditions only; without TMEM the training line and tag are unchanged
 set -u
 DS=${1:?}; PL=${2:?}; S=${3:?}; GPU=${4:?}
 TH=${TH:-4}; case $TH in 4|8|16) ;; *) echo "bad TH $TH (4|8|16)"; exit 1 ;; esac   # 2026-11-27 T test
@@ -125,6 +127,7 @@ case $DS in
 esac
 TAGC="${COND}_lr${LR}_L${LAYERS}${BTAG}${STAG}${KTAG}"
 if [ "$TH" != 4 ]; then case $COND in spkmx_lif_*) TAGC="${TAGC}_T$TH" ;; *) echo "TH: LIF SpkMixer conditions only"; exit 1 ;; esac; fi   # 2026-11-27
+TM=""; case ${TMEM:-on} in on) ;; off) case $COND in spkmx_lif_*) TM=" --token_memory off"; TAGC="${TAGC}_tmoff" ;; *) echo "TMEM: LIF SpkMixer only"; exit 1 ;; esac ;; *) echo "bad TMEM"; exit 1 ;; esac   # 2026-11-27
 WS=""; case ${WSHARE:-0} in 0) ;; 1) case $COND in spkmx_lif_*) WS=" --mixer_share"; TAGC="${TAGC}_ws" ;; *) echo "WSHARE: LIF SpkMixer only"; exit 1 ;; esac ;; *) echo "bad WSHARE"; exit 1 ;; esac   # 2026-11-27
 HM=""; [ "${HEADMEM:-0}" = 1 ] && { HM="--head_mem"; TAGC="${TAGC}_hm"; }   # 2026-11-03 H1 (head_mem.py): HEADMEM=1 -> --head_mem, tag _hm
 [ "${MS:-0}" = 1 ] && { [ "$COND" = spk_ssa ] || { echo "MS=1 is for spk_ssa (the SpkMixer uses cond spkmx_lif_<comb>_ms)"; exit 1; }; HM="$HM --ms_shortcut"; TAGC="${TAGC}_ms"; }   # 2026-11-08 membrane shortcut
@@ -141,7 +144,7 @@ OUT=$LOG/ett_${DS}_p${PL}_${TAGC}_seed${S}_${TS}_${SHA}.stdout; t0=$(date +%s)
   --log_dir "$LOG/$DS/p$PL" --seed $S -s -nd 0 --gating attn --no-bias --scheduler reduce -e $E --warm_up_epoch 0 \
   --layers $BLOCKS --tau 2.0 --weight_decay $WD --patience $P \
   --data $DS --data_path $DS.csv --root_path "$W/../forecasting/dataset/ETT-small" --seq_len $SEQ --pred_len $PL --features M --target OT \
-  $HP $CF$WS $BX $HM $TL --tag $TAGC seed$S > "$OUT" 2>&1)
+  $HP $CF$WS$TM $BX $HM $TL --tag $TAGC seed$S > "$OUT" 2>&1)
 RC=$?
 D=$(ls -td "$LOG/$DS/p$PL"/*/*"+${TAGC}+seed${S}+"*"+epoch+${E}+"*/seed${S}_* 2>/dev/null | head -1)
 CSV="$D/log/final+result.csv"; LCSV="$D/log/last/final+result.csv"
