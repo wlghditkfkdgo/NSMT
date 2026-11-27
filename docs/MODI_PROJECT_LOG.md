@@ -12341,3 +12341,63 @@ fold 0의 lr 0.001 / 0.003 값과 기존 fold 1–4는 1단계(`flif-v1-sleep-lr
 ### Git
 
 - 이 항목과 `results/flif-v1-oc3/{raw.txt, summary.md, decision.json}`, run마다 `logargs.txt`, `log/{best_log_0.csv, final+result.csv}`를 commit하고 tag `exp/nsmt-flif-neo-20261127-ptb`를 단다.
+
+## 2026-11-27 16:19 KST — 사용자 결정 기록 + 사전 고정 + 구현 (학습 전): Neocortex membrane potential 출력과 축적 aux loss (Sleep-EDF, 60 run, lr 0.003). 기본 경로 동일 16/16 + 15/15, 기본 Sleep smoke 재현(값 동일), 점검 13/13, 명령줄 점검 10/10, 요약 script 시험 통과, smoke 8/8
+
+**사용자 질문 (11-27, 원문 요지):** "energy 증가를 감수하고, neocortex network에서 cross-attention으로 검색할 때, spike 출력 대신 membrane potential을 사용하는 것은 어떻게 생각해? (1) 마지막 layer의 LIF의 membrane potential (2) 모든 layer의 (각 time step 별) 평균값 membrane potential", "지금 현재는 single block이지?", "aux loss를 수정해서 neocortex가 '시간 순서', '축적'을 더 잘 학습할 수 있도록 할 수 있을까? 선행 연구를 근거로". 내 답: (1)을 권함(membrane shortcut 흐름 u가 이미 앞 층들의 기여를 더해 담고 있고, 층 평균은 입력에 가까운 embedding 층을 섞어 기억 신호를 흐림); 구조는 Hippocampus block 1개(T_h 4) + Neocortex embedding neuron + NeoLayer 2층(membrane shortcut, population neuron); aux 후보는 순서(PPT ICLR 2025, Shuffle and Learn ECCV 2016, ALBERT 문장 순서 ICLR 2020)와 축적(Trinh et al. ICML 2018의 무작위 시점 과거 복원, CPC 2018) — 서지는 이번에 원문을 다시 확인하지 않았다고 밝힘.
+
+**사용자 결정 (11-27, 원문):** "1. 진행" — membrane potential 출력 시험(내 권고 설정: (1) 마지막 층, Sleep-EDF, 순서 / 기억 대조와 같은 lr의 Spikformer(DE) 비교 포함). "2. 축적만 우선 진행" — 축적 aux만.
+
+**branch / 기준 commit:** `exp/nsmt-flif-neo`, 기준 `a5603f85a`.
+
+### 구현 (기본값이면 지금과 같음)
+
+- `neurons.py`: `analog='pre'` = soma의 reset 전 membrane(subtract reset에서 reset 뒤 값 + θ·spike).
+- `layers.NeoNeuron`: `_want_mem` 표시가 있으면 spike와 reset 전 membrane을 함께 낸다(module 호출로 지나가 hook이 그대로 작동). `layers` SSA: `q_once`가 켜지면 query 쪽 `q_linear`를 T_h step마다가 아니라 한 번 계산해 복사한다(Neocortex 출력은 T_h step마다 같으므로 값이 같음).
+- `model.py`: `--neo_readout mem` = 마지막 NeoLayer soma의 reset 전 membrane(실수)을 Hippocampus query로 보낸다(query는 지금처럼 q_linear → BN → LIF로 다시 spike); 이때 `q_once`를 켠다. `--aux_past rand` = 축적 aux(Trinh et al. 2018 식): token t = 1..N−1마다 지연 d를 {1..t}에서 고르고, t의 Neocortex 출력(spike, 또는 mem일 때 membrane)과 d의 one-hot으로 작은 MLP가 원 입력 token t − d를 복원한다(학습 때만; 추론 energy 없음). 가중치는 train_rhythm 규칙대로 (1 − α) CE + α MSE, α = 0.1. decoder는 다른 모든 module 뒤에 CPU RNG를 갈라 만들어, 나머지 parameter의 초기값이 그대로다.
+- `config.py` / `load_model.py`: 두 option 전달, run 폴더 `_nromem`, `_aprand`.
+- `scripts/run_sleep.sh`: 접미사를 겹쳐 쓸 수 있게 바꿈 — `_mem`, `_acc`(α 0.1), `_cshuf`, `_nml`. 기존 조건의 명령줄은 같다(가짜 python으로 10조건 확인).
+
+### run (60개, suite `flif-v1-sleep3`, lr 0.003, seed 42, fold 0–4)
+
+query pop LIF / pop f-LIF × {`mem`, `acc`, `mem_acc`, `mem_cshuf`, `mem_nml`, `acc_cshuf`} × 5 fold. 비교 기준(이미 있음, 같은 lr 0.003): query spike model(`flif-v1-sleep-lr` fold 0, `flif-v1-sleep` fold 1–4), Spikformer(DE)(`flif-v1-sleep-lr` fold 0, `flif-v1-sleep2` fold 1–4), spike model의 `_cshuf` / `_nml`(`flif-v1-sleep2`).
+
+### 판정 (사전 고정, `summarize_sleep3.py`; test macro-F1 %, fold 5쌍; 평균 ≥ +1.0이고 4/5 이상 양수 = 좋음, ≤ −1.0이고 4/5 이상 음수 = 나쁨, 그 밖 = 차이 없음)
+
+- **E (바꾼 것의 효과):** mem − spike, acc − spike, mem+acc − spike.
+- **S (같은 lr의 Spikformer(DE) 대비):** mem, acc, mem+acc − Spikformer(DE).
+- **O (순서):** mem − mem 문맥 섞기, acc − acc 문맥 섞기. (spike model은 차이 없음이었다.)
+- **M (기억):** mem − mem 기억 없는 Neocortex. (spike model은 차이 없음이었다.)
+- **읽기 (neuron마다):** S가 좋음이고 O 또는 M이 좋음 = "기준 model 후보"; S만 좋음 = "Spikformer(DE)는 넘지만 Neocortex 순서·기억 몫은 보이지 않음"; O / M만 좋음 = "Neocortex 순서·기억은 쓰이지만 Spikformer(DE)는 못 넘음"; 둘 다 아님 = "둘 다 아님". mem+acc는 자체 대조가 없어 S만 읽는다.
+- 보고만: syops energy와 Spikformer(DE) 대비 배율, accuracy, N1 F1.
+- fail closed: 필요한 줄이 한 번씩, epoch 30, batch 64, seed 42, 값 유한, SKIP 없음, suite마다 sha 하나. 새 suite는 새 code로 돈다 — 기본 Sleep 경로가 이전 smoke를 그대로 재현함을 확인했다.
+
+### 점검
+
+- 기본 경로 동일: 고치기 전 저장 → 고친 뒤 비교, `fw_identity_xnor.py` **16/16**, `fw_identity_head.py` **15/15 identical**.
+- `check_mem.py` **13/13**: 두 option이 공유 parameter의 초기값을 바꾸지 않음(aux는 decoder만 추가); spike = reset 전 membrane ≥ θ인 곳과 정확히 같음, reset 뒤 = reset 전 − θ·spike; mem 출력은 실수 [N, B, 1, D]이고 θ로 자르면 spike 출력과 같음; `q_once` = step마다 계산(spike / mem model 모두 차이 0); `q_once`는 mem에서만 켜짐; aux의 지연 d ∈ 1..t, 목표 = 원 token t − d, 출력 모양과 손실 유한, test 때 decoder 호출 없음, mem + aux에서 aux는 membrane을 읽음.
+- 기본 Sleep smoke 재현: query pop LIF, Spikformer(DE)(lr 0.001, 1 epoch)의 test 값과 energy가 `smoke-sleep-20261126b`와 **모든 자리까지 같다**.
+- 명령줄 점검(가짜 python): 기존 4조건(spike, `_cshuf`, `_nml`, Spikformer(DE))은 α 0과 같은 option, 새 6조건은 의도한 option과 α(acc만 0.1).
+- `summarize_sleep3.py` 시험: 심어 둔 읽기 6개를 그대로 냄, 멈춰야 하는 6경우 모두 멈춤. 기준 suite에 필요한 줄 35개가 모두 있음.
+
+### smoke (실험 아님; `results/smoke-sleep3-20261127/raw.txt`, 1 epoch)
+
+RESULT 8, SKIP 0. **energy(syops):** spike query pop LIF 17.47 µJ → mem 27.41 µJ(MAC 2.22 M → 4.58 M: q_linear를 한 번, 실수 입력으로 16 × 384 × 384 = 2.36 M MAC; 11-27 추정 약 28 µJ와 맞음), acc는 18.77 µJ(decoder는 추론에 없음). Spikformer(DE) 15.10 µJ.
+
+### 실행
+
+- tmux `flif_sleep3`: `bash nsmt_flif_v1/classification/scripts/sleep3_driver.sh 0,1,2,3,0,1,2,3`(큐 `scripts/queues/sleep3-20261127.txt`, pool 로그 `results/flif-v1-sleep3-pool.log`). 끝에 `summarize_sleep3.py`.
+
+### 한계
+
+- lr 0.003 하나, fold마다 seed 하나, aux 가중치 α = 0.1 하나.
+- membrane은 마지막 층 soma만 읽는다(member 4개의 상태는 쓰지 않음).
+- 실수 query 입력은 Spikformer(DE)에 없는 통로다.
+
+### not run
+
+- (2) 층 평균 membrane, 순서 aux(PPT식), lr 0.001, graded spike, MIT-BIH / ETT / PTB에서의 같은 시험.
+
+### Git
+
+- 이 항목과 code(`neurons.py`, `layers.py`, `model.py`, `config.py`, `load_model.py`, `scripts/run_sleep.sh`), `check_mem.py`, `summarize_sleep3.py`, `scripts/sleep3_driver.sh`, smoke `raw.txt`를 사전 고정 commit으로 묶어 push 한 뒤 시작한다. 도는 동안 commit하지 않는다.

@@ -486,7 +486,7 @@ class NeoLayer(nn.Module):
         u = self.bn(self.w_in(x).reshape(-1, D)).reshape(T, B, N, D)
         return self.lif.forward_charge(u)
 
-    def forward_ms(self, x, u):                              # MODI 2026-11-08 (Neocortex membrane shortcut)
+    def forward_ms(self, x, u, mem=False):                   # MODI 2026-11-08 (Neocortex membrane shortcut)
         """u <- u + BN(W x); this layer's neuron fires on the stream u instead of BN(W x) alone. Returns (u, spikes)."""
         if not self.spikede or self.recurrent:
             raise ValueError('the Neocortex membrane shortcut needs a spikeDE neuron in a passive NeoLayer')
@@ -496,6 +496,10 @@ class NeoLayer(nn.Module):
             u = u + cur.unsqueeze(-1)                        # every member's stream receives this layer's current
             return u, self.lif(u)                            # NeoNeuron.forward_branches
         u = u + cur
+        if mem:                                              # MODI 2026-11-27 (--neo_readout mem): also the soma membrane before reset
+            self.lif._want_mem = True
+            s = self.lif(u)
+            return u, s, self.lif._mem_out
         return u, self.lif(u)
 
     def forward(self, x):                                    # x: [T, B, N, D]
@@ -567,13 +571,18 @@ class TemporalBlock(nn.Module):
         # self.out = MultiStepLIFNode(tau=2.0, backend='cupy', surrogate_function=surrogate.Sigmoid())
 
 
-    def forward(self, x, org_data=None, u0=None):
+    def forward(self, x, org_data=None, u0=None, readout='spike'):
         T, B, N, D = x.shape
         if u0 is not None:                               # MODI 2026-11-08 (Neocortex membrane shortcut): the stream starts at the
             u = u0                                       # embedding neuron's input current; layer i: u <- u + BN_i(W_i s), s = n_i(u)
             for i in range(self.num_layers):
+                if readout == 'mem' and i == self.num_layers - 1:   # MODI 2026-11-27: the last layer's soma membrane before reset
+                    u, x, m = self.Mem[i].forward_ms(x, u, mem=True)
+                    return m
                 u, x = self.Mem[i].forward_ms(x, u)
             return x
+        if readout != 'spike':
+            raise ValueError("neo_readout mem needs the Neocortex membrane shortcut (--neo_res ms)")
         # x_in = x
         # x = self.out_layer(x)
         # x = self.memory(x)
@@ -961,6 +970,28 @@ class myModel(nn.Module):
                 del blk.ssa
                 blk.no_attn = True
 
+        # MODI 2026-11-27 (user decisions 11-27 "1. 진행", "2. 축적만 우선 진행"). neo_readout 'mem': the Neocortex output to the
+        # hippocampus is the last NeoLayer's soma membrane before reset (real-valued) instead of its spikes; the queries are then
+        # q_linear(membrane) -> BN -> LIF (still spikes), and q_linear runs once instead of once per T_h step (same values, one copy
+        # expanded). aux_past 'rand': the past-reconstruction aux (_training_past; decoder built here, after every other module, with
+        # the CPU RNG forked, so every other parameter starts as without it). Defaults ('spike' / 'none'): no new module, unchanged.
+        self.neo_readout = str(kwargs.get('neo_readout', 'spike'))
+        self.aux_past = str(kwargs.get('aux_past', 'none'))
+        if self.neo_readout not in ('spike', 'mem') or self.aux_past not in ('none', 'rand'):
+            raise ValueError("neo_readout in {spike, mem}, aux_past in {none, rand}")
+        if self.neo_readout == 'mem' or self.aux_past != 'none':
+            if not (self.hippo_xattn and self.hippo_xattn_mode == 'query' and getattr(self, 'neo_res', 'none') == 'ms' and not self.neo_streams
+                    and not self.neo_bidir and self.neo_band == 'none' and not self.neo_current and neo_neuron in ('pop_lif', 'pop_flif')):
+                raise NotImplementedError('neo_readout mem / aux_past: the query form with the Neocortex membrane shortcut, one unidirectional '
+                                          'population-neuron Neocortex stream, no neo_band / neo_current')
+        if self.neo_readout == 'mem':
+            for blk in self.data_block:
+                blk.ssa.q_once = True
+        if self.aux_past != 'none':
+            with torch.random.fork_rng(devices=[]):
+                self.aux_past_dec = nn.Sequential(nn.Linear(embed_dim + self.num_patches - 1, embed_dim), nn.GELU(),
+                                                  nn.Linear(embed_dim, self.tok_dim))
+
         if ((self.train_mode != 'training') and (self.train_mode != 'pre_training')):
             for module in self.modules():
                 if isinstance(module, nn.BatchNorm1d):
@@ -1088,6 +1119,8 @@ class myModel(nn.Module):
         else:
             if neo_in is None:
                 neo_in = patched_x.transpose(0, 2).contiguous().mean(2, keepdim=True)
+            if getattr(self, 'aux_past', 'none') != 'none':   # MODI 2026-11-27: targets of the past-reconstruction aux (raw tokens)
+                self._neo_in = neo_in
             _, x_neo = self.neo_forward(neo_in, org_seq)   # [N B 1 D]
 
         x_hippo = self.hippo_blocks(x_hippo, x_neo)
@@ -1181,7 +1214,7 @@ class myModel(nn.Module):
             N, B = neo_in.shape[0], neo_in.shape[1]
             if getattr(self, 'neo_res', 'none') == 'ms':                   # MODI 2026-11-16: the msn path on 1-step sequences
                 e, u0 = self.encoding_neo(neo_in.reshape(1, N * B, *neo_in.shape[2:]), return_pre=True)
-                o = self.time_block(e, org_seq, u0=u0)
+                o = self.time_block(e, org_seq, u0=u0, readout=getattr(self, 'neo_readout', 'spike'))
                 return e.reshape(N, B, *e.shape[2:]), o.reshape(N, B, *o.shape[2:])
             e = self.encoding_neo(neo_in.reshape(1, N * B, *neo_in.shape[2:]))
             o = self.time_block(e, org_seq)
@@ -1190,7 +1223,7 @@ class myModel(nn.Module):
             perm = self.neo_shuffle.perms(neo_in.shape[1], neo_in.device, self.training)
             if getattr(self, 'neo_res', 'none') == 'ms':                   # MODI 2026-11-16: the msn path on the shuffled sequence
                 e, u0 = self.encoding_neo(permute_tokens_det(neo_in, perm), return_pre=True)
-                o = self.time_block(e, org_seq, u0=u0)
+                o = self.time_block(e, org_seq, u0=u0, readout=getattr(self, 'neo_readout', 'spike'))
                 inv = torch.argsort(perm, dim=1)
                 return permute_tokens_det(e, inv), permute_tokens_det(o, inv)
             e = self.encoding_neo(permute_tokens_det(neo_in, perm))
@@ -1199,7 +1232,7 @@ class myModel(nn.Module):
             return permute_tokens_det(e, inv), permute_tokens_det(o, inv)
         if getattr(self, 'neo_res', 'none') == 'ms':                        # MODI 2026-11-08: Neocortex membrane shortcut
             e, u0 = self.encoding_neo(neo_in, return_pre=True)               # u0 = the embedding neuron's input current [N, B, 1, D]
-            return e, self.time_block(e, org_seq, u0=u0)
+            return e, self.time_block(e, org_seq, u0=u0, readout=getattr(self, 'neo_readout', 'spike'))
         e = self.encoding_neo(neo_in)
         if getattr(self, 'neo_streams', False):                        # MODI 2026-10-23: [N, B, K, D], stream k -> hippocampus step k
             if getattr(self, 'neo_stream_fuse', 'none') == 'mx':       # MODI 2026-10-24: both token directions, fused per stream
@@ -1231,6 +1264,8 @@ class myModel(nn.Module):
         x_data = x_hippo.clone().detach().transpose(0, 2).contiguous().mean(2, keepdim=True)
         if x_neo is None:                               # no_neo: no reconstruction aux, no distill
             return self.head(self._pool(x_hippo)).mean(0), x_data, x_data, self.org_x, self.org_x
+        if getattr(self, 'aux_past', 'none') == 'rand':  # MODI 2026-11-27: accumulation aux (Trinh et al. 2018 style, random anchor + lag)
+            return self._training_past(x_hippo, x_neo, x_data)
         rec_x = self.weak_decoder(x_neo, x_hippo) #[T BxC 1 P]
         org_x = self.org_x
         if getattr(self, 'neo_streams', False):                        # MODI 2026-10-23: every stream reconstructs the same target
@@ -1244,6 +1279,26 @@ class myModel(nn.Module):
         return z, x_data, x_neo, org_x, rec_x
 
     
+    def _training_past(self, x_hippo, x_neo, x_data):
+        """MODI 2026-11-27 (user decision 11-27 "축적만 우선 진행"): every token t = 1..N-1 is an anchor; a lag d is drawn uniformly
+        from {1..t}; from the Neocortex output at t (spikes, or the membrane with --neo_readout mem) and a one-hot of d, a small MLP
+        (train only, not used at inference) reconstructs the raw input token t - d. Returns (z, x_data, x_neo, target, reconstruction);
+        train_rhythm.py takes the MSE of the last two with weight alpha."""
+        N, B = x_neo.shape[0], x_neo.shape[1]
+        if x_neo.shape[2] != 1 or N < 2:
+            raise ValueError('past aux: one Neocortex stream and at least 2 tokens')
+        h = x_neo[1:, :, 0]                                                        # [N-1, B, D] states at t = 1..N-1
+        t = torch.arange(1, N, device=h.device).view(-1, 1)
+        d = (torch.rand(N - 1, B, device=h.device) * t).floor().long().clamp(max=N - 2) + 1   # d ~ U{1..t}
+        d = torch.minimum(d, t.expand_as(d))
+        rec = self.aux_past_dec(torch.cat([h, F.one_hot(d - 1, N - 1).to(h.dtype)], -1))   # [N-1, B, tok_dim]
+        src = t - d                                                               # index of the target token, 0..t-1
+        raw = self._neo_in[:, :, 0]                                               # [N, B, tok_dim]
+        tgt = raw.gather(0, src.unsqueeze(-1).expand(-1, -1, raw.shape[-1])).detach()
+        self._aux_past_last = (t.expand_as(d).detach(), d.detach(), src.detach())   # for check_mem.py
+        z = self.head(self._pool(x_hippo)).mean(0)
+        return z, x_data, x_neo, tgt, rec
+
     def _testing(self, x):
         
         if self.gating == 'ablation':

@@ -196,6 +196,10 @@ def parse_arguments():
     snn_arg.add_argument('--val_frac', type=float, default=0.1, help='share of the training part held out for validation')
     snn_arg.add_argument('--token_step', type=int, default=0,       # (--patch_stride is an older, unrelated option: dest stride)
                          help='MODI 2026-11-26: token step of myModel (0 = patch // 2 with end padding, the default; > 0 = this step, no padding)')
+    snn_arg.add_argument('--neo_readout', choices=['spike', 'mem'], default='spike',
+                         help='MODI 2026-11-27: Neocortex output to the hippocampus queries: spikes (default) or the last layer soma membrane before reset')
+    snn_arg.add_argument('--aux_past', choices=['none', 'rand'], default='none',
+                         help='MODI 2026-11-27: accumulation aux = reconstruct the token d back (d random in 1..t) from the Neocortex output at t (weight --alpha)')
     snn_arg.add_argument('--ctx_shuffle', action='store_true', default=False,
                          help='MODI 2026-11-27 Sleep-EDF: context epochs in a random order per sample (target last), train / val / test')
     snn_arg.add_argument('--ctx_epochs', type=int, default=16,
@@ -347,6 +351,10 @@ class Config():
             _iso += f"_rst{args.neo_reset}"
         if getattr(args, 'mitbih_val', False):                            # MODI 2026-11-01
             _iso += "_mbval"
+        if getattr(args, 'neo_readout', 'spike') != 'spike':              # MODI 2026-11-27
+            _iso += f"_nro{args.neo_readout}"
+        if getattr(args, 'aux_past', 'none') != 'none':
+            _iso += f"_ap{args.aux_past}"
         if int(getattr(args, 'token_step', 0) or 0) > 0:                   # MODI 2026-11-26
             _iso += f"_ts{args.token_step}"
         if str(getattr(args, 'data', '')).upper() == 'SLEEPEDF':           # MODI 2026-11-26 (Sleep-EDF, (나))

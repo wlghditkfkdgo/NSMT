@@ -381,7 +381,11 @@ class LIFNeuron(nn.Module):
             nxt = self._apply_reset(nxt, s, history)                 # MODI 2026-10-31 (no-op for 'spikede')
             out, soma, drive = self.emit(nxt, s, soma)
             spikes.append(out)
-            if analog:
+            if analog == 'pre':                                       # MODI 2026-11-27: the soma membrane before its reset
+                if self.soma.reset_mode != 'subtract':                   # (v_after = charge - theta s.detach() -> charge = v_after + theta s)
+                    raise ValueError("analog 'pre' needs the subtractive soma reset")
+                live.append(soma + self.soma.threshold * out.detach())
+            elif analog:
                 live.append(drive if analog == 'drive' else soma)
             if return_aux:
                 logs['state'].append(nxt.detach())

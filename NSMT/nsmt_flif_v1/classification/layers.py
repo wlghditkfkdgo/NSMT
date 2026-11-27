@@ -243,6 +243,7 @@ class SSA_rel_scl(nn.Module):
         if self.q_from_kv and kv is None:
             raise ValueError('q_from_kv needs kv')
         x_for_q = kv.flatten(0, 1) if self.q_from_kv else x_for_qkv                # MODI 2026-10-30: queries from the neocortex
+        q_once = self.q_from_kv and getattr(self, 'q_once', False)                # MODI 2026-11-27: kv is the same at every T_h step
         
         k = self.k_linear(x_for_kv)
         k = self.k_lif(self.k_bn(k.transpose(-1, -2)).transpose(-1, -2).reshape(T, B, N, C).contiguous())
@@ -252,7 +253,10 @@ class SSA_rel_scl(nn.Module):
         v = self.v_lif(self.v_bn(v.transpose(-1, -2).contiguous()).transpose(-1, -2).contiguous().reshape(T, B, N, C).contiguous())
         v = v.reshape(T, B, N, self.num_heads, C//self.num_heads).permute(0, 1, 3, 2, 4).contiguous()
         
-        q = self.q_linear(x_for_q)
+        if q_once:                                                                 # (one Neocortex stream expanded over T_h): q_linear
+            q = self.q_linear(kv[0]).unsqueeze(0).expand(T, -1, -1, -1).reshape(T * B, N, C)   # once, then the same copies
+        else:
+            q = self.q_linear(x_for_q)
         q = self.q_lif(self.q_bn(q.transpose(-1, -2)).transpose(-1, -2).reshape(T, B, N, C).contiguous())
         q = q.reshape(T, B, N, self.num_heads, C//self.num_heads).permute(0, 1, 3, 2, 4).contiguous()
 
@@ -514,6 +518,14 @@ class NeoNeuron(nn.Module):
         if getattr(self, '_capture', False):                          # MODI 2026-10-24: forward_charge through __call__ (hooks fire)
             s, self._charge = self._spikes_and_charge(x)
             return s
+        if getattr(self, '_want_mem', False):                         # MODI 2026-11-27 (--neo_readout mem): spikes + the soma membrane
+            self._want_mem = False                                    # before reset, layout 'ND' only, through __call__ (hooks fire)
+            if self.layout != 'ND' or x.ndim != 4:
+                raise ValueError("membrane readout: layout 'ND', [T, B, N, D] only")
+            T, B, N1, D = x.shape
+            s, aux = self.neuron(x.reshape(T, B * N1, D), analog='pre')
+            self._mem_out = aux['analog'].reshape(T, B, N1, D)
+            return s.reshape(T, B, N1, D)
         if x.ndim == 5:                                               # MODI 2026-11-13: per-member currents [T, B, N', D, K]
             return self.forward_branches(x)
         if x.ndim != 4:

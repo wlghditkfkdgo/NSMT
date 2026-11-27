@@ -28,6 +28,7 @@ def _neo_kwargs(args):
                 aux_shift=int(getattr(args, 'aux_shift', 0)),                                      # MODI 2026-11-20 (aux-target memory check)
                 head_pool=getattr(args, 'head_pool', 'mean'),                                      # MODI 2026-11-04 (H2)
                 token_step=int(getattr(args, 'token_step', 0) or 0),                               # MODI 2026-11-26 (Sleep-EDF)
+                neo_readout=getattr(args, 'neo_readout', 'spike'), aux_past=getattr(args, 'aux_past', 'none'),   # MODI 2026-11-27
                 res_mode=getattr(args, 'res_mode', 'iand'), neo_res=getattr(args, 'neo_res', 'none'),   # MODI 2026-11-08 (membrane shortcut)
                 neo_band=getattr(args, 'neo_band', 'none'),                                         # MODI 2026-11-13 (frequency bands)
                 neo_pop=getattr(args, 'neo_pop', 'soma'),                                           # MODI 2026-11-13 (STFT test)

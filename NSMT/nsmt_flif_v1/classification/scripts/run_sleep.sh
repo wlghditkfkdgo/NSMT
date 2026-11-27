@@ -13,12 +13,16 @@ PY=${PY:-/home/yschoi/.conda/envs/snn_recall/bin/python}
 export LD_LIBRARY_PATH="$(dirname "$(dirname "$PY")")/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 S=${SEED:-42}; EP=${EPOCHS:-30}; BS=${BS:-64}; LR=${LR:?LR}; SUITE=${SUITE:?SUITE}
 Q="--model myModel --neo_where both --hippo_T 4 --hippo_xattn --neo_grad 1.0 --neo_res ms --neuron_all lif"
-XF=""                                    # MODI 2026-11-27 ((나) follow-up): suffix _cshuf = context epochs shuffled per sample
-case $COND in                            # (--ctx_shuffle), _nml = memoryless Neocortex (--neo_memoryless); query forms only
-  *_cshuf) XF="--ctx_shuffle"; BASE=${COND%_cshuf} ;;
-  *_nml)   XF="--neo_memoryless"; BASE=${COND%_nml} ;;
-  *)       BASE=$COND ;;
-esac
+XF=""; AL=0; BASE=$COND                 # MODI 2026-11-27 ((나) follow-up): suffix _cshuf = context epochs shuffled per sample
+while :; do                              # (--ctx_shuffle), _nml = memoryless Neocortex (--neo_memoryless); MODI 2026-11-27 (evening):
+  case $BASE in                          # _mem = Neocortex membrane readout (--neo_readout mem), _acc = past-reconstruction aux
+    *_cshuf) XF="$XF --ctx_shuffle"; BASE=${BASE%_cshuf} ;;        # (--aux_past rand, alpha 0.1); suffixes combine, query forms only
+    *_nml)   XF="$XF --neo_memoryless"; BASE=${BASE%_nml} ;;
+    *_acc)   XF="$XF --aux_past rand"; AL=0.1; BASE=${BASE%_acc} ;;
+    *_mem)   XF="$XF --neo_readout mem"; BASE=${BASE%_mem} ;;
+    *) break ;;
+  esac
+done
 case $BASE in q_pop_lif|q_pop_flif) ;; *) [ -n "$XF" ] && { echo "suffixes only on q_pop_lif / q_pop_flif"; exit 2; } ;; esac
 case $BASE in
   spkall_lif)  CF="--model myModel --hippo_ssa --hippo_T 4 --neuron_all lif" ;;                                  # Spikformer(DE)
@@ -35,7 +39,7 @@ OUT=$LOG/SLEEPEDF_${COND}_f${FOLD}_seed${S}_lr${LR}_ep${EP}_bs${BS}_${TS}_${SHA}
 [ -e "$OUT" ] && { echo "SKIP(stdout exists) cond=$COND fold=$FOLD seed=$S lr=$LR out=$OUT" | tee -a "$RES/raw.txt"; exit 1; }
 (cd "$W" && CUDA_VISIBLE_DEVICES=$GPU OMP_NUM_THREADS=${THREADS:-4} $PY ./train_rhythm.py \
   --data SLEEPEDF --fold $FOLD --ctx_epochs 16 --seed $S --log_dir "$LOG/SLEEPEDF" --gating attn -s -nd 0 --warm_up_epoch 0 \
-  -emb 384 -nh 8 --mlp_ratios 1 --layers 1 --time_layers 2 --keep_ratio 0.15 --alpha 0 --tau 2.0 --no-bias \
+  -emb 384 -nh 8 --mlp_ratios 1 --layers 1 --time_layers 2 --keep_ratio 0.15 --alpha $AL --tau 2.0 --no-bias \
   --patch_size 1 --token_step 1 --head_pool last --ssa_pe 0 \
   --scheduler cosine -bs $BS --eval_bs 256 -lr $LR --weight_decay 1e-4 --max_lr 0.005 -e $EP $CF --tag $COND lr$LR seed$S bs$BS > "$OUT" 2>&1)
 RC=$?
