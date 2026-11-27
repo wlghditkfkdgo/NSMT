@@ -18067,3 +18067,34 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 - **(a) 기억 없는 neuron:** (b) 결과를 기록한 뒤 따로 사전등록한다(12 run).
 
 **commit:** 이 기록과 `order_eval.py`. 실행: GPU 1 · 2에서 base / pmux를 따로 돌린다.
+
+## 2026-11-27 23:11 KST — 결과(순서 섞기 평가, 학습 없음, 24 checkpoint): **neo-mixer가 token 순서를 쓴다.** base(muxlin IAND T4)의 mixer 입력만 섞어도 test MSE가 **+4.98 %**(12 run 모두 증가, +1.53 ~ +10.75 %) 나빠진다 → 사전등록 주 판정 "order used". head 입력을 섞으면 +101 %다. 사전 예상(mixer +0–1 %, 근거 없음)은 틀렸다
+
+- **실행:** 23:03 시작, 23:10 끝. GPU 1(base) · GPU 2(pmux), 각 12 checkpoint, test 전체, 섞기 3종 × 순열 seed 3.
+- **fail closed 점검:** 24 run 모두 섞지 않은 MSE가 기록값과 같았다. 첫 run의 항등 순열 점검(mixer · head · full이 섞지 않은 MSE를 정확히 냄)이 두 model 모두 통과했다.
+- **결과**(`results/check-order-20261127/summary_order.md`; R = 4칸의 seed 평균 MSE 변화 %):
+
+| model | 섞기 | MSE R %(ETTh1 96 / 720, ETTm1 96 / 720) | 증가 run | 범위 | 판정 | MAE R % |
+|---|---|---|--:|---|---|--:|
+| **base** | **mixer** | **+4.98**(+2.13 / +4.11 / +6.21 / +7.48) | **12 / 12** | +1.53 ~ +10.75 | **order used** | +2.12 |
+| base | head | +101.19(+102.75 / +64.60 / +158.02 / +79.40) | 12 / 12 | +63.15 ~ +159.83 | order used | +47.87 |
+| base | full | +105.54 | 12 / 12 | +63.93 ~ +166.22 | order used | +50.11 |
+| pmux | mixer | +3.85(+1.12 / +2.00 / +6.25 / +6.03) | 12 / 12 | +0.68 ~ +9.13 | order used | +1.81 |
+| pmux | head | +101.62 | 12 / 12 | +62.26 ~ +159.81 | order used | +48.29 |
+| pmux | full | +105.60 | 12 / 12 | +62.96 ~ +168.44 | order used | +50.46 |
+
+### 무엇을 말하고 무엇을 말하지 않는가
+- 말하는 것:
+  - 학습된 base model의 **neo-mixer는 token 순서에 의존한다.** 입력 token의 순서만 바꾸고 mixer 출력은 원래 위치로 되돌려도 MSE가 평균 5 % 나빠진다(12 / 12). ETTm1(+6–7.5 %)이 ETTh1(+2–4 %)보다 크다.
+  - head는 위치별 weight라 순서에 훨씬 크게 의존한다(+101 %). 그래도 몸통(mixer)에도 순서 사용이 있다.
+  - Pearson 덧셈 + MUX(pmux)의 mixer 순서 의존은 base보다 조금 작다(+3.85 %). attention 경로는 순서를 모른다.
+- 말하지 않는 것:
+  - 이것은 "학습된 model이 순서에 의존한다"는 뜻이다. "순서를 쓰는 것이 성능을 올린다"는 뜻은 아니다. 순서를 모르는 대안(기억 없는 neuron, SF-de)보다 나은지는 (a)와 11-23 비교로 본다. 11-23에서 같은 patch의 SF-de(순서를 모르는 SSA + head)와는 차이가 없었다.
+  - 섞기는 test에서만 했다. 학습부터 섞은 대조는 하지 않았다.
+- 사전 예상과 비교: mixer 섞기 +0–1 %(근거 없음) 예상 → **틀렸다**(+4.98 %, order used). head · full이 클 것(+10 % 이상)이라는 예상은 맞았다(+101 %).
+- 과거 기록과의 관계: 11-20의 "ETT 몸통 순서 사용 1 % 이하"는 **다른 세션의 model**(NSMT 계열, 다른 구조)에서 잰 값이다. 지금 우리 SpkMixer와는 구조가 달라 직접 비교할 수 없다.
+
+### 다음
+- (a) 기억 없는 mixer neuron 학습(12 run): 순서를 쓰는 것이 성능에 기여하는지를 같은 parameter의 통제 실험으로 본다. 곧 사전등록한다.
+
+**commit:** 이 기록과 `results/check-order-20261127/{order_base.txt, order_pmux.txt, order_base.json, order_pmux.json, summarize_order.py, summary_order.md, summary_order.json}`.
