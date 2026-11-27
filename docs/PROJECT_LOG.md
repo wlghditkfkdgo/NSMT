@@ -18171,3 +18171,36 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
   - head 섞기는 둘 다 큰 값일 것이다.
 
 **commit:** 이 기록과 확장한 `order_eval.py`.
+
+## 2026-11-27 23:29 KST — 결과(순서 섞기 확장, 학습 없음, 24 checkpoint): ETTh2 · ETTm2(patch 16)에서는 **muxlin의 mixer 섞기 +0.73 %, SF-de의 SSA 섞기 +0.15 %로 둘 다 "근거 없음"**이고, 두 model의 차이도 "no difference"다(짝 평균 +0.58 %p, 12쌍 중 10쌍 muxlin이 큼). head 섞기는 둘 다 약 +22 %다. ETTh1 · ETTm1의 mixer 섞기 +4.98 %(23:10)와 크게 다르다
+
+- **실행:** 23:17 시작, 23:28 끝. GPU 0(sfde) · 1(base2).
+- **fail closed 점검:** 24 run 모두 섞지 않은 MSE가 기록값과 같았다. 항등 순열 점검도 두 model 모두 통과했다(SSA 감싸기 포함).
+- **결과**(`results/check-order-20261127/summary_order2.md` · `.json`, `summarize_order2.py`):
+
+| model | 섞기 | MSE R %(ETTh2 96 / 720, ETTm2 96 / 720) | 증가 run | 범위 | 판정 | MAE R % |
+|---|---|---|--:|---|---|--:|
+| muxlin(첫 튜닝, patch 16) | mixer | +0.73(−0.27 / +0.82 / +2.13 / +0.22) | 10 / 12 | −0.88 ~ +2.42 | no evidence | +0.60 |
+| muxlin | head | +21.72 | 12 / 12 | +9.77 ~ +37.79 | order used | +15.10 |
+| muxlin | full | +21.75 | 12 / 12 | +9.82 ~ +37.81 | order used | +15.14 |
+| SF-de(SSA + 상대 위치 bias, patch 16) | SSA | +0.15(−0.01 / +0.07 / +0.56 / −0.02) | 8 / 12 | −0.11 ~ +0.63 | no evidence | +0.17 |
+| SF-de | head | +22.45 | 12 / 12 | +9.53 ~ +38.49 | order used | +15.46 |
+| SF-de | full | +22.36 | 12 / 12 | +9.56 ~ +37.99 | order used | +15.46 |
+- 짝 대비 Δ_muxlin(mixer) − Δ_SF-de(SSA): 평균 +0.58 %p, 12쌍 중 10쌍에서 muxlin이 크다 → 사전등록 기준(+1 %p) 미달, **no difference**.
+
+### 무엇을 말하고 무엇을 말하지 않는가
+- 말하는 것:
+  - ETTh2 · ETTm2에서는 token을 섞는 module(neo-mixer, SSA) 모두 순서에 거의 의존하지 않는다. 순서 정보는 거의 head(위치별 weight)에서 온다(+22 %).
+  - SF-de의 SSA는 상대 위치 bias가 있는데도 순서 의존이 거의 없다(+0.15 %).
+  - neo-mixer의 순서 의존은 데이터셋 · 설정에 따라 크게 다르다. ETTh1 · ETTm1(patch 8 / 16, D 32, ETTm1은 방향별 층 2) +4.98 %, ETTh2 · ETTm2(patch 16, D 64, 층 1) +0.73 %.
+- 말하지 않는 것:
+  - 데이터셋과 설정(patch · D · 층 수)이 함께 다르므로, 둘 중 무엇이 차이를 만드는지는 모른다.
+  - ETTh1 · ETTm1에서 SF-de는 학습한 적이 없어 같은 칸 비교가 없다.
+- 사전 예상과 비교:
+  - "SF-de의 SSA 섞기도 order used(+1–3 %)" → **틀렸다**(+0.15 %).
+  - "muxlin이 SF-de보다 크다"는 방향은 맞았지만(10 / 12), 기준에는 못 미쳤다.
+
+### 함의(내 해석)
+- 논문의 "T = N으로 시간 정보를 포착" 근거로는 ETTh1 · ETTm1 결과(+4.98 %, 12 / 12)가 있다. 하지만 ETTh2 · ETTm2에서는 재현되지 않는다. 데이터셋 전반의 주장이 되려면 같은 칸의 SF-de 비교(ETTh1 · ETTm1 SF-de 학습)와 (a)의 성능 기여 결과가 필요하다.
+
+**commit:** 이 기록과 `results/check-order-20261127/{order_sfde.txt, order_base2.txt, order_sfde.json, order_base2.json, summarize_order2.py, summary_order2.md, summary_order2.json}`.
