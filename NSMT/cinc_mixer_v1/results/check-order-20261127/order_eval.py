@@ -7,6 +7,10 @@ no training). Best-validation checkpoints, full test split, every RESULT row of 
   head   only the forecast head's input tokens are shuffled (body unchanged)
   full   the patch tokens are shuffled before the embedding (mixer and head both see the shuffled order)
 Wrapper check (fail closed): on the first run every variant with the identity permutation must give exactly the 'none' MSE.
+2026-11-27 extension (user "attention만 있는 구조(Spikformer)에서도 attention 입력에서 token의 순서를 섞어서"): arms 'sfde' (Spikformer-style
+SF-de, SSA with relative position bias, patch 16, ETTh2 / ETTm2 x H96 / H720 x 3 seeds, flif-v1-ett-sfde-pt16) and 'base2' (the
+first-chain muxlin IAND on the same cells, patch 16, flif-v1-ett-spkmux-ettune). For the Spikformer-style model the 'mixer' variant
+shuffles the SSA input and puts the SSA output back in order (the token-mixing module only), and 'full' shuffles the patch tokens.
 Each shuffle variant is run with permutation seeds 0, 1, 2 and averaged. Output: one line per run and variant with MSE / MAE and the
 change in % against 'none'; --out writes a JSON for the summary.
 usage (from cinc_mixer_v1/): CUDA_VISIBLE_DEVICES=<g> python -B results/check-order-20261127/order_eval.py --arm <base|pmux> --out <json>
@@ -30,14 +34,19 @@ from train_forecast import data_args                            # noqa: E402
 from data_provider.data_factory import data_provider            # noqa: E402
 
 ap = argparse.ArgumentParser()
-ap.add_argument('--arm', choices=['base', 'pmux'], required=True)
+ap.add_argument('--arm', choices=['base', 'pmux', 'sfde', 'base2'], required=True)
 ap.add_argument('--out', required=True)
 a = ap.parse_args()
 REF = {'ETTh1': 'spkmx_lif_muxlin_iand_lr0.00025_L1_e32_mlp4_wd0.1', 'ETTm1': 'spkmx_lif_muxlin_iand_lr0.0005_L2_pt16_e32_mlp0.5'}
 if a.arm == 'base':
     src, pick = 'flif-v1-ett-spkmux-retune', lambda r: r['ds'] in REF and r['tag'] == REF[r['ds']] and r['pl'] in ('96', '720') and r['blocks'] == '1'
-else:
+elif a.arm == 'pmux':
     src, pick = 'flif-v1-ett-sxa-s4', lambda r: r['cond'] == 'spkmx_lif_msxdpca_iand'
+elif a.arm == 'sfde':
+    src, pick = 'flif-v1-ett-sfde-pt16', lambda r: r['cond'] == 'spk_ssa' and r['pl'] in ('96', '720')
+else:
+    T2 = {'ETTh2': 'spkmx_lif_muxlin_iand_lr0.0005_L1_pt16_wd0.1', 'ETTm2': 'spkmx_lif_muxlin_iand_lr0.0001_L1_pt16_mlp2_wd0.1'}
+    src, pick = 'flif-v1-ett-spkmux-ettune', lambda r: r['ds'] in T2 and r['tag'] == T2[r['ds']] and r['pl'] in ('96', '720')
 rows = [dict(t.split('=', 1) for t in l.split()[1:] if '=' in t) for l in open(os.path.join(C, 'results', src, 'raw.txt')) if l.startswith('RESULT')]
 rows = [r for r in rows if pick(r)]
 if len(rows) != 12:
@@ -63,19 +72,31 @@ def take(x, idx, dim):                                            # per-row perm
 
 
 def evaluate(model, dl, H, variant):
-    inner, blk = model.inner, model.inner.blocks[0]
-    o_mix, o_tok, o_feat = blk.mix, inner.tokens, model.features
+    inner = model.inner
+    ssa = model.kind == 'ssa'                                     # Spikformer-style: the token mixer is the block's SSA
+    blk = inner.data_block[0] if ssa else inner.blocks[0]
+    mod = blk.ssa if ssa else blk
+    o_mix = mod.forward if ssa else blk.mix
+    o_tok = inner._tokens_mc if ssa else inner.tokens
+    o_feat = model.features
     if variant == 'mixer':
-        def mix(x):                                               # x [T, B', N, D]
+        def mix(x, *args, **kw):                                  # x [T, B', N, D]; output put back in the original order
             p, ip = perm_for(x.shape[1], x.shape[2], x.device)
-            return take(o_mix(take(x, p, 2)), ip, 2)
-        blk.mix = mix
+            return take(o_mix(take(x, p, 2), *args, **kw), ip, 2)
+        if ssa:
+            mod.forward = mix
+        else:
+            blk.mix = mix
     elif variant == 'full':
         def tokens(x):
-            t = o_tok(x)                                          # [T, B', N, P]
-            p, _ = perm_for(t.shape[1], t.shape[2], t.device)
-            return take(t, p, 2)
-        inner.tokens = tokens
+            t = o_tok(x)                                          # [T, B', N, P] (Spikformer-style: (patched, neo_in))
+            pt = t[0] if ssa else t
+            p, _ = perm_for(pt.shape[1], pt.shape[2], pt.device)
+            return (take(pt, p, 2), t[1]) if ssa else take(pt, p, 2)
+        if ssa:
+            inner._tokens_mc = tokens
+        else:
+            inner.tokens = tokens
     elif variant == 'head':
         def features(z):
             f = o_feat(z)                                         # [B', N, D]
@@ -94,7 +115,9 @@ def evaluate(model, dl, H, variant):
     finally:
         for nm in ('mix',):
             blk.__dict__.pop(nm, None)
+        mod.__dict__.pop('forward', None) if ssa else None
         inner.__dict__.pop('tokens', None)
+        inner.__dict__.pop('_tokens_mc', None)
         model.__dict__.pop('features', None)
     return se / cnt, ae / cnt
 

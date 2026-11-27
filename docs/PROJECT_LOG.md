@@ -18146,3 +18146,28 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 **실행:** commit · push 뒤 NSMT/에서 `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/memoff_driver.sh > /dev/null 2>&1 &`.
 
 **commit:** 이 기록, 위 code · 점검 파일과 txt, `results/check-memoff-smoke-20261127/{raw.txt, energy_recount.csv}`, `results/check-memoff-20261127/energy_recount_smoke.txt`.
+
+## 2026-11-27 23:22 KST — 사용자 요청 "attention만 있는 구조(Spikformer)에서도 attention 입력에서 token의 순서를 섞어서 성능 변화를 관찰" + 사전등록(학습 없음): 순서 섞기 평가를 SF-de(Spikformer식, patch 16)와 같은 칸의 muxlin에 넓힌다
+
+> 사용자 원문: "그렇다면, attention만 있는 구조(Spikformer)에서도 attention 입력에서 token의 순서를 섞어서 성능 변화를 관찰해봐야겠네."
+
+- **branch / base:** `exp/f-lif-pop-v3`, base `79b3d99f6`. 학습 없음. (a) 기억 없는 neuron 학습(pool)은 계속 돈다. 이 평가는 학습 code를 바꾸지 않는다(`order_eval.py`만 확장).
+- **확인한 사실:**
+  - SF-de의 SSA는 **상대 위치 bias가 켜져 있다**(11-23 run의 config `ssa_pe 1`). 즉 순서를 모르는 attention이 아니라, 위치 차이(j − i)마다 학습된 bias를 attention 점수에 더한다. bias가 없다면 attention 입력을 섞었다가 출력을 되돌리면 결과가 정확히 같아야 한다.
+  - SF-de checkpoint는 ETTh2 · ETTm2 × H96 / H720 × seed 3(patch 16, `flif-v1-ett-sfde-pt16`)에만 있다. ETTh1 · ETTm1에서는 SF-de를 학습한 적이 없다.
+- **대상(새 arm 2개, 각 12 checkpoint):**
+  - sfde: SF-de patch 16.
+  - base2: 같은 칸의 첫 튜닝 muxlin IAND(patch 16, `flif-v1-ett-spkmux-ettune`의 `…_lr0.0005_L1_pt16_wd0.1` / `…_lr0.0001_L1_pt16_mlp2_wd0.1`). 11-23 비교에서 SF-de와 차이가 없던 그 model이다.
+- **섞기:**
+  - sfde의 'mixer'는 SSA 입력의 token 순서를 섞고 SSA 출력을 원래 순서로 되돌린다(token을 섞는 module만 섞인 순서를 봄).
+  - 'full'은 patch token을 섞는다. 'head'는 같다.
+  - base2는 23:03과 같은 방식이다.
+- **판정(사전등록):**
+  - arm마다 23:03과 같은 규칙이다(R ≥ +1 %이고 12 중 8 이상 증가 → "order used").
+  - 추가 대비: 같은 (칸, seed) 짝 12개에서 Δ_muxlin(mixer) − Δ_SF-de(SSA)의 평균 ≥ +1 %p이고 8쌍 이상 크면, "neo-mixer가 SSA보다 순서에 더 의존한다"고 본다. ≤ −1 %p이고 8쌍 이상 작으면 반대, 그 밖은 "차이 없음"이다.
+- **사전 예상(확신 낮음):**
+  - SF-de의 SSA 섞기도 order used일 것이다(상대 위치 bias가 있음).
+  - spike Q · K 점수가 작아 bias가 attention을 크게 좌우할 수 있어, 크기는 짐작하기 어렵다. 굳이 고르면 muxlin보다 작다(+1–3 %).
+  - head 섞기는 둘 다 큰 값일 것이다.
+
+**commit:** 이 기록과 확장한 `order_eval.py`.
