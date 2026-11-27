@@ -17741,3 +17741,52 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 **실행:** commit · push 뒤 NSMT/에서 `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/sxa3_driver.sh > /dev/null 2>&1 &`.
 
 **commit:** 이 기록, 새 파일, `results/check-sxa3-20261127/{dry_sxa3.txt, energy_recount_smoke.txt}`, `results/check-sxa3-smoke-20261127/{raw.txt, energy_recount.csv}`.
+
+## 2026-11-27 14:14 KST — 결과 + 실험 완료(합치기 재설계 3a단계, 12 run, 사전등록 `eb3b85c00`, SKIP 0): IAND 잔차에서도 Pearson + MUX(msxdpc 독립)는 muxlin IAND와 **차이가 없다**(MSE R +0.40 %, 12쌍 중 8쌍 높음; MAE +0.05 %). energy(syops)는 1.07배다. 같은 구조에서 IAND는 ADD와 정확도 차이가 없고(−0.12 %) energy는 0.69배다. 1–3a단계(168 run)를 통틀어 새 합치기가 지금 방식(muxlin)을 넘은 비교는 없다
+
+- **목적:** 13:54 사전등록의 실행 결과다(사용자 결정 "(가) IAND로 바꿔서 실험해보자").
+- **branch / 학습 commit:** `exp/f-lif-pop-v3`, 12행 모두 `eb3b85c00`이다(`--sha` 재계산).
+- **실행:** 13:54:43 시작 → 14:13:44 pool 끝(RESULT 12, SKIP 0) → energy 재계산 → 요약 → 독립 재계산(ALL CHECKS PASSED) → 14:14:28 `driver end`. run 314–1,141 s, 예상(25–35분) 안이었다. 명령: `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/sxa3_driver.sh > /dev/null 2>&1 &`.
+
+### 결과(`results/flif-v1-ett-sxa-s3/summary.md`; 4칸 평균, seed 평균)
+| 팔 | MSE | MAE | best val L1 | energy µJ syops | 정수 규칙 |
+|---|--:|--:|--:|--:|--:|
+| **msxdpc IAND(새)** | 0.4137 | 0.4069 | 0.6109 | 10.92 | 3.94 |
+| muxlin IAND(기준, 11-25 run) | **0.4117** | **0.4067** | 0.6106 | **10.38** | 3.39 |
+| msxdpc ADD(2단계) | 0.4142 | 0.4094 | 0.6136 | 17.45 | 4.60 |
+| muxlin ADD(1단계) | 0.4173 | 0.4110 | 0.6138 | 16.92 | 4.09 |
+
+| 비교 | MSE R % | 낮음 / 높음 | 판정 | MAE R % / 판정 | energy 비율 syops / 정수 |
+|---|--:|---|---|---|---|
+| main: 새 vs muxlin IAND | +0.40 | 4 / 8 | no clear difference | +0.05 / no clear difference | 1.069 / 1.149 |
+| 잔차: 새(IAND) vs 같은 구조 ADD | −0.12 | 7 / 5 | no clear difference | −0.56 / no clear difference | 0.689 / 0.875 |
+| 보고: 새 vs muxlin ADD | −0.83 | 8 / 4 | no clear difference | −0.95 / no clear difference | 0.713 / 0.981 |
+- main 비교의 칸별 r(MSE): ETTh1 H96 −0.56, **ETTh1 H720 +2.25**, ETTm1 H96 +0.14, ETTm1 H720 −0.21 %. 1 · 2단계와 마찬가지로 ETTh1 H720에서 새 구조가 나쁘다.
+- 학습 길이: best epoch 2–13, 돈 epoch 13–24다. 상한에 닿은 run은 없다.
+
+### 사전 예상과 비교
+- main: no clear difference 예상 → **맞았다**.
+- 잔차: "IAND가 ADD보다 좋을 것" 예상 → **틀렸다**(정확도 차이 없음). energy는 0.69배로 예상(약 0.6배)과 비슷하다.
+- energy: N / 기준 1.05–1.1배 예상 → 실제 1.069배로 **맞았다**.
+
+### 1–3a단계 종합(사전등록 판정만)
+- spike cross-attention, Pearson mask, OT plan mask, projection, weight 공유: 기준만큼의 효과가 없다.
+- MUX(두 방향이 어긋난 channel에서만 attention): MUX 없는 attention보다 좋다(ADD 안에서). 하지만 muxlin과는 차이가 없다.
+- 잔차: muxlin에서는 ADD가 IAND보다 나쁘다(worse). Pearson + MUX에서는 차이가 없다. energy는 ADD가 1.45–1.73배다(syops).
+- 결론(내 해석): 이 4칸 · LIF · block 1 조건에서는 **지금의 muxlin IAND가 정확도와 energy 모두에서 가장 낫거나 같다.** 새 합치기는 정확도 이득 없이 energy만 7 % 더 든다.
+
+### 한계
+- 4칸 × seed 3, LIF만, 재튜닝이 없다. population neuron과 다른 칸에서는 재지 않았다.
+- 비교마다 seed 3개라, ±0.5 % 정도의 차이는 구분하지 못한다(칸별 seed 표준편차 약 0.003).
+
+### 점검
+- driver 안 독립 재계산: ALL CHECKS PASSED.
+- `--sha eb3b85c00,eb3b85c00`(`results/check-sxa3-20261127/recheck_s3_sha.txt`): 18개 PASS, ALL CHECKS PASSED.
+
+### 산출물 · commit / tag
+- Git: `results/flif-v1-ett-sxa-s3/{raw.txt, energy_recount.csv, summary.md, summary.json}`, `results/check-sxa3-20261127/recheck_s3_sha.txt`.
+- local: `driver.log`, `pool_log.txt`, run 폴더, stdout, queue.
+- annotated tag `exp/f-lif-pop-v3-sxa3-20261127`(완료된 학습 run).
+
+### 다음
+- 사용자 결정을 기다린다. 선택지는 보고에 적는다. 계획의 P4(population · 16칸)를 새 합치기로 진행할 근거는 지금 없다.
