@@ -12401,3 +12401,46 @@ RESULT 8, SKIP 0. **energy(syops):** spike query pop LIF 17.47 µJ → mem 27.41
 ### Git
 
 - 이 항목과 code(`neurons.py`, `layers.py`, `model.py`, `config.py`, `load_model.py`, `scripts/run_sleep.sh`), `check_mem.py`, `summarize_sleep3.py`, `scripts/sleep3_driver.sh`, smoke `raw.txt`를 사전 고정 commit으로 묶어 push 한 뒤 시작한다. 도는 동안 commit하지 않는다.
+
+## 2026-11-27 19:47 KST — 결과: Neocortex membrane potential 출력과 축적 aux loss (Sleep-EDF, 60 run, 사전 고정 `3db4bebde`) — **둘 다 효과가 보이지 않는다.** pop LIF / pop f-LIF 모두 spike 출력 대비(E), 같은 lr의 Spikformer(DE) 대비(S), 순서(O), 기억(M)이 "차이 없음"이다. 예외 하나: pop f-LIF + membrane에서는 문맥을 섞은 쪽이 더 좋다(O −1.31, "나쁨"). 사전 규칙의 읽기는 여섯 변형 모두 "둘 다 아님" 또는 "Spikformer(DE)를 넘지 못함". membrane 출력의 energy는 Spikformer(DE)의 1.72–1.73배
+
+**실행:** tmux `flif_sleep3`, 16:20:10 – 19:45:42, **RESULT 60 / 60, SKIP 0**, sha 하나(`3db4bebde`). 다른 대화의 작업이 같은 GPU를 함께 썼다. 요약 `results/flif-v1-sleep3/{summary.md, decision.json}`(driver가 `summarize_sleep3.py`로 냄).
+
+### 결과 (test macro-F1 %, lr 0.003, fold 0–4)
+
+| model | pop LIF | pop f-LIF | energy × Spikformer(DE) |
+|---|---|---|---|
+| Spikformer(DE) | 74.03 ± 3.27 | (같음) | 1.00 |
+| query, spike 출력 | 74.16 ± 3.26 | 73.35 ± 3.29 | 1.15 / 1.16 |
+| + membrane 출력 | 74.63 ± 3.40 | 73.23 ± 3.55 | 1.73 / 1.72 |
+| + 축적 aux | 73.87 ± 3.79 | 73.94 ± 2.26 | 1.20 / 1.21 |
+| + 둘 다 | 74.17 ± 3.72 | 74.24 ± 3.57 | 1.73 / 1.72 |
+| membrane + 문맥 섞기 | 74.11 ± 2.80 | 74.54 ± 3.14 | 1.73 / 1.72 |
+| membrane + 기억 없는 Neocortex | 74.60 ± 2.66 | 73.36 ± 2.44 | 1.68 / 1.69 |
+| 축적 aux + 문맥 섞기 | 73.76 ± 3.17 | 74.21 ± 3.21 | 1.21 / 1.22 |
+
+| 판정 | pop LIF (평균, 양수 fold) | pop f-LIF |
+|---|---|---|
+| E1 membrane − spike | +0.48 (4/5) 차이 없음 | −0.12 (1/5) 차이 없음 |
+| E2 aux − spike | −0.28 (1/5) 차이 없음 | +0.58 (3/5) 차이 없음 |
+| E3 둘 다 − spike | +0.01 (3/5) 차이 없음 | +0.88 (4/5) 차이 없음 |
+| S membrane − Spikformer(DE) | +0.60 (3/5) 차이 없음 | −0.80 (1/5) 차이 없음 |
+| S aux − Spikformer(DE) | −0.16 (3/5) 차이 없음 | −0.09 (3/5) 차이 없음 |
+| S 둘 다 − Spikformer(DE) | +0.14 (3/5) 차이 없음 | +0.21 (3/5) 차이 없음 |
+| O membrane 원 순서 − 섞음 | +0.52 (3/5) 차이 없음 | **−1.31 (1/5) 나쁨** |
+| O aux 원 순서 − 섞음 | +0.12 (2/5) 차이 없음 | −0.27 (3/5) 차이 없음 |
+| M membrane 기억 − 없음 | +0.03 (2/5) 차이 없음 | −0.13 (2/5) 차이 없음 |
+
+### 읽기 (추론)
+
+- **membrane 출력도, 축적 aux도 Neocortex의 순서·기억을 점수로 바꾸지 못했다.** spike 출력에서 본 결과(11-27 04:26)와 같다. Neocortex가 무엇을 내보내든(spike / membrane), 과거를 쥐도록 학습시키든(aux), Sleep-EDF의 이 설정에서는 Hippocampus attention이 16 epoch를 직접 모으는 길로 충분한 것으로 보인다.
+- pop f-LIF + membrane에서는 순서를 지우는 쪽이 오히려 1.3 %p 나았다(4/5 fold). 원인은 모른다(추론 없음).
+- membrane 출력은 energy만 1.7배로 늘었다.
+
+### 이어서 (사용자 결정 11-27, 같은 날)
+
+- 사용자 결정: "(b) + 지금까지 시도해왔던 수정 사항들에 대해서 standard LIF neuron으로만 재실험 진행", "기본으로 LIF, f-LIF, pop LIF 이렇게 3종만 넣어줘." → 일반 LIF / f-LIF 재실험을 다음 항목에서 사전 고정한다. 앞으로의 기본 neuron = LIF, f-LIF, pop LIF(pop f-LIF는 요청 시만).
+
+### Git
+
+- 이 항목, `results/flif-v1-sleep3/{raw.txt, summary.md, decision.json}`, run마다 text 산출물을 commit하고 tag `exp/nsmt-flif-neo-20261127-sleep3`를 단다.
