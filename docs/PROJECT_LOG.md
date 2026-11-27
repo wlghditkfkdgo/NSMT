@@ -18007,3 +18007,34 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 **실행:** commit · push 뒤 NSMT/에서 `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/t8_driver.sh > /dev/null 2>&1 &`.
 
 **commit:** 이 기록, runner, 새 파일, 점검 txt, `results/check-t8-smoke-20261127/{raw.txt, energy_recount.csv}`, `results/check-t8-20261127/{energy_recount_smoke.txt, pool_log_smoke.txt}`. local: `mem_smoke.txt`.
+
+## 2026-11-27 23:00 KST — 결과 + 실험 완료(T 실험, 24 run, 사전등록 `5d88a7205`, SKIP 0): T를 4에서 8로 늘려도 **두 구조 모두 "no clear difference"**다(muxlin IAND +0.16 %, Pearson 덧셈 + MUX +0.25 %). syops energy는 1.37–1.41배로 늘었다. T 8에서도 두 구조는 차이가 없다(+0.28 %)
+
+- **실행:** 19:53:19 시작(HEAD `5d88a7205`) → 21:08:16 pool 끝(RESULT 24, SKIP 0) → energy 재계산 → 요약 → 독립 재계산(ALL CHECKS PASSED) → 21:10:24 `driver end`. GPU 시간 합은 9.0시간이다. 명령: `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/t8_driver.sh > /dev/null 2>&1 &`.
+- **결과**(`results/flif-v1-ett-t8/summary.md`; 4칸 평균):
+
+| 팔 | MSE | MAE | best val L1 | energy µJ syops | 정수 규칙 |
+|---|--:|--:|--:|--:|--:|
+| muxlin IAND T8 | 0.4126 | 0.4067 | 0.6107 | 13.27 | 6.95 |
+| Pearson 덧셈 + MUX IAND T8 | 0.4140 | 0.4067 | 0.6105 | 13.78 | 7.49 |
+| muxlin IAND T4(기준) | **0.4117** | **0.4067** | 0.6106 | **10.38** | 3.39 |
+| Pearson 덧셈 + MUX IAND T4(4단계) | 0.4128 | 0.4076 | 0.6111 | 10.90 | 3.92 |
+
+| 비교 | MSE R % | 낮음 / 높음 | 판정 | MAE R % | energy 비율 syops / 정수 |
+|---|--:|---|---|--:|---|
+| muxlin: T8 vs T4 | +0.16 | 6 / 6 | no clear difference | −0.01 | 1.406 / 2.044 |
+| Pearson 덧셈 + MUX: T8 vs T4 | +0.25 | 5 / 7 | no clear difference | −0.21 | 1.372 / 1.913 |
+| T8에서 구조 | +0.28 | 5 / 7 | no clear difference | −0.02 | 1.043 / 1.069 |
+- 칸별(muxlin T8 vs T4): ETTh1 H96 −0.68, H720 +1.25, ETTm1 H96 +0.18, H720 −0.09 %다.
+- **사전 예상과 비교:**
+  - no clear difference 예상 → **맞았다**.
+  - energy: H96 약 1.6–1.9배 예상 → ETTh1 H96 1.63배(6.04 → 9.86)로 맞았다. 전체 평균은 1.41배다.
+- **해석(내 해석):** 반복 step(발화율 해상도)을 늘려도 이 조건에서는 정확도가 바뀌지 않는다. SpikF와의 격차 원인으로 T는 유력하지 않다.
+- **한계:** 4칸 × seed 3, LIF, 재튜닝 없음(T 8에 맞는 lr은 시험하지 않음).
+- **점검:**
+  - driver 안 독립 재계산: ALL CHECKS PASSED.
+  - `--sha 5d88a7205,5d88a7205`(`results/check-t8-20261127/recheck_t8_sha.txt`): ALL CHECKS PASSED.
+- **산출물 · tag:**
+  - Git: `results/flif-v1-ett-t8/{raw.txt, energy_recount.csv, summary.md, summary.json}`, `recheck_t8_sha.txt`.
+  - annotated tag `exp/f-lif-pop-v3-t8-20261127`.
+- **다음:** 사용자 결정(23:0x)에 따라 (b) 순서 섞기 평가(학습 없음)를 먼저 하고, (a) 기억 없는 mixer neuron 학습을 진행한다(각자 사전등록).
