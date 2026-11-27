@@ -1,0 +1,95 @@
+myModel(
+  (padding_patch_layer): Identity()
+  (encoding): Embedding(
+    (emb_linear): Linear(23.04 k, 1.605% Params, 0.0 Ops, 0.000% ACs, 1.47 M Ops, 66.298% MACs, 100.000% Spike Rate)
+    (emb_bn): BatchNorm1d(768, 0.054% Params, 0.0 Ops, 0.000% ACs, 49.15 K Ops, 2.210% MACs, 100.000% Spike Rate)
+    (emb_lif): NeoNeuron(
+      (neuron): LIFNeuron(0, 0.000% Params, 24.58 K Ops, 0.230% ACs, 0.0 Ops, 0.000% MACs, 12.502% Spike Rate)
+    )
+  )
+  (encoding_neo): Embedding(
+    (emb_linear): Linear(23.04 k, 1.605% Params, 0.0 Ops, 0.000% ACs, 368.64 K Ops, 16.575% MACs, 100.000% Spike Rate)
+    (emb_bn): BatchNorm1d(768, 0.054% Params, 0.0 Ops, 0.000% ACs, 12.29 K Ops, 0.552% MACs, 100.000% Spike Rate)
+    (emb_lif): NeoNeuron(
+      (neuron): LIFNeuron(0, 0.000% Params, 6.14 K Ops, 0.058% ACs, 0.0 Ops, 0.000% MACs, 7.238% Spike Rate)
+    )
+  )
+  (data_block): ModuleList(
+    (0): Block(
+      (ssa): SSA_rel_scl(
+        (q_linear): Linear(147.46 k, 10.275% Params, 3.01 M Ops, 28.187% ACs, 0.0 Ops, 0.000% MACs, 32.121% Spike Rate)
+        (q_bn): BatchNorm1d(768, 0.054% Params, 0.0 Ops, 0.000% ACs, 49.15 K Ops, 2.210% MACs, 100.000% Spike Rate)
+        (q_lif): NeoNeuron(
+          (neuron): LIFNeuron(0, 0.000% Params, 24.58 K Ops, 0.230% ACs, 0.0 Ops, 0.000% MACs, 11.305% Spike Rate)
+        )
+        (k_linear): Linear(147.46 k, 10.275% Params, 2.03 M Ops, 19.048% ACs, 0.0 Ops, 0.000% MACs, 21.927% Spike Rate)
+        (k_bn): BatchNorm1d(768, 0.054% Params, 0.0 Ops, 0.000% ACs, 49.15 K Ops, 2.210% MACs, 100.000% Spike Rate)
+        (k_lif): NeoNeuron(
+          (neuron): LIFNeuron(0, 0.000% Params, 24.58 K Ops, 0.230% ACs, 0.0 Ops, 0.000% MACs, 5.963% Spike Rate)
+        )
+        (v_linear): Linear(147.46 k, 10.275% Params, 2.03 M Ops, 19.048% ACs, 0.0 Ops, 0.000% MACs, 21.927% Spike Rate)
+        (v_bn): BatchNorm1d(768, 0.054% Params, 0.0 Ops, 0.000% ACs, 49.15 K Ops, 2.210% MACs, 100.000% Spike Rate)
+        (v_lif): NeoNeuron(
+          (neuron): LIFNeuron(0, 0.000% Params, 24.58 K Ops, 0.230% ACs, 0.0 Ops, 0.000% MACs, 2.800% Spike Rate)
+        )
+        (attn_lif): NeoNeuron(
+          (neuron): LIFNeuron(0, 0.000% Params, 24.58 K Ops, 0.230% ACs, 0.0 Ops, 0.000% MACs, 0.416% Spike Rate)
+        )
+        (proj_linear): SpikLinearLayer(
+          (linear): Linear(147.46 k, 10.275% Params, 358.19 K Ops, 3.353% ACs, 0.0 Ops, 0.000% MACs, 3.812% Spike Rate)
+          (bn): BatchNorm1d(768, 0.054% Params, 0.0 Ops, 0.000% ACs, 49.15 K Ops, 2.210% MACs, 100.000% Spike Rate)
+          (lif): NeoNeuron(
+            (neuron): LIFNeuron(0, 0.000% Params, 24.58 K Ops, 0.230% ACs, 0.0 Ops, 0.000% MACs, 4.051% Spike Rate)
+          )
+        )
+      )
+      (mlp): MLP(
+        (fc1): SpikLinearLayer(
+          (linear): Linear(147.46 k, 10.275% Params, 1.45 M Ops, 13.604% ACs, 0.0 Ops, 0.000% MACs, 15.567% Spike Rate)
+          (bn): BatchNorm1d(768, 0.054% Params, 0.0 Ops, 0.000% ACs, 49.15 K Ops, 2.210% MACs, 100.000% Spike Rate)
+          (lif): NeoNeuron(
+            (neuron): LIFNeuron(0, 0.000% Params, 24.58 K Ops, 0.230% ACs, 0.0 Ops, 0.000% MACs, 2.258% Spike Rate)
+          )
+        )
+        (fc2): SpikLinearLayer(
+          (linear): Linear(147.46 k, 10.275% Params, 633.3 K Ops, 5.929% ACs, 0.0 Ops, 0.000% MACs, 6.688% Spike Rate)
+          (bn): BatchNorm1d(768, 0.054% Params, 0.0 Ops, 0.000% ACs, 49.15 K Ops, 2.210% MACs, 100.000% Spike Rate)
+          (lif): NeoNeuron(
+            (neuron): LIFNeuron(0, 0.000% Params, 24.58 K Ops, 0.230% ACs, 0.0 Ops, 0.000% MACs, 1.902% Spike Rate)
+          )
+        )
+        (dropout): Dropout()
+      )
+      (dropout2): Dropout()
+      (dropout3): Dropout()
+    )
+  )
+  (time_block): TemporalBlock(
+    (Mem): ModuleList(
+      (0): NeoLayer(
+        (w_in): Linear(147.46 k, 10.275% Params, 341.81 K Ops, 3.200% ACs, 0.0 Ops, 0.000% MACs, 15.149% Spike Rate)
+        (bn): BatchNorm1d(768, 0.054% Params, 0.0 Ops, 0.000% ACs, 12.29 K Ops, 0.552% MACs, 100.000% Spike Rate)
+        (lif): NeoNeuron(
+          (neuron): LIFNeuron(0, 0.000% Params, 6.14 K Ops, 0.058% ACs, 0.0 Ops, 0.000% MACs, 15.246% Spike Rate)
+        )
+      )
+      (1): NeoLayer(
+        (w_in): Linear(147.46 k, 10.275% Params, 599.07 K Ops, 5.608% ACs, 0.0 Ops, 0.000% MACs, 25.730% Spike Rate)
+        (bn): BatchNorm1d(768, 0.054% Params, 0.0 Ops, 0.000% ACs, 12.29 K Ops, 0.552% MACs, 100.000% Spike Rate)
+        (lif): NeoNeuron(
+          (neuron): LIFNeuron(0, 0.000% Params, 6.14 K Ops, 0.058% ACs, 0.0 Ops, 0.000% MACs, 21.249% Spike Rate)
+        )
+      )
+    )
+  )
+  (weak_decoder): Decoder(
+    (recon2): Linear(23.04 k, 1.605% Params, 0.0 Ops, 0.000% ACs, 0.0 Ops, 0.000% MACs, 0.000% Spike Rate)
+  )
+  (head): Linear(1.92 k, 0.134% Params, 1.02 K Ops, 0.010% ACs, 0.0 Ops, 0.000% MACs, 13.487% Spike Rate)
+  (dropout): Dropout()
+  (aux_past_dec): Sequential(
+    (0): Linear(153.6 k, 10.703% Params, 0.0 Ops, 0.000% ACs, 0.0 Ops, 0.000% MACs, 0.000% Spike Rate)
+    (1): GELU(0, 0.000% Params, 0.0 Ops, 0.000% ACs, 0.0 Ops, 0.000% MACs, 0.000% Spike Rate)
+    (2): Linear(23.1 k, 1.610% Params, 0.0 Ops, 0.000% ACs, 0.0 Ops, 0.000% MACs, 0.000% Spike Rate)
+  )
+)

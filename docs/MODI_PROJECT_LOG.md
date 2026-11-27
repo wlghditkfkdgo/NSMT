@@ -12530,3 +12530,126 @@ membrane 출력의 energy 증가(MAC 2.22 M → 4.58 M)는 pop LIF와 같다. au
 ### Git
 
 - 이 항목과 code(`neurons.py`, `model.py`, `scripts/run_sleep.sh`), `check_lifmem.py`, 고친 `check_mem.py`, `fw_identity_lifsleep.py`, `summarize_sleep4.py`, `test_summarize_sleep4.py`, `scripts/sleep4_driver.sh`, smoke `raw.txt`를 사전 고정 commit으로 묶어 push 한 뒤 시작한다. 도는 동안 commit하지 않는다.
+
+## 2026-11-27 23:20 KST — 사용자 결정 기록: 논문 채택 기준 (+0.001)과 energy 상한 (학습 없음)
+
+**사용자 질문 / 지적 (11-27, 원문):** "왜 [membrane + aux LIF − spike LIF (lr 0.003)]에 대해서 '효과 없음'이라고 결론 내리는 거야? 어쨌든 평균적으로 좋은 것 아니야?", "내가 지난번에 언급했던, 비교 모델 보다 0.001만큼이라도 성능 개선이 있으면 논문으로 채택하겠다고 한 사항을 기억해?"
+
+**내 답과 잘못:** 이 기준은 내 기록상 다른 대화(f_lif_pop_v3, 11-19: ETT 4칸 평균 MSE·MAE가 각각 0.001 이상 낮고 energy ≤ SF-de의 1.05배)에서 받은 것이다. 이 대화의 기록은 11-18 "평균적으로 Spikformer보다 좋다고 판단 + 비교적 적은 전력"과 11-19 "1.2–1.5배는 비교적 적은 전력에 들어가지만 가능하면 그 이하"였다. 나는 Sleep-EDF 결과를 내 사전 규칙(평균 ≥ ±1 %p이고 5 fold 중 4 이상)으로만 판정했다. 이 규칙은 "fold 사이 흔들림을 넘는 뚜렷한 차이인가"를 묻는다. 그런데 나는 "차이 없음"을 채택할 수 없다는 뜻처럼 보고했다. 이 점이 잘못이었다.
+
+**사용자 결정 (11-27, 원문):** "1. macro-F1 0.1 %p로 읽는 것으로 하자. 2. energy 상한은 1.5배로 하되, 최대한 저전력을 목표로 하자."
+
+**앞으로의 보고 방식:**
+- 결과마다 두 판정을 함께 낸다.
+  - (1) 사전 고정한 "뚜렷한 차이" 판정. 지금까지처럼 유지한다.
+  - (2) **채택 기준 판정**: 비교 model 대비 평균 개선 ≥ 0.001(분류 macro-F1에서는 0.1 %p)이고, syops energy가 비교 model의 1.5배 이하인가. 1.5배 이하에서는 energy가 낮을수록 낫다.
+- 이미 기록한 사전 규칙 판정은 고치지 않는다(append-only). 채택 기준 판정은 보고용 읽기로 따로 붙인다.
+- 정직하게 적어 둘 점이 있다. 이 기준을 이 대화에 적용하기로 한 때는 Sleep-EDF 결과 대부분을 이미 본 뒤다. 다만 기준 자체는 사용자가 11-18 / 11-19에 정한 논문 목표이고, 결과를 보고 고른 것이 아니다.
+- +0.1 %p 수준의 차이는 fold 사이 흔들림(차이의 표준편차 약 1–2 %p)과 seed 하나의 한계 안에 있다. 그래서 최종 model은 seed를 늘려 평균 ± 표준편차로 보일 것을 권했다.
+
+**Git:** 이 항목은 지금 도는 pool(`flif_sleep4`)이 끝난 뒤 결과와 함께 commit한다.
+
+## 2026-11-27 23:24 KST — 비교 (학습 없음): 지금 ETT 기준 model vs SpikF와 SpikF 표의 SNN들 — **채택 기준으로 SpikF는 넘지 못한다(같은 수준).** query pop LIF의 4칸 평균은 SpikF 논문값보다 MSE 0.0007 높고 MAE는 같다. SpikF 재실행(같은 seed 3개)과는 MSE·MAE 모두 0.0000 차이다. SpikF에 LIF head를 단 재실행보다는 0.0023 / 0.0017 나쁘다. energy는 SpikF의 0.03배다. iSpikformer는 넘는다(4/4칸)
+
+**사용자 요청 (11-27, 원문):** "SpikF와도 비교해줘."
+
+- **범위:** SpikF(ICML 2025)는 장기 예측 전용 model이라 Sleep-EDF / MIT-BIH 결과가 없다. 그래서 이 대화의 ETT 4칸(ETTh2 / ETTm2 × H96 / H720, 입력 96)에서 비교했다.
+- **우리 쪽:** suite `flif-v1-ett-r1`(지금 기준: query form, Neocortex membrane shortcut, 전부 SpikeDE, R1 설정, 상대 위치 bias 끔; sha 546d16ba5), seed 42 / 7 / 2026 평균. 일반 LIF / f-LIF의 ETT run은 없다.
+- **비교 대상:** SpikF 표 12의 숫자(SpikF, SpikeRNN, iSpikformer)는 다른 대화가 옮겨 적고 대조한 `refs16.json`(origin/exp/f-lif-pop-v3, commit 4d7ee850b)에서 읽었다. SpikF 공개 code의 재실행(seed 3개, energy 포함; code commit ff425911c)도 같은 branch의 `spikf-act-ett/summary.json`에서 읽었다. 내가 다시 옮겨 적지 않았다.
+- **script / 결과:** `nsmt_flif_v1/forecasting/compare_spikf_ett.py` → `results/flif-v1-ett-vs-spikf/{summary.md, decision.json}`.
+
+| model | 4칸 MSE | 4칸 MAE | energy µJ |
+|---|---|---|---|
+| SpikF (논문) | 0.3215 | 0.3550 | — |
+| SpikF 재실행 (공개 code) | 0.3222 | 0.3551 | 934.59 |
+| SpikF-LIF 재실행 | 0.3199 | 0.3533 | 785.46 |
+| SpikeRNN (논문) | 0.3270 | 0.3550 | — |
+| iSpikformer (논문) | 0.3325 | 0.3605 | — |
+| 우리 query pop LIF | 0.3222 | 0.3550 | 26.38 |
+| 우리 query pop f-LIF | 0.3228 | 0.3553 | 26.37 |
+| Spikformer(DE) | 0.3242 | 0.3564 | 25.82 |
+
+**채택 기준 판정** (4칸 평균 MSE와 MAE가 각각 0.001 이상 낮아야 하고, energy ≤ 1.5배):
+
+| 비교 | query pop LIF | query pop f-LIF |
+|---|---|---|
+| vs SpikF 논문 | 미달 (−0.0007 / −0.0000) | 미달 (−0.0013 / −0.0003) |
+| vs SpikF 재실행 | 미달 (+0.0000 / +0.0000), energy 0.028배 | 미달 (−0.0006 / −0.0003) |
+| vs SpikF-LIF 재실행 | 미달 (−0.0023 / −0.0017) | 미달 (−0.0029 / −0.0020) |
+| vs SpikeRNN 논문 | 미달 (MSE +0.0048이지만 MAE −0.0000) | 미달 |
+| vs iSpikformer 논문 | **통과** (+0.0103 / +0.0055, 4/4칸) | **통과** (+0.0097 / +0.0052) |
+| vs Spikformer(DE) (보고: 같은 suite) | **통과** (+0.0020 / +0.0014, energy 1.02배) | **통과** (+0.0014 / +0.0011, energy 1.02배) |
+
+**읽기:** 정확도는 SpikF와 같은 수준이고, energy는 약 35분의 1이다. 채택 기준(0.001 이상 개선)으로는 SpikF를 넘지 못한다. SpikF 재실행의 seed 사이 표준편차(16칸 평균 MSE 0.0027)를 생각하면, 이 차이(0.0000–0.0007)는 seed 흔들림보다 작다.
+
+**한계:** 우리 ETT 분할·정규화가 SpikF code와 같은지는 이번에 다시 확인하지 않았다(NSMT 논문이 같은 표와 비교한 pipeline). SpikF의 energy는 SpikF code가 세는 syops 수(대부분 MAC)다. 칸은 4개뿐이다(이 대화의 ETT 범위).
+
+**Git:** Sleep 일반 LIF pool이 끝난 뒤 그 결과와 함께 commit한다.
+
+## 2026-11-27 23:46 KST — 결과: 일반 LIF / f-LIF로 Sleep-EDF 수정 사항 재실험 (70 run, 사전 고정 `091d93529`) — **사전 규칙으로는 어느 model도 Spikformer(DE)를 뚜렷하게 넘지 못한다.** 일반 LIF의 spike 출력에서는 Neocortex의 순서·기억이 오히려 손해다(문맥을 섞거나 기억을 끈 쪽이 더 좋음, 둘 다 "나쁨"). 반면 축적 aux를 켜면 일반 LIF Neocortex가 순서를 쓰고(O +2.25 "좋음"), membrane + aux는 spike 출력보다 "좋음"(+1.26)이다. 채택 기준(+0.1 %p, energy ≤ 1.5배)으로는 일반 LIF + aux(75.41, 1.22배), f-LIF spike(74.40, 1.19배), pop LIF spike(두 lr)가 Spikformer(DE)를 통과한다
+
+**실행:** tmux `flif_sleep4`, 20:02:27 – 23:26:51, **RESULT 70 / 70, SKIP 0**, sha 하나(`091d93529`). 다른 대화의 forecasting 작업이 20:02–23:00 사이 같은 GPU를 함께 썼다. 요약은 `results/flif-v1-sleep4/{summary.md, decision.json}`(driver가 `summarize_sleep4.py`로 냄), 채택 기준 읽기는 `results/flif-v1-sleep4/adoption.{md,json}`(`adoption_sleep.py`, 보고용, 11-27 사용자 결정 이후 추가)이다.
+
+### 기본 neuron 3종 (test macro-F1 %, lr 0.003, fold 0–4 평균 ± 표준편차)
+
+| model | LIF | f-LIF | pop LIF |
+|---|---|---|---|
+| Spikformer(DE) | 74.03 ± 3.27 | | |
+| query, spike | 73.39 ± 4.44 | 74.40 ± 3.66 | 74.16 ± 3.26 |
+| key/value, spike | 73.70 ± 4.04 | — | 72.33 ± 4.90 |
+| query, membrane | 73.45 ± 4.19 | 74.04 ± 4.05 | 74.63 ± 3.40 |
+| query, 축적 aux | 75.41 ± 1.98 | — | 73.87 ± 3.79 |
+| query, membrane + aux | 74.65 ± 3.19 | — | 74.17 ± 3.72 |
+| query, 문맥 섞기 | 74.61 ± 2.83 | — | 73.63 ± 3.15 |
+| query, 기억 없는 Neocortex | 74.80 ± 3.84 | — | 73.41 ± 2.74 |
+| membrane + 문맥 섞기 | 73.39 ± 2.69 | — | 74.11 ± 2.80 |
+| membrane + 기억 없음 | 73.77 ± 2.75 | — | 74.60 ± 2.66 |
+| aux + 문맥 섞기 | 73.16 ± 3.71 | — | 73.76 ± 3.17 |
+
+### 사전 규칙 판정 (평균 ≥ ±1 %p이고 4/5 이상 = 좋음 / 나쁨)
+
+| 판정 | fold별 차이 | 평균 | 양수 fold | 결과 |
+|---|---|---|---|---|
+| O 일반 LIF spike: 원 순서 − 섞음 | +1.88 / −2.09 / −1.40 / −0.03 / −4.46 | −1.22 | 1/5 | **나쁨** |
+| M 일반 LIF spike: 기억 − 없음 | +1.37 / −2.79 / −3.27 / −0.10 / −2.24 | −1.41 | 1/5 | **나쁨** |
+| N membrane: LIF − pop LIF | −0.96 / −1.76 / +1.48 / −1.16 / −3.52 | −1.19 | 1/5 | **pop LIF 좋음** |
+| L 같은 lr: query LIF − Spikformer(DE), lr 0.003 / 0.001 | | −0.64 / +0.93 | 1/5, 5/5 | 둘 다 차이 없음 → 읽기 "지지 안 됨" |
+| Q1 query LIF / key-value LIF − Spikformer(DE) (고른 lr: 둘 다 0.003, Spikformer(DE) 0.001) | | +0.33 / +0.64 | 2/5, 3/5 | 차이 없음 |
+| Q2 query − key/value (LIF) | | −0.31 | 2/5 | 차이 없음 |
+| E membrane − spike (LIF / f-LIF) | | +0.06 / −0.35 | 3/5, 2/5 | 차이 없음 |
+| E aux − spike (LIF) | −0.11 / −0.10 / +2.97 / +0.80 / +6.53 | +2.02 | 3/5 | 차이 없음 |
+| E membrane + aux − spike (LIF) | +0.52 / +0.16 / −0.12 / +1.28 / +4.46 | +1.26 | 4/5 | **좋음** |
+| O aux: 원 순서 − 섞음 (LIF) | −0.20 / +3.65 / +3.16 / +0.04 / +4.57 | +2.25 | 4/5 | **좋음** |
+| O membrane: 원 순서 − 섞음 (LIF) | | +0.06 | 3/5 | 차이 없음 |
+| M membrane: 기억 − 없음 (LIF) | | −0.32 | 3/5 | 차이 없음 |
+| S (lr 0.003의 Spikformer(DE) 대비): LIF membrane / aux / 둘 다, f-LIF spike / membrane | | −0.58 / +1.38 / +0.62 / +0.37 / +0.01 | | 모두 차이 없음 |
+| N 그 밖(spike LIF·f-LIF − pop LIF, key/value LIF − pop LIF, membrane f-LIF − pop LIF) | | −0.77 / +0.24 / +1.37 / −0.59 | | 차이 없음 |
+
+**사전 규칙의 읽기:** q_lif "둘 다 아님", q_lif_mem "둘 다 아님", q_lif_acc "Neocortex 순서·기억은 쓰이지만 Spikformer(DE)는 못 넘음", q_lif_mem_acc / q_flif / q_flif_mem "Spikformer(DE)를 넘지 못함".
+
+### 채택 기준 판정 (보고용; 11-27 결정: 같은 lr의 Spikformer(DE)보다 macro-F1 +0.1 %p 이상, syops energy ≤ 1.5배)
+
+| model | lr | macro-F1 | 같은 lr 대비 | energy 배율 | 채택 | 더 높은 Spikformer(DE)(74.03) 대비 |
+|---|---|---|---|---|---|---|
+| query LIF + aux | 0.003 | 75.41 | +1.38 (3/5) | 1.22 | **통과** | 통과 |
+| query pop LIF | 0.001 | 74.62 | +1.56 (5/5) | 1.13 | **통과** | 통과 |
+| query f-LIF | 0.003 | 74.40 | +0.37 (2/5) | 1.19 | **통과** | 통과 |
+| query pop LIF | 0.003 | 74.16 | +0.13 (4/5) | 1.15 | **통과** | 통과 |
+| query LIF | 0.001 | 74.00 | +0.93 (5/5) | 1.20 | **통과** | 미달 (−0.03) |
+| key/value LIF | 0.001 | 73.48 | +0.41 (5/5) | 1.16 | **통과** | 미달 |
+| membrane이 들어간 것(LIF + aux, pop LIF, pop LIF + aux) | 0.003 | 74.17–74.65 | +0.14 ~ +0.62 | 1.73 | energy 초과 | energy 초과 |
+| 나머지 (query LIF 0.003, LIF membrane, f-LIF membrane, pop LIF aux, key/value LIF 0.003, key/value pop LIF) | | | −1.70 ~ +0.01 | | 미달 | 미달 |
+
+### 읽기 (추론)
+
+- **일반 LIF의 spike Neocortex는 Sleep-EDF에서 순서·기억을 쓰지 못하고, 오히려 방해가 된다.** 문맥을 섞거나 기억을 끈 쪽이 1.2–1.4 %p 낫다. pop LIF에서는 이 손해가 없었다(11-27 04:26: 차이 없음).
+- **축적 aux가 그 방향을 바꾼다.** aux를 켜면 원 순서가 섞은 순서보다 2.25 %p 낫다. aux 모델은 가장 높은 점수(75.41)를 냈다. 다만 큰 차이는 fold 4 하나에 크게 기대고(aux − spike: fold 4 +6.53, 나머지 평균 +0.89), seed는 하나다. fold 4는 결과를 보고 나서 붙이는 단서다.
+- membrane 출력(지금 방식)은 일반 LIF / f-LIF에서도 정확도 이득이 없고, energy는 1.7배다.
+
+### 이어서
+
+- 11-27 사용자 결정 "1. 둘다", "2. 일단은 빼고 성능 변화만 본 다음에 후에 진행"과 승인된 plan(`/home/yschoi/.claude/plans/1-snuggly-galaxy.md`)에 따라, membrane 출력 (가)·(나)와 축적 aux를 ETT, MIT-BIH, Sleep-EDF(빈칸)에서 시험한다(다음 사전 고정 항목).
+
+### Git
+
+- 이 항목, run마다 text 산출물, `results/flif-v1-sleep4/{raw.txt, summary.md, decision.json, adoption.md, adoption.json}`, `adoption_sleep.py`, 앞의 두 항목(채택 기준 결정, SpikF 비교)과 `forecasting/compare_spikf_ett.py`, `forecasting/results/flif-v1-ett-vs-spikf/{summary.md, decision.json}`을 commit하고 tag `exp/nsmt-flif-neo-20261127-sleep4`를 단다.
