@@ -18204,3 +18204,43 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 - 논문의 "T = N으로 시간 정보를 포착" 근거로는 ETTh1 · ETTm1 결과(+4.98 %, 12 / 12)가 있다. 하지만 ETTh2 · ETTm2에서는 재현되지 않는다. 데이터셋 전반의 주장이 되려면 같은 칸의 SF-de 비교(ETTh1 · ETTm1 SF-de 학습)와 (a)의 성능 기여 결과가 필요하다.
 
 **commit:** 이 기록과 `results/check-order-20261127/{order_sfde.txt, order_base2.txt, order_sfde.json, order_base2.json, summarize_order2.py, summary_order2.md, summary_order2.json}`.
+
+## 2026-11-27 23:38 KST — 결과 + 실험 완료((a) 기억 없는 mixer neuron, 12 run, 사전등록 `79b3d99f6`, SKIP 0): mixer의 token 축 neuron을 매 token reset해도(token 사이 정보 흐름 없음) **성능 차이가 없다**(MSE +0.28 %, 6 / 6 → "no clear difference"; MAE +0.16 %). 즉 ETTh1 · ETTm1에서 학습된 mixer가 순서에 의존하지만(23:10, +4.98 %), 그 시간 동역학이 없어도 같은 성능에 도달한다. **"성능 개선으로 시간 정보 학습을 증명"은 ETT에서는 지지되지 않는다**
+
+- **실행:** 23:14:02 시작 → 23:36:05 pool 끝(RESULT 12, SKIP 0) → energy 재계산("all checks passed") → **요약 단계에서 STOP**("mixed training commits ['4d7ee850b', '79b3d99f6']").
+- **내 실수(멈춘 원인):** pool이 도는 동안 SF-de 평가용 기록과 `order_eval.py`를 commit했다(`4d7ee850b` 23:22, `702791c9d` 23:29). runner는 run이 시작할 때의 HEAD를 기록하므로, 그 뒤에 시작한 run 2개(ETTh1 H96 seed 2026 · 7)가 `4d7ee850b`로 기록됐다.
+  - 학습 code는 같다. `git diff --name-only 79b3d99f6 4d7ee850b`는 `docs/PROJECT_LOG.md`와 `NSMT/cinc_mixer_v1/results/check-order-20261127/order_eval.py`뿐이다(평가 script, 학습 code가 import하지 않음).
+  - 조치(결과가 나온 뒤 바꾼 것, 밝혀 둠):
+    - `summarize_memoff.py`에 `--code_equal_shas a,b`를 더했다. 여러 commit을 받되, 모든 쌍의 차이가 `docs/` · `NSMT/cinc_mixer_v1/results/` 경로뿐일 때만 받고, 아니면 계속 멈춘다. 옵션 없이 돌리면 여전히 멈추는 것을 확인했다.
+    - `recheck_memoff.py`의 `--sha`는 `a+b,c` 형식으로 같은 확인을 한다.
+    - 이 수정에서 내 변수 이름이 실패 횟수 변수(`bad`)를 가려 재계산이 한 번 TypeError로 끝났다. 이름을 바꿔 고쳤다.
+    - dry run을 다시 돌려 통과했다(`dry_memoff_after_fix.txt`).
+- **결과**(`results/flif-v1-ett-memoff/summary.md`; 4칸 평균):
+
+| 팔 | MSE | MAE | best val L1 | energy µJ syops |
+|---|--:|--:|--:|--:|
+| muxlin IAND, token 축 기억 없음 | 0.4127 | 0.4072 | 0.6110 | 10.35 |
+| muxlin IAND, LIF 기억(기준) | **0.4117** | **0.4067** | 0.6106 | 10.38 |
+- 비교: MSE R +0.28 %(6 / 6), MAE +0.16 % → **no clear difference**. energy 0.995배다.
+- 칸별 r(MSE): ETTh1 H96 −0.46, H720 +1.26, ETTm1 H96 +1.05, H720 −0.71 %.
+
+### 무엇을 말하고 무엇을 말하지 않는가
+- 말하는 것:
+  - 이 조건(ETTh1 · ETTm1, LIF, block 1, IAND)에서 mixer의 token 축 시간 동역학(membrane이 token 사이로 정보를 나름)을 없애도 정확도가 같다.
+  - 학습된 model이 순서에 의존한다는 것(23:10)과 함께 보면, model은 시간 동역학을 **쓰지만 그것이 없어도 다른 경로로 같은 성능을 낸다.** 위치별 weight를 가진 forecast head가 순서 정보를 이미 갖고 있다.
+- 말하지 않는 것:
+  - 순서 정보가 꼭 몸통을 거쳐야 하는 과제에서는 결과가 다를 수 있다. 예를 들어 token 평균으로 읽는 분류 head(MIT-BIH · CinC)에서는 순서 정보가 몸통에만 있다. 그런 과제에서는 재지 않았다.
+  - 4칸 × seed 3, LIF만이다.
+- 사전 예상과 비교: no clear difference가 가장 가능성 높다고 예상했고 **맞았다**.
+
+### 함의(내 해석)
+- ETT 예측에서는 "T = N 시간 동역학이 성능을 올린다"를 보이기 어렵다. head가 위치 정보를 직접 가지기 때문이다.
+- 이 주장을 보이려면 순서 정보가 몸통에만 있는 설정이 필요하다. 후보는 두 가지다.
+  - (가) 분류 과제(token 평균 head)에서 같은 통제(기억 없음, 순서 섞기)를 한다.
+  - (나) 예측 head를 순서를 모르는 형태(token 평균 → H)로 바꾼 통제다. 다만 model이 바뀐다.
+
+### 점검 · 산출물 · tag
+- 독립 재계산(옵션 없이 / `--sha 79b3d99f6+4d7ee850b,702791c9d`): 둘 다 ALL CHECKS PASSED. 두 commit의 차이가 docs/ · results/뿐임을 확인했다.
+- Git: `results/flif-v1-ett-memoff/{raw.txt, energy_recount.csv, summary.md, summary.json}`, `results/check-memoff-20261127/{recheck_memoff.txt, recheck_memoff_sha.txt, dry_memoff_after_fix.txt}`, 고친 `summarize_memoff.py` · `recheck_memoff.py`.
+- annotated tag `exp/f-lif-pop-v3-memoff-20261127`(완료된 학습 run, 두 commit 표시는 위 설명대로).
+- 앞으로: pool이 도는 동안에는 commit하지 않는다. runner가 run마다 HEAD를 기록하므로 commit 번호가 섞인다.

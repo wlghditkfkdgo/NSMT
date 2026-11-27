@@ -73,11 +73,17 @@ for c in S['comparisons']:
            f'{c["A"]} vs {c["B"]} {met}: R {R:+.4f} %, {lo} / {hi}, {v} = summary')
     ok(close(avg([sm(A, d, p, 'es') / sm(B, d, p, 'es') for d, p in cells]), c['energy_syops'])
        and close(avg([sm(A, d, p, 'ei') / sm(B, d, p, 'ei') for d, p in cells]), c['energy_int']), f'{c["A"]} vs {c["B"]} energy ratios = summary')
-if a.sha:
+if a.sha:                                     # 2026-11-27 23:3x: a may list several commits joined by '+' (training code checked equal)
     sa, sb = a.sha.split(',')
-    ok(sorted(shas) == [sa], f'all new runs trained at {sa} ({sorted(shas)})')
-    ch = subprocess.run(['git', 'diff', '--name-only', sa, sb, '--', '.'], cwd=os.path.dirname(C), capture_output=True, text=True).stdout.split()
-    code = [x for x in ch if x.endswith(('.py', '.sh'))]
-    ok(not code, f'commit {sb} changes no .py / .sh under NSMT/ since {sa} ({code})')
+    trained = sa.split('+')
+    ok(set(shas) <= set(trained), f'all new runs trained at one of {trained} ({sorted(shas)})')
+    for i in range(len(trained)):
+        for j in range(i + 1, len(trained)):
+            ch = subprocess.run(['git', 'diff', '--name-only', trained[i], trained[j]], cwd=os.path.dirname(C), capture_output=True, text=True).stdout.split()
+            nonlog = [x for x in ch if not (x.startswith('docs/') or x.startswith('NSMT/cinc_mixer_v1/results/'))]
+            ok(not nonlog, f'{trained[i]} and {trained[j]} differ only in docs/ and results/ ({ch})')
+    ch = subprocess.run(['git', 'diff', '--name-only', trained[0], sb, '--', '.'], cwd=os.path.dirname(C), capture_output=True, text=True).stdout.split()
+    code = [x for x in ch if x.endswith(('.py', '.sh')) and '/results/' not in x]
+    ok(not code, f'commit {sb} changes no training .py / .sh under NSMT/ since {trained[0]} ({code})')
 print('ALL CHECKS PASSED' if bad == 0 else f'{bad} FAIL')
 sys.exit(0 if bad == 0 else 1)

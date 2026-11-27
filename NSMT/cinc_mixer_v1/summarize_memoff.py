@@ -10,7 +10,10 @@
   energy   syops (judging rule) = logged syn_energy_uJ; integer rule = body_syn_int_uJ + head_AC_corr x 0.9 pJ
 Fails closed (exit 2, nothing written): SKIP line, not exactly 12 rows of muxlin IAND with _tmoff, a missing / duplicate (cell, seed),
 a non-finite value, mixed commits, blocks != 1, a missing energy row or the energy identity off, reference rows missing.
-usage (from cinc_mixer_v1/): python -B summarize_memoff.py --suite flif-v1-ett-memoff
+2026-11-27 23:3x (after the runs; disclosed in PROJECT_LOG): --code_equal_shas a,b accepts rows trained at either commit only if
+`git diff --name-only` between every pair lists nothing but docs/ and NSMT/cinc_mixer_v1/results/ paths (training code byte-identical);
+otherwise mixed commits still stop. Needed because I committed (log + evaluation script) while the pool ran.
+usage (from cinc_mixer_v1/): python -B summarize_memoff.py --suite flif-v1-ett-memoff [--code_equal_shas a,b]
 """
 import argparse
 import csv
@@ -23,6 +26,7 @@ C = os.path.dirname(os.path.abspath(__file__))
 ap = argparse.ArgumentParser()
 ap.add_argument('--suite', default='flif-v1-ett-memoff')
 ap.add_argument('--ref_root', default=os.path.join(C, 'results'))
+ap.add_argument('--code_equal_shas', default='')
 a = ap.parse_args()
 OUT = os.path.join(C, 'results', a.suite)
 CELLS = [(d, p) for d in ('ETTh1', 'ETTm1') for p in ('96', '720')]
@@ -88,8 +92,22 @@ rr = [dict(t.split('=', 1) for t in l.split()[1:] if '=' in t) for l in lines if
 if len(rr) != 12 or any(r.get('cond') != 'spkmx_lif_muxlin_iand' or not r.get('tag', '').endswith('_tmoff') for r in rr):
     stop(f'{len(rr)} rows; want 12 of muxlin IAND with _tmoff')
 M0, _, shas = load(OUT, lambda r: r['cond'] == 'spkmx_lif_muxlin_iand' and r['tag'].endswith('_tmoff'), identity=True)
+sha_note = ''
 if len(shas) != 1:
-    stop(f'mixed training commits {sorted(shas)}')
+    allowed = [x for x in a.code_equal_shas.split(',') if x]
+    if not allowed or not shas <= set(allowed):
+        stop(f'mixed training commits {sorted(shas)}')
+    import subprocess
+    srt = sorted(shas)
+    for i in range(len(srt)):
+        for j in range(i + 1, len(srt)):
+            ch = subprocess.run(['git', 'diff', '--name-only', srt[i], srt[j]], cwd=C, capture_output=True, text=True)
+            if ch.returncode != 0:
+                stop(f'git diff {srt[i]} {srt[j]} failed')
+            bad = [f for f in ch.stdout.split() if not (f.startswith('docs/') or f.startswith('NSMT/cinc_mixer_v1/results/'))]
+            if bad:
+                stop(f'commits {srt[i]} / {srt[j]} differ in code: {bad}')
+    sha_note = f'runs trained at {srt}; these commits differ only in docs/ and results/ paths (training code identical)'
 R = a.ref_root
 M4, _, _ = load(os.path.join(R, 'flif-v1-ett-spkmux-retune'), lambda r: r['ds'] in REF_TAG and r['tag'] == REF_TAG[r['ds']]
                 and r['pl'] in ('96', '720') and r.get('blocks') == '1')
@@ -113,7 +131,7 @@ def er(A, B, k):
 
 
 COMPS = [('memory off vs on', 'muxlin IAND memoryless', 'muxlin IAND (ref, LIF memory)')]
-out = dict(suite=a.suite, sha=sorted(shas)[0], cells={}, mean4={}, comparisons=[])
+out = dict(suite=a.suite, sha=','.join(sorted(shas)), sha_note=sha_note, cells={}, mean4={}, comparisons=[])
 for nm, V in ARMS.items():
     out['cells'][nm] = {f'{d} {p}': {m: mean([V[(d, p, s)][m] for s in SEEDS]) for m in NUM + ('E_int',)} for d, p in CELLS}
     out['mean4'][nm] = {m: mean([out['cells'][nm][f'{d} {p}'][m] for d, p in CELLS]) for m in NUM + ('E_int',)}
