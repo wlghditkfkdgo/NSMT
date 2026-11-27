@@ -18038,3 +18038,32 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
   - Git: `results/flif-v1-ett-t8/{raw.txt, energy_recount.csv, summary.md, summary.json}`, `recheck_t8_sha.txt`.
   - annotated tag `exp/f-lif-pop-v3-t8-20261127`.
 - **다음:** 사용자 결정(23:0x)에 따라 (b) 순서 섞기 평가(학습 없음)를 먼저 하고, (a) 기억 없는 mixer neuron 학습을 진행한다(각자 사전등록).
+
+## 2026-11-27 23:02 KST — 사용자 결정 "(b) 순서 섞기 먼저 하고, (a)도 진행해줘" + 사전등록(학습 없음): token 순서 섞기 평가. 지금 base(muxlin IAND T4)와 Pearson 덧셈 + MUX IAND T4가 token 순서를 쓰는지 기존 checkpoint로 잰다
+
+> 사용자 원문: "(b) 순서 섞기 먼저 하고, (a)도 진행해줘"
+
+- **branch / base:** `exp/f-lif-pop-v3`, base `f7bdc453e`. 학습 없음. script는 `cinc_mixer_v1/results/check-order-20261127/order_eval.py`다.
+- **대상:**
+  - base: muxlin IAND T4 block 1(`flif-v1-ett-spkmux-retune`의 12 run)
+  - pmux: Pearson 덧셈 + MUX IAND T4(`flif-v1-ett-sxa-s4` msxdpca, 12 run)
+  - best validation 가중치, test 전체를 쓴다.
+- **섞기 세 가지**(batch의 행마다 = 한 channel의 한 window마다 다른 random 순열; 순열 seed 0 / 1 / 2 평균):
+  - **mixer**: mixer 입력의 token 순서를 섞고, mixer 출력 m을 원래 순서로 되돌린 뒤 잔차로 넘긴다. embedding · MLP는 token마다 따로이고 head는 위치가 맞으므로, **neo-mixer만** 섞인 순서를 본다.
+  - **head**: head 입력 token만 섞는다(몸통은 그대로).
+  - **full**: embedding 전 patch token을 섞는다(mixer와 head 모두 섞인 순서를 봄).
+- **fail closed:** 섞지 않은 test MSE가 기록값과 같아야 한다(상대 1e-5). 첫 run에서 항등 순열로 세 방식을 돌리면 섞지 않은 MSE와 정확히 같아야 한다. 다르면 멈춘다.
+- **판정(사전등록):** run마다 Δ = 100(MSE_섞음 − MSE_원래)/MSE_원래(순열 seed 3개 평균)이고, R = 4칸의 seed 평균 Δ의 평균이다.
+  - "순서를 쓴다": R ≥ +1 %이고 12 run 중 8 이상 높음.
+  - 그 밖은 "근거 없음".
+  - **주 판정은 base의 mixer 섞기**다. head · full과 pmux는 같은 규칙으로 보고한다. MAE도 보고한다.
+- **해석 규칙(미리 적음):**
+  - mixer 섞기가 "쓴다"이면 neo-mixer의 token 축 처리가 순서를 쓴다는 근거다.
+  - "근거 없음"이고 head 섞기만 크면, 순서 정보는 주로 head의 위치별 weight에서 온다는 뜻이다(11-20 다른 세션 model과 같은 양상).
+- **사전 예상(확신 낮음):**
+  - mixer 섞기는 작다(+0–1 %, 근거 없음일 가능성이 높음).
+  - head · full 섞기는 크다(+10 % 이상).
+  - 근거: 11-20 다른 세션 model은 ETT에서 몸통 순서 사용이 1 % 이하, head 섞기가 +21 %였다. 11-23 SF-de(순서를 모르는 attention)와도 차이가 없었다.
+- **(a) 기억 없는 neuron:** (b) 결과를 기록한 뒤 따로 사전등록한다(12 run).
+
+**commit:** 이 기록과 `order_eval.py`. 실행: GPU 1 · 2에서 base / pmux를 따로 돌린다.
