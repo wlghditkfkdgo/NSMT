@@ -64,14 +64,16 @@ def main():
     ok('b1 spike = 1 exactly where the pre-reset membrane >= threshold', torch.equal(s.bool(), pre >= th), f'spike rate {s.mean().item():.3f}')
     ok('b2 after-reset membrane = pre - threshold * spike', torch.allclose(post, pre - th * s, atol=1e-6))
     # c. readout mem: the Neocortex output is the last layer's membrane (real-valued), spikes elsewhere unchanged
-    mm.eval(); mm.train_mode = 'testing'; functional.reset_net(mm)
+    # MODI 2026-11-27 (correction): training mode; in eval mode the last layer is silent at init and c2 compared nothing (rate 0)
+    mm.train(); mm.train_mode = 'training'; functional.reset_net(mm)
     with torch.no_grad():
         patched, neo_in = mm._tokens_mc(x)
         _, xn = mm.neo_forward(neo_in)
         mm.neo_readout = 'spike'; functional.reset_net(mm); _, xs = mm.neo_forward(neo_in); mm.neo_readout = 'mem'
     nonbin = ((xn != 0) & (xn != 1)).float().mean().item()
     ok('c1 mem readout: real-valued output [N, B, 1, D]', tuple(xn.shape) == (16, 8, 1, 384) and nonbin > 0.5, f'non-binary share {nonbin:.3f}')
-    ok('c2 mem readout spikes (>= threshold) = the spike readout', torch.equal((xn >= th).float(), xs))
+    ok('c2 mem readout spikes (>= threshold) = the spike readout (and the layer fires)', torch.equal((xn >= th).float(), xs) and xs.mean().item() > 0.01,
+       f'spike rate {xs.mean().item():.3f}')
     # d. q_once gives the same queries as computing q_linear at every T_h step
     for name, mdl in (('spike model', m0), ('mem model', mm)):
         outs = []

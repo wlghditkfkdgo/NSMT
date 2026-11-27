@@ -5,6 +5,8 @@
 # usage (from NSMT/, the pool appends the gpu): SUITE=<suite> LR=<lr> bash nsmt_flif_v1/classification/scripts/run_sleep.sh <cond> <fold> <gpu>
 #   cond: spkall_lif | q_pop_lif | q_pop_flif | kv_pop_lif | kv_pop_flif      (seed 42; env SEED, EPOCHS (30), BS (64) for smoke only)
 #         + MODI 2026-11-27: q_pop_<lif|flif>_cshuf (context shuffled), q_pop_<lif|flif>_nml (memoryless Neocortex)
+#         + MODI 2026-11-27 (user decision 11-27, default neuron set LIF / f-LIF / pop LIF): q_lif | q_flif | kv_lif | kv_flif (plain
+#           spikeDE LIF / f-LIF Neocortex, flags as run_rhythm_addneo.sh); the suffixes also apply to q_lif / q_flif
 # Writes one RESULT (or SKIP) line to nsmt_flif_v1/classification/results/<suite>/raw.txt.
 set -u
 COND=$1; FOLD=$2; GPU=$3
@@ -23,13 +25,17 @@ while :; do                              # (--ctx_shuffle), _nml = memoryless Ne
     *) break ;;
   esac
 done
-case $BASE in q_pop_lif|q_pop_flif) ;; *) [ -n "$XF" ] && { echo "suffixes only on q_pop_lif / q_pop_flif"; exit 2; } ;; esac
+case $BASE in q_pop_lif|q_pop_flif|q_lif|q_flif) ;; *) [ -n "$XF" ] && { echo "suffixes only on q_pop_lif / q_pop_flif / q_lif / q_flif"; exit 2; } ;; esac
 case $BASE in
   spkall_lif)  CF="--model myModel --hippo_ssa --hippo_T 4 --neuron_all lif" ;;                                  # Spikformer(DE)
   q_pop_lif)   CF="$Q --neo_neuron pop_lif --pop_soma_init 0.5 --hippo_xattn_mode query" ;;                       # = nsmt4q_pop_lif_msn_sde
   q_pop_flif)  CF="$Q --neo_neuron pop_flif --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_xattn_mode query" ;;      # = nsmt4q_pop_flif_msn_sde
   kv_pop_lif)  CF="$Q --neo_neuron pop_lif --pop_soma_init 0.5" ;;                                                 # key / value form (replace)
   kv_pop_flif) CF="$Q --neo_neuron pop_flif --neo_alpha 0.5 --pop_soma_init 1.0" ;;
+  q_lif)       CF="$Q --neo_neuron lif --hippo_xattn_mode query" ;;                                                # MODI 2026-11-27: plain
+  q_flif)      CF="$Q --neo_neuron flif --neo_alpha 0.5 --hippo_xattn_mode query" ;;                               # LIF / f-LIF
+  kv_lif)      CF="$Q --neo_neuron lif" ;;
+  kv_flif)     CF="$Q --neo_neuron flif --neo_alpha 0.5" ;;
   *) echo "bad cond $COND"; exit 2 ;;
 esac
 CF="$CF $XF"

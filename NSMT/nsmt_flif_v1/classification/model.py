@@ -981,9 +981,9 @@ class myModel(nn.Module):
             raise ValueError("neo_readout in {spike, mem}, aux_past in {none, rand}")
         if self.neo_readout == 'mem' or self.aux_past != 'none':
             if not (self.hippo_xattn and self.hippo_xattn_mode == 'query' and getattr(self, 'neo_res', 'none') == 'ms' and not self.neo_streams
-                    and not self.neo_bidir and self.neo_band == 'none' and not self.neo_current and neo_neuron in ('pop_lif', 'pop_flif')):
+                    and not self.neo_bidir and self.neo_band == 'none' and not self.neo_current and neo_neuron in ('pop_lif', 'pop_flif', 'lif', 'flif')):
                 raise NotImplementedError('neo_readout mem / aux_past: the query form with the Neocortex membrane shortcut, one unidirectional '
-                                          'population-neuron Neocortex stream, no neo_band / neo_current')
+                                          'LIF / f-LIF / population-neuron Neocortex stream, no neo_band / neo_current')   # lif / flif: MODI 2026-11-27 (plain LIF batch)
         if self.neo_readout == 'mem':
             for blk in self.data_block:
                 blk.ssa.q_once = True

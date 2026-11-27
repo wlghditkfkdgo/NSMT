@@ -366,7 +366,11 @@ class LIFNeuron(nn.Module):
         if D != self.size:
             raise ValueError(f'Expected D={self.size}, got {D}')
         self._check_length(T)
-        if analog and not self.has_soma:
+        # MODI 2026-11-27 (user decision 11-27, plain LIF / f-LIF batch): analog 'pre' also for a single self-firing LIF / f-LIF neuron
+        # (exact classes, one member, [T, B, D] current): the membrane its spike is decided on, look = v_t + (I_t - v_t) / tau (rhs)
+        pre_single = (analog == 'pre' and not self.has_soma and type(self) in (LIFNeuron, FLIFNeuron) and self.members_fire
+                      and self.num_members == 1 and x.ndim == 3)
+        if analog and not self.has_soma and not pre_single:
             raise ValueError("analog/drive readouts read the soma; this neuron has none (soma='lif' does)")
 
         u = x.new_zeros(B, D, self.num_members)                      # v_0 = 0
@@ -381,7 +385,9 @@ class LIFNeuron(nn.Module):
             nxt = self._apply_reset(nxt, s, history)                 # MODI 2026-10-31 (no-op for 'spikede')
             out, soma, drive = self.emit(nxt, s, soma)
             spikes.append(out)
-            if analog == 'pre':                                       # MODI 2026-11-27: the soma membrane before its reset
+            if pre_single:                                            # MODI 2026-11-27: same arithmetic as rhs (look = u + 1. * drift)
+                live.append((u + 1. * ((x[t].unsqueeze(-1) - u) / self.tau)).reshape(B, D))
+            elif analog == 'pre':                                     # MODI 2026-11-27: the soma membrane before its reset
                 if self.soma.reset_mode != 'subtract':                   # (v_after = charge - theta s.detach() -> charge = v_after + theta s)
                     raise ValueError("analog 'pre' needs the subtractive soma reset")
                 live.append(soma + self.soma.threshold * out.detach())

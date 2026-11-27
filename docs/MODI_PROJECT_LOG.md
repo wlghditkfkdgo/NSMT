@@ -12444,3 +12444,89 @@ RESULT 8, SKIP 0. **energy(syops):** spike query pop LIF 17.47 µJ → mem 27.41
 ### Git
 
 - 이 항목, `results/flif-v1-sleep3/{raw.txt, summary.md, decision.json}`, run마다 text 산출물을 commit하고 tag `exp/nsmt-flif-neo-20261127-sleep3`를 단다.
+
+## 2026-11-27 20:02 KST — 사용자 결정 기록 + 사전 고정 + 구현 (학습 전): 일반 LIF / f-LIF로 Sleep-EDF 수정 사항 재실험 (70 run). 기본 경로 동일 32/32 + 16/16 + 15/15, 기본 Sleep smoke 재현 3/3(값 동일), 점검 30/30(+ 고친 `check_mem.py` 13/13), 명령줄 점검 13/13 + 13 + 거절 3, 요약 script 시험 통과, smoke 15/15
+
+**사용자 질문 (11-27, 원문):** "최근에 그냥 LIF에 대해서는 실험하지 않는 이유가 뭐지?" 내 답: 10-31 query form 결정 이후 Neocortex 비교를 population neuron(pop LIF / pop f-LIF)으로만 돌렸고, 10-21 규칙("population을 함께 넣는다")을 "population만"으로 잘못 좁혀 썼다. 일반 LIF의 membrane 출력은 code가 막혀 있었다(soma가 없는 neuron은 거절).
+
+**사용자 결정 (11-27, 원문):** "1. (b) + (지금까지 시도해왔던 수정 사항들에 대해서 standard LIF neuron으로만 재실험 진행) 2. 기본으로 LIF, f-LIF, pop LIF 이렇게 3종만 넣어줘." — (b) = 일반 LIF와 f-LIF를 spike 출력과 membrane 출력 둘 다로 넣는다. 범위는 내 해석으로 "11-26 ~ 11-27에 Sleep-EDF에서 시험한 수정 사항"이며 사용자에게 그렇게 알렸다. 앞으로 구조 비교의 기본 neuron은 LIF, f-LIF, pop LIF 3종이다(pop f-LIF는 요청 시만).
+
+**branch / 기준 commit:** `exp/nsmt-flif-neo`, 기준 `f30a53609`.
+
+**정정 (append-only):**
+- 바로 앞 결과 항목의 머리 시각 "19:47 KST"는 실제 `date` 출력 19:46보다 1분 늦게 적었다.
+- 16:19 사전 고정의 `check_mem.py` c2("mem 출력을 θ로 자르면 spike 출력과 같다")는 eval 모드에서 돌았다. 이때 초기 model의 마지막 층은 한 번도 발화하지 않아(발화율 0) **비교할 spike가 없는 빈 통과**였다. 이번에 학습 모드로 바꿔 다시 확인했다: 발화율 2.7 %에서 같다(통과). 그래서 sleep3 결과는 바뀌지 않지만, 그 항목의 "13/13"에는 빈 점검 하나가 들어 있었다. `check_mem.py`의 c2는 이제 발화율 > 1 %도 요구한다.
+
+### 구현 (기본값이면 지금과 같음)
+
+- `neurons.py`: `analog='pre'`를 soma 없는 단일 neuron에도 허용한다. 조건은 정확히 `LIFNeuron` / `FLIFNeuron` class, member 1개, 스스로 발화, 입력 [T, B, D]이다. 읽는 값은 spike를 정하는 membrane, 곧 한 step 적분한 reset 전 값 look = v_t + (I_t − v_t) / τ다(`rhs`와 같은 계산). population neuron에서 soma의 reset 전 값을 읽는 것과 같은 뜻이다. soma 없는 K = 4 population과 reset 뒤 값(analog)은 여전히 거절한다.
+- `model.py`: `--neo_readout mem` / `--aux_past rand`의 허용 neuron에 `lif`, `flif`를 더했다(나머지 조건은 그대로).
+- `scripts/run_sleep.sh`: 조건 `q_lif`, `q_flif`, `kv_lif`, `kv_flif`를 더했다(일반 spikeDE LIF / f-LIF Neocortex; option은 `run_rhythm_addneo.sh`와 같은 `--neo_neuron lif`, `--neo_neuron flif --neo_alpha 0.5`). 접미사(`_mem`, `_acc`, `_cshuf`, `_nml`)는 `q_lif` / `q_flif`에도 붙는다.
+
+### run (70개, suite `flif-v1-sleep4`, seed 42, fold 0–4)
+
+| 묶음 | 일반 LIF | f-LIF | run |
+|---|---|---|---|
+| 결합 형태 + lr: `q_lif`, `kv_lif` × lr 0.001 / 0.003 | ✓ | — | 20 |
+| 순서 / 기억 대조 (spike 출력): `q_lif_cshuf`, `q_lif_nml` | ✓ | — | 10 |
+| membrane / 축적 aux / 둘 다: `q_lif_{mem, acc, mem_acc}`, `q_flif_mem` | ✓ | membrane만 | 15 + 5 |
+| 변형의 대조: `q_lif_{mem_cshuf, mem_nml, acc_cshuf}` | ✓ | — | 15 |
+| spike 출력 기준: `q_flif` | (위에 포함) | ✓ | 5 |
+
+lr 표시가 없는 것은 lr 0.003이다(pop LIF 대조와 같음). 비교 기준은 이미 있는 run을 쓴다: Spikformer(DE) lr 0.001 / 0.003, query pop LIF lr 0.001 / 0.003, key/value pop LIF lr 0.003, pop LIF의 대조와 변형(`flif-v1-sleep-lr`, `flif-v1-sleep`, `flif-v1-sleep2`, `flif-v1-sleep3`).
+
+### 판정 (사전 고정, `summarize_sleep4.py`; test macro-F1 %, fold 5쌍; 평균 ≥ +1.0이고 4/5 이상 양수 = 좋음, ≤ −1.0이고 4/5 이상 음수 = 나쁨, 그 밖 = 차이 없음)
+
+- **lr 고르기 (11-26과 같음):** `q_lif`, `kv_lif` 각각 fold 0 validation macro-F1이 높은 lr; 같으면 0.001.
+- **Q1:** 고른 lr의 `q_lif`, `kv_lif` − Spikformer(DE)(11-26에 고른 lr 0.001).
+- **Q2:** `q_lif` − `kv_lif`(각자 고른 lr).
+- **L (같은 lr):** `q_lif` − Spikformer(DE), lr 0.003과 0.001 각각. 읽기: 둘 다 좋음 = "같은 lr에서 Spikformer(DE)를 넘음", 하나 = "lr에 달림", 없음 = "지지 안 됨".
+- **O / M (spike 출력, lr 0.003):** `q_lif` − `q_lif_cshuf`, `q_lif` − `q_lif_nml`.
+- **E:** `q_lif_{mem, acc, mem_acc}` − `q_lif`; `q_flif_mem` − `q_flif`.
+- **S (lr 0.003의 Spikformer(DE) 대비):** `q_lif_{mem, acc, mem_acc}`, `q_flif`, `q_flif_mem`.
+- **변형의 O / M:** `q_lif_mem` − `q_lif_mem_cshuf`, `q_lif_acc` − `q_lif_acc_cshuf`, `q_lif_mem` − `q_lif_mem_nml`.
+- **읽기 (model마다, 16:19 규칙과 같음):** S 좋음(spike 출력은 L의 lr 0.003)이고 O 또는 M 좋음 = "기준 model 후보"; S만 = "Spikformer(DE)는 넘지만 Neocortex 순서·기억 몫은 보이지 않음"; O / M만 = "순서·기억은 쓰이지만 Spikformer(DE)는 못 넘음"; 둘 다 아님 = "둘 다 아님". `q_lif_mem_acc`와 f-LIF 두 model은 자체 대조가 없어 S만 읽는다.
+- **N (neuron 비교, lr 0.003):** `q_lif` − `q_pop_lif`, `q_flif` − `q_pop_lif`, `kv_lif` − `kv_pop_lif`, `q_lif_mem` − `q_pop_lif_mem`, `q_flif_mem` − `q_pop_lif_mem`.
+- **보고만:** 기본 neuron 3종(LIF, f-LIF, pop LIF)을 출력 방식마다 나란히 놓은 표; accuracy, N1 F1, syops energy와 lr 0.003 Spikformer(DE) 대비 배율, 발화율; 같은 lr의 Q2와 `kv_lif` − Spikformer(DE); lr 0.001의 `q_lif` − `q_pop_lif`.
+- **fail closed:** 필요한 줄이 한 번씩, epoch 30, batch 64, seed 42, 값 유한, SKIP 없음, suite마다 sha 하나, 새 suite에 예상 밖 줄 없음.
+
+### 점검
+
+- **기본 경로 동일** (고치기 전 저장 → 고친 뒤 비교): 새 `fw_identity_lifsleep.py` **32/32 identical**(Sleep 크기의 새 model 8종 — Spikformer(DE), query / key-value × LIF / f-LIF / pop LIF / pop f-LIF 중 runner의 기본 조합과 `q_lif_nml` — 의 초기 parameter, 학습 모드 출력과 모든 gradient, eval 출력), `fw_identity_xnor.py` **16/16**, `fw_identity_head.py` **15/15**.
+- **명령줄 점검** (가짜 python, 고치기 전 / 뒤 runner): 기존 13조건의 명령줄이 같다(13/13). 새 13조건은 의도한 option과 α(acc만 0.1)를 받는다. 잘못된 조합 3개(`kv_lif_mem`, `spkall_lif_nml`, 없는 접미사)는 rc 2로 거절된다.
+- **`check_lifmem.py` 30/30:** 단일 LIF / f-LIF에서 읽기를 켜도 spike는 그대로이고, spike = 1인 곳이 정확히 reset 전 membrane ≥ θ인 곳이다. reset 전 값 = v_t + (I_t − v_t) / τ(차이 2.4e-7). LIF는 v_{t+1} = 읽은 값 − θ s / τ(spikeDE reset)이다. 읽은 값으로 입력 전류에 gradient가 흐른다. 거절해야 할 두 경우(soma 없는 LIF의 reset 뒤 값, soma 없는 K = 4 population)는 거절된다. model 수준(LIF / f-LIF 각각): mem은 parameter를 더하지 않고 초기값이 같다. aux는 decoder만 더한다. 마지막 NeoLayer neuron이 일반 class다. mem 출력은 실수이고, θ로 자르면 spike 출력과 같다(학습 모드, 발화율 13.6 / 13.8 %). q_linear 한 번 = step마다(학습 / eval 모드 모두 차이 0). aux의 지연과 목표가 맞다. mem + aux에서 aux는 membrane을 읽는다. 학습 step의 손실과 gradient가 유한하다.
+- **기본 Sleep smoke 재현** (1 epoch): Spikformer(DE) lr 0.001과 query pop LIF lr 0.001이 `smoke-sleep-20261126b`와, query pop LIF + membrane lr 0.003이 `smoke-sleep3-20261127`과 비교한 10개 값(score, accuracy, macro-F1, N1 F1, energy, AC / MAC 수, 발화율, 마지막 epoch score, validation)이 **모든 자리까지 같다**.
+- **`test_summarize_sleep4.py`:** 실제 기준 run에 차이를 심은 가짜 새 suite에서 심어 둔 읽기 6개, L 읽기, lr 고르기(validation이 같으면 0.001), Q2, E가 그대로 나온다. 멈춰야 하는 7경우(줄 빠짐, 중복, nan, SKIP 줄, 예상 밖 줄, sha 둘, epoch 29)가 모두 멈춘다. 기준 suite 4개에 필요한 줄이 모두 있다.
+
+### smoke (실험 아님; `results/smoke-sleep4-20261127/raw.txt`, 1 epoch, fold 0)
+
+RESULT 15, SKIP 0. 모든 run의 `logargs.txt`에 의도한 option이 들어 있다(neo_neuron, neo_readout, aux_past, α, lr, 결합 형태, 문맥 섞기, 기억 없음).
+
+| 조건 (lr 0.003) | energy µJ | MAC 백만 | 참고: 1 epoch macro-F1 |
+|---|---|---|---|
+| `q_lif` | 18.47 | 2.22 | 0.698 |
+| `q_flif` | 18.56 | 2.22 | 0.680 |
+| `q_lif_mem` | 27.42 | 4.58 | 0.661 |
+| `q_flif_mem` | 27.16 | 4.58 | 0.684 |
+| `q_lif_acc` | 18.83 | 2.22 | 0.681 |
+| (참고) `q_pop_lif_mem` | 27.41 | 4.58 | 0.680 |
+
+membrane 출력의 energy 증가(MAC 2.22 M → 4.58 M)는 pop LIF와 같다. aux decoder는 parameter 176,700개를 더하지만 추론에는 쓰이지 않는다.
+
+### 실행
+
+- tmux `flif_sleep4`: `bash nsmt_flif_v1/classification/scripts/sleep4_driver.sh 0,1,2,3,0,1,2,3`(큐 `scripts/queues/sleep4-20261127.txt`, pool 로그 `results/flif-v1-sleep4-pool.log`). RESULT 수가 70이 아니거나 SKIP이 있으면 요약하지 않고 멈춘다. 끝에 `summarize_sleep4.py`.
+
+### 한계
+
+- seed 하나(42), fold 5개. f-LIF는 lr 0.003 하나에서 spike / membrane만 돌린다(순서·기억 대조와 aux 없음).
+- f-LIF의 membrane은 spike를 정하는 한 step 앞 값(spikeDE의 look-ahead)이다. f-LIF의 실제 다음 상태(분수 차수 적분)와는 다르다.
+- 기준 run(pop LIF, Spikformer(DE))은 이전 code version으로 돌았다. 기본 경로가 같음은 위 점검으로 확인했다.
+
+### not run
+
+- 일반 LIF / f-LIF로 MIT-BIH, ETT, PTB 다시 돌리기, f-LIF의 순서·기억 대조와 aux, key/value f-LIF, pop f-LIF(요청 시만).
+
+### Git
+
+- 이 항목과 code(`neurons.py`, `model.py`, `scripts/run_sleep.sh`), `check_lifmem.py`, 고친 `check_mem.py`, `fw_identity_lifsleep.py`, `summarize_sleep4.py`, `test_summarize_sleep4.py`, `scripts/sleep4_driver.sh`, smoke `raw.txt`를 사전 고정 commit으로 묶어 push 한 뒤 시작한다. 도는 동안 commit하지 않는다.
