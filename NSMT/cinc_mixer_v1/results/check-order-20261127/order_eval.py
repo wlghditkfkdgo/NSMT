@@ -11,6 +11,7 @@ Wrapper check (fail closed): on the first run every variant with the identity pe
 SF-de, SSA with relative position bias, patch 16, ETTh2 / ETTm2 x H96 / H720 x 3 seeds, flif-v1-ett-sfde-pt16) and 'base2' (the
 first-chain muxlin IAND on the same cells, patch 16, flif-v1-ett-spkmux-ettune). For the Spikformer-style model the 'mixer' variant
 shuffles the SSA input and puts the SSA output back in order (the token-mixing module only), and 'full' shuffles the patch tokens.
+2026-11-27 arm 'sfde1': SF-de trained on ETTh1 / ETTm1 (suite flif-v1-ett-sfde-h1m1; user "SF-de에 대해서 ETTh1, ETTm1의 순서 섞기").
 Each shuffle variant is run with permutation seeds 0, 1, 2 and averaged. Output: one line per run and variant with MSE / MAE and the
 change in % against 'none'; --out writes a JSON for the summary.
 usage (from cinc_mixer_v1/): CUDA_VISIBLE_DEVICES=<g> python -B results/check-order-20261127/order_eval.py --arm <base|pmux> --out <json>
@@ -34,7 +35,7 @@ from train_forecast import data_args                            # noqa: E402
 from data_provider.data_factory import data_provider            # noqa: E402
 
 ap = argparse.ArgumentParser()
-ap.add_argument('--arm', choices=['base', 'pmux', 'sfde', 'base2'], required=True)
+ap.add_argument('--arm', choices=['base', 'pmux', 'sfde', 'base2', 'sfde1'], required=True)
 ap.add_argument('--out', required=True)
 a = ap.parse_args()
 REF = {'ETTh1': 'spkmx_lif_muxlin_iand_lr0.00025_L1_e32_mlp4_wd0.1', 'ETTm1': 'spkmx_lif_muxlin_iand_lr0.0005_L2_pt16_e32_mlp0.5'}
@@ -42,6 +43,8 @@ if a.arm == 'base':
     src, pick = 'flif-v1-ett-spkmux-retune', lambda r: r['ds'] in REF and r['tag'] == REF[r['ds']] and r['pl'] in ('96', '720') and r['blocks'] == '1'
 elif a.arm == 'pmux':
     src, pick = 'flif-v1-ett-sxa-s4', lambda r: r['cond'] == 'spkmx_lif_msxdpca_iand'
+elif a.arm == 'sfde1':
+    src, pick = 'flif-v1-ett-sfde-h1m1', lambda r: r['cond'] == 'spk_ssa' and r['pl'] in ('96', '720')
 elif a.arm == 'sfde':
     src, pick = 'flif-v1-ett-sfde-pt16', lambda r: r['cond'] == 'spk_ssa' and r['pl'] in ('96', '720')
 else:

@@ -18244,3 +18244,45 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 - Git: `results/flif-v1-ett-memoff/{raw.txt, energy_recount.csv, summary.md, summary.json}`, `results/check-memoff-20261127/{recheck_memoff.txt, recheck_memoff_sha.txt, dry_memoff_after_fix.txt}`, 고친 `summarize_memoff.py` · `recheck_memoff.py`.
 - annotated tag `exp/f-lif-pop-v3-memoff-20261127`(완료된 학습 run, 두 commit 표시는 위 설명대로).
 - 앞으로: pool이 도는 동안에는 commit하지 않는다. runner가 run마다 HEAD를 기록하므로 commit 번호가 섞인다.
+
+## 2026-11-27 23:51 KST — 사용자 질문 · 요청 2개 + 사전등록(본 학습 전): (1) SF-de에서 위치 정보를 모두 끈 실험은 이 branch에 없다 → **실행 대기 목록에 추가**. (2) SF-de를 ETTh1 · ETTm1에서 학습(12 run)한 뒤 순서 섞기 평가를 한다
+
+> 사용자 원문: "1. SF-de 에서 모든 positional encoding을 OFF하고 실험한 것이 있어? - 없다면 실행해야 할 목록에 추가해줘. 2. 그리고 SF-de에 대해서 ETTh1, ETTm1의 순서 섞기 실험을 진행해줘."
+
+- **branch / base:** `exp/f-lif-pop-v3`, base `194c8c8cc`. 이 기록의 commit이 학습 code다.
+
+### 답 1: SF-de의 위치 정보와 위치 정보를 끈 실험
+- 이 branch의 SF-de run은 모두 `ssa_pe 1`(SSA의 상대 위치 bias 켜짐), `pos_emb False`(절대 위치 embedding 꺼짐)다. 11-18 `flif-v1-ett-sfde` patch 8, 11-23 `flif-v1-ett-sfde-pt16` patch 16의 config에서 확인했다.
+- embedding의 `pe=False`이고 다른 위치 code는 없다. 따라서 SF-de의 위치 정보는 **SSA 상대 위치 bias 하나뿐**이고, "모두 끔" = `ssa_pe 0`이다.
+- 위치 정보를 끈 SF-de 학습 run은 **이 branch에 없다.** 다른 세션(`exp/nsmt-flif-neo`)의 11-19 PE-off 실험은 다른 model(NSMT 계열)이다.
+- **실행 대기 목록에 추가(아직 실행 안 함):** "SF-de PE-off".
+  - 설계 초안: SF-de `ssa_pe 0`을 ETTh1 · ETTm1(이번 SF-de와 같은 설정) × H96 / H720 × seed 3 = 12 run으로 학습한다.
+  - 비교: 위치 bias가 있는 SF-de, 우리 muxlin IAND와 정확도를 비교한다. 순서 섞기도 한다(위치 정보가 없으면 SSA 섞기는 정확히 0 변화가 나와야 함).
+  - runner에 `SSAPE` 옵션이 필요하다. 이 실험이 "순서를 전혀 모르는 몸통"의 기준선이 되어, T = N 몸통과 정확도를 비교할 수 있다.
+
+### 사전등록 2: SF-de on ETTh1 · ETTm1 + 순서 섞기
+- **학습:** `COND=spk_ssa NALL=lif`(SF-de, spikeDE LIF, SSA 상대 위치 bias 켬). ETTh1(patch 8, lr 5e-4) · ETTm1(patch 16, lr 1e-4) × H96 / H720 × seed 42 / 7 / 2026 = **12 run**(suite `flif-v1-ett-sfde-h1m1`).
+  - patch는 우리 base(muxlin IAND)와 같게 맞췄다(token 수 N 24 / 12).
+  - lr은 SF-de를 lr만 튜닝했던 짝 데이터셋의 값(ETTh2 → ETTh1, ETTm2 → ETTm1)이다. 사용자 결정(11-19 결정 2)대로 SF-de는 따로 튜닝하지 않는다.
+  - 그 밖은 runner 기본값이다(D 64, heads, MLP, wd 0.06, patience 10). 우리 base(D 32 등)와 다르다.
+- **runner:** `spk_ssa`를 ETTh1 / ETTm1에서도 받게 했다(ETTh2 / ETTm2 기본값을 따름).
+  - `check_sf1.py` · `.txt`: 기존 조건의 학습 인자가 바꾸기 전과 같다. 바꾸기 전 runner는 이것을 거부했다. ETTh1 / ETTm1 인자 = ETTh2 / ETTm2 인자에서 데이터셋만 바꾼 것이다.
+- **순서 섞기(학습 뒤, 학습 없음):** `order_eval.py --arm sfde1`(SSA 입력 섞기 / head / full, 순열 seed 3, 기록 MSE 재현 · 항등 순열 점검 fail closed).
+- **판정(`results/check-sfde1-20261127/summarize_order3.py`):**
+  - SF-de 각 섞기에 23:03 규칙(R ≥ +1 %, 8 / 12 → order used)을 쓴다.
+  - **주 판정:** 23:10 base의 mixer 섞기와 짝 대비 Δ_base − Δ_SF-de(SSA). 평균 ≥ +1 %p이고 8쌍 이상 크면 "muxlin이 더 의존", ≤ −1 %p이고 8쌍 이상 작으면 반대, 그 밖은 차이 없음이다.
+  - **보고만:** SF-de vs muxlin IAND 정확도(R ±1 %, 8 / 12)와 energy 비율.
+- **driver:** `scripts/sfde1_driver.sh`. queue → pool → RESULT 12 · SKIP 0 → energy 재계산 → 순서 섞기 → 요약 → driver end 순서이고, 실패하면 STOP한다.
+- **점검:**
+  - smoke(`check-sfde1-smoke-20261127`, ETTh1 H96 1 epoch): 24 s, syops 10.07 µJ. energy 재계산은 "all checks passed"였다.
+  - 요약기 dry run(가짜 값: SF-de Δ가 base보다 3 %p 작음, 정확도 ×1.02, energy ×2): 짝 대비 +3.00 %p → "muxlin depends more", 정확도 R +2.00 % → "SF-de worse", energy 2.000으로 손 계산과 같다(`dry_order3.txt`).
+- **사전 예상(확신 낮음):**
+  - ETTh2 · ETTm2에서 SF-de SSA 섞기가 +0.15 %였으므로, ETTh1 · ETTm1에서도 작을 것이다(no evidence).
+  - 짝 대비는 "muxlin이 더 의존"일 가능성이 높다(base +4.98 %).
+  - 정확도는 11-23(같은 patch에서 차이 없음)처럼 no clear difference일 것이다.
+- **한계:** SF-de는 튜닝하지 않았다. D가 64로 base(32)와 다르다. 4칸 × seed 3이다.
+- **pool이 도는 동안 commit하지 않는다**(memory `no-commit-during-pool`).
+
+**실행:** commit · push 뒤 NSMT/에서 `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/sfde1_driver.sh > /dev/null 2>&1 &`.
+
+**commit:** 이 기록, runner, `order_eval.py`, 새 파일(`sfde1_driver.sh`, `check_sf1.py` · `.txt`, `summarize_order3.py`, `dry_order3.txt`, `energy_recount_smoke.txt`), `results/check-sfde1-smoke-20261127/{raw.txt, energy_recount.csv}`.

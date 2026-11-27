@@ -29,6 +29,8 @@
 #         2026-11-27 stage 4: + COND spkmx_lif_<msxdpca|msxdota>_<cf> (the mask is added to the spike map, learnable alpha init 0)
 #         2026-11-27 T test (user "T를 8로 늘려보자"): TH=<4|8|16> -> --hippo_T (repetition steps of the embedding / MLP neurons) for
 #         spkmx_lif_* conditions, tag _T<TH>; without TH (or TH=4) the training line and tag are unchanged
+#         2026-11-27 SF-de on ETTh1 / ETTm1 (user "SF-de에 대해서 ETTh1, ETTm1의 순서 섞기"): COND=spk_ssa is also accepted for ETTh1 / ETTm1
+#         (it takes the ETTh2 / ETTm2 per-dataset defaults, as the SpkMixer does); every earlier training line is unchanged
 #         2026-11-27 memoryless control (user "(a)도 진행해줘"): TMEM=off -> --token_memory off (every token-axis neuron resets after each
 #         token), tag _tmoff; LIF SpkMixer conditions only; without TMEM the training line and tag are unchanged
 set -u
@@ -102,7 +104,7 @@ case $DS in                       # patch emb heads mlp M lr bs epochs   (as run
   ETTm1) L0=2; E=50 ;;            # 2026-11-24: as ETTm2
   *) echo "bad dataset $DS (ETTh1 / ETTh2 / ETTm1 / ETTm2 only)"; exit 1 ;;
 esac
-case $DS in ETTh1|ETTm1) case $COND in spkmx_lif_*) ;; *) echo "ETTh1 / ETTm1: LIF SpkMixer conditions only (2026-11-24)"; exit 1 ;; esac ;; esac
+case $DS in ETTh1|ETTm1) case $COND in spkmx_lif_*|spk_ssa) ;; *) echo "ETTh1 / ETTm1: LIF SpkMixer or spk_ssa only (2026-11-24; spk_ssa 2026-11-27)"; exit 1 ;; esac ;; esac
 LR=${LR:-0.0005}; LAYERS=${LAYERS:-$L0}                                  # 2026-11-01 tuning knobs
 case $DS in ETTh2|ETTh1) MLP0=0.5 ;; ETTm2|ETTm1) MLP0=1 ;; esac                      # 2026-11-19 ETT tuning knobs (defaults = Table 13 values)
 PATCH=${PATCH:-8}; EMB=${EMB:-64}; MLPR=${MLPR:-$MLP0}; BLOCKS=${BLOCKS:-1}; WD=${WD:-0.06}
