@@ -211,6 +211,9 @@ def _mixer_variants(args):
         kw['mixer_share'] = True
     if getattr(args, 'token_memory', 'on') != 'on':                    # 2026-11-27 memoryless control
         kw['token_memory'] = args.token_memory
+    if getattr(args, 'token_shuffle', False):                         # 2026-11-28 order-only control (seed = the run seed)
+        kw['token_shuffle'] = True
+        kw['token_shuffle_seed'] = int(args.seed)
     return kw
 
 

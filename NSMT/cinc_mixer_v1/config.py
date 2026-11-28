@@ -144,6 +144,7 @@ def parse_arguments():
     snn_arg.add_argument('--mixer_reset', choices=['spikede', 'subtract', 'zero'], default='spikede', help='spkMixer: reset of the directional-stack LIF neurons')
     snn_arg.add_argument('--mixer_share', action='store_true', default=False, help='2026-11-27 spkMixer: the reverse directional stack shares the forward stack weights')
     snn_arg.add_argument('--token_memory', choices=['on', 'off'], default='on', help='2026-11-27 spkMixer: off = every token-axis neuron resets its membrane after each token (memoryless control)')
+    snn_arg.add_argument('--token_shuffle', action='store_true', default=False, help='2026-11-28 spkMixer: random token order per sample in training and evaluation (order-only control)')
     # 2026-11-18 (exp/f-lif-pop-v3, neuron implementation / placement, user request 11-18)
     snn_arg.add_argument('--neuron_all', choices=['sj_lif', 'lif'], default='sj_lif', help='myModel --hippo_ssa: every spikingjelly LIF -> the spikeDE LIF of the SpkMixer')
     snn_arg.add_argument('--spk_neuron_scope', choices=['all', 'mixer'], default='all', help='spkMixer population: all = every neuron layer; mixer = only the token-axis neurons (directional stacks + fusion), embedding / MLP the single neuron of the same family')
@@ -290,6 +291,8 @@ class Config():
             _iso += "_ws"
         if getattr(args, 'token_memory', 'on') != 'on':                    # 2026-11-27 memoryless control
             _iso += "_tmoff"
+        if getattr(args, 'token_shuffle', False):                         # 2026-11-28 order-only control
+            _iso += "_tshuf"
         if str(getattr(args, 'data', '')).upper() in ('CINC2017', 'SHD'):
             _iso += f"_f{args.fold}" + ("_ce" if getattr(args, 'loss_kind', 'cal') == 'ce' and str(args.data).upper() == 'CINC2017' else '')
             if getattr(args, 'crop_tokens', 0):

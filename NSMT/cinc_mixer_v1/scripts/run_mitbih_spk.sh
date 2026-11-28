@@ -13,6 +13,8 @@
 #         TMEM (on | off) -- 2026-11-28 memoryless control: off -> --token_memory off, tag _tmoff; unset = the original arguments
 #         SSAPE (1 | 0) -- 2026-11-28 SF-de without position information: 0 -> --ssa_pe 0 (no relative bias in the SSA), tag _pe0;
 #         spk_ssa only; unset = the original arguments
+#         TSHUF (0 | 1) -- 2026-11-28 order-only control: 1 -> --token_shuffle (random token order per sample in training and
+#         evaluation), tag _tshuf; LIF SpkMixer only; unset = the original arguments
 set -u
 S=${1:?}; GPU=${2:?}
 W="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # cinc_mixer_v1
@@ -89,6 +91,8 @@ case ${SSAPE:-1} in 1) ;; 0) [ "$COND" = spk_ssa ] || { echo "SSAPE: spk_ssa onl
   *) echo "bad SSAPE"; exit 1 ;; esac   # 2026-11-28 SF-de without position information (user "SF-de의 위치 정보 끄기"): no relative bias in SSA
 case ${TMEM:-on} in on) ;; off) case $COND in spkmx_lif_*) HM="$HM --token_memory off"; TAGC="${TAGC}_tmoff" ;; *) echo "TMEM: LIF SpkMixer only"; exit 1 ;; esac ;;
   *) echo "bad TMEM"; exit 1 ;; esac   # 2026-11-28 memoryless control (user "분류 과제 통제"): every token-axis mixer neuron resets after each token
+case ${TSHUF:-0} in 0) ;; 1) case $COND in spkmx_lif_*) HM="$HM --token_shuffle"; TAGC="${TAGC}_tshuf" ;; *) echo "TSHUF: LIF SpkMixer only"; exit 1 ;; esac ;;
+  *) echo "bad TSHUF"; exit 1 ;; esac   # 2026-11-28 order-only control (user "SpkMixer 안에서 순서의 몫만 떼는 대조")
 OUT=$LOG/mitbih_${TAGC}_seed${S}_${TS}_${SHA}.stdout; t0=$(date +%s)
 (cd "$W" && CUDA_VISIBLE_DEVICES=$GPU OMP_NUM_THREADS=${THREADS:-4} $PY ./train.py \
   --model myModel --seed $S --log_dir "$LOG/MITBIH" --gating attn --attn SSA -s --test --print_epoch 1 -nd 0 \

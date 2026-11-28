@@ -1,0 +1,15 @@
+PASS (A) select rc 0: IAND 0.005 (want 0.005), MS 0.02 (want 0.02, tie keeps 0.02)
+PASS (A) summarize_mitres rc 0: R1 A worse, R2 no clear difference, candidates ['MS'], recommendation MS
+PASS (A) R1 IAND vs ADD worse (-1.000), R2 MS vs ADD no clear difference (-0.100)
+PASS (A) summarize_tshuf rc 0: S1 A worse (want A worse), S2 A better (want A better, +0.85)
+PASS (B) select rc 0: IAND 0.005 (want 0.005), MS 0.02 (want 0.02, tie keeps 0.02)
+PASS (B) summarize_mitres rc 0: R1 no clear difference, R2 no clear difference, candidates ['IAND', 'MS'], recommendation IAND
+PASS (C) select rc 0: IAND 0.005 (want 0.005), MS 0.02 (want 0.02, tie keeps 0.02)
+PASS (C) summarize_mitres rc 0: R1 A worse, R2 no clear difference, candidates [], recommendation none (keep ADD)
+PASS select stops on missing validation run: rc 2 "STOP: IAND lr 0.01: seeds ['2026', '42']"
+PASS select stops on mixed commits: rc 2 "STOP: mixed commits ['aaaaaaaaa', 'bbbbbbbbb']"
+PASS summarize_mitres stops on a final row at an unselected lr: rc 2 "STOP: rows: 30 (want 30), validation 24 / final 6 or not the expected (cond, lr, seed)"
+PASS summarize_mitres stops on a recount mismatch: rc 2 "STOP: energy recount missing or recomputed macro-F1 != logged (spkmx_lif_muxlin_ms_lr0.02_L2 seed 7)"
+PASS summarize_tshuf stops on SKIP line: rc 2 "STOP: flif-v1-mitbih-tshuf: SKIP line"
+PASS summarize_tshuf stops on spread default != logged: rc 2 "STOP: tshuf_spread.json: wrong runs or default reading != logged"
+ALL PASS

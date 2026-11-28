@@ -18643,3 +18643,122 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
   - 기억 없는 model · SF-de PE 끔의 lr 맞춤 대조.
 
 **commit:** 이 기록, `results/flif-v1-mitbih-sfde-nope/{raw.txt, energy_recount.csv}`, `results/flif-v1-ett-sfde-nope/{raw.txt, energy_recount.csv}`, `results/check-sfnope-20261128/{order_sfdenope.txt, order_sfdenope.json, order_sfde1n.txt, order_sfde1n.json, summary_sfnope.md, summary_sfnope.json, recheck_sfnope.py, recheck_sfnope.txt}`. tag `exp/f-lif-pop-v3-sfnope-20261128`(완료된 학습 run). driver.log · pool_log.txt · mem_poll.txt · checkpoint · TensorBoard event는 local에 둔다.
+
+## 2026-11-28 19:15 KST — 사용자 결정 + 사전등록(학습 전): (1) MIT-BIH SpkMixer energy 줄이기(IAND · 막전위 shortcut 잔차, 각각 lr 탐색, 30 run), (2) SpkMixer 안에서 순서의 몫만 떼는 대조(token 순서 섞어 학습, 3 run)
+
+### 사용자 요청(원문)
+- "1과 2를 진행해줘." 18:24 보고의 다음 후보 1, 2를 가리킨다.
+  - 1: "MIT-BIH SpkMixer의 energy 줄이기: IAND 잔차가 MIT-BIH에서 정확도를 유지하는지 확인하거나, ADD가 만드는 정수 입력을 다르게 처리"
+  - 2: "SpkMixer 안에서 순서의 몫만 떼는 대조"
+
+### 배경(학습 없음, 기존 기록에서 확인)
+- MIT-BIH SpkMixer의 ADD 잔차(x + m)는 다음 Linear에 정수 입력(0, 1, 2, …)을 준다. syops는 이를 MAC(4.6 pJ)로 센다.
+  - 그래서 ADD는 37.06 µJ(SF-de 7.80 µJ의 4.75배)다.
+  - 0/1 입력을 유지하는 잔차는 SF-de 수준이다. 기존 run의 기록 syops 값은 다음과 같다.
+    - 막전위 shortcut(MS, `spkmx_lif_muxlin_ms_lr0.02_L2`, 11-08): 91.89 %, 7.92 µJ(energy 재계산 csv의 syops 7.86–7.98과 같음)
+    - `spkmx_lif_sdlin_or_lr0.0025_L2`: 91.98 %, 7.36 µJ
+- 11-08 기록은 MS의 MIT-BIH energy를 "1.05배"라 적었다. 그것은 당시 규칙(`total_fft_uJ_corr`, 정수 입력을 값만큼 AC로 셈)의 값이다. 지금 판정 규칙(syops, 11-24 사용자 결정)으로는 ADD의 약 0.21배다. 규칙이 다를 뿐 두 값 모두 맞다.
+- MIT-BIH 11-01 튜닝에서 muxlin IAND는 lr 0.02, validation(fold 0)으로만 돌았다(validation macro-F1 91.72 vs ADD 92.62). 전체 학습 run은 없다.
+- MS는 ADD가 고른 lr 0.02를 그대로 썼다.
+
+### (1) 잔차 시험(suite `flif-v1-mitbih-res`)
+- **팔:** LIF SpkMixer, muxlin, 방향별 층 2, D 384, patch 32(token 11), 30 epoch, cosine, bs 512(기준과 같음). 잔차 둘을 시험한다.
+  - **IAND** `x(1 − m)`: ETT 기준 잔차다. 3과제 하나의 model로 가는 쪽이다.
+  - **MS**: 합은 막전위 u에 두고 Linear에는 spike만 보낸다. ADD의 정수 입력을 다르게 처리하는 방법이다.
+- **lr 탐색**(validation만, 11-01 규칙 그대로, `results/check-mitres-20261128/select_mitres.py`):
+  - lr {0.0025, 0.005, 0.01, 0.02} × seed 42 / 7 / 2026, `VAL_FOLD=0`(training 파일의 StratifiedKFold fold 0 = validation)이다. 잔차마다 12 run, 합 24 run이다.
+  - 점수는 마지막 epoch validation macro-F1의 seed 평균이다. 가장 높은 lr을 고르고, 동점(< 1e-9)이면 0.02(ADD 기준의 lr)를 유지한다.
+  - 결과는 `results/flif-v1-mitbih-res/selected_lr.json`에 쓰고, 다른 선택으로 덮어쓰지 않는다.
+  - IAND lr 0.02는 11-01 행과 비교해 재현 여부를 보고한다.
+- **최종:** 고른 lr로 training 파일 전체를 다시 학습한다. 마지막 epoch weight로 30 % test 파일을 평가한다. 잔차마다 seed 3개, 합 6 run이다.
+- **비교**(`summarize_mitres.py`; d = 100(F1_A − F1_B) %p를 seed별로 구한다. 평균 ≥ +0.5이고 2 / 3 이상 양수면 "A better", 대칭이면 "A worse", 그 밖은 no clear difference다):
+  - R1 IAND vs ADD 기준, R2 MS vs ADD 기준(정확도 유지 여부)
+  - R3 IAND vs SF-de PE 켬, R4 MS vs SF-de PE 켬
+  - 보고: R5 IAND vs MS, R6 · R7 vs SF-de PE 끔
+  - energy는 syops이고, 채택 기준(11-27)은 SF-de 대비 +0.1 %p 이상 · 1.5배 이하다.
+- **추천 규칙(사전 고정):**
+  - 후보는 ADD 대비 "A worse"가 아니고 energy가 SF-de의 1.5배 이하인 잔차다.
+  - IAND가 후보면 IAND를 추천한다(ETT 기준과 같은 잔차 → 한 model). 아니면 MS, 둘 다 아니면 없음(ADD 유지)이다.
+  - 최종 결정은 사용자가 한다.
+- **사전 예상:**
+  - IAND vs ADD **worse**(확신 낮음–중간): validation에서 lr 0.02일 때 0.9 %p 낮았다. lr 탐색이 이 차이를 줄일 수는 있다.
+  - MS vs ADD **no clear difference**(확신 중간): 11-08에 −0.09 %p였다.
+  - energy: 둘 다 7.4–8.0 µJ(SF-de의 약 1.0배, ADD의 약 0.21배), 확신 높음이다.
+  - 추천: MS(IAND가 worse일 경우)다.
+  - vs SF-de 채택 기준: 둘 다 통과하지 못할 것(MS 11-08 행 −0.05 %p), 확신 낮음이다.
+
+### (2) 순서만 떼는 대조(suite `flif-v1-mitbih-tshuf`)
+- **새 선택지 `--token_shuffle`**(runner `TSHUF=1`, tag `_tshuf`, config `_tshuf`): `spk_mixer.py` `SpkMixer`에 넣었다.
+  - patch token N = 11개를 sample마다 random 순서로 섞어 embedding에 넣는다. **학습과 평가 모두**에서 섞는다.
+  - mixer의 token 축 neuron은 token에서 token으로 정보를 넘긴다(상호작용은 있음). 하지만 보는 순서가 매번 noise라서, model은 token 순서를 쓸 수 없다. head는 token 평균이라 순서를 모른다.
+- **난수:** 섞기 전용 CPU 난수 생성기 2개를 쓰고 전역 난수는 쓰지 않는다. 그래서 data 순서 · 초기 weight · 다른 모든 난수가 기준 run과 같다.
+  - 학습용은 run seed로 시작한다.
+  - 평가용은 `eval()`로 바뀔 때마다 고정값(1000003)으로 다시 시작한다. 그래서 validation, 최종 test, energy 재계산이 같은 순열을 본다.
+  - 생성기는 상태(tensor)로 저장해 deepcopy · pickle이 된다.
+- **run:** ADD 기준과 같은 설정(`COND=spkmx_lif_muxlin_add LR=0.02 TSHUF=1`)으로 seed 42 / 7 / 2026, 3 run이다.
+- **분해:**
+  - 기준(순서 + 상호작용) 91.99, 섞기 학습(상호작용만) X, 기억 없음(둘 다 없음) 90.13이다.
+  - 순서의 몫 = 기준 − X, 순서 없는 상호작용의 몫 = X − 기억 없음이다.
+- **비교**(`summarize_tshuf.py`, 같은 MIT-BIH 규칙):
+  - S1 섞기 vs 기준: "A worse"면 순서가 기여한다.
+  - S2 섞기 vs 기억 없음: "A better"면 순서 없는 상호작용이 기여한다.
+  - 보고: S3 vs SF-de PE 끔, S4 vs SF-de PE 켬
+- **보고(`tshuf_spread.py`):** 학습된 섞기 model을 다른 평가 순열(seed 1, 2)과 원래 순서(평가 때만 섞기 끔)로 잰다. 기본 평가 순열의 macro-F1이 기록값과 다르면 멈춘다.
+- **사전 예상:**
+  - S1 **worse**(순서의 몫 ≥ 0.5 %p), 확신 중간이다. SF-de의 위치 bias 몫이 0.67 %p였다.
+  - S2 **better**(≥ 0.5 %p), 확신 중간이다. 순서를 모르는 SF-de가 기억 없는 SpkMixer보다 1.14 %p 높았다.
+  - S3 no clear difference, 확신 낮음이다.
+  - 평가 순열에 따른 흔들림은 0.5 %p 미만일 것이다.
+
+### 바꾼 code(기본 경로는 bit 단위로 같음)
+- `spk_mixer.py`: `token_shuffle`, `token_shuffle_seed`, `train()` override(섞기를 켰을 때만 평가 생성기를 다시 시작), `shuffle_tokens()`, `forward_parts`에서 tokens 직후 섞기.
+- `config.py`: `--token_shuffle`, `_iso` `_tshuf`를 추가했다.
+- `load_model.py`: `_mixer_variants`가 `token_shuffle`과 seed를 넘긴다.
+- `scripts/run_mitbih_spk.sh`: `TSHUF`를 추가했다.
+- 새 파일:
+  - `scripts/mitres_driver.sh`
+  - `results/check-mitres-20261128/{select_mitres.py, summarize_mitres.py, dry_mitres.py}`
+  - `results/check-tshuf-20261128/{check_tshuf.py, tshuf_spread.py, summarize_tshuf.py}`
+
+### 시작 전 점검(모두 통과; 실패하고 고친 것 포함)
+- **runner**(`check-tshuf-20261128/check_runner.txt`, 19 / 19): 수정 전 사본(scratchpad, HEAD 2ccc4a7e8)과 비교했다.
+  - TSHUF가 없으면 ADD 기준 · 기억 없음 · SF-de PE 끔 · IAND · MS validation · MS lr 0.0025의 학습 인자가 같다. TSHUF=0도 같다.
+  - TSHUF=1은 `--token_shuffle`과 `_tshuf`만 더한다. spk_ssa에는 거부된다.
+- **model**(`check_model.txt`, v3 ALL PASS, CPU, MIT-BIH ADD 기준 seed 42의 config):
+  - k1: 기본 경로가 수정 전 code(별도 process)와 parameter 72개 · train / eval 출력 · 전역 난수 상태까지 bit 단위로 같다.
+  - k2–k5(학습된 weight와 실제 test 박동 64개):
+    - 섞기를 켜도 parameter와 state_dict가 같고, 전역 난수를 쓰지 않는다.
+    - 학습된 기준 model은 token을 섞으면 logit이 최대 21.4 변한다(점검이 순서 사용을 볼 수 있음). 섞기를 켜면 eval 출력이 달라진다.
+    - `eval()` 뒤 두 평가가 같다. 한 평가 안의 연속 batch는 새 순서를 받고, 학습 forward 두 번은 다른 순서를 쓴다.
+    - sample별 순열이고 T_h 반복에 같은 순서다.
+    - 학습된 기억 없는 model(순서 모름)에서는 섞기를 켜도 출력이 같다(최대 차이 0).
+    - deepcopy · torch.save · pickle이 되고, 복사본의 eval 출력이 같다.
+- **model 점검에서 실패하고 고친 것(파일 보존):**
+  - **v1** `check_model_v1_init_silent.txt`: 초기 weight에서는 eval 출력이 token 순서와 상관없어서 k2 두 개가 실패했다. k4는 빈 통과였다. 학습된 weight와 실제 박동을 쓰도록 바꾸고, "점검이 순서 사용을 볼 수 있음" 조건을 더했다.
+  - **v2** `check_model_v2_stale_k5.txt`: k5가 train mode forward 전에 받아 둔 출력과 비교해 실패했다(그 사이 BN 이동 통계가 바뀜). 복사 직전 출력과 비교하도록 바꿨다.
+  - code 결함은 아니었다.
+- **smoke**(1 epoch, seed 42; suite `check-tshuf-smoke` · `check-mitres-smoke`; `check_smoke.txt` 13 / 13):
+  - 섞기 run · IAND validation run · MS validation run 모두 RESULT가 있다. 저장 config(token_shuffle / connect_f)와 run 폴더 `_tshuf`를 확인했다.
+  - energy 재계산 "all checks passed"(`energy_recount_smoke.txt`)다. 특히 **섞기 model의 재계산 macro-F1이 기록값과 같다**(0.618419). 평가 순열이 재현된다는 뜻이다.
+  - `tshuf_spread.py` smoke(`spread_smoke.txt`): 기본 평가 순열 = 기록값 61.842다. seed 1 61.701, seed 2 62.310, 원래 순서 64.304(1 epoch 값)이다.
+  - 최대 GPU 메모리는 프로세스당 3,196 MiB다(`mem_poll.txt`). GPU마다 약 45 GB가 비어 있다.
+- **dry run**(`check-mitres-20261128/dry_mitres.txt`, 14 / 14):
+  - 심은 값으로 lr 선택이 맞다(IAND 0.005, MS 동점 → 0.02).
+  - 추천이 맞다(MS / IAND / 없음).
+  - S1 worse · S2 better가 맞다.
+  - 다음 경우에 멈춘다: validation run 빠짐, commit 섞임, 고르지 않은 lr의 최종 행, 재계산 불일치, SKIP, 평가 순열 기록 불일치.
+- **queue:** stub python으로 33줄(2단계 lr 0.02 가정)을 돌렸다. stdout 33개, tag + seed가 모두 다르다. 섞기 3 · validation 24 · MS 15 · IAND 15다.
+
+### 실행
+- `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/mitres_driver.sh`(NSMT/에서)
+- 순서: 1단계 queue `scripts/queues/flif-v1-mitbih-res-A-20261128.txt`(27) → lr 선택 → 2단계 `…-B-20261128.txt`(6) → energy 재계산 2개 → `tshuf_spread.py` → 요약 2개 → driver end. log는 `results/flif-v1-mitbih-res/driver.log`다.
+- 예상 시간: 1단계 약 50–60분, 2단계 약 15–20분, 재계산 약 15분으로 합 1.5–1.8시간이다(GPU를 다른 세션과 함께 씀).
+- **pool이 도는 동안 commit하지 않는다.**
+
+### 한계(미리)
+- ADD 기준의 lr은 OR 잔차로 고른 값을 그대로 썼다(ADD 자체 lr 탐색 없음). 새 잔차가 ADD와 같으면 보수적인 비교다.
+- validation run은 training 파일의 80 %로 학습한다.
+- 순서 섞기 학습은 data 증강 효과도 가질 수 있다.
+- LIF만 시험한다.
+
+**commit:** 이 기록, code 4개(`spk_mixer.py`, `config.py`, `load_model.py`, `scripts/run_mitbih_spk.sh`), `scripts/mitres_driver.sh`, `results/check-mitres-20261128/{select_mitres.py, summarize_mitres.py, dry_mitres.py, dry_mitres.txt}`, `results/check-tshuf-20261128/{check_tshuf.py, tshuf_spread.py, summarize_tshuf.py, check_runner.txt, check_model.txt, check_model_v1_init_silent.txt, check_model_v2_stale_k5.txt, check_smoke.txt, energy_recount_smoke.txt, spread_smoke.txt}`, `results/check-tshuf-smoke/{raw.txt, energy_recount.csv}`, `results/check-mitres-smoke/{raw.txt, energy_recount.csv}`. `mem_poll.txt`는 local에 둔다.

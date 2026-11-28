@@ -76,6 +76,17 @@ unchanged):
                + 'msx<d|p><pc|ot>': the MUX is kept and the attention output a takes the learned fusion's place:
                m = s_d ? a : (F ^ R) = s_d * a + (1 - s_d) * min(F, R), s_d = neuron(BN(|H_f - H_r|)) as in muxlin (design A of
                11-26 23:54). s_d's BN and neuron draw no random numbers, so initial weights stay paired with the no-MUX arms.
+
+2026-11-28 order-only control (PROJECT_LOG pre-registration; user "1과 2를 진행해줘", item 2 "SpkMixer 안에서 순서의 몫만 떼는 대조"):
+  token_shuffle  False (default) | True. With True the N patch tokens of every sample are put in a random order before the
+               embedding, in training AND in evaluation, so the token-axis neurons still carry information from token to token but the
+               order they see is noise (the token-mean head is order-blind, so the model cannot use token order). Permutations come
+               from two private CPU generator streams (no global random number is drawn, so data order, initial weights and every other
+               random draw equal the model without it; the streams are kept as generator states, so the model stays deepcopy / pickle
+               safe): training = seeded with token_shuffle_seed (the run seed);
+               evaluation = re-seeded with token_shuffle_eval_seed at every switch to eval mode (train(False)), so each
+               evaluation pass (validation, the final test, a recount that calls eval() first) sees the same permutations.
+               LIF mixer, rep layout, no band only.
 """
 import json
 import os
@@ -284,8 +295,17 @@ class SpkMixer(nn.Module):
                  mixer_layers=2, T_h=4, neo_tau=2.0, neo_alpha=0.5, fde_method='pred', fde_step=1.0, fde_memory=0,
                  pop_taus=(4., 8., 16., 32.), bias=False, tau=2.0, train_mode='training', in_channels=1, pop_soma_init=None,
                  mixer_comb='or', connect_f='IAND', tau_calib=True, band='none', taxis='rep', gain_table=None, mix_pool='none',
-                 mixer_ms=False, mixer_reset='spikede', neuron_scope='all', mixer_share=False, token_memory='on', **kwargs):
+                 mixer_ms=False, mixer_reset='spikede', neuron_scope='all', mixer_share=False, token_memory='on', token_shuffle=False,
+                 token_shuffle_seed=0, **kwargs):
         super().__init__()
+        self.token_shuffle = bool(token_shuffle)                             # 2026-11-28 order-only control (private generators only)
+        if self.token_shuffle:
+            if mixer != 'lif' or band != 'none' or taxis != 'rep':
+                raise NotImplementedError('token_shuffle: LIF mixer, rep layout, no band')
+            self.token_shuffle_eval_seed = 1000003
+            # generator STATES (CPU ByteTensors, plain attributes: not in the state_dict, not moved by .to(), deepcopy / pickle safe)
+            self._ts_states = {'train': torch.Generator().manual_seed(int(token_shuffle_seed)).get_state(),
+                               'eval': torch.Generator().manual_seed(self.token_shuffle_eval_seed).get_state()}
         if token_memory not in ('on', 'off'):                                # 2026-11-27 memoryless control
             raise ValueError("token_memory must be 'on' or 'off'")
         if token_memory == 'off' and (mixer != 'lif' or connect_f == 'MS' or band != 'none' or taxis != 'rep' or mixer_reset != 'spikede'):
@@ -419,10 +439,29 @@ class SpkMixer(nn.Module):
             raise RuntimeError(f'{tok.shape[1]} tokens but the model was built for {self.num_patches}')
         return tok.unsqueeze(0).expand(self.T_h, -1, -1, -1).contiguous()
 
+    def train(self, mode=True):
+        """2026-11-28: with token_shuffle, every switch to eval mode re-seeds the evaluation generator (otherwise unchanged)."""
+        super().train(mode)
+        if getattr(self, 'token_shuffle', False) and not mode:
+            self._ts_states['eval'] = torch.Generator().manual_seed(self.token_shuffle_eval_seed).get_state()
+        return self
+
+    def shuffle_tokens(self, tok):
+        """2026-11-28: tok [T_h, B, N, F] -> the same tensor with one random token order per sample (the same for the T_h repeats)."""
+        _, B, N, _ = tok.shape
+        key = 'train' if self.training else 'eval'
+        g = torch.Generator()
+        g.set_state(self._ts_states[key])
+        idx = torch.argsort(torch.rand(B, N, generator=g), dim=1).to(tok.device)
+        self._ts_states[key] = g.get_state()
+        return torch.gather(tok, 2, idx.view(1, B, N, 1).expand_as(tok))
+
     def forward_parts(self, x, tok_fn=None, mix_fns=None):
         """Returns logits, embedding spikes [T_h, B, N, D], first block's mixer output [T_h, B, N, D], head input [B, D] and the
         last block's output [T_h, B, N, D]. tok_fn edits the token tensor; mix_fns[i] edits block i's mixer output."""
         tok = self.tokens(x)
+        if getattr(self, 'token_shuffle', False):                             # 2026-11-28 order-only control
+            tok = self.shuffle_tokens(tok)
         if tok_fn is not None:
             tok = tok_fn(tok)
         tok_ax = self.taxis == 'token'

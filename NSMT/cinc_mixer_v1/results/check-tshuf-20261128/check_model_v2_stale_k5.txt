@@ -1,0 +1,17 @@
+PASS source run (MIT-BIH ADD base, seed 42)
+PASS k1 default path: parameters bit-identical old vs new (72 tensors)
+PASS k1 default path: training-mode and eval-mode outputs bit-identical old vs new
+PASS source run (MIT-BIH memoryless, seed 42)
+PASS k2 token_shuffle on: model has the option, off has not
+PASS k2 identical parameters and state_dict keys at the same seed
+PASS k2 no global random draw: CPU random state after a training forward equal on / off
+PASS k2 the trained plain model sees order (max |logit change| when its tokens are permuted 21.448)
+PASS k2 eval output with the shuffle differs from without (the shuffle acts)
+PASS k2 two eval passes, each after eval(), identical
+PASS k2 within one eval pass consecutive batches get new orders (outputs of the same batch twice differ)
+PASS k2 two training forwards use different orders
+PASS k3 per-sample token permutation, same for the T_h repeats (tokens moved 0.81)
+PASS k4 the trained memoryless model fires (logit spread 6.490)
+PASS k4 memoryless (order-blind) model: shuffle on = off (max |diff| 0.00e+00, argmax equal)
+FAIL k5 deepcopy / torch.save / pickle of the shuffle model work, the copy gives the same eval output
+1 FAIL
