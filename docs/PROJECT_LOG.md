@@ -19027,3 +19027,127 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 - 다른 세션의 pool(`nsmt_flif_v1` rd ETT)과 GPU를 함께 쓴다. 10 job, 8 slot이라 벽시계로 약 40–60분으로 본다.
 
 **commit:** 이 기록, 위 code · 점검 결과, smoke `raw.txt` 두 개를 `exp/f-lif-pop-v3`에 commit · push한다(queue, driver.log, checkpoint는 local). 해시는 다음 기록에 적는다. 그 commit에서 NSMT/에서 `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/iand_driver.sh`로 시작한다.
+
+## 2026-11-28 23:33 KST — 결과((1) AD 잔차 IAND 통일 6 run + 재현 1 run, (2) MIT-BIH IAND 순서 대조 3 run; 사전등록 `5a888c310`, SKIP 0): **AD는 IAND로 통일하면 G5보다 AUC-PR이 낮다.** 6쌍 중 5쌍이 낮고 R −1.39 %라 판정은 no clear difference다. 그러나 SF-de 대비 채택 기준(+0.001)을 **통과하지 못한다**(+0.0006). 사전등록 규칙의 추천은 **"G5 유지"**다. MIT-BIH IAND 기준에서도 token 순서가 기여한다(섞으면 **−1.87 %p, worse**). ADD 기준(−1.66 %p)과 차이가 없다
+
+**목적:** 22:52 사전등록 그대로다. 사용자 말 "1. 1번 AD IAND 통일 진행해줘 2. 동시에 3번 순서 대조 다시하기". 설계와 규칙은 바꾸지 않았다.
+
+**branch / base:** `exp/f-lif-pop-v3`. 사전등록 · code commit은 `5a888c310`이고, 10 run 모두 `sha=5a888c310`이다. 실행 중 commit은 없었다.
+
+**실행**
+- NSMT/에서 `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/iand_driver.sh`를 돌렸다. GPU 4장(A6000)에 job 8개를 돌렸고, 다른 세션의 pool(`nsmt_flif_v1` rd ETT)과 GPU를 함께 썼다.
+- driver.log:
+  - 22:53:26 시작(job 10개).
+  - 23:29:02 pool 끝: AD RESULT 6, MIT-BIH RESULT 3, 재현 RESULT 1, SKIP 0.
+  - 이어서 energy 재계산 → spread → 평가 때만 섞기 → 요약 2개 → 독립 재계산.
+  - 23:32:15 `driver end`.
+- `time_s` 합은 12,793 s(3.6 GPU 시간)다. 벽시계로 39분 걸렸다(예상 40–60분).
+  - AD MSL run은 776–805 s, SMAP run은 1,958–2,136 s였다. 11-19의 같은 설정(OR)보다 약 1.5배 길다. GPU를 함께 쓴 탓이고, 비교에는 쓰지 않는다.
+- 환경은 `snn_recall`(python `/home/yschoi/.conda/envs/snn_recall/bin/python`)이고, seed는 42 / 7 / 2026이다.
+
+### (1) AD 잔차 IAND 통일(`results/check-iand-20261128/summary_adiand.md`)
+
+**재현 점검(판정 전 확인):** PSM IAND seed 42를 지금 commit에서 다시 돌렸다. `val_mse_best` 0.012448, `aucpr` 0.390383, `syn_energy_uJ` 7.552642, `best_epoch` 4, `epochs_run` 8로 11-19 행과 **글자까지 같다.** 그래서 IAND-all arm에 11-19 PSM run을 쓴 것은 같은 code의 결과를 쓴 것이다.
+
+| 비교 | dataset | R(AUC-PR, %) | 높은 쌍 | 판정 | AUC-PR 차이 평균 | energy A/B(syops만) | energy A/B(+ neuron 항) | 채택 기준 |
+|---|---|--:|--:|---|--:|--:|--:|---|
+| **J1** IAND-all vs SF-de(튜닝) | MSL · SMAP · PSM | +0.505 | 6/9 | no clear difference | **+0.0006** | 1.0176 | 1.0117 | **통과 못함** |
+| **J2** IAND-all vs G5 | MSL · SMAP | **−1.386** | **1/6** | no clear difference | −0.0019 | 1.0318 | 1.0362 | 통과 못함 |
+| J0(보고) G5 vs SF-de(튜닝) | MSL · SMAP · PSM | +1.452 | 8/9 | no clear difference | +0.0019 | 0.9966 | 0.9880 | 통과 |
+
+- 판정 규칙(사전등록): J1은 R ≥ +2 %이고 9쌍 중 6쌍 이상이면 better, J2는 R ≥ +2 %이고 6쌍 중 4쌍 이상이면 better다. worse는 반대다.
+- 채택 기준: AUC-PR 차이 평균 ≥ 0.001이고 energy(syops만) ≤ 1.5배다.
+- dataset별 seed 평균 r(seed 42 / 7 / 2026):
+  - J1: MSL +0.46 %(+1.20, +0.91, −0.71), SMAP +1.07 %(+0.86, +2.76, −0.40), PSM −0.02 %(같은 run).
+  - J2: MSL **−1.75 %**(−1.71, −0.52, −3.01), SMAP **−1.03 %**(−1.72, +1.01, −2.37).
+
+| arm(seed 평균) | MSL AUC-PR % / energy µJ | SMAP | PSM |
+|---|---|---|---|
+| IAND-all | 14.28 / 15.58 | 11.70 / 7.39 | 39.14 / 7.55 |
+| G5(MSL · SMAP OR, PSM IAND) | 14.53 / 15.15 | 11.82 / 7.13 | 39.14 / 7.55 |
+| SF-de(튜닝) | 14.21 / 15.36 | 11.57 / 7.18 | 39.15 / 7.48 |
+
+- energy는 `syn_energy_uJ`(11-24 결정)다.
+- 보고(사전등록 지표 아님): MSL point-adjusted F1은 IAND가 높다(45.57 대 41.29 %). SMAP은 비슷하다(67.76 대 68.35 %). AUC-ROC는 IAND가 MSL에서 낮다(59.85 대 60.86 %).
+
+**추천(사전등록 규칙):** **G5 유지.** J2는 worse가 아니지만, J1이 채택 기준을 통과하지 못한다.
+
+**사전 예상과 비교**
+- J2 "no clear difference, IAND가 조금 낮을 것": 맞았다(R −1.39 %, 6쌍 중 5쌍 낮음).
+- J1 "no clear difference, 채택 기준 반반": no clear difference는 맞았다. 채택 기준은 통과하지 못했다.
+- energy "G5와 ±5 % 안": 맞았다(1.032배).
+
+**해석(탐색 수준, seed 3)**
+- MSL · SMAP에서는 IAND 잔차가 OR보다 AUC-PR이 일관되게 조금 낮다. 11-19 validation의 재구성 MSE(IAND가 MSL 1.82배, SMAP 1.31배 나쁨)와 같은 방향이다. 그래서 11-19 validation이 0/1 잔차 중 OR을 고른 것이 test에서도 맞는 쪽이었다.
+- IAND로 통일해도 SF-de보다 평균은 높다(R +0.5 %, AUC-PR +0.0006). 다만 채택 기준 0.001에 못 미치고, energy도 1.02배로 조금 높다.
+- 세 과제를 IAND 하나로 맞추면 AD의 SF-de 대비 우위가 채택 기준 아래로 내려간다. 0/1 잔차({OR, IAND})를 dataset마다 validation으로 고르면(G5) 채택 기준을 통과한다.
+
+### (2) MIT-BIH IAND 기준의 순서 대조(`results/check-iand-20261128/summary_tshufi.md`)
+
+| arm(seed 평균) | macro-F1 % | F1 N / S / V / F / Q % | energy µJ(syops) |
+|---|--:|---|--:|
+| **IAND 섞음(새 run)** | **90.34** | 99.03 / 81.07 / 95.65 / 77.39 / 98.56 | 8.50 |
+| IAND 기준 | 92.21 | 99.27 / 86.42 / 96.31 / 80.23 / 98.83 | 9.00 |
+| ADD 기준 | 91.99 | 99.24 / 85.94 / 96.31 / 79.49 / 98.95 | 37.06 |
+| ADD 섞음 | 90.33 | 98.96 / 79.54 / 95.19 / 79.51 / 98.44 | 36.89 |
+| ADD 기억 없음 | 90.13 | 98.94 / 78.59 / 95.14 / 79.42 / 98.58 | 36.15 |
+| SF-de PE 끔 | 91.27 | 99.11 / 82.07 / 95.93 / 80.57 / 98.68 | 7.62 |
+| SF-de PE 켬 | 91.94 | 99.23 / 85.14 / 96.09 / 80.23 / 99.03 | 7.80 |
+
+| 질문 | A vs B | d %p(42 / 7 / 2026) | 평균 | 판정 | energy A/B |
+|---|---|---|--:|---|--:|
+| **T1** | IAND 섞음 vs IAND 기준 | −2.31 / −2.34 / −0.96 | **−1.87** | **worse** | 0.944 |
+| **T2** | IAND의 순서 몫 vs ADD의 순서 몫 | +0.57 / +0.79 / −0.73 | +0.21 | no clear difference | — |
+| T3(보고) | IAND 섞음 vs SF-de PE 끔 | −1.48 / −0.88 / −0.43 | −0.93 | worse | 1.115 |
+| T4(보고) | IAND 섞음 vs SF-de PE 켬 | −1.81 / −2.28 / −0.72 | −1.60 | worse | 1.089 |
+| T5(보고) | IAND 섞음 vs ADD 섞음 | −0.20 / −0.36 / +0.60 | +0.02 | no clear difference | 0.230 |
+| T6(보고) | IAND 섞음 vs ADD 기억 없음 | −0.22 / −0.13 / +0.97 | +0.21 | no clear difference | 0.235 |
+
+- 순서 몫(기준 − 섞음, %p, seed 42 / 7 / 2026):
+  - IAND: +2.31 / +2.34 / +0.96(평균 **+1.87**).
+  - ADD: +1.74 / +1.54 / +1.70(평균 +1.66).
+- T6은 잔차가 서로 달라 **IAND의 "순서 없는 상호작용 몫"이 아니다.** IAND 기억 없는 model은 not run이다.
+- 평가 때만 섞기(학습 없음, 학습된 기준 model의 mixer 입력 token을 표본마다 섞음, 순열 seed 3개 평균):
+  - IAND: −34.99 / −32.12 / −31.65 %p(평균 **−32.92**).
+  - ADD(14:08 기록): 평균 −35.06 %p.
+  - 패치 token을 embedding 앞에서 섞어도 하락 폭은 같았다(ADD 때와 같음).
+  - 항등 순열 점검은 통과했다(섞지 않은 macro-F1을 정확히 냄).
+- 섞은 IAND model의 평가 순서 spread는 0.33–0.55 %p다. 실제 순서로 평가하면 0.64–0.71 %p 낮다(`tshuf_spread_iand.txt`).
+
+**사전 예상과 비교:** T1 worse, T2 no clear difference, 평가 때만 섞기 수십 %p, T3 worse 모두 맞았다.
+
+**해석(탐색 수준, seed 3)**
+- **새 기준(IAND)에서도 token 축 neuron이 token 순서를 써서 성능을 얻는다**(T1 −1.87 %p, 3 / 3). 크기는 ADD 기준과 같다(T2). 20:41 기록의 결론(head가 순서를 모르는 분류 과제에서 SpkMixer의 이득은 주로 순서 사용)이 IAND 기준에도 그대로 선다.
+- 순서를 빼면 SpkMixer(IAND)는 위치 정보 없는 SF-de보다도 낮다(T3 −0.93 %p). SF-de 대비 IAND 기준의 우위(+0.27 %p, 20:41)는 순서 사용에서 나온다고 읽는 것이 맞다.
+- 섞었을 때 IAND와 ADD는 같은 성능이다(T5 +0.02). energy는 IAND가 0.23배다.
+
+### 점검
+- driver 안 점검: 각 suite의 RESULT 개수와 SKIP 0을 확인했다.
+  - MIT-BIH energy 재계산(`flif-v1-mitbih-tshuf-iand/energy_recount.csv`): 재계산 macro-F1 = 기록, 0/1 run에서 두 규칙이 같다(binary). "all checks passed".
+  - spread와 평가 때만 섞기도 기준 읽기가 기록과 같았다.
+- 요약기 두 개(fail closed)는 모두 정상 종료했다.
+- 독립 재계산 `recheck_iand.py`(요약기를 import하지 않음; `recheck_iand.txt`): AD J0–J2, 추천, 재현 읽기, MIT-BIH T1–T6, 순서 몫, spread가 요약과 모두 같다. "ALL CHECKS PASSED".
+
+### 한계
+- seed 3이다. AD 판정 폭(±2 %)이 넓어서, IAND가 6쌍 중 5쌍 낮아도 "차이 없음"이다.
+- AD의 IAND는 lr과 층을 다시 고르지 않았다. G5(OR 기준으로 고른 lr 2e-3, M 1)를 그대로 썼다.
+- MIT-BIH 섞은 model도 lr을 다시 고르지 않았다(ADD 대조와 같음).
+- IAND 기준의 "순서 없는 상호작용 몫"은 재지 않았다(IAND 기억 없는 model not run).
+- SF-de는 11-24 결정에 따라 논문 baseline이 아니다. 여기의 SF-de 비교는 내부 비교다.
+
+### 다음(사용자 결정 필요)
+1. AD 잔차를 어떻게 둘지 정해야 한다.
+   - (가) G5 유지: 0/1 잔차 {OR, IAND}를 dataset마다 validation으로 고른다. 내 추천이고, 사전등록 규칙의 추천이다.
+   - (나) IAND로 통일: AUC-PR −0.0019를 받아들이고, SF-de 대비 채택 기준 통과를 포기한다.
+2. MIT-BIH용 SNN 분류 model 문헌 표를 만든다(학습 없음; 21:28 후보 2).
+3. IAND 기억 없는 MIT-BIH model 3 run으로 IAND 기준의 분해를 마무리한다.
+
+**artifact**
+- commit:
+  - `NSMT/cinc_mixer_v1/results/flif-v1-ad-iand/raw.txt`(sha256 앞 16자리 `3b6efd35d0049fef`).
+  - `results/flif-v1-mitbih-tshuf-iand/{raw.txt(a3b1c2d877f42f66), energy_recount.csv}`.
+  - `results/check-adiand-repro/raw.txt`(3687c50d3886341c).
+  - `results/check-iand-20261128/`: summary_adiand.{md,json}, summary_tshufi.{md,json}, tshuf_spread_iand.{json,txt}, order_iand.{json,txt}, recheck_iand.txt.
+- local: driver.log, pool_log.txt, queue(`scripts/queues/iand-20261128.txt`), run 폴더 · checkpoint · TensorBoard(`NSMT/cinc_mixer_v1/log/{flif-v1-ad-iand, flif-v1-mitbih-tshuf-iand, check-adiand-repro}/`).
+
+**commit / tag:** 이 기록과 결과를 `exp/f-lif-pop-v3`에 commit · push한다. annotated tag `exp/f-lif-pop-v3-iand-20261128`를 붙인다. 이 tag는 완료된 학습 run(AD 6 + 재현 1, MIT-BIH 3)이고 snapshot이 아니다. 이 기록이 들어간 commit은 이 tag로 가리킨다.
