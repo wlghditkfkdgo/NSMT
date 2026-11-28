@@ -1,0 +1,30 @@
+PASS d1 AD planted run exit 0
+PASS d1 J2 = 0: R +0, 0/6, no clear difference, energy 1.000000
+PASS d1 J1 = J0: R +1.452, 8/9, no clear difference, ΔAUC-PR +0.0019, energy syn 0.9966, + neuron 0.9880
+PASS d1 J0 = 11-19 G5 reading (R +1.452 %, 8/9, 0.9880): +1.4519, 8/9, 0.98800
+PASS d1 reproduction reading "same" on the 11-19 row itself
+PASS d1 recommendation IAND for AD (J1 adoption bar True)
+PASS d2 MSL, SMAP x 0.9: J2 R -10.000 % (want -10.000), A worse, recommendation keep G5
+PASS d3 AD stop "SKIP line": exit 2, STOP: SKIP line in the new suite
+PASS d3 AD stop "5 rows": exit 2, STOP: new suite: 5 rows or unexpected rows (want 6 of spkmx_lif_muxlin_iand_lr0.002_L1, MSL / SMAP, holdout 0)
+PASS d3 AD stop "duplicate seed": exit 2, STOP: new suite: 7 rows or unexpected rows (want 6 of spkmx_lif_muxlin_iand_lr0.002_L1, MSL / SMAP, holdout 0)
+PASS d3 AD stop "nan AUC-PR": exit 2, STOP: aucpr = nan not finite / not positive (SMAP spkmx_lif_muxlin_iand_lr0.002_L1 seed 42)
+PASS d3 AD stop "mixed commits": exit 2, STOP: new suite: mixed commits ['dryAD000', 'other']
+PASS d3 AD stop "energy_check fail": exit 2, STOP: energy_check != ok: new SMAP spkmx_lif_muxlin_iand_lr0.002_L1 seed 42
+PASS d3 AD stop "other tag": exit 2, STOP: new suite: 6 rows or unexpected rows (want 6 of spkmx_lif_muxlin_iand_lr0.002_L1, MSL / SMAP, holdout 0)
+PASS d4 MIT-BIH planted run exit 0
+PASS d4 T5 = 0 (+0)
+PASS d4 T3 = S3 (-0.947 = -0.947)
+PASS d4 T6 = S2 (+0.193 = +0.193)
+PASS d4 T2 = IAND base - ADD base (+0.225; residual test R1 +0.23)
+PASS d4 planted order json read through
+PASS d5 MIT-BIH stop "SKIP line": exit 2, STOP: /tmp/claude-1001/-home-yschoi-CLS-spiking-transformer-Bio-inspired-Spiking-Memory-Transformer-for-time-s
+PASS d5 MIT-BIH stop "missing seed": exit 2, STOP: /tmp/claude-1001/-home-yschoi-CLS-spiking-transformer-Bio-inspired-Spiking-Memory-Transformer-for-time-s
+PASS d5 MIT-BIH stop "mixed commits": exit 2, STOP: /tmp/claude-1001/-home-yschoi-CLS-spiking-transformer-Bio-inspired-Spiking-Memory-Transformer-for-time-s
+PASS d5 MIT-BIH stop "recount != logged": exit 2, STOP: /tmp/claude-1001/-home-yschoi-CLS-spiking-transformer-Bio-inspired-Spiking-Memory-Transformer-for-time-s
+PASS d5 MIT-BIH stop "nan f1": exit 2, STOP: f1 not finite (spkmx_lif_muxlin_iand_lr0.01_L2_tshuf seed 7)
+PASS d5 MIT-BIH stop "spread default != logged": exit 2, STOP: spread json: wrong runs or default reading != logged
+PASS d5 MIT-BIH stop "order reading != logged": exit 2, STOP: order json: wrong runs or unshuffled reading != logged
+PASS d6 recheck on planted summaries: ALL CHECKS PASSED
+PASS d6 recheck on a tampered J1 verdict: 1 FAIL
+ALL DRY CHECKS PASSED

@@ -18911,3 +18911,119 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 3. IAND 기준에서 순서 대조를 다시 한다(3 run).
 
 **commit:** 이 기록만.
+
+## 2026-11-28 22:52 KST — 사용자 결정 + 사전등록(학습 전): (1) AD 잔차를 IAND로 통일(MSL · SMAP 6 run + 재현 점검 1 run), (2) MIT-BIH IAND 기준에서 순서만 떼는 대조(3 run)
+
+**직전 commit:** `74ea86970`(21:28 결정 기록). 브랜치 `exp/f-lif-pop-v3`.
+
+### 사용자 말(원문)
+> 1. 1번 AD IAND 통일 진행해줘
+> 2. 동시에 3번 순서 대조 다시하기
+
+("1번"과 "3번"은 21:28 기록의 "다음 후보" 1 · 3이다. 2번 MIT-BIH 문헌 표는 이번에 하지 않는다.)
+
+### 정정(21:28 기록의 표)
+- 21:28 표의 AD energy **0.988**은 `total_fft_uJ`(syops 계산 + f-LIF 논문 neuron 항)의 비율이다. 11-19 판정 열을 그대로 옮겼다. 그런데 표 머리에 "syops energy"라고 적었다.
+- 11-24 사용자 결정(energy = syops 계산만, `syn_energy_uJ`)으로 같은 11-19 G5 행을 다시 읽으면 **0.9966**이다. 아래 dry 점검 d1에서 계산했고, 학습은 하지 않았다.
+- 같은 계산에서 seed 평균 AUC-PR 차이의 세 dataset 평균은 **+0.0019**다. 그래서 G5는 SF-de 대비 채택 기준(+0.001, energy ≤ 1.5배)을 통과한다. 21:28 표의 판정(no clear difference)과 "같은 수준" 읽기는 바뀌지 않는다.
+
+### (1) AD 잔차 IAND 통일
+**목적:** ETT · MIT-BIH와 같은 잔차(IAND)를 AD에도 쓰면 AUC-PR과 energy가 G5와 SF-de 대비 어떻게 되는지 본다. 그러면 세 과제가 같은 SpkMixer 구조가 된다.
+
+**설정:** G5와 같다. 잔차만 IAND로 바꾼다.
+- LIF SpkMixer, muxlin, 방향별 mixer 층 1, lr 2e-3, 모든 층 LIF.
+- 11-02 AD 절차: TSLib, window 100, 10 epoch, patience 3, batch 128, emb 64, patch 8, heads 8, anomaly ratio 1.
+- 학습 파일 전체, seed 42 / 7 / 2026.
+- 새 run 6개: MSL · SMAP × seed 3. suite `flif-v1-ad-iand`, tag `spkmx_lif_muxlin_iand_lr0.002_L1`.
+  - 명령: `SUITE=flif-v1-ad-iand COND=spkmx_lif_muxlin_iand LR=0.002 MLAYERS=1 bash cinc_mixer_v1/scripts/run_ad_spk.sh <MSL|SMAP> <seed> <gpu>`.
+- PSM은 11-19 G5 run을 그대로 쓴다(`flif-v1-ad-energy`, 같은 tag). PSM에서는 0/1 잔차 중 validation이 이미 IAND를 골랐다.
+- 재현 점검 1 run(판정에 쓰지 않음): PSM IAND seed 42를 지금 commit에서 다시 돌린다(suite `check-adiand-repro`).
+  - 이유: 11-19 뒤로 AD model 경로의 code(`spk_mixer.py` 등)를 바꾼 commit이 5개 있다.
+  - 기준: `val_mse_best`, `aucpr`, `syn_energy_uJ`, `best_epoch`, `epochs_run`이 11-19 행과 글자까지 같아야 한다.
+  - 다르면 IAND-all arm(새 MSL · SMAP + 11-19 PSM)이 서로 다른 code의 run을 섞은 것이라고 표시한다. 판정은 그대로 내고 표시를 붙인다.
+
+**비교(test AUC-PR, best-validation weight, seed 짝):**
+- seed마다 r = 100 (A − B) / B, R = dataset별 seed 평균 r의 평균.
+
+| 질문 | A | B | dataset | 판정 규칙 |
+|---|---|---|---|---|
+| J1 | IAND-all | SF-de(튜닝: MSL · SMAP lr 2e-3, PSM 5e-4) | MSL · SMAP · PSM | better = R ≥ +2 %이고 9쌍 중 6쌍 이상 높음, worse는 반대(11-03 · 11-19 규칙) |
+| J2 | IAND-all | G5(MSL · SMAP OR, PSM IAND) | MSL · SMAP(PSM은 같은 run) | better = R ≥ +2 %이고 6쌍 중 4쌍 이상 높음, worse는 반대 |
+| J0(보고) | G5 | SF-de(튜닝) | 세 dataset | 위 정정의 다시 읽기 |
+
+- **채택 기준(11-27)의 AD 형태(여기서 정함):** 세 dataset의 seed 평균 AUC-PR 차이(A − B)의 평균이 0.001 이상이고, energy A/B가 1.5 이하.
+- **energy:** `syn_energy_uJ`(11-24 결정, syops 계산만)로 판정한다. A/B는 세 dataset의 seed 평균 비율의 평균이다. `total_fft_uJ`(11-19 판정 열)는 옆에 보고한다.
+- **추천 규칙:** J2가 worse가 아니고 J1이 채택 기준을 통과하면 "AD도 IAND"를 추천한다. 아니면 "G5 유지"를 추천한다. 결정은 사용자가 한다.
+- 요약기 `results/check-iand-20261128/summarize_adiand.py`가 fail closed로 판정한다. SKIP, 다른 tag, 6행이 아님, commit 섞임, 빠지거나 중복된 참조 행, 유한하지 않은 값, `energy_check` ≠ ok이면 exit 2로 멈추고 아무것도 쓰지 않는다.
+
+**사전 예상(확신 낮음):**
+- 11-19 validation(holdout)에서 IAND의 재구성 MSE는 OR보다 크게 나빴다(MSL 1.82배, SMAP 1.31배; `flif-v1-ad-energy/selection_res.md`).
+- 다만 AUC-PR은 재구성 MSE를 그대로 따르지 않는다. PSM에서는 IAND가 validation에서 OR보다 좋았지만, AUC-PR은 SF-de와 같았다(−0.02 %).
+- J2: no clear difference가 가장 가능성 높다. 방향은 IAND가 조금 낮을 것으로 본다.
+- J1: no clear difference. 채택 기준 통과 여부는 반반이다. G5의 여유가 +0.0019로 작다.
+- energy: IAND와 OR 모두 0/1을 내므로 G5와 ±5 % 안일 것이다.
+
+### (2) MIT-BIH IAND 기준의 순서만 떼는 대조
+**목적:** 새 기준(IAND lr 0.01)에서도 token 순서가 성능에 기여하는지 본다. ADD 기준에서의 크기(−1.66 %p, 20:41 기록)와도 비교한다.
+
+**설정:**
+- IAND 기준(`spkmx_lif_muxlin_iand_lr0.01_L2`: LIF, muxlin, 방향별 층 2, patch 32, D 384, 30 epoch, cosine, bs 512, 마지막 epoch weight)에 `--token_shuffle`(TSHUF=1)을 더한다.
+- 20:41 ADD 대조와 같은 구현이다.
+  - 표본마다 무작위 token 순서를 쓴다. 학습과 평가 모두 섞는다.
+  - 순서는 전용 generator에서 뽑는다(전역 난수를 쓰지 않음). 평가 stream은 `eval()` 때마다 seed 1000003으로 다시 시작한다.
+  - lr은 다시 고르지 않는다. ADD 대조도 기준의 lr을 그대로 썼다.
+- 새 run 3개: seed 42 / 7 / 2026, suite `flif-v1-mitbih-tshuf-iand`, tag `spkmx_lif_muxlin_iand_lr0.01_L2_tshuf`.
+  - 명령: `SUITE=flif-v1-mitbih-tshuf-iand COND=spkmx_lif_muxlin_iand LR=0.01 TSHUF=1 bash cinc_mixer_v1/scripts/run_mitbih_spk.sh <seed> <gpu>`.
+
+**비교(test macro-F1; seed마다 d %p; 평균 ≥ +0.5이고 3개 중 2개 이상 > 0이면 'A better', 반대는 'A worse'; energy는 syops `syn_energy_uJ`):**
+
+| 질문 | A | B | 읽기 |
+|---|---|---|---|
+| T1 | IAND 섞음 | IAND 기준 | 'A worse'면 token 순서가 기여. IAND의 순서 몫 = 기준 − 섞음 |
+| T2 | IAND의 순서 몫 | ADD의 순서 몫(ADD 기준 − ADD 섞음) | 'A better'면 IAND가 순서를 더 씀 |
+| T3 · T4(보고) | IAND 섞음 | SF-de PE 끔 · SF-de PE 켬 | |
+| T5(보고) | IAND 섞음 | ADD 섞음 | 섞었을 때 잔차의 차이 |
+| T6(보고) | IAND 섞음 | ADD 기억 없음 | 잔차가 다르다. **IAND의 "순서 없는 상호작용 몫"이 아니다.** IAND 기억 없는 model은 not run |
+
+**보고(학습 없음):**
+- 섞은 model의 평가 순서 spread다(`tshuf_spread.py --tag`). 다른 평가 순서 2개와 실제 순서로 평가한다.
+- IAND 기준 model을 평가 때만 섞는다(`cls_order_eval.py --arm iand`). 14:08 기록의 ADD 기준 결과(mixer 입력 −35.06 %p)와 나란히 둔다.
+
+**사전 예상:**
+- T1: worse(ADD는 −1.66 %p, 3 / 3). 확신 중간.
+- T2: no clear difference.
+- 평가 때만 섞기: 수십 %p 하락(ADD −35 %p와 비슷).
+- T3: worse(ADD 대조는 −0.95 %p). 확신 낮음.
+
+### 바꾼 code(학습 code는 바꾸지 않음)
+- `results/check-tshuf-20261128/tshuf_spread.py`: `--tag`를 더했다. 기본값은 ADD tag로, 이전과 같다.
+- `results/check-mitorder-20261128/cls_order_eval.py`: arm `iand`를 더했다. `_v0` validation 행은 tag가 달라 섞이지 않는다.
+- 새 파일:
+  - `scripts/iand_driver.sh`: queue 10줄(느린 것 먼저) → pool → RESULT 6 / 3 / 1, SKIP 0 → MIT-BIH energy 재계산 → spread → 평가 때만 섞기 → 요약 2개 → 독립 재계산 → `driver end`. 실패하면 STOP.
+  - `results/check-iand-20261128/{summarize_adiand.py, summarize_tshufi.py, recheck_iand.py, dry_iand.py}`.
+- `git diff 74ea86970`의 `.py` · `.sh` 변경은 위 report script 두 개뿐이다. model · train · runner 경로는 그대로다.
+
+### 점검(모두 통과)
+- **runner**(`check_runner.txt`): 인자를 출력만 하는 가짜 python으로 4개 명령을 확인했다.
+  - AD 명령은 G5 명령에서 `--connect_f IAND`만 다르다.
+  - MIT-BIH 섞음 명령은 IAND 기준 명령에 `--token_shuffle`과 tag `_tshuf`를 더한 것이다.
+- **dry 30 / 30**(`dry_iand.txt`): 기록된 행으로 가짜 suite를 만들어 답을 미리 안다.
+  - d1: G5 OR 행을 IAND 이름으로 바꾸면 J2 = 0이고, J1 = J0 = 11-19 G5 읽기다(R +1.452 %, 8/9, 이전 열 0.9880). 위 정정의 0.9966 · +0.0019도 여기서 나왔다. 재현 "같음".
+  - d2: MSL · SMAP AUC-PR × 0.9면 J2 R −10 %, worse, "G5 유지".
+  - d3: SKIP, 5행, 중복 seed, nan, commit 섞임, `energy_check` fail, 다른 tag는 모두 exit 2로 멈추고 아무것도 쓰지 않는다.
+  - d4: ADD 섞음 행을 IAND 섞음 이름으로 바꾸면 T5 = 0, T3 = S3(−0.947), T6 = S2(+0.193), T2 = IAND 기준 − ADD 기준(+0.225)이다.
+  - d5: SKIP, seed 빠짐, commit 섞임, 재계산 macro-F1 ≠ 기록, spread · 순서 json의 기준 읽기 ≠ 기록, nan은 모두 멈춘다.
+  - d6: 독립 재계산이 d1 + d4 요약에서 "ALL CHECKS PASSED"를 내고, J1 판정을 바꿔 넣으면 FAIL을 낸다.
+  - 내 실수 기록: d2의 첫 판은 MSL만 낮추고 worse를 기대했다. 규칙은 6쌍 중 3쌍만 낮아 "no clear difference"로 맞게 판정했다. 틀린 것은 내 기대였고, 점검을 두 dataset 모두 낮추도록 고쳤다.
+- **smoke**(1 epoch, seed 42, `check_smoke.txt`): MIT-BIH IAND 섞음과 AD MSL IAND 모두 RESULT를 냈다(AD `energy_check=ok`).
+  - MIT-BIH energy 재계산의 macro-F1이 기록과 같았다.
+  - spread도 기본 읽기가 기록과 같았다.
+  - `tshuf_spread.py`를 고친 뒤 기본(ADD) 경로를 다시 돌린 결과가 commit된 `tshuf_spread.json`과 완전히 같았다.
+  - 최대 GPU 메모리는 MIT-BIH 3,128 MiB, AD 1,398 MiB였다(GPU당 49 GB; 다른 세션이 GPU당 약 3.8 GB 사용). SLOTS `0,1,2,3,0,1,2,3`이다.
+- queue 10줄은 모두 다르다(driver가 점검). suite가 셋이라 출력 폴더와 stdout도 겹치지 않는다.
+
+### 예상 시간
+- 11-19 · 20:41 run 시간 기준: AD SMAP 약 1,350 s, MSL 약 550 s, PSM 약 900 s, MIT-BIH 약 1,150 s.
+- 다른 세션의 pool(`nsmt_flif_v1` rd ETT)과 GPU를 함께 쓴다. 10 job, 8 slot이라 벽시계로 약 40–60분으로 본다.
+
+**commit:** 이 기록, 위 code · 점검 결과, smoke `raw.txt` 두 개를 `exp/f-lif-pop-v3`에 commit · push한다(queue, driver.log, checkpoint는 local). 해시는 다음 기록에 적는다. 그 commit에서 NSMT/에서 `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/iand_driver.sh`로 시작한다.

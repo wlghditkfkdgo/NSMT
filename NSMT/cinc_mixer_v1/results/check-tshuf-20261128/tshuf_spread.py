@@ -27,8 +27,9 @@ ap = argparse.ArgumentParser()
 ap.add_argument('--out', required=True)
 ap.add_argument('--suite', default='flif-v1-mitbih-tshuf')                # --suite / --n: the smoke test of this script
 ap.add_argument('--n', type=int, default=3)
+ap.add_argument('--tag', default='spkmx_lif_muxlin_add_lr0.02_L2_tshuf')  # 2026-11-28 22:5x: the IAND base (..._iand_lr0.01_L2_tshuf)
 a = ap.parse_args()
-TAG = 'spkmx_lif_muxlin_add_lr0.02_L2_tshuf'
+TAG = a.tag
 rows = [dict(t.split('=', 1) for t in l.split()[1:] if '=' in t) for l in open(os.path.join(C, 'results', a.suite, 'raw.txt')) if l.startswith('RESULT')]
 rows = [r for r in rows if r.get('tag') == TAG]
 if len(rows) != a.n:
