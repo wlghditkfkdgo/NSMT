@@ -18560,3 +18560,86 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 - **pool이 도는 동안 commit하지 않는다.**
 
 **commit:** 이 기록, runner 2개, `cls_order_eval.py`, `order_eval.py`, `scripts/sfnope_driver.sh`, `results/check-sfnope-20261128/{summarize_sfnope.py, check_sfnope.py, dry_sfnope.py, check_runner.txt, check_model.txt, check_model_v1_vacuous.txt, check_model_v2_ett_train_silent.txt, check_model_v3_ett_train_silent.txt, check_model_v4_bn_rounding.txt, check_smoke.txt, energy_recount_smoke.txt, dry_sfnope.txt}`, `results/check-sfnope-smoke-{mitbih,ett}/{raw.txt, energy_recount.csv}`. `mem_poll.txt`는 local에 둔다.
+
+## 2026-11-28 18:24 KST — 결과(SF-de 위치 정보 끄기, 15 run, 사전등록 `7af763e56`, SKIP 0)
+- **MIT-BIH:** SF-de는 위치 bias를 끄면 **떨어진다**(−0.67 %p, 3 / 3).
+  - body에 명시적 위치 정보가 없는 조건끼리 비교하면 **SpkMixer가 SF-de보다 낫다**(+0.71 %p, 3 / 3). 다만 energy는 SF-de의 **4.86배**다.
+  - **틀린 예상과 정정:** 기억 없는 SpkMixer는 위치 정보 없는 SF-de보다 **낮다**(−1.14 %p, 3 / 3; 예상은 차이 없음). 그래서 14:36의 "기억 끄기 = 순서 제거" 해석을 고친다. 기억 끄기는 token 사이 상호작용 전체를 없앤다.
+- **ETT:** 모든 비교가 no clear difference다.
+
+### 실행
+- `scripts/sfnope_driver.sh`, queue `scripts/queues/flif-v1-sfde-nope-20261128.txt`(local), SLOTS 0,1,2,3,0,1,2,3이다.
+- 시각: driver start 17:45:28(HEAD `7af763e56`) → pool done 18:15:01(MIT-BIH RESULT 3 / 3, ETT 12 / 12, SKIP 0) → energy 재계산 2개 "all checks passed" → 순서 평가 2개(항등 순열 점검 통과) → 요약 → driver end 18:23:39.
+- 15 run 모두 학습 commit `7af763e56`이다. pool이 도는 동안 commit하지 않았다.
+- run 시간: MIT-BIH 576–590 s, ETT 245–1,773 s(GPU를 다른 세션과 함께 씀).
+
+### 결과(`results/check-sfnope-20261128/summary_sfnope.md` · `.json`)
+
+**MIT-BIH(seed 평균)**
+
+| model | body의 순서 정보 | macro-F1 % | 정확도 % | class S F1 % | energy µJ(syops) |
+|---|---|--:|--:|--:|--:|
+| SF-de PE 켬 | 상대 위치 bias | 91.94 | 98.53 | 85.14 | 7.80 |
+| **SF-de PE 끔(새)** | 없음(순서 모름) | **91.27** | 98.33 | 82.07 | 7.62 |
+| SpkMixer LIF 기억 | neuron 동역학(명시적 위치 정보 없음) | 91.99 | 98.56 | 85.94 | 37.06 |
+| SpkMixer 기억 없음 | 없음(순서 모름, token 사이 흐름 없음) | 90.13 | 98.03 | 78.59 | 36.15 |
+
+| 비교 | A vs B | d %p(seed 42 / 7 / 2026) | 평균 | 판정 | energy A/B | 사전 예상 |
+|---|---|---|--:|---|--:|---|
+| M1 | SF-de PE 끔 vs 켬 | −0.32 / −1.39 / −0.29 | **−0.67** | **A worse** | 0.977 | worse — 맞음 |
+| **M2(주)** | SpkMixer vs SF-de PE 끔 | +0.45 / +1.02 / +0.67 | **+0.71** | **A better** | **4.863** | better — 맞음 |
+| M3 | 기억 없는 SpkMixer vs SF-de PE 끔 | −1.26 / −0.76 / −1.40 | **−1.14** | **A worse** | 4.744 | 차이 없음 — **틀림** |
+| M4 | SpkMixer vs SF-de PE 켬 | +0.13 / −0.37 / +0.37 | +0.04 | no clear difference | 4.751 | (11-18과 같음) |
+
+- **점검:** 학습된 PE-off SF-de는 SSA 섞기와 full 섞기의 drop이 세 seed 모두 **+0.0000 %p**였다(`order_sfdenope.txt` · `.json`). 의도대로 순서를 전혀 모르는 model이다. 섞지 않은 macro-F1은 기록값과 같다.
+
+**ETT(ETTh1 / ETTm1 × H96 / H720 × seed 3, 4칸 평균)**
+
+| model | MSE | MAE | energy µJ(syops) |
+|---|--:|--:|--:|
+| SF-de PE 끔(새) | 0.4120 | 0.4081 | 19.82 |
+| SF-de PE 켬 | 0.4106 | 0.4077 | 19.79 |
+| muxlin IAND LIF 기억 | 0.4117 | 0.4067 | 10.38 |
+| muxlin IAND 기억 없음 | 0.4127 | 0.4072 | 10.35 |
+
+| 비교 | A vs B | MSE R % | 낮은 / 높은 쌍 | MSE 판정 | MAE R % | energy A/B | 사전 예상 |
+|---|---|--:|---|---|--:|--:|---|
+| E1 | SF-de PE 끔 vs 켬 | +0.33 | 4 / 8 | no clear difference | +0.13 | 1.001 | 맞음 |
+| **E2(주)** | muxlin IAND vs SF-de PE 끔 | +0.06 | 5 / 7 | no clear difference | −0.32 | **0.529** | 맞음 |
+| E3 | 기억 없는 muxlin vs SF-de PE 끔 | +0.32 | 7 / 5 | no clear difference | −0.17 | 0.527 | 맞음 |
+
+- 칸별 SF-de PE 끔(MSE / MAE): ETTh1 H96 0.3778 / 0.3901, H720 0.4893 / 0.4655, ETTm1 H96 0.3175 / 0.3464, H720 0.4633 / 0.4305.
+- **순서 섞기**(학습된 PE-off SF-de, `order_sfde1n.*`): SSA 섞기는 정확히 0(최대 |·| 0.000 %)이었다. head 섞기는 **+102.51 %**(ETTh1 +84.38, ETTm1 +120.64)이고 full 섞기도 같다.
+  - 11-27 같은 칸의 값: muxlin IAND head +101.19 %, SF-de PE 켬 head +103.29 %.
+  - ETT에서는 세 model 모두 순서 정보를 거의 head가 실어 나른다.
+- **energy:** PE 끔 ≈ PE 켬이다(MIT-BIH 0.977, ETT 1.001). bias 덧셈은 syops가 세지 않고 발화만 조금 바뀐다(사전 예상과 같음).
+- **독립 재계산**(`recheck_sfnope.txt`, repo import 없음): M1–M4의 d · 평균 · 판정 · energy, E1–E3의 MSE · MAE R · 쌍 수 · 판정 · energy, 순서 점검이 모두 요약과 같다. ALL CHECKS PASSED다.
+
+### 해석
+- **SF-de는 MIT-BIH에서 위치 bias를 실제로 쓴다.** 끄면 −0.67 %p이고, class S가 85.14 → 82.07로 가장 크게 떨어진다. ETT에서는 쓰지 않는다(+0.33 %, head가 대신함).
+- **주 비교(M2):** 두 body 모두 명시적 위치 정보가 없을 때, neuron 동역학(SpkMixer)이 순서를 모르는 attention보다 MIT-BIH에서 낫다(+0.71 %p, 3 / 3). 차이 기준(±0.5 %p)과 채택 기준(+0.1 %p)을 모두 넘는다. 그러나 **energy가 4.86배로 채택 기준(≤ 1.5배)을 넘는다.**
+- **논문 문장으로 쓸 수 있는 것:** "SpkMixer는 positional encoding 없이도 positional encoding을 쓰는 Spikformer식 model과 같은 MIT-BIH 정확도를 낸다(91.99 vs 91.94). Spikformer식 model은 positional encoding을 빼면 0.67 %p 떨어진다."
+  - 현재 MIT-BIH 설정(ADD 잔차)의 energy는 SF-de의 약 4.8배다. 저전력 주장과 함께 쓸 수 없다.
+- **정정(14:36 해석):** 14:36에는 기억 없는 대조(−1.85 %p)를 "시간 동역학이 **순서 정보**를 실어 성능에 기여한다"로 읽었다. M3가 이 해석이 지나쳤음을 보인다.
+  - 기억을 끄면 mixer 안의 token 사이 흐름이 **모두** 사라진다. 순서뿐 아니라 "다른 token을 보는 것" 자체가 없어진다.
+  - 순서를 모르지만 token을 서로 섞는 SF-de PE 끔(91.27)은 기억 없는 SpkMixer(90.13)보다 1.14 %p 높다.
+  - 그래서 −1.85 %p는 "token 사이 상호작용 + 순서"의 몫이다. "token 축 동역학이 성능에 기여한다"는 맞지만, 그 전부를 순서의 몫으로 볼 수는 없다.
+  - SpkMixer 안에서 순서만 떼어 보려면 다른 대조가 필요하다. 예를 들어 token을 섞어 학습하거나, token 사이 흐름은 두되 순서와 무관한 mixer를 쓰는 방법이다(not run).
+- **ETT:** 위치 정보 유무, 기억 유무, neuron vs attention 모두 차이가 없다. ETT 4칸에서 정확도 차이는 body가 아니라 head 쪽에서 정해지는 것으로 보인다. muxlin IAND의 energy는 SF-de의 0.53배다.
+
+### 한계
+- seed 3개, MIT-BIH 분할 하나, ETT 4칸뿐이다.
+- SF-de PE 끔은 PE 켬의 lr(MIT-BIH 0.01, ETTh1 5e-4, ETTm1 1e-4)을 그대로 썼다(다시 튜닝하지 않음). M1의 하락 일부가 튜닝 불리함일 수 있다.
+- MIT-BIH SpkMixer는 ADD 잔차 하나만 시험했다. energy 문제는 그대로다.
+- 비교한 neuron은 SF-de spikeDE LIF와 SpkMixer LIF뿐이다. population neuron은 not run이다.
+
+### 결론
+- SF-de의 위치 bias는 MIT-BIH에서 기여하고(+0.67 %p), ETT에서는 기여하지 않는다.
+- 위치 정보 없는 body끼리 비교하면 SpkMixer가 MIT-BIH에서 낫다(+0.71 %p, 3 / 3). 다만 energy가 4.86배라 채택 기준을 넘는다.
+- 기억 없는 대조의 −1.85 %p는 순서만이 아니라 token 사이 상호작용 전체의 몫이다(14:36 해석 정정).
+- 다음 후보(사용자 결정 필요):
+  - MIT-BIH SpkMixer의 energy 줄이기. IAND 잔차가 MIT-BIH에서 정확도를 유지하는지, 또는 ADD의 정수 입력 처리를 바꾸는 방법이 있다.
+  - SpkMixer 안에서 순서의 몫만 떼는 대조.
+  - 기억 없는 model · SF-de PE 끔의 lr 맞춤 대조.
+
+**commit:** 이 기록, `results/flif-v1-mitbih-sfde-nope/{raw.txt, energy_recount.csv}`, `results/flif-v1-ett-sfde-nope/{raw.txt, energy_recount.csv}`, `results/check-sfnope-20261128/{order_sfdenope.txt, order_sfdenope.json, order_sfde1n.txt, order_sfde1n.json, summary_sfnope.md, summary_sfnope.json, recheck_sfnope.py, recheck_sfnope.txt}`. tag `exp/f-lif-pop-v3-sfnope-20261128`(완료된 학습 run). driver.log · pool_log.txt · mem_poll.txt · checkpoint · TensorBoard event는 local에 둔다.
