@@ -49,6 +49,7 @@ class Forecaster(nn.Module):
         self.T = getattr(inner, 'T', None)
         self.head_kind, self.body_off = head_kind, False
         self.aux, self._x_neo = False, None                                # MODI 2026-11-19 (aux loss): set by train_forecast.py
+        self.aux_past, self._past = False, None                             # MODI 2026-11-27 (accumulation aux): set by train_forecast.py
         # MODI 2026-11-19 (overfitting test): dropout on the flat head's input (training only; no parameters). 0 (default): no module,
         # so the state_dict, the RNG use and every output are unchanged. 'flat' head only.
         if not 0. <= float(head_dropout) < 1.:
@@ -91,7 +92,21 @@ class Forecaster(nn.Module):
             x_neo = m.neo_forward(neo_in, z.clone().detach())[1] if self.kind == 'dual' else None   # [N, B', 1, D]
         if self.aux:                                                       # MODI 2026-11-19: kept for aux_rec_loss()
             self._x_neo = x_neo
+        if self.aux_past and self.training:                                # MODI 2026-11-27: kept for aux_past_loss()
+            self._past = (x_neo, neo_in)
         return m.hippo_blocks(xh, x_neo)
+
+    def aux_past_loss(self):
+        """MODI 2026-11-27 (approved plan 1-snuggly-galaxy.md): the accumulation aux of the classification models on ETT -- from the
+        Neocortex output at token t (spikes, or the membrane with --neo_readout mem / memd) and a one-hot of a random lag d in 1..t,
+        myModel.aux_past_dec reconstructs the input token t - d (the window-normalised patch, myModel._tokens_mc). MSE of the last
+        training forward. 'dual' with --aux_past rand only."""
+        if self.kind != 'dual' or self._past is None or getattr(self.inner, 'aux_past', 'none') == 'none':
+            raise RuntimeError('aux_past_loss: needs a dual-path forecaster with --aux_past rand and a training forward first')
+        x_neo, neo_in = self._past
+        self._past = None
+        tgt, rec = self.inner.past_pair(x_neo, neo_in)
+        return ((tgt - rec) ** 2).mean()
 
     def aux_rec_loss(self):
         """MODI 2026-11-19 (aux loss, user request 11-19): NSMT's reconstruction loss for the last forward -- the dual-path

@@ -196,8 +196,9 @@ def parse_arguments():
     snn_arg.add_argument('--val_frac', type=float, default=0.1, help='share of the training part held out for validation')
     snn_arg.add_argument('--token_step', type=int, default=0,       # (--patch_stride is an older, unrelated option: dest stride)
                          help='MODI 2026-11-26: token step of myModel (0 = patch // 2 with end padding, the default; > 0 = this step, no padding)')
-    snn_arg.add_argument('--neo_readout', choices=['spike', 'mem'], default='spike',
-                         help='MODI 2026-11-27: Neocortex output to the hippocampus queries: spikes (default) or the last layer soma membrane before reset')
+    snn_arg.add_argument('--neo_readout', choices=['spike', 'mem', 'memd'], default='spike',
+                         help='MODI 2026-11-27: Neocortex output to the hippocampus queries: spikes (default) or the last layer soma membrane before reset '
+                              '(mem: through q_linear -> BN -> LIF; memd: BN only, used directly as the real-valued queries)')
     snn_arg.add_argument('--aux_past', choices=['none', 'rand'], default='none',
                          help='MODI 2026-11-27: accumulation aux = reconstruct the token d back (d random in 1..t) from the Neocortex output at t (weight --alpha)')
     snn_arg.add_argument('--ctx_shuffle', action='store_true', default=False,

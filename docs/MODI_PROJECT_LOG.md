@@ -12653,3 +12653,151 @@ membrane 출력의 energy 증가(MAC 2.22 M → 4.58 M)는 pop LIF와 같다. au
 ### Git
 
 - 이 항목, run마다 text 산출물, `results/flif-v1-sleep4/{raw.txt, summary.md, decision.json, adoption.md, adoption.json}`, `adoption_sleep.py`, 앞의 두 항목(채택 기준 결정, SpikF 비교)과 `forecasting/compare_spikf_ett.py`, `forecasting/results/flif-v1-ett-vs-spikf/{summary.md, decision.json}`을 commit하고 tag `exp/nsmt-flif-neo-20261127-sleep4`를 단다.
+
+## 2026-11-28 13:30 KST — 사용자 결정 기록 + 사전 고정 + 구현 (학습 전): Neocortex 출력 3가지(spike / membrane (가) / membrane (나)) × 축적 aux × 기본 neuron 3종을 MIT-BIH·Sleep-EDF·ETT에서 (295 run). 기본 경로 동일 81/81 + 32/32 + 16/16 + 15/15, 기존 경로 재현(ETT 첫 epoch, MIT-BIH 30 epoch 전체, Sleep smoke 모두 값 동일), 점검 36/36, 명령줄 점검 통과, 출력 경로 295/295 서로 다름, 요약 script 시험 통과, smoke 61 중 50 + 재실행 11 통과
+
+**사용자 요청 / 결정 (11-27, 원문):**
+- "내 말은, 축적 aux와 memebrane 출력으로 예측 과제와 분류 과제도 수행해서 성능 변화를 살펴보자는 이야기였어."
+- "membrane 출력이라 하면 neocortex의 마지막 layer의 LIF neuron의 T개의 membrane 출력을 그대로 hippo의 cross-attention에 사용하는 구조가 맞지?" — 내 답: 마지막 층의 T(= N)개 step membrane(reset 전)을 쓰는 것은 맞지만, 지금 방식 (가)는 그 값이 q_linear → BN → query LIF를 거쳐 다시 spike가 된 뒤 attention에 들어간다. 그래서 "그대로"는 아니다. "그대로" 쓰는 (나)를 따로 제안했다.
+- "1. 둘다" — (가)와 (나)를 모두 시험한다.
+- "2. 일단은 빼고 성능 변화만 본 다음에 후에 진행하는 것으로 plan에 작성해줘." — 순서·기억 대조는 뒤로 미룬다.
+- "3. 현재 진행되고 있는 것 + 지금 우리가 논의한 계획안 까지 안정적으로 수행을 완수할 수 있도록 plan에 정확하게 작성해줘." → plan `/home/yschoi/.claude/plans/1-snuggly-galaxy.md`를 쓰고 사용자가 승인했다.
+
+**branch / 기준 commit:** `exp/nsmt-flif-neo`, 기준 `41ee16245`.
+
+**정정:** 11-27 대화에서 "membrane 형태를 둘 다 쓰면 약 210 run"이라고 했다. 이것은 계산 실수였다. (나)+aux 조합과 Sleep 빈칸을 넣으면 295 run이다(plan에 적었다).
+
+### 실험 의도 — 확인하려는 것
+
+1. **과제 일반성:** Sleep-EDF에서 본 효과가 ETT(예측)와 MIT-BIH(분류)에서도 나타나는가? Sleep에서는 일반 LIF + aux가 +2.02였고, aux를 켜면 순서 몫이 "좋음"이 되었으며, membrane + aux는 "좋음"이었다.
+2. **(나)가 (가)를 대신할 수 있는가:** 정확도를 지키면서 energy를 spike 출력 수준 이하로 낮출 수 있는가? (가)는 Spikformer(DE)의 1.7배였다.
+3. **채택 후보:** 세 과제 모두에서 Spikformer(DE)를 채택 기준으로 넘고 energy가 1.5배 이하인 model은 무엇이며, 그중 energy가 가장 낮은 것은 무엇인가?
+4. **ETT에서 SpikF를 넘는가.**
+5. **neuron 비교:** 출력 방식과 aux 조합마다 LIF, f-LIF, pop LIF를 비교한다.
+
+**미리 본 사실 (학습 없음, 기존 run):** 채택 기준으로는 지금 기준 model(query pop LIF, spike 출력)이 이미 세 과제 모두에서 Spikformer(DE)를 통과한다.
+
+| 과제 | 차이 | energy 배율 |
+|---|---|---|
+| MIT-BIH | +0.18 %p (91.39 vs 91.20) | 1.17× |
+| Sleep (lr 0.003) | +0.13 %p | 1.15× |
+| ETT | MSE / MAE 각각 0.0020 / 0.0014 낮음 | 1.02× |
+
+차이는 seed 흔들림 안에 있다. 그래서 이번 시험의 판정에서 이 model은 "비교 기준이자 후보"로 함께 읽힌다.
+
+### 구현 (기본값이면 지금과 bit 단위로 같음)
+
+- **`--neo_readout memd` ((나)):**
+  - `model.py`: 허용 조건은 `mem`과 같다(query form, `neo_res ms`, 단방향 Neocortex 하나, lif / flif / pop_lif / pop_flif). 여기에 score `dot`이고 `kv_cat`이 없어야 한다.
+  - 모든 module을 만든 뒤 data_block SSA의 `q_linear`와 query LIF를 없앤다(None). 그래서 나머지 parameter의 초기값은 `mem` model과 같다.
+  - `layers.SSA_rel_scl`: `q_direct`면 q = q_bn(membrane)(실수)을 한 번 계산해 T_h step으로 복사한다. 점수는 (q · kᵀ) × scale이고, 실수 q를 key spike 위치에서 더하기만 한다.
+  - `config.py`: choices에 `memd`를 더했다. run 폴더 접미사는 `_nromemd`다.
+- **축적 aux의 ETT 연결:**
+  - `model.py`: `_training_past`의 핵심을 `past_pair(x_neo, neo_in)`로 떼어냈다(분류 경로의 계산과 난수는 그대로).
+  - `forecast_wrap.Forecaster`: 학습 forward에서 (x_neo, neo_in)을 보관하고, `aux_past_loss()`를 둔다.
+  - `train_forecast.py`: `--past_aux_w`를 더했다. 학습 손실 = (1 − w)·L1 + w·MSE이고 w = 0.1이다. validation, 조기 종료, checkpoint 고르기는 예측 L1 그대로다. `--aux_alpha`와 함께 쓰면 멈춘다.
+  - MIT-BIH는 `train.py`가 이미 출력 4·5번째로 MSE를 만든다. AUX 0.1이므로 0.9 CE + 0.1 MSE다.
+- **runner:**
+  - `run_ett_dual.sh`, `run_mitbih4.sh`: 새 조건 `rd_<lif|flif|pop_lif>_<spk|mem|memd>[_acc]`를 기존 해석과 따로 처리한다. `rd_pop_lif_spk`의 option은 `nsmt4q_pop_lif_msn_sde`와 같다.
+  - `run_sleep.sh`: 접미사 `_memd`를 더했다.
+- **energy 보고 보강 (보고 전용):**
+  - syops는 attention의 행렬곱을 세지 않는다(어느 model이든).
+  - `layers.SSA_rel_scl`에 기본으로 꺼진 집계기 `_op_counter`를 두었다. q kᵀ에서는 q ≠ 0이고 k = 1인 덧셈을, A v에서는 a ≠ 0이고 v = 1인 덧셈을 센다.
+  - 새 `attn_ops.py`(보고 전용)가 이 집계기를 켜고 각 run의 test 때 쓴 가중치를 돌린다. 가중치는 ETT·Sleep은 best validation, MIT-BIH는 마지막 epoch(train.py가 test하는 것)이다. test 자료 앞 2048개에서 표본당 덧셈 수, 0.9 pJ 기준 energy, syops + attention energy와 그 Spikformer(DE) 대비 배율을 낸다. 끝난 뒤 수동으로 돌린다.
+  - 집계 공식은 손으로 셀 수 있는 예(7개 / 12개)로 확인했다. smoke checkpoint에서는 attention이 0.007–0.085 µJ로 syops(6.7–17.5 µJ)보다 아주 작았다. (나)의 q·k 덧셈은 spike q보다 많다(q가 실수라 0이 없음).
+  - 판정 energy는 syops 그대로다.
+
+### run (295개)
+
+| 과제 | suite | 새로 돌릴 것 | 재사용 |
+|---|---|---|---|
+| MIT-BIH (seed 42 / 7 / 2026, lr 0.01, 30 epoch) | `flif-v1-mitbih-rd` | 17 model × 3 = 51 | pop LIF spike·aux 끔, Spikformer(DE): `flif-v1-mitbih-r1` |
+| Sleep-EDF (lr 0.003, fold 0–4, seed 42) | `flif-v1-sleep5` | 빈칸 8 model × 5 = 40 | 나머지 10 model, Spikformer(DE): `flif-v1-sleep*` |
+| ETT 4칸 (seed 3개, runner 기본 설정) | `flif-v1-ett-rd` | 17 model × 12 = 204 | pop LIF spike·aux 끔, Spikformer(DE): `flif-v1-ett-r1` |
+
+- model 18개 = neuron {LIF, f-LIF, pop LIF} × 출력 {spike, membrane (가), membrane (나)} × aux {끔, 켬}.
+- Sleep 빈칸: LIF memd, memd+acc; f-LIF memd, memd+acc, acc, mem+acc; pop LIF memd, memd+acc.
+
+### 판정 (사전 고정, `summarize_rd.py`)
+
+- **뚜렷한 차이 (지금까지와 같음):**
+  - ETT: 12쌍(칸 × seed), R = MSE 상대 변화 평균. R ≤ −1 %이고 8/12 이상 낮으면 좋음(반대는 나쁨).
+  - MIT-BIH: seed 3쌍, macro-F1 %p. 평균 ≥ +0.5이고 2/3 이상이면 좋음.
+  - Sleep: fold 5쌍. 평균 ≥ +1.0이고 4/5 이상이면 좋음.
+- **채택 기준 (11-27 결정):** ETT는 4칸 평균 MSE와 MAE가 각각 0.001 이상 낮아야 한다. 분류는 macro-F1이 0.1 %p 이상 높아야 한다. 둘 다 syops energy(run 평균)가 비교 model의 1.5배 이하여야 한다.
+- **E:** 같은 neuron의 spike·aux 끔 model 대비 5개 변형. 요인 대비(memd − mem, aux 켬 − 끔)도 함께 낸다.
+- **S:** 18 model − Spikformer(DE). 뚜렷한 차이 판정과 채택 기준 판정을 함께 낸다.
+- **F (ETT):** SpikF 논문값, SpikF 재실행, SpikF-LIF 재실행에 대해 채택 기준만 본다(다른 대화의 branch에 있는 숫자를 읽는다).
+- **N:** 출력·aux 조합마다 LIF − pop LIF, f-LIF − pop LIF.
+- **종합 (`--task all`):** 세 과제 모두 S 채택 기준을 통과한 model을 평균 energy 배율이 낮은 순으로 낸다. 없으면 과제별 통과 model을 낸다.
+- **fail closed:** 필요한 줄이 한 번씩, 설정 확인(MIT-BIH: epoch 30, lr 0.01, val 0, wdx 1, pe 0, aux 0 / 0.1이 `_acc`와 맞음; ETT: seq_len 96, wdx 1, vpe 4, pe 0, lr / wd / batch는 기본; Sleep: epoch 30, batch 64), 값 유한, SKIP 없음, suite마다 sha 하나, 새 suite에 예상 밖 줄 없음.
+
+### 점검
+
+- **기본 경로 동일** (고치기 전 저장 → 고친 뒤 비교): `fw_identity_rd.py` **81/81 identical**. 이 script는 새로 만들었다. ETT·MIT-BIH r1 설정의 LIF / f-LIF / pop LIF와 그 `mem` 변형, MIT-BIH·Sleep의 `acc` 변형(aux 쌍 포함), Spikformer(DE)를 비교한다. 그 밖에 `fw_identity_lifsleep.py` **32/32**, `fw_identity_xnor.py` **16/16**, `fw_identity_head.py` **15/15**. 집계기를 넣은 뒤에도 다시 돌려 모두 같았다.
+- **명령줄 점검** (가짜 python, 고치기 전 / 뒤 runner):
+  - 기존 조건은 ETT 16/16, MIT-BIH 8/8, Sleep 15/15가 같다.
+  - `rd_pop_lif_spk`의 option은 `nsmt4q_pop_lif_msn_sde`와 같다(ETT, MIT-BIH).
+  - 새 조건(ETT 18, MIT-BIH 18, Sleep 8)은 의도한 option을 받는다. α는 MIT-BIH acc만 0.1, ETT는 `--past_aux_w 0.1`이다(이름을 바꾼 뒤 다시 확인: 기존 16/16 같음).
+  - 잘못된 이름 8개는 python 전에 거절된다.
+  - 전체 queue 295개의 stdout 이름이 모두 다르고(51 / 40 / 204), 모두 python까지 간다.
+- **`check_rd.py` 36/36:**
+  - (나)에서 q_linear / query LIF가 없다. 사라진 항목은 그 3개뿐이고, 나머지 초기값은 `mem` model과 같다.
+  - q_bn의 입력은 Neocortex membrane(실수)과 같다. 학습 step이 유한하고, gradient가 q_bn과 마지막 Neocortex 층까지 간다. eval 출력도 유한하다(LIF / f-LIF / pop LIF).
+  - query form 밖과 xnor score에서는 거절된다.
+  - **ETT:** token은 정규화된 입력 patch(24개, 길이 8, 간격 4)이고, 목표는 token t − d(d ∈ 1..t)이며 손실은 유한하다. memd에서는 aux가 membrane을 읽는다. test 때 decoder 호출과 보관이 없다. 학습 forward 없이 aux를 부르면 멈춘다. `train_epoch`의 손실은 (1 − w)·L1 + w·aux와 같다.
+  - **MIT-BIH:** 출력 4·5번째가 (원 token t − d, 복원)이다.
+- **`test_summarize_rd.py`:** 실제 기준 run에 차이를 심은 가짜 새 suite에서 심은 판정·채택·후보·E·SpikF·N이 그대로 나온다. 멈춰야 하는 9경우(줄 빠짐, 중복, nan, SKIP, 예상 밖 줄, sha 둘, ETT vpe 1, MIT-BIH aux 불일치, Sleep epoch 29)가 모두 멈춘다.
+- **기존 경로 재현 (학습):**
+  - **ETT:** `nsmt4q_pop_lif_msn_sde`와 option이 같은 `rd_pop_lif_spk`를 ETTh2 H96 seed 42에서 1 epoch 돌렸다. 둘 다 r1 run의 epoch 0 값(train 0.362173, validation 0.313393)과 epoch 안 validation 3번이 모든 자리까지 같다.
+  - **MIT-BIH:** r1 기준(seed 42)을 30 epoch 전부 다시 돌렸다. 39개 값(f1, accuracy, energy 등)이 r1과 모두 같다.
+  - **Sleep:** 기본 smoke 2개가 `smoke-sleep-20261126b`와 10개 값에서 같다.
+  - 그래서 r1과 Sleep 기준 run을 다시 돌리지 않고 쓴다.
+
+### smoke (실험 아님; 1 epoch, MIT-BIH 재현만 30 epoch)
+
+- **내 실수 (smoke가 잡음):** 처음 smoke에서 ETT aux 조건 11개가 모두 rc 2로 실패했다.
+  - 원인: `train_forecast.py`의 첫 parser가 약어를 받아들인다. 그래서 model option `--aux_past rand`를 새 option `--aux_past_w`의 줄임으로 읽고, `rand`를 숫자로 바꾸지 못했다. 가짜 python 명령줄 점검은 python의 인자 해석을 거치지 않아 이를 잡지 못했다.
+  - 고침: 새 option 이름을 `--past_aux_w`로 바꿨다. 기존 option 중 이 이름의 앞부분이 되는 것은 없다. 첫 parser 시험: `--aux_past rand --past_aux_w 0.1` → w 0.1이고 `--aux_past rand`는 model parser로 넘어간다. `--aux_shift=2`도 그대로 넘어간다.
+  - 다시 돌린 11개(`results/smoke-rd-acc-20261128`)는 모두 통과했고, stdout에 "accumulation aux on: w = 0.1"과 의도한 출력 방식이 있다. 처음 실패는 `forecasting/results/smoke-rd-20261128/raw.txt`에 SKIP으로 남겨 두었다.
+- **결과:** RESULT 50(분류 28, ETT 10, 재현 1) + 재실행 11, 실패는 위 11개뿐이다.
+- **energy (syops, 1 epoch)** — (나)는 세 과제 모두 spike 출력보다 낮다(q_linear가 없어짐):
+
+| 과제 | spike | membrane (가) | membrane (나) |
+|---|---|---|---|
+| MIT-BIH (LIF / f-LIF / pop LIF) | 7.92 / 7.34 / 7.48 µJ | 14.25 / 14.24 / 14.45 | 6.69 / 6.81 / 6.86 |
+| ETT ETTh2 H96 | 10.72 / 10.71 / 10.51 | 13.65 / 13.65 / 13.55 | 10.17 / 10.18 / 10.14 |
+| Sleep (pop LIF spike 17.47) | — | — | 16.18–16.51 |
+
+- aux decoder는 parameter를 더하지만(MIT-BIH 164,000, ETT H96 6,152) 추론에는 쓰이지 않는다.
+- **최대 GPU memory:** MIT-BIH 3.1 GB, ETTm2 H720 (나)+aux 2.0 GB, ETTh2 1.8 GB, Sleep 1.9 GB. 그래서 GPU당 2 run(8 slot)으로 한다.
+
+### 실행
+
+- tmux `flif_rd`: `bash nsmt_flif_v1/classification/scripts/rd_driver.sh 0,1,2,3,0,1,2,3`.
+- 단계는 M(MIT-BIH 51) → S(Sleep 40) → E(ETT 204, ETTm2부터) 순이다. 단계마다 RESULT 수가 맞지 않거나 SKIP이 있으면 멈추고 다음 단계로 가지 않는다. 맞으면 `summarize_rd.py --task <과제>`를 돌리고, 끝에 `--task all`을 돌린다.
+- queue는 `classification/scripts/queues/rd-*-<날짜>.txt`, pool 로그는 `classification/results/flif-v1-rd-pool.log`에 둔다.
+- 끝난 뒤 `attn_ops.py --task mitbih|sleep|ett`를 수동으로 돌린다(보고 전용).
+- 도는 동안 commit하지 않고, 실행 script와 import되는 `.py`를 고치지 않는다.
+
+### 한계
+
+- aux 무게 하나(0.1). lr은 과제마다 하나(r1 기본값, Sleep 0.003). seed는 ETT / MIT-BIH가 3개, Sleep은 fold마다 1개다.
+- 판정 energy는 syops다. attention 덧셈은 보고용 열로만 낸다.
+- (나)는 query 변환층이 없어서, 정확도가 떨어지면 그 원인이 변환층 제거인지 실수 입력인지 가를 수 없다.
+- 순서·기억 대조가 없으므로, 좋아진 이유를 "Neocortex가 순서·기억을 썼다"고 말할 수 없다.
+
+### not run (나중 단계, 사용자 결정 11-27)
+
+- 채택 후보 또는 좋아진 변형의 순서·기억 대조(문맥 섞기, 기억 없는 Neocortex).
+- 최종 후보의 seed 늘리기.
+- 층 평균 membrane, 순서 aux, SpikF를 Sleep에 옮겨 돌리기(요청 시만).
+- PTB의 seed·환자 분할 늘리기, MIT-BIH (가)의 방향(보류 중).
+
+### Git
+
+- 이 항목과 아래를 사전 고정 commit으로 묶어 push한 뒤 시작한다.
+  - code: `model.py`, `layers.py`, `config.py`, `forecast_wrap.py`, `train_forecast.py`
+  - runner: `scripts/run_mitbih4.sh`, `scripts/run_sleep.sh`, `forecasting/scripts/run_ett_dual.sh`
+  - 점검과 요약: `check_rd.py`, `fw_identity_rd.py`, `summarize_rd.py`, `test_summarize_rd.py`, `attn_ops.py`, `scripts/rd_driver.sh`
+  - smoke `raw.txt` 4개

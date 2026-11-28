@@ -576,7 +576,7 @@ class TemporalBlock(nn.Module):
         if u0 is not None:                               # MODI 2026-11-08 (Neocortex membrane shortcut): the stream starts at the
             u = u0                                       # embedding neuron's input current; layer i: u <- u + BN_i(W_i s), s = n_i(u)
             for i in range(self.num_layers):
-                if readout == 'mem' and i == self.num_layers - 1:   # MODI 2026-11-27: the last layer's soma membrane before reset
+                if readout in ('mem', 'memd') and i == self.num_layers - 1:   # MODI 2026-11-27: the last layer's soma membrane before reset
                     u, x, m = self.Mem[i].forward_ms(x, u, mem=True)
                     return m
                 u, x = self.Mem[i].forward_ms(x, u)
@@ -977,9 +977,12 @@ class myModel(nn.Module):
         # the CPU RNG forked, so every other parameter starts as without it). Defaults ('spike' / 'none'): no new module, unchanged.
         self.neo_readout = str(kwargs.get('neo_readout', 'spike'))
         self.aux_past = str(kwargs.get('aux_past', 'none'))
-        if self.neo_readout not in ('spike', 'mem') or self.aux_past not in ('none', 'rand'):
-            raise ValueError("neo_readout in {spike, mem}, aux_past in {none, rand}")
-        if self.neo_readout == 'mem' or self.aux_past != 'none':
+        # MODI 2026-11-27 (approved plan 1-snuggly-galaxy.md, user decision 11-27 "1. 둘다"): neo_readout 'memd' = the same membrane used
+        # directly as the queries: q = q_bn(membrane) (real-valued), no q_linear and no query LIF (both removed below, after every module is
+        # built, so every other parameter starts as with 'mem'); the attention score q k^T then only adds the real q over the key spikes.
+        if self.neo_readout not in ('spike', 'mem', 'memd') or self.aux_past not in ('none', 'rand'):
+            raise ValueError("neo_readout in {spike, mem, memd}, aux_past in {none, rand}")
+        if self.neo_readout in ('mem', 'memd') or self.aux_past != 'none':
             if not (self.hippo_xattn and self.hippo_xattn_mode == 'query' and getattr(self, 'neo_res', 'none') == 'ms' and not self.neo_streams
                     and not self.neo_bidir and self.neo_band == 'none' and not self.neo_current and neo_neuron in ('pop_lif', 'pop_flif', 'lif', 'flif')):
                 raise NotImplementedError('neo_readout mem / aux_past: the query form with the Neocortex membrane shortcut, one unidirectional '
@@ -987,6 +990,13 @@ class myModel(nn.Module):
         if self.neo_readout == 'mem':
             for blk in self.data_block:
                 blk.ssa.q_once = True
+        if self.neo_readout == 'memd':
+            for blk in self.data_block:
+                if not blk.ssa.q_from_kv or blk.ssa.score != 'dot' or blk.ssa.kv_cat:
+                    raise NotImplementedError("neo_readout memd: queries from the Neocortex, score 'dot', no kv_cat")
+                blk.ssa.q_direct = True
+                blk.ssa.q_linear = None
+                blk.ssa.q_lif = None
         if self.aux_past != 'none':
             with torch.random.fork_rng(devices=[]):
                 self.aux_past_dec = nn.Sequential(nn.Linear(embed_dim + self.num_patches - 1, embed_dim), nn.GELU(),
@@ -1284,6 +1294,14 @@ class myModel(nn.Module):
         from {1..t}; from the Neocortex output at t (spikes, or the membrane with --neo_readout mem) and a one-hot of d, a small MLP
         (train only, not used at inference) reconstructs the raw input token t - d. Returns (z, x_data, x_neo, target, reconstruction);
         train_rhythm.py takes the MSE of the last two with weight alpha."""
+        tgt, rec = self.past_pair(x_neo, self._neo_in)
+        z = self.head(self._pool(x_hippo)).mean(0)
+        return z, x_data, x_neo, tgt, rec
+
+    def past_pair(self, x_neo, neo_in):
+        """MODI 2026-11-27 (approved plan 1-snuggly-galaxy.md): the core of _training_past, shared with the ETT Forecaster
+        (forecast_wrap.aux_past_loss). x_neo [N, B, 1, D] Neocortex output, neo_in [N, B, 1, tok_dim] its raw input tokens ->
+        (target [N-1, B, tok_dim] = raw token t - d, detached; reconstruction [N-1, B, tok_dim]); same operations and RNG draw as before."""
         N, B = x_neo.shape[0], x_neo.shape[1]
         if x_neo.shape[2] != 1 or N < 2:
             raise ValueError('past aux: one Neocortex stream and at least 2 tokens')
@@ -1293,11 +1311,10 @@ class myModel(nn.Module):
         d = torch.minimum(d, t.expand_as(d))
         rec = self.aux_past_dec(torch.cat([h, F.one_hot(d - 1, N - 1).to(h.dtype)], -1))   # [N-1, B, tok_dim]
         src = t - d                                                               # index of the target token, 0..t-1
-        raw = self._neo_in[:, :, 0]                                               # [N, B, tok_dim]
+        raw = neo_in[:, :, 0]                                                     # [N, B, tok_dim]
         tgt = raw.gather(0, src.unsqueeze(-1).expand(-1, -1, raw.shape[-1])).detach()
-        self._aux_past_last = (t.expand_as(d).detach(), d.detach(), src.detach())   # for check_mem.py
-        z = self.head(self._pool(x_hippo)).mean(0)
-        return z, x_data, x_neo, tgt, rec
+        self._aux_past_last = (t.expand_as(d).detach(), d.detach(), src.detach())   # for check_mem.py / check_rd.py
+        return tgt, rec
 
     def _testing(self, x):
         

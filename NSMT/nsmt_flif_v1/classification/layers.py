@@ -253,11 +253,15 @@ class SSA_rel_scl(nn.Module):
         v = self.v_lif(self.v_bn(v.transpose(-1, -2).contiguous()).transpose(-1, -2).contiguous().reshape(T, B, N, C).contiguous())
         v = v.reshape(T, B, N, self.num_heads, C//self.num_heads).permute(0, 1, 3, 2, 4).contiguous()
         
-        if q_once:                                                                 # (one Neocortex stream expanded over T_h): q_linear
-            q = self.q_linear(kv[0]).unsqueeze(0).expand(T, -1, -1, -1).reshape(T * B, N, C)   # once, then the same copies
+        if getattr(self, 'q_direct', False):                                       # MODI 2026-11-27 (--neo_readout memd): the membrane
+            q = self.q_bn(kv[0].transpose(-1, -2)).transpose(-1, -2)               # itself, BN only, is the query (real-valued; no
+            q = q.unsqueeze(0).expand(T, -1, -1, -1).reshape(T, B, N, C)           # q_linear, no query LIF); once, then the T_h copies
         else:
-            q = self.q_linear(x_for_q)
-        q = self.q_lif(self.q_bn(q.transpose(-1, -2)).transpose(-1, -2).reshape(T, B, N, C).contiguous())
+            if q_once:                                                             # (one Neocortex stream expanded over T_h): q_linear
+                q = self.q_linear(kv[0]).unsqueeze(0).expand(T, -1, -1, -1).reshape(T * B, N, C)   # once, then the same copies
+            else:
+                q = self.q_linear(x_for_q)
+            q = self.q_lif(self.q_bn(q.transpose(-1, -2)).transpose(-1, -2).reshape(T, B, N, C).contiguous())
         q = q.reshape(T, B, N, self.num_heads, C//self.num_heads).permute(0, 1, 3, 2, 4).contiguous()
 
         if self.score == 'xnor_log':                    # MODI 2026-11-18: matching channels + Log-PE, times the learned scale
@@ -303,6 +307,15 @@ class SSA_rel_scl(nn.Module):
         #     attn_scores = attn_scores.masked_fill(~topk_mask, 0.0)
         
         x = attn_scores @ v
+        oc = getattr(self, '_op_counter', None)
+        if oc is not None:                              # MODI 2026-11-27 (report only, attn_ops.py; None = default = nothing): additions in
+            with torch.no_grad():                       # q k^T (q != 0 and k = 1) and A v (a != 0 and v = 1); k and v are 0 / 1 here
+                oc['qk'] = oc.get('qk', 0.) + float(((q != 0).to(q.dtype) @ (k != 0).to(q.dtype).transpose(-2, -1)).sum())
+                oc['av'] = oc.get('av', 0.) + float(((attn_scores != 0).to(v.dtype) @ (v != 0).to(v.dtype)).sum())
+                oc['kv_binary'] = oc.get('kv_binary', True) and bool(((k == 0) | (k == 1)).all()) and bool(((v == 0) | (v == 1)).all())
+                oc['calls'] = oc.get('calls', 0) + 1
+                if self.kv_cat:
+                    oc['kv_cat_uncounted'] = True
         if self.kv_cat:                                 # MODI 2026-10-26 (B): + the neocortex key / value term
             if kv is None:
                 raise ValueError('kv_cat needs kv')

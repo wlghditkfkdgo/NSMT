@@ -22,6 +22,7 @@ while :; do                              # (--ctx_shuffle), _nml = memoryless Ne
     *_nml)   XF="$XF --neo_memoryless"; BASE=${BASE%_nml} ;;
     *_acc)   XF="$XF --aux_past rand"; AL=0.1; BASE=${BASE%_acc} ;;
     *_mem)   XF="$XF --neo_readout mem"; BASE=${BASE%_mem} ;;
+    *_memd)  XF="$XF --neo_readout memd"; BASE=${BASE%_memd} ;;      # MODI 2026-11-27 (plan 1-snuggly-galaxy.md): membrane as the queries
     *) break ;;
   esac
 done

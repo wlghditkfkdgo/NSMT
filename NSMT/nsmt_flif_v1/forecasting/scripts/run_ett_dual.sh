@@ -135,6 +135,14 @@ case $COND in                     # MODI 2026-10-29: dual-path models, B-form se
   nsmt4q_pop_flif_msn_stft)    CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band stft" ;;
   nsmt4q_pop_flif_msn_fire_stft)CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band stft --neo_pop fire --pop_taus 2,2,2,2" ;;
   nsmt4q_pop_flif_msn_fire_same)CF="--model myModel --neo_neuron pop_flif --neo_where both --neo_alpha 0.5 --pop_soma_init 1.0 --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neo_band same --neo_pop fire --pop_taus 2,2,2,2" ;;
+  rd_*)                           # MODI 2026-11-27 (approved plan 1-snuggly-galaxy.md): rd_<lif|flif|pop_lif>_<spk|mem|memd>[_acc] = the
+    RB=${COND#rd_}; RX=""           # msn SpikeDE base (rd_pop_lif_spk = nsmt4q_pop_lif_msn_sde) with that Neocortex neuron, Neocortex readout
+    [[ $RB == *_acc ]] && { RB=${RB%_acc}; RX="--aux_past rand --past_aux_w 0.1"; }   # (spikes / membrane via q_linear / membrane as the
+    RR=${RB##*_}; RN=${RB%_*}                                                          # queries) and, with _acc, the accumulation aux
+    case $RN in lif) NF="--neo_neuron lif --neo_where both" ;; flif) NF="--neo_neuron flif --neo_where both --neo_alpha 0.5" ;;
+      pop_lif) NF="--neo_neuron pop_lif --neo_where both --pop_soma_init 0.5" ;; *) echo "bad cond $COND"; exit 1 ;; esac
+    case $RR in spk) ;; mem|memd) RX="--neo_readout $RR${RX:+ $RX}" ;; *) echo "bad cond $COND"; exit 1 ;; esac
+    CF="--model myModel $NF --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neuron_all lif${RX:+ $RX}" ;;
   *) echo "bad cond $COND"; exit 1 ;;
 esac
 case $DS in                       # patch emb heads mlp M lr bs epochs   (run_ett.sh; keep_ratio / alpha unused: no aux decoder)

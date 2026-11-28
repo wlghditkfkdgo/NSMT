@@ -147,6 +147,14 @@ case $COND in
     CF="--model neoMixer --mixer $MK --neo_alpha $ALPHA --pop_taus ${POP_TAUS:-4,8,16,32} $NEOX"
     [ "$MD" = bidir ] && CF="$CF --mixer_bidir"
     [ -n "${ML:-}" ] && LAYERS=${ML#L} ;;
+  rd_*)                                                               # MODI 2026-11-27 (approved plan 1-snuggly-galaxy.md):
+    RB=${COND#rd_}; RX=""; AUX=0                                      # rd_<lif|flif|pop_lif>_<spk|mem|memd>[_acc] = the msn SpikeDE
+    [[ $RB == *_acc ]] && { RB=${RB%_acc}; RX="--aux_past rand"; AUX=0.1; }   # base (rd_pop_lif_spk = nsmt4q_pop_lif_msn_sde) with that
+    RR=${RB##*_}; RN=${RB%_*}                                         # Neocortex neuron and readout; _acc = accumulation aux, 0.9 CE + 0.1 MSE
+    case $RN in lif) NF="--neo_neuron lif --neo_where both" ;; flif) NF="--neo_neuron flif --neo_where both --neo_alpha $ALPHA" ;;
+      pop_lif) NF="--neo_neuron pop_lif --neo_where both --pop_soma_init 0.5" ;; *) echo "bad cond $COND"; exit 1 ;; esac
+    case $RR in spk) ;; mem|memd) RX="--neo_readout $RR${RX:+ $RX}" ;; *) echo "bad cond $COND"; exit 1 ;; esac
+    CF="--model myModel $NF --hippo_T 4 --hippo_xattn --hippo_xattn_mode query --neo_grad 1.0 --neo_res ms --neuron_all lif${RX:+ $RX}" ;;
   *) echo "bad cond $COND"; exit 1 ;;
 esac
 LAYERS=${LAYERS:-1}

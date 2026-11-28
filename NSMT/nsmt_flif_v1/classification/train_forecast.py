@@ -58,6 +58,11 @@ def split_args():
     ap.add_argument('--aux_alpha', type=float, default=0.0)
     # MODI 2026-11-19 (overfitting test): dropout on the flat head's input during training (Forecaster head_dropout); 0 = unchanged.
     ap.add_argument('--head_dropout', type=float, default=0.0)
+    # MODI 2026-11-27 (approved plan 1-snuggly-galaxy.md): weight w of the accumulation aux (--aux_past rand, Forecaster.aux_past_loss;
+    # named --past_aux_w, not --aux_past_w: this parser's prefix matching read '--aux_past rand' as '--aux_past_w rand', smoke 11-28):
+    # training loss = (1 - w) * L1 + w * MSE(past reconstruction); validation, early stopping and model selection stay on the forecast
+    # L1. Not with --aux_alpha. 0 (default) = unchanged.
+    ap.add_argument('--past_aux_w', type=float, default=0.0)
     fc, rest = ap.parse_known_args()
     sys.argv = sys.argv[:1] + rest
     return fc
@@ -88,10 +93,11 @@ class LinearWarmup:
             self.k += 1
 
 
-def train_epoch(model, dl, opt, H, device, r=0.0, hook=None, marks=(), warm=None):
+def train_epoch(model, dl, opt, H, device, r=0.0, hook=None, marks=(), warm=None, aux_fn=None):
     """MODI 2026-11-20 (hyperparameter range 1): hook(step) runs after the training steps listed in marks (1-based; the in-epoch
     validations of --val_per_epoch), then training mode is restored. hook None (default): unchanged.
-    MODI 2026-11-23 (range 2): warm (a LinearWarmup) is called before every optimizer step. None (default): unchanged."""
+    MODI 2026-11-23 (range 2): warm (a LinearWarmup) is called before every optimizer step. None (default): unchanged.
+    MODI 2026-11-27: aux_fn = the aux loss of the r branch (None = model.aux_rec_loss, as before; model.aux_past_loss for --past_aux_w)."""
     model.train(); model.train_mode = 'training'
     crit = nn.L1Loss()
     tot = 0.; n = 0
@@ -100,7 +106,7 @@ def train_epoch(model, dl, opt, H, device, r=0.0, hook=None, marks=(), warm=None
         for x, y, _, _ in dl:
             x = x.float().to(device); y = y.float().to(device)[:, -H:, :]
             out = model(x)
-            task = crit(out, y); rec = model.aux_rec_loss()
+            task = crit(out, y); rec = model.aux_rec_loss() if aux_fn is None else aux_fn()
             loss = task * (1. - r) + rec * r
             if warm is not None:
                 warm()
@@ -203,6 +209,13 @@ def main():
         model.aux = True
         args.aux_r = aux_r
         print(f'aux loss on: r = {aux_r:.6f} (aux_alpha {fc.aux_alpha} x {fc.pred_len} / 720), keep_ratio {args.keep_ratio}', flush=True)
+    if fc.past_aux_w != 0 or getattr(args, 'aux_past', 'none') != 'none':   # MODI 2026-11-27 (accumulation aux)
+        if model.kind != 'dual' or getattr(args, 'aux_past', 'none') != 'rand' or not (0. < fc.past_aux_w < 1.) or fc.aux_alpha != 0:
+            raise ValueError(f'--past_aux_w / --aux_past rand: together, dual-path forecasters only, 0 < w < 1, not with --aux_alpha '
+                             f'(got kind {model.kind}, aux_past {getattr(args, "aux_past", "none")}, w {fc.past_aux_w}, aux_alpha {fc.aux_alpha})')
+        model.aux_past = True
+        args.past_aux_w = fc.past_aux_w
+        print(f'accumulation aux on: w = {fc.past_aux_w}', flush=True)
     opt = make_adamw(model, args.lr, args.weight_decay, bool(int(getattr(args, 'wd_exclude_1d', 0))))   # MODI 2026-11-20 (range 1)
     sched = get_scheduler(args.scheduler, opt, max_lr=args.lr, min_lr=min(1e-6, args.lr * 1e-2), max_epochs=args.epoch)
     if args.scheduler == 'cosine':
@@ -243,6 +256,8 @@ def main():
                 torch.save(model.state_dict(), ckpt)
         hk = hook if K > 1 else None
         tr = train_epoch(model, train_dl, opt, fc.pred_len, args.device, r=aux_r, hook=hk, marks=marks, warm=warm) if fc.aux_alpha != 0 else \
+            train_epoch(model, train_dl, opt, fc.pred_len, args.device, r=fc.past_aux_w, hook=hk, marks=marks, warm=warm,
+                        aux_fn=model.aux_past_loss) if fc.past_aux_w != 0 else \
             train_epoch(model, train_dl, opt, fc.pred_len, args.device, hook=hk, marks=marks, warm=warm)
         va = evaluate(model, val_dl, fc.pred_len, args.device)
         if K > 1:
