@@ -27,8 +27,11 @@ __all__ = ['Reconstructor']
 
 
 class Reconstructor(Forecaster):
-    def __init__(self, inner, embed_dim, seq_len, n_channels, bias=False):
+    def __init__(self, inner, embed_dim, seq_len, n_channels, bias=False, norm='window'):
         nn.Module.__init__(self)
+        if norm not in ('window', 'mean', 'none'):                         # 2026-11-29 AD tuning: window = mean / std over L (default,
+            raise ValueError(f'norm {norm}')                                # unchanged), mean = subtract the window mean only, none = raw
+        self.norm_mode = norm
         if isinstance(inner, SpkMixer):
             self.kind = 'spkmix'
         elif isinstance(inner, myModel) and inner.hippo_ssa:
@@ -55,6 +58,11 @@ class Reconstructor(Forecaster):
             self.mem_readout = zero_linear(embed_dim, self.stride * self.C)
 
     def norm(self, x):
+        if getattr(self, 'norm_mode', 'window') == 'none':                  # 2026-11-29: the standardised input as it is
+            return x, torch.zeros_like(x[:, :1]), torch.ones_like(x[:, :1])
+        if getattr(self, 'norm_mode', 'window') == 'mean':                  # 2026-11-29: window mean removed, no scaling
+            means = x.mean(1, keepdim=True).detach()
+            return x - means, means, torch.ones_like(means)
         means = x.mean(1, keepdim=True).detach()
         xc = x - means
         stdev = torch.sqrt(torch.var(xc, dim=1, keepdim=True, unbiased=False) + 1e-5).detach()

@@ -1,0 +1,19 @@
+PASS stage norm: 18 queued runs, selected {'SMAP': ['mean'], 'PSM': ['none'], 'MSL': ['window']} (want {'MSL': ['window'], 'SMAP': ['mean'], 'PSM': ['none']})
+PASS stage epochs: 27 queued runs, selected {'SMAP': [10], 'PSM': [1], 'MSL': [3]} (want {'MSL': [3], 'SMAP': [10], 'PSM': [1]})
+PASS stage width: 18 queued runs, selected {'SMAP': [64], 'PSM': [64], 'MSL': [32]} (want {'MSL': [32], 'SMAP': [64], 'PSM': [64]})
+PASS stage depth: 18 queued runs, selected {'SMAP': [1, 1], 'PSM': [1, 2], 'MSL': [1, 1]} (want {'MSL': [1, 1], 'SMAP': [1, 1], 'PSM': [1, 2]})
+PASS stage patch: 18 queued runs, selected {'SMAP': [8, '1'], 'PSM': [8, '1'], 'MSL': [16, '1']} (want {'MSL': [16, '1'], 'SMAP': [8, '1'], 'PSM': [8, '1']})
+PASS stage lr: 18 queued runs, selected {'SMAP': ['0.004'], 'PSM': ['0.001'], 'MSL': ['0.002']} (want {'MSL': ['0.002'], 'SMAP': ['0.004'], 'PSM': ['0.001']})
+PASS stage res: 18 queued runs, selected {'SMAP': ['iand'], 'PSM': ['iand'], 'MSL': ['add']} (want {'MSL': ['add'], 'SMAP': ['iand'], 'PSM': ['iand']})
+PASS stage norm queue = 18 runs (18); later stages: {'norm': 18, 'epochs': 27, 'width': 18, 'depth': 18, 'patch': 18, 'lr': 18, 'res': 18}
+PASS re-selecting an existing stage with the same result is allowed
+PASS summarize_adtune2.py on the planted flow
+PASS final tags ['spkmx_lif_muxlin_add_lr0.002_L1_e32_p16_ep3', 'spkmx_lif_muxlin_iand_lr0.004_L1_nmmean', 'spkmx_lif_muxlin_iand_lr0.001_L2_nmnone_ep1']
+PASS tuned - start AUC-PR mean +0.0251 > 0 (planted bonuses)
+PASS recheck on the planted flow: ALL CHECKS PASSED
+PASS recheck on a tampered selection: 1 FAIL
+PASS selection file with a different selection is not overwritten: exit 2
+PASS SKIP line stops: exit 2
+PASS missing seed stops: exit 2
+PASS duplicate row across suites stops: exit 2
+ALL DRY CHECKS PASSED

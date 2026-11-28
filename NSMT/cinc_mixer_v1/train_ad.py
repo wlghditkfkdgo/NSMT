@@ -66,6 +66,7 @@ def split_args():
     ap.add_argument('--holdout', action='store_true')
     ap.add_argument('--patience', type=int, default=3)
     ap.add_argument('--num_workers', type=int, default=2)
+    ap.add_argument('--ad_norm', choices=['window', 'mean', 'none'], default='window')   # 2026-11-29 AD tuning (ad_wrap.Reconstructor norm)
     fc, rest = ap.parse_known_args()
     sys.argv = sys.argv[:1] + rest
     return fc
@@ -230,7 +231,8 @@ def main():
         fit_dl = train_dl
     args.num_classes, args.num_channels = 1, int(train_set.train.shape[1])   # channel-mixing tokens; the classification head is dropped
     args.print_info()
-    model = Reconstructor(LOAD_MODEL[args.model](args, True), args.embed_dim, args.seq_len, args.num_channels, bias=args.bias).to(args.device)
+    model = Reconstructor(LOAD_MODEL[args.model](args, True), args.embed_dim, args.seq_len, args.num_channels, bias=args.bias,
+                          norm=fc.ad_norm).to(args.device)
     functional.reset_net(model)
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f'creating model >> number of parameters : {n_params}  tokens {model.num_patches}  channels {model.C}  T_h {model.T}', flush=True)

@@ -19406,3 +19406,108 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 - local: driver.log, pool_log.txt, queue(`scripts/queues/flif-v1-mitbih-memoff-iand-20261128.txt`), run 폴더 · checkpoint · TensorBoard(`NSMT/cinc_mixer_v1/log/flif-v1-mitbih-memoff-iand/`).
 
 **commit / tag:** 이 기록, 23:57 분석 기록과 결과를 `exp/f-lif-pop-v3`에 commit · push한다. annotated tag `exp/f-lif-pop-v3-iandmem-20261129`를 붙인다. 이 tag는 완료된 학습 run(MIT-BIH 3)이고 snapshot이 아니다. 23:57 분석(학습 없음)도 같은 commit에 들어간다. 이 기록이 들어간 commit은 이 tag로 가리킨다.
+
+## 2026-11-29 00:48 KST — 사용자 결정 + 사전등록(학습 전): AD hyperparameter 튜닝(LIF SpkMixer, 단계 7개, 최대 144 run). 선택은 **test 전체의 AUC-PR**로 한다(사용자 결정). 그래서 결과는 낙관적이다
+
+**직전 commit:** `55537a333`(00:07 결과 기록, tag `exp/f-lif-pop-v3-iandmem-20261129`). 브랜치 `exp/f-lif-pop-v3`.
+
+### 사용자 말(원문)
+> 1. (가) epoch 수, 정규화, layer/blcok 개수, hidden_dim 개수 등등 하이퍼파라미터 튜닝할 필요
+> 2. 우선 (가)를 통해 튜닝하고 다시 의논
+
+내가 선택 기준을 물었고, 사용자가 고른 답은 다음과 같다(AskUserQuestion).
+- 선택 기준: "test 전체로 선택". test 지표로 바로 고른다. 낙관적이고, 논문에는 "test로 고른 값"이라고 밝혀야 한다.
+  - 다른 선택지는 test 앞 30 %로 고르기, 재구성 오차로 고르기였다.
+- 선택 지표: "AUC-PR로 선택"(내가 추천한 것). P / R / F1(point-adjusted · raw)은 함께 보고한다.
+
+### 목적
+- 23:57 분석에서, point-adjusted F1로 본 AD 결과는 DNN 행(NSMT Table 9)보다 평균 8–15 %p 낮았다.
+- 11-03부터 알려진 AD 설정의 약점이 있다. epoch 10에서 멈춤, 창 정규화가 창의 수준(level)을 지움, NSMT 원 AD script(100 epoch, emb 128, patch 16, mlp 2)와 다른 크기.
+- 그래서 hyperparameter를 넓게 다시 고르면 탐지 성능이 얼마나 오르는지 본다. 결과를 보고 사용자와 다시 의논한다.
+
+### 설정
+**model과 고정 항목:** LIF SpkMixer, muxlin, 모든 층 LIF. 11-02 AD 절차(TSLib, window 100, step 1, 학습 파일 표준화, batch 128, AdamW, ReduceLROnPlateau, patience 3, best-validation weight로 test)를 쓴다. seed는 42 / 7 / 2026이다.
+
+**출발점:** 11-19 G5 설정(dataset마다).
+- 방향별 mixer 층 1, block 1, lr 2e-3, emb 64, patch 8, mlp 1, 창 정규화, 10 epoch.
+- 잔차: MSL OR, SMAP OR, PSM IAND.
+
+**단계(이 순서; 각 단계는 설정 하나 또는 한 쌍만 바꾸고, 나머지는 그때까지 고른 값):**
+
+| 단계 | 설정 | 후보(* 출발값) |
+|---|---|---|
+| norm | 창 정규화(ADNORM) | window*(창 평균 · 표준편차) / mean(창 평균만 뺌) / none(정규화 없음) |
+| epochs | EPOCHS | 1 / 3 / 10* / 30(patience 3은 그대로) |
+| width | hidden dim(EMB) | 32 / 64* / 128 |
+| depth | (block, 방향별 mixer 층) | (1, 1)* / (1, 2) / (2, 1) |
+| patch | (patch, mlp 비율) | (8, 1)* / (4, 1) / (20, 1) / (8, 2) |
+| lr | LR | 1e-3 / 2e-3* / 4e-3 |
+| res | 잔차 | OR / IAND / ADD |
+
+- **선택 규칙:** dataset마다 seed 평균 **test AUC-PR**이 가장 높은 후보를 고른다.
+  - 지금 값과 1e-9 안으로 같으면 지금 값을 둔다. 지금 값이 아닌 후보끼리 같으면 목록에서 앞의 것을 고른다.
+  - seed가 빠지거나, 행이 중복되거나, SKIP이 있으면 멈춘다(exit 2). 이미 쓴 선택 파일을 다른 선택으로 덮어쓰지 않는다.
+- **행 재사용:** 같은 설정의 행이 `flif-v1-ad-energy`(11-19) · `flif-v1-ad-iand`(11-28)에 있으면 다시 돌리지 않는다.
+  - 출발 설정의 9행이 여기에 해당한다. 11-28에 학습이 비트 단위로 재현됨을 확인했다.
+  - 새 run은 suite `flif-v1-ad-tune2`에 쌓인다.
+- run 수: norm 18, epochs 27, width 18, depth 18, patch 27, lr 18, res 최대 18. 합계 최대 144다.
+
+**최종 보고**(`results/check-adtune2-20261129/summarize_adtune2.py`):
+- dataset별 선택 경로와 최종 tag.
+- 튜닝 model, 출발점(G5), SF-de(11-18, lr만 튜닝; 내부 비교)의 point-adjusted · raw P / R / F1, AUC-PR, AUC-ROC, syops energy, epoch 수.
+- NSMT Table 9의 DNN 5행과 NSMT 행, 11-03의 학습 없는 점수(무작위, 창 평균과의 거리, 학습 평균과의 거리).
+- 비교(AD 규칙 형태: R ≥ +2 %이고 9쌍 중 6쌍 이상이면 better): 튜닝 vs 출발점, 튜닝 vs SF-de. AUC-PR, point-adjusted F1, raw F1 각각이다.
+  - 출발점은 후보 중 하나다. 그래서 튜닝 AUC-PR ≥ 출발점 AUC-PR은 구성상 당연하다.
+
+### 사전에 밝히는 한계
+- **test로 고른다(사용자 결정).** dataset마다 test에서 22개 설정을 보고 고르므로, 튜닝 값은 낙관적이다.
+  - 같은 수의 설정을 SF-de에는 시도하지 않는다. 튜닝 vs SF-de 비교는 공정하지 않다(보고만 한다).
+- 단계를 차례로 고르는 방식이라 설정 사이 상호작용은 일부만 본다.
+- epochs 30이 뽑히면 뒤 단계의 run이 약 3배 길어진다.
+- energy는 선택에 쓰지 않는다. emb 128은 energy를 약 2배로 늘린다(아래 smoke). 최종 보고에 energy를 함께 적는다.
+- 선택 지표는 AUC-PR이다. 논문에 보고할 point-adjusted F1은 학습 없는 무작위 점수가 가장 높게 나오는 지표다(23:57 기록). 그래서 point-adjusted F1이 오르리라는 보장은 없다.
+
+### 사전 예상(확신 낮음)
+- norm: PSM은 mean 또는 none을 고를 것이다(11-03에 학습 평균과의 거리 AUC-PR 47.26 > 창 평균과의 거리 38.12; 창의 수준에 정보가 있음). MSL은 window를 둘 것이다(창 평균과의 거리가 학습 없는 점수 중 가장 높았음).
+- epochs: 한 dataset 이상에서 10보다 적은 epoch(1 · 3)가 뽑힐 것이다(재구성을 너무 잘하면 이상 구간도 잘 재구성한다는 11-03의 읽기).
+- width · depth · patch · lr: 각각 AUC-PR 상대 차이 2 % 안의 작은 변화일 것이다.
+- 전체: 튜닝 AUC-PR은 출발점보다 오른다(구성상). PSM에서 가장 크게 오를 것이다. point-adjusted F1은 여전히 DNN 행보다 낮을 것이다(특히 MSL 재현율).
+
+### 바꾼 code
+- `ad_wrap.py`: `Reconstructor(..., norm='window')`. 'window'는 이전 code 그대로다. 'mean'은 창 평균만 빼고, 'none'은 입력을 그대로 넣는다.
+- `train_ad.py`: `--ad_norm {window, mean, none}`(기본 window)을 Reconstructor에 넘긴다.
+- `scripts/run_ad_spk.sh`: 새 환경 변수를 받는다. 기본값이면 명령과 tag가 이전과 같다.
+  - BLOCKS(1) → `--layers`, tag `_b<n>`.
+  - EMB(64) → `-emb`, tag `_e<n>`.
+  - PATCH(8) → `--patch_size`, tag `_p<n>`.
+  - MLP(1) → `--mlp_ratios`, tag `_mlp<r>`.
+  - ADNORM → `--ad_norm`, tag `_nm<mode>`.
+  - EPOCHS ≠ 10 → tag `_ep<n>`. 이전에는 EPOCHS가 tag에 없어서, epoch만 다른 run끼리 stdout 이름이 겹칠 수 있었다.
+  - PATIENCE ≠ 3 → tag `_pt<n>`.
+- 새 파일:
+  - `adtune.py`: 단계별 queue 쓰기 · 선택.
+  - `scripts/adtune_driver.sh`: 단계마다 queue → pool → RESULT +n · SKIP 0 → 선택. 끝나면 요약 → 독립 재계산 → `driver end`. 실패하면 STOP.
+  - `results/check-adtune2-20261129/{summarize_adtune2.py, recheck_adtune2.py, check_adtune.py, dry_adtune2.py}`.
+
+### 점검(모두 통과)
+- **code 점검**(`check_adtune.txt`, 17개):
+  - c1: 옛 runner(HEAD `55537a333` 사본)와 새 runner가 이전 설정 6개에서 같은 인자 · tag를 낸다.
+  - c2: 모든 단계의 모든 후보(dataset별 47개 설정, 다른 설정과 섞은 것 포함)에서 runner의 tag = `adtune.tag()`이고, runner 인자가 요청한 설정과 같다. tag가 모두 다르다.
+  - c3: 'window'는 옛 `ad_wrap.py`와 같은 weight에서 train · eval 출력이 비트 단위로 같다. 'mean' · 'none'은 body 입력이 각각 x − 창 평균, x 그대로다. 잘못된 mode는 거부한다.
+- **dry 18개**(`dry_adtune2.txt`): 출발 행 + 단계별 보너스로 가짜 AUC-PR을 심어 7단계 전체를 돌렸다.
+  - 미리 정한 선택이 모두 나왔다. 지금 값과 같으면 지금 값을 두고, 지금 값이 아닌 후보끼리 같으면 앞의 것을 고른다.
+  - 최종 tag 3개가 맞고, 요약기와 독립 재계산이 통과했다.
+  - 선택 파일을 바꿔 넣으면 독립 재계산이 FAIL을 낸다. 다른 선택으로 덮어쓰기, SKIP 줄, seed 빠짐, suite 사이 중복 행은 모두 멈춘다.
+- **smoke**(1 epoch, MSL, seed 42, suite `check-adtune2-smoke`): 11 run 중 RESULT 10, SKIP 1(patch 16, 아래 실수 기록).
+  - **기본 경로 재현:** 출발 설정(IAND)을 `EPOCHS=1`로 돌린 run이 22:52 smoke(`check-iand-smoke-ad`, 고치기 전 code)와 같은 값을 냈다. val MSE 0.053785, AUC-PR 0.149512, syops energy 15.236356 µJ로 모두 글자까지 같다.
+  - 모든 RESULT가 `energy_check=ok`다.
+  - 1 epoch syops energy(µJ): 출발(OR) 수준 약 15.2, emb 32 7.55, **emb 128 30.60**, block 2 15.69, mixer 층 2 15.33, mlp 2 15.28, patch 4 15.72, patch 20 14.83, norm mean 15.23, none 15.26. 1 epoch 값이라 결과가 아니다.
+  - 최대 GPU 메모리는 1,534 MiB(emb 128 · patch 4)다. GPU당 49 GB이므로 SLOTS `0,1,2,3,0,1,2,3`(GPU당 2개)이다.
+- **내 실수 기록:** 처음 계획의 patch 후보는 16이었다. smoke에서 patch 16 run이 실패했다. token 12개 × stride 8 = 96으로 입력 100을 다 덮지 못해 Reconstructor가 거부한 것이다. patch 12 · 25도 같은 이유로 안 된다. 그래서 학습 결과를 보기 전에 후보를 patch 4(token 50)와 20(token 10)으로 바꿨다. 첫 점검 판은 `check_adtune_v1_patch16.txt`, `dry_adtune2_v1_patch16.txt`로 남겼다.
+
+### 예상 시간
+- 출발 설정 run 시간: MSL 510–805 s, SMAP 1,345–2,136 s, PSM 801–919 s(GPU 공유 정도에 따라 다름).
+- epoch 1 · 3 run은 짧고, epoch 30은 약 3배, emb 128 · patch 4는 더 길다.
+- 합계 약 45–60 GPU 시간이다. 8 slot에 다른 세션과 GPU를 함께 쓰면 벽시계로 약 8–12시간이다. epochs 30이 뽑히면 더 길어진다.
+
+**commit:** 이 기록, 위 code · 점검 결과, smoke `raw.txt`를 commit · push한다. 해시는 다음 기록에 적는다. 그 commit에서 NSMT/에서 `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/adtune_driver.sh`로 시작한다. pool이 도는 동안에는 commit하지 않는다.

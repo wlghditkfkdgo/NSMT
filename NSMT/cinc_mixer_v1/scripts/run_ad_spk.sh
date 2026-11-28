@@ -12,6 +12,10 @@
 #         --neuron_all lif, tag _nalif); unset = the earlier training line unchanged
 #         MIXPOOL (none | mean): 2026-11-19 AD energy test (A) -- the SpkMixer's T_h repeats averaged before the mixer
 #         (--spk_mixpool mean, tag _mpmean); unset = the earlier training line unchanged
+#         2026-11-29 AD tuning (user "epoch 수, 정규화, layer/block 개수, hidden_dim 개수 등등 하이퍼파라미터 튜닝"):
+#         BLOCKS (1) -> --layers, tag _b<n>;  EMB (64) -> -emb, tag _e<n>;  PATCH (8) -> --patch_size, tag _p<n>;  MLP (1) -> --mlp_ratios,
+#         tag _mlp<r>;  ADNORM (window | mean | none) -> --ad_norm, tag _nm<mode>;  EPOCHS != 10 -> tag _ep<n>;  PATIENCE != 3 -> tag _pt<n>
+#         (each suffix only when not the default: unset = the earlier training line and tag unchanged)
 set -u
 DS=${1:?}; S=${2:?}; GPU=${3:?}
 W="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # cinc_mixer_v1
@@ -40,6 +44,14 @@ case ${NALL:-sj_lif} in sj_lif) ;; lif) [ "$COND" = spk_ssa ] || { echo "NALL=li
 case ${MIXPOOL:-none} in none) ;; mean) case $COND in spkmx_*) HM="$HM --spk_mixpool mean"; TAGC="${TAGC}_mpmean" ;;   # 2026-11-19 AD energy (A):
   *) echo "MIXPOOL is for the SpkMixer"; exit 1 ;; esac ;; *) echo "bad MIXPOOL (none | mean)"; exit 1 ;; esac            # mean pooling, tag _mpmean
 E=${EPOCHS:-10}; P=${PATIENCE:-3}
+BL=${BLOCKS:-1}; EM=${EMB:-64}; PT=${PATCH:-8}; MR=${MLP:-1}; AN=${ADNORM:-window}   # 2026-11-29 AD tuning
+case $BL in 1) ;; 2|3) TAGC="${TAGC}_b${BL}" ;; *) echo "bad BLOCKS"; exit 1 ;; esac
+case $EM in 64) ;; 16|32|128|256) TAGC="${TAGC}_e${EM}" ;; *) echo "bad EMB"; exit 1 ;; esac
+case $PT in 8) ;; 4|16|20|32) TAGC="${TAGC}_p${PT}" ;; *) echo "bad PATCH"; exit 1 ;; esac
+case $MR in 1) ;; 0.5|2|4) TAGC="${TAGC}_mlp${MR}" ;; *) echo "bad MLP"; exit 1 ;; esac
+case $AN in window) ;; mean|none) HM="$HM --ad_norm $AN"; TAGC="${TAGC}_nm${AN}" ;; *) echo "bad ADNORM"; exit 1 ;; esac
+case $E in 10) ;; [1-9]|[1-9][0-9]|100) TAGC="${TAGC}_ep${E}" ;; *) echo "bad EPOCHS"; exit 1 ;; esac
+case $P in 3) ;; [1-9]|[1-9][0-9]) TAGC="${TAGC}_pt${P}" ;; *) echo "bad PATIENCE"; exit 1 ;; esac
 SUITE=${SUITE:-flif-v1-ad-spkmux-$(date +%Y%m%d)}
 RES=${RES:-$W/results/$SUITE}; LOG=${LOG:-$W/log/$SUITE}
 mkdir -p "$RES" "$LOG"; RES="$(cd "$RES" && pwd)"; LOG="$(cd "$LOG" && pwd)"
@@ -47,9 +59,9 @@ SHA=$(cd "$R" && git rev-parse --short HEAD); TS=$(date +%Y%m%d)
 OUT=$LOG/ad_${DS}_${TAGC}_seed${S}_${TS}_${SHA}.stdout; t0=$(date +%s)
 (cd "$W" && CUDA_VISIBLE_DEVICES=$GPU OMP_NUM_THREADS=${THREADS:-4} $PY ./train_ad.py \
   --log_dir "$LOG/$DS" --seed $S -s -nd 0 --gating attn --no-bias --scheduler reduce -e $E --warm_up_epoch 0 \
-  --layers 1 --tau 2.0 --weight_decay 0.06 --patience $P --anomaly_ratio $AR $HOA \
+  --layers $BL --tau 2.0 --weight_decay 0.06 --patience $P --anomaly_ratio $AR $HOA \
   --data $DS --root_path "$DATA_ROOT/$DS" --seq_len 100 \
-  --patch_size 8 -emb 64 -nh 8 --mlp_ratios 1 --time_layers $ML -lr $LR -bs 128 \
+  --patch_size $PT -emb $EM -nh 8 --mlp_ratios $MR --time_layers $ML -lr $LR -bs 128 \
   $CF $HM --tag $TAGC seed$S > "$OUT" 2>&1)
 RC=$?
 D=$(ls -td "$LOG/$DS"/*/*"+${TAGC}+seed${S}+"*"+epoch+${E}+"*/seed${S}_* 2>/dev/null | head -1)
