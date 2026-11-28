@@ -18762,3 +18762,116 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 - LIF만 시험한다.
 
 **commit:** 이 기록, code 4개(`spk_mixer.py`, `config.py`, `load_model.py`, `scripts/run_mitbih_spk.sh`), `scripts/mitres_driver.sh`, `results/check-mitres-20261128/{select_mitres.py, summarize_mitres.py, dry_mitres.py, dry_mitres.txt}`, `results/check-tshuf-20261128/{check_tshuf.py, tshuf_spread.py, summarize_tshuf.py, check_runner.txt, check_model.txt, check_model_v1_init_silent.txt, check_model_v2_stale_k5.txt, check_smoke.txt, energy_recount_smoke.txt, spread_smoke.txt}`, `results/check-tshuf-smoke/{raw.txt, energy_recount.csv}`, `results/check-mitres-smoke/{raw.txt, energy_recount.csv}`. `mem_poll.txt`는 local에 둔다.
+
+## 2026-11-28 20:41 KST — 결과((1) MIT-BIH 잔차 시험 30 run + (2) 순서만 떼는 대조 3 run, 사전등록 `ab3aeba47`, SKIP 0)
+- **(1)** IAND(lr 0.01)와 막전위 shortcut(MS, lr 0.005) 모두 ADD와 정확도가 같다(no clear difference, +0.23 / +0.20 %p).
+  - energy는 **ADD의 0.24 / 0.21배**다. SF-de 대비로는 1.15 / 0.99배다.
+  - 두 잔차 모두 SF-de 대비 채택 기준(+0.1 %p, ≤ 1.5배)을 통과한다. 추천 규칙에 따른 추천은 **IAND**다.
+- **(2)** token 순서를 섞어 학습하면 기준보다 **−1.66 %p**(3 / 3, worse)이고, 기억 없는 model보다 +0.19 %p(no clear difference)다.
+  - SpkMixer 안에서는 기억 끄기의 하락 대부분이 **순서의 몫**이다.
+  - 따라서 **18:24의 "정정"을 다시 고친다.**
+
+### 실행
+- `scripts/mitres_driver.sh`, log는 `results/flif-v1-mitbih-res/driver.log`다.
+- 시각: driver start 19:16:39(HEAD `ab3aeba47`) → 1단계 끝 20:15:29(res RESULT 24 / 24, tshuf 3 / 3, SKIP 0) → lr 선택 → 2단계 6 run 20:15:29–20:35:38(RESULT 30 / 30, SKIP 0) → energy 재계산 2개 "all checks passed" → 평가 순열 점검 → 요약 2개 → driver end 20:40:46.
+- 33 run 모두 학습 commit `ab3aeba47`이다. pool이 도는 동안 commit하지 않았다.
+- run 시간: res 698–1,209 s, tshuf 1,109–1,156 s.
+- **독립 재계산**(`results/check-mitres-20261128/recheck_mitres.txt`, repo import 없음): lr 점수와 선택, R1–R7, 후보와 추천, S1–S4, 순서 · 상호작용의 몫이 요약과 같다. ALL CHECKS PASSED다.
+
+### (1) 잔차 시험(`results/check-mitres-20261128/summary_mitres.md` · `.json`)
+
+**lr 선택**(마지막 epoch validation macro-F1 %, seed 평균, fold 0; `results/flif-v1-mitbih-res/selected_lr.json`)
+
+| 잔차 | 0.0025 | 0.005 | 0.01 | 0.02 | 선택 |
+|---|--:|--:|--:|--:|---|
+| IAND | 92.003 | 92.233 | **92.339** | 91.721 | 0.01 |
+| MS | 92.286 | **92.577** | 92.447 | 92.225 | 0.005 |
+
+- IAND lr 0.02의 validation macro-F1은 11-01 행과 seed 3개 모두 **똑같다**(0.920807 / 0.910795 / 0.920042). 학습이 bit 단위로 재현된다.
+
+**test(seed 평균)**
+
+| model | lr | macro-F1 % | 정확도 % | F1 N / S / V / F / Q % | energy µJ(syops) |
+|---|---|--:|--:|---|--:|
+| **IAND(새)** | 0.01 | **92.21** | 98.59 | 99.27 / 86.42 / 96.31 / 80.23 / 98.83 | **9.00** |
+| **MS(새)** | 0.005 | **92.19** | 98.58 | 99.26 / 85.79 / 96.22 / 80.68 / 99.01 | **7.69** |
+| ADD 기준 | 0.02 | 91.99 | 98.56 | 99.24 / 85.94 / 96.31 / 79.49 / 98.95 | 37.06 |
+| SF-de PE 켬 | 0.01 | 91.94 | 98.53 | 99.23 / 85.14 / 96.09 / 80.23 / 99.03 | 7.80 |
+| SF-de PE 끔 | 0.01 | 91.27 | 98.33 | 99.11 / 82.07 / 95.93 / 80.57 / 98.68 | 7.62 |
+| MS 11-08(보고) | 0.02 | 91.89 | 98.55 | 99.24 / 85.57 / 96.44 / 79.24 / 98.98 | 7.92 |
+
+| 비교 | A vs B | d %p(42 / 7 / 2026) | 평균 | 판정 | energy A/B | 채택 기준 |
+|---|---|---|--:|---|--:|---|
+| R1 | IAND vs ADD | +0.38 / +0.43 / −0.13 | +0.23 | no clear difference | **0.243** | 통과 |
+| R2 | MS vs ADD | +0.41 / +0.26 / −0.06 | +0.20 | no clear difference | **0.208** | 통과 |
+| R3 | IAND vs SF-de PE 켬 | +0.51 / +0.06 / +0.24 | +0.27 | no clear difference | 1.154 | **통과** |
+| R4 | MS vs SF-de PE 켬 | +0.54 / −0.12 / +0.32 | +0.25 | no clear difference | 0.986 | **통과** |
+| R5 | IAND vs MS | −0.04 / +0.18 / −0.08 | +0.02 | no clear difference | 1.171 | — |
+| R6 | IAND vs SF-de PE 끔 | +0.83 / +1.45 / +0.53 | +0.94 | **A better** | 1.182 | 통과 |
+| R7 | MS vs SF-de PE 끔 | +0.87 / +1.27 / +0.61 | +0.92 | **A better** | 1.009 | 통과 |
+
+- **후보:** IAND, MS 둘 다다(ADD보다 나쁘지 않고 energy ≤ 1.5배 SF-de). **추천은 IAND**(사전 고정 규칙: ETT 기준과 같은 잔차 → 한 model)다.
+  - energy만 보면 MS가 더 낮다(SF-de의 0.99배, IAND는 1.15배). 최종 결정은 사용자가 한다.
+- **energy 재계산:** 30 run 모두 재계산 macro-F1 = 기록값이다. IAND · MS의 syops 규칙과 정수 규칙이 같다(0/1 입력).
+- **사전 예상과 비교:**
+  - "IAND vs ADD worse"는 **틀렸다**. lr 탐색(0.02 → 0.01)이 차이를 없앴다.
+  - "MS vs ADD no clear difference"는 맞았다.
+  - "energy 7.4–8.0 µJ"는 MS는 맞았고(7.69), IAND는 틀렸다(9.00).
+  - "추천 MS"는 틀렸다(IAND가 후보가 되어 IAND).
+  - "SF-de 대비 채택 기준을 둘 다 통과하지 못함"은 **틀렸다**(둘 다 통과).
+- **뜻:**
+  - MIT-BIH에서 SpkMixer의 energy 문제는 ADD 잔차 때문이었다. 0/1 입력을 유지하는 잔차로 바꾸면 정확도는 그대로이고, energy는 SF-de 수준(0.99–1.15배)이다.
+  - IAND를 쓰면 ETT와 MIT-BIH가 같은 잔차가 된다.
+  - SF-de 대비로는 차이 기준(±0.5 %p)으로는 차이가 없다. 채택 기준(+0.1 %p)은 넘는다.
+
+### (2) 순서만 떼는 대조(`results/check-tshuf-20261128/summary_tshuf.md` · `.json`)
+
+| model | macro-F1 % | 정확도 % | class S F1 % | energy µJ |
+|---|--:|--:|--:|--:|
+| SpkMixer 기준(순서 + 상호작용) | 91.99 | 98.56 | 85.94 | 37.06 |
+| **SpkMixer 순서 섞어 학습(상호작용만, 새)** | **90.33** | 98.05 | 79.54 | 36.89 |
+| SpkMixer 기억 없음(둘 다 없음) | 90.13 | 98.03 | 78.59 | 36.15 |
+| SF-de PE 끔(attention, 순서 없음) | 91.27 | 98.33 | 82.07 | 7.62 |
+
+| 비교 | A vs B | d %p(42 / 7 / 2026) | 평균 | 판정 | 사전 예상 |
+|---|---|---|--:|---|---|
+| S1 | 섞기 vs 기준 | −1.74 / −1.54 / −1.70 | **−1.66** | **A worse** | worse — 맞음 |
+| S2 | 섞기 vs 기억 없음 | −0.02 / +0.23 / +0.37 | +0.19 | no clear difference | better — **틀림** |
+| S3 | 섞기 vs SF-de PE 끔 | −1.29 / −0.52 / −1.03 | −0.95 | A worse | 차이 없음 — **틀림** |
+| S4 | 섞기 vs SF-de PE 켬 | −1.61 / −1.92 / −1.32 | −1.62 | A worse | (보고) |
+
+- **분해:** 순서의 몫 = +1.74 / +1.54 / +1.70(평균 **+1.66 %p**)이고, 순서 없는 상호작용의 몫 = −0.02 / +0.23 / +0.37(평균 **+0.19 %p**)이다. 합 1.85 %p가 기억 끄기의 하락이다.
+- **평가 순열 점검**(`tshuf_spread.txt` · `.json`, 보고):
+  - 기본 평가 순열의 macro-F1이 기록값과 같다.
+  - 다른 평가 순열(seed 1, 2)과의 흔들림은 0.36 / 0.42 / 0.71 %p다(seed 42 / 2026 / 7). 예상 "0.5 %p 미만"은 2 / 3만 맞았다.
+  - 원래 순서로 평가하면 오히려 **−1.03 / −1.05 / −2.19 %p 낮다**. 학습 때 원래 순서를 거의 본 적이 없으므로, 원래 순서가 낯선 입력이 된다.
+- **energy 재계산:** 3 run 모두 재계산 macro-F1 = 기록값이다. 평가 순열이 재현된다.
+
+### 해석과 정정
+- **18:24 정정의 재정정:**
+  - 18:24에는 "기억 없는 SpkMixer(90.13) < 순서 모르는 SF-de(91.27)"를 근거로, 기억 끄기의 하락(−1.85 %p)을 "순서만이 아니라 token 사이 상호작용 전체의 몫"으로 고쳐 읽었다.
+  - 같은 model 안에서 순서만 떼어 보니 그 하락의 **약 90 %(1.66 / 1.85)가 순서의 몫**이고, 순서 없는 상호작용은 거의 기여하지 않았다(+0.19, 차이 기준 안).
+  - 18:24의 근거는 구조가 다른 두 model의 비교였고, 그 차이(1.14 %p)는 상호작용이 아니라 **구조 차이(attention vs LIF 동역학)**로 보는 것이 맞다. S3에서 섞기 SpkMixer < SF-de PE 끔(−0.95)이다.
+  - 그래서 14:36의 해석("token 축 시간 동역학이 **순서 정보**를 실어 성능에 기여한다")이 더 가깝다. 18:24 정정은 지나쳤다.
+- **지금 말할 수 있는 것(MIT-BIH, seed 3개):**
+  - SpkMixer의 token 축 LIF 동역학은 MIT-BIH 성능에 순서 정보로 약 1.7 %p 기여한다. class S(조기 박동, 박동 간격이 단서)가 가장 크게 의존한다(85.94 → 79.54).
+  - 순서를 모르는 조건에서 token을 섞는 능력은 attention(SF-de PE 끔)이 LIF 동역학보다 낫다.
+- **말하지 않는 것:**
+  - 순서 섞기 학습은 학습을 어렵게 만드는 효과(data 증강)도 있을 수 있다. 그러면 순서의 몫이 실제보다 크게 잡힌다.
+  - 대조는 ADD 잔차 model에서만 했다. IAND · MS에서는 not run이다.
+
+### 한계
+- seed 3개, MIT-BIH 분할 하나, LIF만 시험했다.
+- ADD 기준은 자체 lr 탐색을 하지 않았다(OR 잔차로 고른 lr 0.02).
+- SF-de PE 켬 · 끔도 lr 0.01 그대로다.
+- validation run은 training 파일의 80 %로 학습했다.
+
+### 결론
+- **(1)** MIT-BIH SpkMixer의 energy 문제는 잔차 교체로 풀린다. IAND(lr 0.01)는 92.21 % · 9.00 µJ이고, MS(lr 0.005)는 92.19 % · 7.69 µJ다. ADD와 정확도가 같고 energy는 약 1/4–1/5다. 사전 규칙상 추천은 IAND(ETT와 같은 잔차)다.
+- **(2)** SpkMixer의 token 축 동역학이 MIT-BIH에 기여하는 몫은 대부분 순서다(+1.66 %p, 3 / 3). 18:24 정정은 지나쳤다.
+- 다음 후보(사용자 결정 필요):
+  - MIT-BIH 기준을 IAND lr 0.01로 바꿀지 결정. 그러면 3과제 표와 SF-de 비교를 새 기준으로 다시 정리한다(학습 없음).
+  - IAND 기준에서도 순서 대조를 할지.
+  - AD 과제의 잔차 확인.
+
+**commit:** 이 기록, `results/flif-v1-mitbih-res/{raw.txt, energy_recount.csv, selected_lr.json}`, `results/flif-v1-mitbih-tshuf/{raw.txt, energy_recount.csv}`, `results/check-mitres-20261128/{summary_mitres.md, summary_mitres.json, recheck_mitres.py, recheck_mitres.txt}`, `results/check-tshuf-20261128/{summary_tshuf.md, summary_tshuf.json, tshuf_spread.json, tshuf_spread.txt}`. tag `exp/f-lif-pop-v3-mitres-20261128`(완료된 학습 run). driver.log · pool_log_A / B.txt · mem_poll.txt · checkpoint · TensorBoard event는 local에 둔다.
