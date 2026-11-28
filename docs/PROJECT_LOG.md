@@ -18361,3 +18361,40 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 - runner `run_mitbih_spk.sh`에 `TMEM`을 더한다(TMEM이 없으면 명령이 같도록, 점검 후).
 
 **commit:** 이 기록, `cls_order_eval.py`, `summarize_mitorder.py`. (b)를 먼저 실행한다.
+
+## 2026-11-28 14:08 KST — 결과((b) MIT-BIH 순서 섞기, 학습 없음, 6 checkpoint) + (a) MIT-BIH 기억 없는 neuron 사전등록 마무리: MIT-BIH에서는 **두 model 모두 token 순서에 크게 의존한다**. SpkMixer는 mixer 입력만 섞어도 macro-F1 **−35.06 %p**(3 / 3), SF-de는 SSA 입력을 섞으면 **−26.47 %p**(3 / 3)다. 짝 대비는 **"muxlin이 더 의존"**(+8.59 %p, 3 / 3)이다
+
+### (b) 결과(`results/check-mitorder-20261128/summary_mitorder.md` · `.json`, `order_mux.*`, `order_sfde.*`)
+- **fail closed:** 6 run 모두 섞지 않은 macro-F1이 기록값과 같았다. 첫 run의 항등 순열 점검도 두 model 모두 통과했다.
+
+| model | 섞기 | 섞지 않은 macro-F1 | 평균 drop %p(seed 42 / 7 / 2026) | drop seed | 판정 | 정확도 drop %p |
+|---|---|--:|---|--:|---|--:|
+| SpkMixer muxlin ADD | mixer | 91.99 | **+35.06**(+35.75 / +35.07 / +34.35) | 3 / 3 | order used | +13.55 |
+| SpkMixer muxlin ADD | full | 91.99 | +35.06 | 3 / 3 | order used | +13.55 |
+| SF-de(SSA + 상대 위치 bias) | SSA | 91.94 | **+26.47**(+25.97 / +25.47 / +27.95) | 3 / 3 | order used | +13.92 |
+| SF-de | full | 91.94 | +26.47 | 3 / 3 | order used | +13.92 |
+- **짝 대비**(주 판정): drop_mux(mixer) − drop_SF-de(SSA) = **+8.59 %p**(+9.78 / +9.60 / +6.40) → **muxlin depends more**.
+- **mixer 섞기와 full 섞기가 정확히 같다.** head가 token 평균(순서 무관)을 읽고 embedding · MLP는 token마다 따로이므로, 순서에 민감한 곳은 token을 섞는 module 하나뿐이다. 예상과 맞는 구조적 사실이다.
+- **사전 예상과 비교:**
+  - mux "order used"는 맞았다.
+  - "SF-de SSA 섞기는 작을 것"은 **틀렸다**(−26.5 %p). MIT-BIH에서는 SF-de도 상대 위치 bias로 순서를 크게 쓴다.
+  - 짝 대비 "muxlin이 더 의존"은 맞았다.
+- **해석(내 해석):**
+  - head가 순서를 모르는 분류 과제에서는, ETT와 달리 두 model 모두 몸통에서 순서를 처리한다. 순서를 없애면 성능이 크게 무너진다.
+  - neo-mixer(neuron 동역학)가 SSA(상대 위치 bias)보다 순서에 더 기댄다.
+  - "순서 처리 없이도 같은 성능이 나오는가"는 (a)가 답한다.
+
+### (a) MIT-BIH 기억 없는 neuron: 사전등록 마무리(13:5x 설계 그대로)
+- **새 run:** `COND=spkmx_lif_muxlin_add LR=0.02 TMEM=off`(방향별 층 2, patch 32, D 384, 30 epoch, cosine, bs 512; 기준과 같음). seed 42 / 7 / 2026 = **3 run**(suite `flif-v1-mitbih-memoff`, `scripts/mitmemoff_driver.sh`, SLOTS 1,2,3)이다.
+- **판정**(`results/check-mitmemoff-20261128/summarize_mitmemoff.py`):
+  - d = macro-F1(기억 없음) − macro-F1(기준) %p, seed별이다.
+  - 평균 ≤ −0.5 %p이고 2 / 3 이상 음수면 **worse = token 축 시간 동역학이 성능에 기여**한다. ≥ +0.5 %p · 2 / 3이면 better, 그 밖은 no clear difference다.
+  - 점검: 학습된 기억 없는 model의 mixer 섞기 drop이 |·| < 0.05 %p여야 한다(token 축 흐름이 없으므로 0). 아니면 멈춘다.
+- **runner:** `run_mitbih_spk.sh`에 `TMEM`을 더했다. `check_runner.py` · `.txt`: TMEM이 없으면 세 조건의 학습 인자가 같다. TMEM=off는 `--token_memory off`와 `_tmoff`만 더한다. spk_ssa는 거부한다.
+- **smoke**(`check-mitmemoff-smoke-20261128`, seed 42, 1 epoch): 77 s, macro-F1 74.03 %. 저장된 config에 `token_memory off`가 있다. energy 재계산은 "all checks passed"였다(`energy_recount_smoke.txt`).
+- **요약기 dry run**(`dry_mitmemoff.txt`): −3 %p → worse, −0.3 %p → no clear difference. 기억 없는 model의 섞기 drop 0.2 %p와 commit 섞임에서 멈춘다(exit 2).
+- **사전 예상(확신 중간):** **worse**(1 %p 이상 하락)다. token 평균 head에서 token 사이 흐름이 없으면, model은 patch 모양의 묶음(순서 없는 집합)만 본다.
+- **예상 시간:** 30 epoch × 약 1–1.5분 = run당 30–45분이고, 3개를 병렬로 돌린다. 다른 세션이 GPU를 함께 쓰고 있다.
+- **pool이 도는 동안 commit하지 않는다.**
+
+**commit:** 이 기록, (b) 산출물(`order_mux.txt` · `.json`, `order_sfde.txt` · `.json`, `summary_mitorder.md` · `.json`), runner, `mitmemoff_driver.sh`, `results/check-mitmemoff-20261128/{check_runner.py, check_runner.txt, summarize_mitmemoff.py, dry_mitmemoff.txt, energy_recount_smoke.txt}`, `results/check-mitmemoff-smoke-20261128/{raw.txt, energy_recount.csv}`.
