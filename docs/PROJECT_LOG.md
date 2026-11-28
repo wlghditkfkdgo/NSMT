@@ -18331,3 +18331,33 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 3. 분류 과제에서 같은 통제(순서 정보가 몸통을 거쳐야 하는 설정).
 
 **commit / tag:** 이 기록과 `results/flif-v1-ett-sfde-h1m1/{raw.txt, energy_recount.csv}`, `results/check-order-20261127/{order_sfde1.txt, order_sfde1.json}`, `results/check-sfde1-20261127/{summary_order3.md, summary_order3.json, recheck_order3.txt}`. annotated tag `exp/f-lif-pop-v3-sfde1-20261128`(완료된 학습 run).
+
+## 2026-11-28 14:03 KST — 사용자 결정 "MIT-BIH 실험에 대해서 추가실험: 순서 실험 진행 / 분류 과제 통제를 먼저 진행" + 사전등록: MIT-BIH에서 (b) 순서 섞기(학습 없음)와 (a) 기억 없는 neuron(학습 3 run)을 한다. 분류 head는 token 평균을 읽으므로 순서 정보는 몸통을 거쳐야만 head에 간다
+
+> 사용자 원문: "1. MIT-BIH 실험에 대해서 추가실험: - 순서 실험 진행 2. 3번 분류 과제 통제를 먼저 진행"
+
+- **branch / base:** `exp/f-lif-pop-v3`, base `eb4dc6819`.
+- **왜 MIT-BIH인가:** ETT 예측 head는 위치별 weight라 몸통 없이도 순서를 쓴다(11-27 결과). MIT-BIH 분류 model(SpkMixer, SF-de)은 head가 **token 평균**(순서 무관)을 읽는다. 그래서 몸통의 순서 처리만이 순서 정보를 전할 수 있다.
+- **대상(기존 checkpoint, test.py가 평가한 마지막 epoch weight, 30 % test 파일):**
+  - mux: LIF SpkMixer, muxlin, **ADD**(MIT-BIH 튜닝에서 고른 잔차), lr 0.02, 방향별 층 2, patch 32(token 11), D 384, 30 epoch(`flif-v1-mitbih-spkmux-tune` tag `spkmx_lif_muxlin_add_lr0.02_L2`, seed 3). macro-F1 91.99(11-18 표).
+  - sfde: SF-de, SSA + 상대 위치 bias(`ssa_pe 1`), lr 0.01(`flif-v1-mitbih-sfde` `spk_ssa_lr0.01_L2_nalif`, seed 3). macro-F1 91.94.
+
+### (b) 순서 섞기(학습 없음): `results/check-mitorder-20261128/cls_order_eval.py`
+- **섞기:**
+  - mixer: SpkMixer는 block mix, SF-de는 SSA. 입력을 sample마다 random 순열로 섞고 출력을 원래 순서로 되돌린다.
+  - full: patch token을 섞는다.
+  - 순열 seed는 0 / 1 / 2이고 평균을 낸다. head(token 평균)는 순서와 무관하므로 head 섞기는 하지 않는다.
+- **fail closed:** 섞지 않은 macro-F1이 기록값과 같아야 한다(1e-6). 첫 run에서 항등 순열이 섞지 않은 값과 정확히 같아야 한다.
+- **판정(`summarize_mitorder.py`):** drop = macro-F1(원래) − macro-F1(섞음) %p, seed마다 계산한다.
+  - "order used": 평균 drop ≥ 0.5 %p이고 seed 3개 중 2개 이상에서 drop > 0(이 branch의 MIT-BIH 규칙).
+  - **짝 대비(주 판정):** D = drop_mux(mixer) − drop_SF-de(SSA)를 seed별로 구한다. 평균 ≥ +0.5 %p이고 2 / 3 이상 양수면 "muxlin이 더 의존", 반대면 "SF-de가 더 의존", 그 밖은 차이 없음이다.
+  - 정확도 drop은 보고만 한다.
+- **사전 예상(확신 낮음):** mux의 mixer 섞기는 "order used"(head가 순서를 모르므로 몸통이 쓸 것)이고, SF-de의 SSA 섞기는 작을 것이다. 짝 대비는 "muxlin이 더 의존"으로 예상한다.
+
+### (a) 기억 없는 neuron(MIT-BIH, 학습): 설계(구현 · 점검 뒤 따로 시작)
+- mux와 같은 설정에 `TMEM=off`(mixer의 token 축 neuron 매 token reset)를 준다. seed 42 / 7 / 2026 = 3 run(suite `flif-v1-mitbih-memoff`)이다. 초기 weight는 기준과 같다(parameter 같음).
+- **판정:** memoryless − 기준 macro-F1이 평균 ≤ −0.5 %p이고 seed 2 / 3 이상에서 낮으면 "시간 동역학이 성능에 기여한다"고 본다. ≥ +0.5 %p · 2 / 3이면 반대, 그 밖은 차이 없음이다.
+- 학습 뒤 memoryless model에 (b) mixer 섞기를 하면 정확히 0 변화여야 한다(token 축 흐름이 없으므로). 점검으로만 쓴다.
+- runner `run_mitbih_spk.sh`에 `TMEM`을 더한다(TMEM이 없으면 명령이 같도록, 점검 후).
+
+**commit:** 이 기록, `cls_order_eval.py`, `summarize_mitorder.py`. (b)를 먼저 실행한다.
