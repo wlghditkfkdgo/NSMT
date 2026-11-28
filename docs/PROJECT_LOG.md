@@ -18286,3 +18286,48 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 **실행:** commit · push 뒤 NSMT/에서 `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/sfde1_driver.sh > /dev/null 2>&1 &`.
 
 **commit:** 이 기록, runner, `order_eval.py`, 새 파일(`sfde1_driver.sh`, `check_sf1.py` · `.txt`, `summarize_order3.py`, `dry_order3.txt`, `energy_recount_smoke.txt`), `results/check-sfde1-smoke-20261127/{raw.txt, energy_recount.csv}`.
+
+## 2026-11-28 13:10 KST — 결과 + 실험 완료(SF-de on ETTh1 · ETTm1, 12 run, 사전등록 `a6443b0c0`, SKIP 0, + 순서 섞기): 주 판정 **"muxlin이 SF-de보다 순서에 더 의존한다"**(짝 차이 +4.49 %p, 12 / 12)다. SF-de의 SSA 섞기는 +0.49 %(no evidence)다. 정확도는 SF-de와 muxlin IAND가 차이 없다(MSE −0.36 %). SF-de의 syops energy는 1.9배다
+
+- **실행:** 23:51:26 시작(HEAD `a6443b0c0`) → 00:07:33 pool 끝(RESULT 12, SKIP 0, 12행 모두 `a6443b0c0`) → energy 재계산("all checks passed") → 순서 섞기(`order_sfde1.txt` · `.json`) → 요약 → 00:12:09 `driver end`.
+  - GPU 시간 합은 1.7시간이다. pool이 도는 동안 commit하지 않았다.
+  - 명령: `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/sfde1_driver.sh > /dev/null 2>&1 &`.
+- **fail closed 점검:** 12 run 모두 섞지 않은 MSE가 기록값과 같았다. 항등 순열 점검도 통과했다.
+- **독립 재계산**(`results/check-sfde1-20261127/recheck_order3.txt`, 저장소 code import 없이 json · raw에서 다시 계산): SSA 섞기 R, 짝 대비, 정확도 R이 요약과 같다. ALL CHECKS PASSED.
+- **결과**(`results/check-sfde1-20261127/summary_order3.md` · `.json`):
+
+| model | 섞기 | MSE R %(ETTh1 96 / 720, ETTm1 96 / 720) | 증가 run | 판정 |
+|---|---|---|--:|---|
+| muxlin IAND(base, 23:10) | mixer | +4.98(+2.13 / +4.11 / +6.21 / +7.48) | 12 / 12 | order used |
+| **SF-de** | **SSA** | **+0.49**(+0.46 / +1.07 / +0.13 / +0.32) | 12 / 12 | **no evidence** |
+| SF-de | head | +103.29 | 12 / 12 | order used |
+| SF-de | full | +103.70 | 12 / 12 | order used |
+- **짝 대비**(주 판정): Δ_base(mixer) − Δ_SF-de(SSA) = 평균 **+4.49 %p**, 12쌍 모두 base가 크다 → **muxlin depends more**.
+- **정확도(보고만):**
+  - SF-de vs muxlin IAND: MSE R −0.36 %(칸 −1.81 / +1.85 / −0.34 / −1.13, 낮음 8 / 높음 4) → no clear difference. MAE +0.20 % → no clear difference.
+  - 4칸 평균: SF-de 0.4106 / 0.4077 / 19.79 µJ, muxlin IAND 0.4117 / 0.4067 / 10.38 µJ. energy 비율(SF-de / muxlin)은 1.895다.
+- **사전 예상과 비교:** SF-de SSA 섞기는 작을 것(no evidence), 짝 대비는 "muxlin이 더 의존", 정확도는 no clear difference로 예상했다. **세 가지 모두 맞았다.**
+
+### 오늘 밤 순서 · 시간 실험 종합(ETTh1 · ETTm1, 사전등록 판정)
+| 질문 | 결과 |
+|---|---|
+| 학습된 neo-mixer는 순서에 의존하나(mixer 섞기) | 예, +4.98 %(12 / 12) |
+| 학습된 SF-de의 SSA는 순서에 의존하나(상대 위치 bias 있음) | 아니오, +0.49 % |
+| neo-mixer가 SSA보다 더 의존하나 | 예, +4.49 %p(12 / 12) |
+| token 축 기억을 없애면 정확도가 떨어지나 | 아니오, +0.28 %(23:38) |
+| SF-de와 정확도 차이 | 없음(−0.36 %), energy는 우리가 1 / 1.9 |
+- 해석(내 해석): ETT 예측에서 neo-mixer는 SSA와 달리 **token 순서를 실제로 처리한다**(기구 수준 근거). 하지만 그 처리 없이도(기억 없음, 또는 순서에 의존하지 않는 SSA) 같은 정확도에 도달한다. 순서 정보는 head(위치별 weight)로도 충분하다. 논문에서 쓸 수 있는 주장은 다음과 같다.
+  - (i) "neo-mixer는 spiking neuron의 token 축 동역학으로 순서를 처리한다"(순서 섞기, SSA 대비).
+  - (ii) "SF-de와 같은 정확도를 절반 정도의 energy로 낸다".
+  - "그 처리가 정확도를 올린다"는 ETT에서는 지지되지 않는다.
+- ETTh2 · ETTm2에서는 neo-mixer의 순서 의존도 작았다(+0.73 %, 23:28). (i)도 데이터셋에 따라 다르다.
+
+### 한계
+- SF-de는 튜닝하지 않았다(lr은 짝 데이터셋 값). D가 64로 base(32)와 다르다. 4칸 × seed 3이다.
+
+### 실행 대기 목록(갱신)
+1. SF-de PE-off(`ssa_pe 0`, 23:43 추가).
+2. 튜닝(base와 새 구조, 같은 예산).
+3. 분류 과제에서 같은 통제(순서 정보가 몸통을 거쳐야 하는 설정).
+
+**commit / tag:** 이 기록과 `results/flif-v1-ett-sfde-h1m1/{raw.txt, energy_recount.csv}`, `results/check-order-20261127/{order_sfde1.txt, order_sfde1.json}`, `results/check-sfde1-20261127/{summary_order3.md, summary_order3.json, recheck_order3.txt}`. annotated tag `exp/f-lif-pop-v3-sfde1-20261128`(완료된 학습 run).
