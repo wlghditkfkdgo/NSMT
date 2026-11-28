@@ -19151,3 +19151,62 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 - local: driver.log, pool_log.txt, queue(`scripts/queues/iand-20261128.txt`), run 폴더 · checkpoint · TensorBoard(`NSMT/cinc_mixer_v1/log/{flif-v1-ad-iand, flif-v1-mitbih-tshuf-iand, check-adiand-repro}/`).
 
 **commit / tag:** 이 기록과 결과를 `exp/f-lif-pop-v3`에 commit · push한다. annotated tag `exp/f-lif-pop-v3-iand-20261128`를 붙인다. 이 tag는 완료된 학습 run(AD 6 + 재현 1, MIT-BIH 3)이고 snapshot이 아니다. 이 기록이 들어간 commit은 이 tag로 가리킨다.
+
+## 2026-11-28 23:52 KST — 사용자 결정 3개 + 사전등록(학습 전): MIT-BIH IAND 기준의 기억 없는 neuron 대조(3 run). 나머지 두 요청(AD를 F1로 다시 분석, NSMT 원문의 SNN 분류 표와 비교)은 학습 없는 분석이라 이 pool이 끝난 뒤 따로 기록한다
+
+**직전 commit:** `66a5a4664`(23:33 결과 기록, tag `exp/f-lif-pop-v3-iand-20261128`). 브랜치 `exp/f-lif-pop-v3`.
+
+### 사용자 말(원문)
+> 1. AD 잔차에 대해서:지금 기준으로 삼고있는 AUC-PR 말고, F1 score로 계산했을 때, 다시 결과를 분석해줘. (논문 작성은 Pre, Recall, F1으로 보고할 예정)
+> 2. SNN 분류 model 문헌 표를 NSMT 원문에서 가져와서 비교해줘.
+> 3. 기억 없는 실험을 MIT-BIH + IAND에 대해서 진행해줘.
+
+- 1과 2는 학습이 없다. 이미 기록된 행과 NSMT 원문(`NSMT/papers/NSMT.pdf`)만 쓴다. 결과는 이 pool이 끝난 뒤 다음 기록에 적는다(pool 중에는 commit하지 않음).
+- 이 기록은 3의 사전등록이다.
+
+### 3. MIT-BIH IAND 기준의 기억 없는 neuron 대조
+**목적:**
+- 새 기준(IAND lr 0.01)에서도 token 축 neuron의 기억(막전위가 token 사이에 남는 것)이 성능에 기여하는지 본다. ADD 기준에서는 −1.85 %p였다(14:36 기록).
+- 23:33에 재지 못한 IAND 기준의 분해를 마무리한다. 기억 없을 때의 손실 = 순서 몫(기준 − 섞음) + 순서 없는 상호작용 몫(섞음 − 기억 없음)이다.
+
+**설정:**
+- IAND 기준(`spkmx_lif_muxlin_iand_lr0.01_L2`: LIF, muxlin, 방향별 층 2, patch 32, D 384, 30 epoch, cosine, bs 512, 마지막 epoch weight)에 `--token_memory off`(TMEM=off)를 더한다. mixer의 token 축 neuron을 token마다 reset한다.
+- 14:03 ADD 대조와 같은 구현이고, lr은 다시 고르지 않는다.
+- 새 run 3개: seed 42 / 7 / 2026, suite `flif-v1-mitbih-memoff-iand`, tag `spkmx_lif_muxlin_iand_lr0.01_L2_tmoff`.
+  - 명령: `SUITE=flif-v1-mitbih-memoff-iand COND=spkmx_lif_muxlin_iand LR=0.01 TMEM=off bash cinc_mixer_v1/scripts/run_mitbih_spk.sh <seed> <gpu>`.
+
+**비교(test macro-F1; seed마다 d %p; 평균 ≥ +0.5이고 3개 중 2개 이상 > 0이면 'A better', 반대는 'A worse'; energy는 syops `syn_energy_uJ`):**
+
+| 질문 | A | B | 읽기 |
+|---|---|---|---|
+| U1 | IAND 기억 없음 | IAND 기준 | 'A worse'면 token 축 neuron 동역학이 기여 |
+| U2 | IAND 섞음(23:33) | IAND 기억 없음 | 'A better'면 순서 없는 token 상호작용이 기여. 상호작용 몫 = 섞음 − 기억 없음 |
+| U3 · U4 · U5(보고) | IAND 기억 없음 | ADD 기억 없음 · SF-de PE 끔 · SF-de PE 켬 | |
+
+- 분해(seed마다): 기준 − 기억 없음 = 순서 몫 + 상호작용 몫이다. 평균 손실 중 순서 몫의 비율도 보고한다.
+- **점검(fail closed):** 학습된 IAND 기억 없는 model을 평가 때 섞어도 macro-F1이 변하지 않아야 한다(seed마다 |하락| < 0.05 %p; `cls_order_eval.py --arm iandoff`).
+  - 기억이 없으면 model 전체가 순서를 모르는 함수가 된다. ADD 때는 정확히 0이었다.
+
+**사전 예상:**
+- U1: worse(ADD −1.85 %p). 확신 중간.
+- U2: no clear difference(ADD +0.19 %p).
+- 순서 몫이 손실의 대부분(ADD 약 90 %)일 것이다.
+
+**바꾼 code(학습 code는 바꾸지 않음):**
+- `results/check-mitorder-20261128/cls_order_eval.py`: arm `iandoff`를 더했다.
+- 새 파일:
+  - `scripts/iandmem_driver.sh`: queue 3 → pool → RESULT 3 / SKIP 0 → energy 재계산 → 평가 섞기 점검 → 요약 → 독립 재계산 → `driver end`. 실패하면 STOP.
+  - `results/check-iandmem-20261128/{summarize_memoffi.py, recheck_memoffi.py, dry_memoffi.py}`.
+
+**점검(모두 통과):**
+- runner(`check_runner.txt`): TMEM=off는 IAND 기준 명령에 `--token_memory off`와 tag `_tmoff`만 더한다.
+- dry 14 / 14(`dry_memoffi.txt`):
+  - ADD 기억 없음 행을 IAND 이름으로 바꾸면 U3 = 0, U2 = 23:33의 T6(+0.208)이고, 분해가 seed마다 맞는다.
+  - 독립 재계산이 통과하고, 판정을 바꿔 넣으면 FAIL을 낸다.
+  - SKIP, seed 빠짐, commit 섞임, 재계산 macro-F1 ≠ 기록, nan, 평가 섞기 하락 0.1 %p, 섞지 않은 읽기 ≠ 기록이면 모두 exit 2로 멈춘다.
+- smoke(1 epoch, seed 42, suite `check-iandmem-smoke`): RESULT를 냈고, energy 재계산 macro-F1이 기록과 같았다(`energy_recount_smoke.txt`).
+- 메모리는 MIT-BIH run당 약 3.1 GB(22:52 측정)라 SLOTS `0,2,3`이다.
+
+**예상 시간:** run당 약 1,150 s. 다른 세션과 GPU를 함께 쓰므로 벽시계 20–25분으로 본다.
+
+**commit:** 이 기록, 위 code · 점검 결과, smoke `raw.txt` · `energy_recount.csv`를 commit · push한다. 해시는 다음 기록에 적는다. 그 commit에서 NSMT/에서 `SLOTS=0,2,3 nohup bash cinc_mixer_v1/scripts/iandmem_driver.sh`로 시작한다.
