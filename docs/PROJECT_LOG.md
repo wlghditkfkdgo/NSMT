@@ -18398,3 +18398,71 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 - **pool이 도는 동안 commit하지 않는다.**
 
 **commit:** 이 기록, (b) 산출물(`order_mux.txt` · `.json`, `order_sfde.txt` · `.json`, `summary_mitorder.md` · `.json`), runner, `mitmemoff_driver.sh`, `results/check-mitmemoff-20261128/{check_runner.py, check_runner.txt, summarize_mitmemoff.py, dry_mitmemoff.txt, energy_recount_smoke.txt}`, `results/check-mitmemoff-smoke-20261128/{raw.txt, energy_recount.csv}`.
+
+## 2026-11-28 14:36 KST — 결과((a) MIT-BIH 기억 없는 neuron 대조, 3 run, 사전등록 `550f1af8e`, SKIP 0): **worse**. mixer의 token 축 neuron을 매 token reset하면 macro-F1이 **91.99 → 90.13**(seed별 −1.72 / −1.78 / −2.06 %p, 평균 **−1.85 %p**, 3 / 3)으로 떨어진다. head가 순서를 모르는(token 평균) 분류 과제에서는 **token 축 시간 동역학이 성능에 기여한다**는 첫 성능 근거다. 사전 예상("worse, 1 %p 이상")은 맞았다
+
+### 실행
+- `scripts/mitmemoff_driver.sh`, suite `flif-v1-mitbih-memoff`, queue `scripts/queues/flif-v1-mitbih-memoff-20261128.txt`(local), SLOTS 1,2,3.
+- driver start 14:08:29(HEAD `550f1af8e`) → pool done 14:27:35(RESULT 3 / 3, SKIP 0) → energy 재계산 "all checks passed" → 요약 · 기억 없는 model의 섞기 점검 → driver end 14:31:24.
+- 3 run 모두 학습 commit `550f1af8e`, 30 epoch, 1,115 / 1,118 / 1,146 s(seed 2026 / 42 / 7). pool이 도는 동안 commit하지 않았다.
+- 설정은 기준과 같다: `COND=spkmx_lif_muxlin_add LR=0.02 TMEM=off`(LIF SpkMixer, muxlin, ADD 잔차, 방향별 층 2, patch 32 → token 11, D 384, cosine, bs 512). 유일한 차이는 `--token_memory off`(tag `spkmx_lif_muxlin_add_lr0.02_L2_tmoff`)다.
+- 기준: `flif-v1-mitbih-spkmux-tune`의 `spkmx_lif_muxlin_add_lr0.02_L2`(같은 seed 3개, 11-18 표 91.99).
+
+### 결과(`results/check-mitmemoff-20261128/summary_mitmemoff.md` · `.json`)
+
+| 지표 | 기억 없음(tmoff) | LIF 기억(기준) | 차이 |
+|---|--:|--:|--:|
+| macro-F1 %(seed 42 / 7 / 2026) | **90.13**(90.17 / 90.35 / 89.88) | **91.99** | **−1.85 %p**(−1.72 / −1.78 / −2.06), 3 / 3 낮음 → **worse** |
+| 정확도 % | 98.03 | 98.56 | −0.53 %p |
+| class F1 N | 98.94 | 99.24 | −0.30 |
+| class F1 **S**(심실상성 조기 박동) | **78.59** | **85.94** | **−7.34 %p** |
+| class F1 V | 95.14 | 96.31 | −1.17 |
+| class F1 F | 79.42 | 79.49 | −0.07 |
+| class F1 Q | 98.58 | 98.95 | −0.37 |
+| syops energy µJ | 36.15 | 37.06 | 0.975배 |
+
+- **점검(fail closed, 모두 통과):**
+  - 기억 없는 model의 mixer 섞기 drop이 세 seed 모두 **정확히 +0.0000 %p**였다(`results/check-mitorder-20261128/order_muxoff.txt` · `.json`, 허용 |·| < 0.05). full(입력 token) 섞기도 0.000이다. 기억이 없으면 model 전체가 token 순서를 전혀 모르는 함수(patch 묶음 → 평균)가 된다는 뜻이고, 구현 의도와 맞는다.
+  - 항등 순열 점검을 통과했다. 섞지 않은 macro-F1 재계산값이 기록값과 같다(89.881 / 90.167 / 90.352).
+  - energy 재계산(`energy_recount.csv`): macro-F1 재계산이 기록값과 같고, syops energy도 기록값과 같다(36.185 / 36.166 / 36.090 vs 36.18 / 36.17 / 36.09).
+  - 독립 재계산(`recheck_mitmemoff.txt`, repo import 없음): seed 짝 3개, SKIP 없음, 학습 commit 하나, d · 평균 · 판정 · energy 비율이 요약과 같다. ALL CHECKS PASSED다.
+- **사전 예상과 비교:** "worse(1 %p 이상 하락)"를 예상했고 맞았다(−1.85 %p).
+
+### 사후 분석(사전등록 아님, 보고만)
+- **기억 없는 model vs SF-de**(`flif-v1-mitbih-sfde` `spk_ssa_lr0.01_L2_nalif`, 91.94):
+  - seed별 −1.59 / −2.15 / −1.69 %p, 평균 **−1.81 %p**다.
+  - 순서를 못 보는 SpkMixer는 순서를 보는 두 model(neuron 기억 91.99, attention + 상대 위치 bias 91.94)보다 모두 낮다.
+- **class S:**
+  - 하락이 class S에 몰린다(기준 85.94, SF-de 85.14, 기억 없음 78.59).
+  - S 박동은 주로 "이웃 박동보다 일찍 온다"(RR 간격)는 시간 관계로 구분된다. 순서를 모르면 이 정보를 잃는다는 해석과 맞는다(내 해석, 검증하지 않았다).
+- **energy(이미 알려진 문제, 새 사실 아님):**
+  - MIT-BIH의 기록 syops energy는 SpkMixer muxlin ADD 37.06 µJ, SF-de 7.80 µJ(seed 평균: 7.70 / 7.79 / 7.91)다. **SpkMixer가 SF-de의 4.75배**다.
+  - ADD 잔차가 정수 입력을 만들어 syops가 MAC로 센다는 점은 11-19 기록(SF-de 9.45 µJ보다 적게 낼 수 없음)에서 이미 지적했다. MIT-BIH에서 SpkMixer의 저전력 주장은 지금 설정으로는 서지 않는다.
+
+### 해석(ETT와 합쳐서)
+- **ETT**(head = 위치를 아는 Linear(N·D→H)):
+  - 기억 없는 neuron은 no clear difference였다(+0.28 %, 11-27 23:38).
+  - 몸통이 순서를 쓰기는 한다(ETTh1 / ETTm1 섞기 +4.98 %). 하지만 학습할 때 head가 순서를 대신 실어 나르므로 꼭 필요하지는 않다.
+- **MIT-BIH**(head = 순서를 모르는 token 평균):
+  - 순서 정보는 몸통을 지나야만 전달된다.
+  - token 축 기억을 끄면 성능이 떨어지고(−1.85 %p, 3 / 3), 학습된 model에서 순서를 섞으면 크게 무너진다(−35.06 %p).
+  - **"T = N(token 축) 시간 동역학이 순서 정보를 실어 성능에 기여한다"**는 contribution을 처음으로 성능으로 뒷받침한다.
+- **말하지 않는 것:**
+  - neuron 동역학이 attention의 순서 처리보다 **낫다**는 근거는 아니다. 정확도는 SF-de와 같고(+0.05 %p, 11-18), energy는 SF-de의 4.75배다.
+  - SF-de의 순서 정보는 상대 위치 bias에서 온다. 위치 정보를 모두 끈 SF-de(`ssa_pe 0`)는 아직 돌리지 않았다(할 일 목록). 그 run이 있어야 "위치 정보 없는 attention vs neuron 동역학"을 공정하게 비교할 수 있다.
+
+### 한계
+- seed 3개, MIT-BIH 분할 하나(기준과 같은 70 / 30 test 분할)다.
+- lr 0.02는 **기억 있는 model**에 맞춰 고른 값이다. 기억 없는 model은 따로 튜닝하지 않았으므로, 차이 일부가 튜닝 불리함일 수 있다.
+- ADD 잔차, LIF 하나만 시험했다. f-LIF · population neuron은 시험하지 않았다(not run).
+- class별 F1은 seed 평균이다. class F(241개)처럼 표본이 작은 class는 흔들림이 크다.
+
+### 결론
+- MIT-BIH에서는 token 축 기억이 성능에 기여한다(worse, −1.85 %p, 3 / 3, energy 0.975배). 특히 class S에서 크다.
+- 이 대조는 ETT와 달리 "순서가 몸통을 지나야 하는 과제"에서 시간 동역학의 쓸모를 보인다.
+- 다음 후보(사용자 결정 필요):
+  - SF-de PE-off(`ssa_pe 0`). MIT-BIH 3 run과 ETTh1 / ETTm1 12 run이고, runner에 SSAPE 선택지가 필요하다.
+  - 기억 없는 model의 lr을 맞춘 대조.
+  - 기준과 새 구조를 같은 예산으로 튜닝하는 안(제안만 됨).
+
+**commit:** 이 기록, `results/flif-v1-mitbih-memoff/{raw.txt, energy_recount.csv}`, `results/check-mitmemoff-20261128/{summary_mitmemoff.md, summary_mitmemoff.json, recheck_mitmemoff.txt}`, `results/check-mitorder-20261128/{order_muxoff.txt, order_muxoff.json}`. tag `exp/f-lif-pop-v3-mitmemoff-20261128`(완료된 학습 run). driver.log · pool_log.txt · checkpoint · TensorBoard event는 local에 둔다.
