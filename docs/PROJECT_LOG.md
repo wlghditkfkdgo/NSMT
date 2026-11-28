@@ -19210,3 +19210,199 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
 **예상 시간:** run당 약 1,150 s. 다른 세션과 GPU를 함께 쓰므로 벽시계 20–25분으로 본다.
 
 **commit:** 이 기록, 위 code · 점검 결과, smoke `raw.txt` · `energy_recount.csv`를 commit · push한다. 해시는 다음 기록에 적는다. 그 commit에서 NSMT/에서 `SLOTS=0,2,3 nohup bash cinc_mixer_v1/scripts/iandmem_driver.sh`로 시작한다.
+
+## 2026-11-28 23:57 KST — 분석(학습 없음): (1) AD 잔차를 F1 · 정밀도 · 재현율로 다시 읽기, (2) NSMT 원문 Table 5의 SNN ECG model과 MIT-BIH 비교. **(1) point adjustment를 적용한 F1(TSLib · NSMT 방식)에서 우리 model 네 개는 DNN 행보다 평균 8–15 %p 낮고, 학습 없는 무작위 점수보다도 낮다.** 이 지표로는 잔차 사이 순위가 AUC-PR과 반대로 나오지만, 어느 지표에서도 차이는 "없음"이다. **(2) SpkMixer IAND는 NSMT Table 5의 모든 행보다 정확도 · F1이 높다.** 같은 분할로 다시 돌린 NSMT와 짝으로 비교하면 F1 +0.63 %p(better), energy 0.47배다. 다만 문헌 행의 평가 조건은 확인하지 않았다
+
+**사용자 말(원문):** 23:52 기록의 1 · 2(AUC-PR 대신 F1로 AD 잔차 다시 분석, 논문은 Pre · Recall · F1로 보고 예정 / NSMT 원문의 SNN 분류 model 표와 비교).
+
+**주의:** 둘 다 사후 분석이다. 잔차 시험에서 사전등록한 지표는 AUC-PR이었다. F1 읽기는 그 결과를 본 뒤 사용자 요청으로 했다. 학습은 하지 않았다. 지금 도는 pool(23:52 사전등록, MIT-BIH IAND 기억 없음)과는 별개다. 그 pool이 끝난 뒤 함께 commit한다.
+
+### (1) AD: F1 · 정밀도(P) · 재현율(R)(`results/ad-f1-20261128/{ad_f1.py, summary_ad_f1.md, summary_ad_f1.json}`)
+- 행은 모두 기록된 RESULT 줄이다(seed 42 / 7 / 2026 평균). LIF SpkMixer는 방향별 층 1, lr 2e-3, 학습 파일 전체다.
+  - IAND-all: 23:33 기록.
+  - G5: MSL · SMAP OR, PSM IAND.
+  - ADD: 11-19 validation이 고른 잔차.
+  - SF-de(튜닝).
+- 지표는 각 run이 이미 계산한 값이다. 문턱값은 TSLib 방식(학습 + test 점수 분포의 상위 1 %)이다.
+  - point-adjusted: 이상 구간 안에서 한 점이라도 잡으면 구간 전체를 맞춘 것으로 친다. TSLib와 NSMT Table 9가 쓰는 방식이다.
+  - raw: 시점마다 그대로 센다.
+- DNN 행과 NSMT 행은 NSMT 원문 Table 9(PDF 텍스트 층)에서 옮겼다. 무작위 점수는 11-03 기록(`flif-v1-ad-spkmux-tune/posthoc_trivial_baselines.md`)의 값이고, F1만 있다.
+
+**point-adjusted P / R / F1(%)**
+
+| arm | MSL | SMAP | PSM | 평균 F1 |
+|---|---|---|---|--:|
+| IAND-all | 73.54 / 33.05 / **45.57** | 89.59 / 54.48 / **67.76** | 98.01 / 87.82 / **92.63** | 68.65 |
+| G5(OR, OR, IAND) | 70.72 / 29.15 / **41.29** | 89.72 / 55.19 / **68.35** | 98.01 / 87.82 / **92.63** | 67.42 |
+| ADD(11-19 validation 선택) | 73.57 / 33.28 / **45.79** | 89.78 / 55.13 / **68.32** | 98.04 / 89.15 / **93.38** | 69.16 |
+| SF-de(튜닝) | 73.55 / 33.41 / **45.92** | 89.62 / 55.05 / **68.21** | 97.96 / 87.29 / **92.31** | 68.81 |
+| DNN 5행(NSMT Table 9: ETSformer, PatchTST, Informer, Autoformer, FEDformer) | F1 78.57–85.03, R 70.96–86.48 | F1 68.82–71.12 | F1 77.10–97.23 | 77.03–82.19 |
+| NSMT(원문 Table 9) | 88.24 / 67.54 / 76.51 | 91.61 / 64.57 / 75.75 | 98.54 / 92.56 / 95.46 | 82.57 |
+| 학습 없는 무작위 점수(11-03) | F1 84.60 | F1 93.75 | F1 95.89 | 91.41 |
+
+**raw P / R / F1(%)**
+
+| arm | MSL | SMAP | PSM | 평균 F1 |
+|---|---|---|---|--:|
+| IAND-all | 27.66 / 4.52 / 7.78 | 18.83 / 1.47 / 2.72 | 60.20 / 2.70 / 5.17 | 5.22 |
+| G5 | 26.83 / 4.43 / 7.60 | 19.92 / 1.57 / 2.92 | 60.20 / 2.70 / 5.17 | 5.23 |
+| ADD | 27.26 / 4.46 / 7.66 | 20.65 / 1.63 / 3.03 | 60.97 / 2.79 / 5.33 | 5.34 |
+| SF-de(튜닝) | 27.22 / 4.47 / 7.68 | 17.84 / 1.39 / 2.57 | 60.75 / 2.81 / 5.38 | 5.21 |
+| 학습 없는 무작위 점수 | F1 1.82 | F1 1.86 | F1 1.93 | 1.87 |
+
+**비교(AD 규칙 형태를 F1에 그대로 적용: R ≥ +2 %이고 2/3 이상의 쌍이 높으면 better; 채택 기준 형태: F1 차이 평균 ≥ 0.001, syops energy ≤ 1.5배)**
+
+| 비교 | point-adjusted F1: R / 높은 쌍 / Δ / 채택 기준 | raw F1: R / 높은 쌍 / Δ / 채택 기준 | AUC-PR(사전등록 지표): R / Δ / 채택 기준 | energy |
+|---|---|---|---|--:|
+| IAND-all vs SF-de | −0.35 % / 3/9 / −0.0016 / 통과 못함 | +1.20 % / 4/9 / +0.0001 / 통과 못함 | +0.50 % / +0.0006 / 통과 못함 | 1.018 |
+| IAND-all vs G5(MSL · SMAP) | +4.76 % / 3/6 / +0.0185 / — | −2.04 % / 3/6 / −0.0001 / — | −1.39 % / −0.0019 / — | 1.032 |
+| G5 vs SF-de | −3.06 % / 5/9 / −0.0139 / 통과 못함 | +2.88 % / 3/9 / +0.0002 / 통과 못함 | +1.45 % / +0.0019 / **통과** | 0.997 |
+| ADD vs SF-de | +0.55 % / 7/9 / +0.0035 / **통과** | +5.53 % / 4/9 / +0.0013 / **통과** | +0.43 % / −0.0004 / 통과 못함 | 1.207 |
+| IAND-all vs ADD | −0.48 % / 2/9 / −0.0051 | −3.70 % / 4/9 / −0.0012 | +0.09 % / +0.0010 | 0.846 |
+
+- 15개 비교의 판정은 모두 no clear difference다.
+- 같은 추천 규칙(IAND vs G5가 worse가 아니고, IAND vs SF-de가 채택 기준 통과)을 F1에 적용하면 point-adjusted · raw 둘 다 **"G5 유지"**다. 그러나 이유가 AUC-PR과 다르다. F1에서는 G5도 SF-de 대비 채택 기준을 통과하지 못한다. 통과하는 것은 ADD뿐이고, energy는 1.21배다.
+
+**읽기(내 해석)**
+- **point-adjusted F1은 이 설정에서 탐지기의 순위를 매길 수 없다.**
+  - 학습 없는 무작위 점수(평균 91.41)가 우리 model 넷(67.4–69.2)보다 높다. DNN 5행(77.0–82.2)과 NSMT 원문(82.6)보다도 높다(11-03 · 11-05 기록과 같은 결론).
+  - 그래서 "DNN보다 낮다"나 "무작위보다 낮다"를 탐지 능력의 차이로 바로 읽을 수는 없다. 다만 논문에 point-adjusted P / R / F1을 보고하면, 우리 숫자는 이 표에서 DNN 행보다 평균 8–15 %p 낮게 나온다.
+  - 가장 큰 차이는 MSL 재현율이다(우리 29–33 % 대 DNN 71–86 %). DNN 숫자를 낸 문턱값 규칙이 우리와 같은지는 확인하지 않았다(TSLib의 MSL · SMAP · PSM anomaly ratio는 1로 같다).
+- **MSL의 point-adjusted F1은 seed마다 두 값 중 하나로 나온다.** 0.410–0.420(R 0.29)이거나 0.475–0.482(R 0.35)다.
+  - G5(OR)는 세 seed 모두 낮은 값이다. IAND, ADD, SF-de는 세 seed 중 둘이 높은 값이다.
+  - 그래서 MSL에서 잔차 사이 F1 차이(IAND − G5 +10.4 %)는 점진적인 품질 차이가 아니다. 한 단계짜리 뒤집힘이다. 내 추정으로는 긴 이상 구간 하나를 한 점이라도 잡았는지에 달려 있다. 이 원인은 확인하지 않았다.
+- **raw F1은 모든 model이 5 % 안팎이다**(무작위 1.87 %). model 사이 차이는 F1 0.0013 이하다.
+- 잔차의 순위가 지표마다 바뀐다(AUC-PR: G5가 앞섬, point-adjusted F1: ADD가 앞서고 G5가 뒤, raw F1: ADD). 어느 지표에서도 차이 기준은 넘지 않는다. **AD에서 잔차 선택은 지표 선택보다 작은 효과다.**
+
+**한계**
+- DNN · NSMT 행은 NSMT 원문 Table 9 값이고, TimesNet 원 표와 대조하지 않았다. NSMT Table 9에는 Informer · Autoformer · FEDformer의 PSM 값과 SWaT 값이 같은 숫자로 들어 있다(원문 쪽 문제로 보임; 여기서는 PSM만 씀).
+- 무작위 점수는 P · R이 기록에 없다(F1만 있음).
+- 11-03에 적은 AD 설정의 약점(10 epoch, 창 정규화가 창의 수준을 지움, 재구성 점수)은 그대로다.
+
+### (2) MIT-BIH: NSMT 원문 Table 5의 SNN ECG model(`results/mitbih-lit-20261128/{mitbih_lit.py, summary_mitbih_lit.md, summary_mitbih_lit.json}`)
+- 문헌 행은 NSMT 원문 Table 5에서 옮겼다(원문 설명: "The reported results are taken from the corresponding papers").
+- 우리 행은 기록된 RESULT 줄이다(seed 42 / 7 / 2026 평균, 마지막 epoch weight). P · R · F1은 5 class의 macro 평균이다.
+- NSMT 다시 돌리기 행은 다른 세션의 `nsmt_flif_v1/classification/results/flif-v1-cls/raw.txt`(cond base, commit `da14fc7a8`)를 읽기만 했다. 같은 data 파일과 같은 seed다. 11-05 기록에 쓴 행과 같다.
+
+| model | Acc % | macro P % | macro R % | macro F1 % | energy | 출처 |
+|---|--:|--:|--:|--:|--:|---|
+| Y. Xing et al. [44](Electronics 2022) | 98.26 | — | — | 89.09 | 346.33 µJ | NSMT Table 5 |
+| A. Rana and K. Kim [30](Sensors 2024) | 93.80 | — | — | 86.40 | 278 mW(전력) | NSMT Table 5 |
+| M. Scrugli et al. [33](DATE 2024) | 98.40 | — | — | — | 50.98 µJ | NSMT Table 5 |
+| K. Buettner and A. George [5](ISVLSI 2021) | 97.80 | — | — | 87.90 | 34.5 µJ | NSMT Table 5 |
+| B. Reddy et al. [32](VDAT 2024) | 85.94 | — | — | — | — | NSMT Table 5 |
+| NSMT(원문) | 98.45 | — | — | 91.91 | 19.05 µJ | NSMT Table 5 |
+| **SpkMixer IAND(기준, lr 0.01)** | **98.59** | **93.41** | 91.10 | **92.21** ± 0.31 | **9.00 µJ**(syops) | 기록 |
+| SpkMixer ADD(lr 0.02) | 98.56 | 92.89 | 91.14 | 91.99 ± 0.10 | 37.06 µJ | 기록 |
+| NSMT 다시 돌리기(같은 분할 · seed) | 98.41 | 92.46 | 90.76 | 91.58 ± 0.05 | 19.06 µJ | 다른 세션 기록(읽기만) |
+| SF-de PE 켬(내부 비교) | 98.53 | 93.19 | 90.78 | 91.94 ± 0.40 | 7.80 µJ | 기록 |
+
+- SpkMixer IAND − 문헌 행:
+  - Xing: Acc +0.33, F1 +3.12 %p.
+  - Rana: Acc +4.79, F1 +5.81.
+  - Scrugli: Acc +0.19.
+  - Buettner: Acc +0.79, F1 +4.31.
+  - Reddy: Acc +12.65.
+  - NSMT 원문: Acc +0.14, F1 +0.30 %p, energy 0.47배.
+- **짝 비교(같은 분할 · 같은 seed, MIT-BIH 규칙 ±0.5 %p):** SpkMixer IAND vs NSMT 다시 돌리기.
+  - F1 +0.62 / +0.99 / +0.28(평균 **+0.63 %p, better**).
+  - 정밀도 +0.95 %p(better).
+  - 재현율 +0.35 %p(no clear difference).
+  - 정확도 +0.18 %p(no clear difference).
+  - energy **0.47배**(9.00 / 19.06 µJ).
+
+**문헌 행과 비교할 때 주의(확인하지 않은 것)**
+- 문헌 다섯 행의 데이터 분할, class 구성, F1 평균 방식, energy 측정 방식은 각 원 논문의 것이다. 여기서는 확인하지 않았다.
+  - energy 열은 성격이 섞여 있다. Loihi · FPGA 같은 hardware 측정값, 각자의 추정값, 전력(278 mW)이 함께 있다.
+  - 우리 syops 계산과 같은 방식인 것은 NSMT 행뿐이다(원문 19.05 µJ = 다시 돌린 값 19.06 µJ).
+- **분할이 원문 설명과 다르다.** NSMT 원문은 "80 % / 20 % 무작위 분할"이라고 적는다. 그러나 우리와 NSMT 다시 돌리기가 쓰는 data 파일은 70 / 30이다(`5class_mitbih_train_7_187.csv`, `5class_mitbih_test_3_187.csv`; test 32,833 beat = 109,446의 30 %).
+  - 그래서 NSMT 원문 91.91이 이 분할에서 나온 값인지 알 수 없다. 이 분할에서 다시 돌리면 91.58이다.
+- 두 분할 모두 beat 단위 무작위 분할이다. 같은 환자의 beat가 학습과 test에 함께 들어간다(11-08 기록). 환자 단위 분할 문헌과는 직접 비교할 수 없다.
+- 11-24 사용자 정정에 따라 NSMT 행은 SpkMixer 논문의 표에서 뺀다. 여기에는 비교용으로만 남겼다. 다른 다섯 행을 논문에 쓰려면 원 논문에서 값과 평가 조건을 확인해야 한다. ETT의 DNN 값은 원 출처와 대조했었다(11-24).
+
+**commit:** 이 기록과 위 두 폴더는 지금 도는 pool이 끝난 뒤, 그 결과 기록과 함께 commit한다.
+
+## 2026-11-29 00:07 KST — 결과(MIT-BIH IAND 기준의 기억 없는 neuron 대조, 3 run, 사전등록 `466da4420`, SKIP 0): **worse.** 기억을 끄면 macro-F1이 −1.13 %p(3 / 3) 떨어진다. 예상과 달리 **순서를 섞은 model이 기억 없는 model보다 −0.74 %p 낮다(worse).** IAND 기준에서 token 축 기억의 이득(+1.13 %p)은 전부 순서 사용에서 나온다(순서 몫 +1.87 %p). 순서 없이 기억만 있으면 오히려 손해다(−0.74 %p)
+
+**목적:** 23:52 사전등록 그대로다. 사용자 말 "3. 기억 없는 실험을 MIT-BIH + IAND에 대해서 진행해줘". 설계와 규칙은 바꾸지 않았다.
+
+**branch / base:** `exp/f-lif-pop-v3`. 사전등록 · code commit은 `466da4420`이고, 3 run 모두 `sha=466da4420`이다. 실행 중 commit은 없었다.
+
+**실행**
+- NSMT/에서 `SLOTS=0,2,3 nohup bash cinc_mixer_v1/scripts/iandmem_driver.sh`를 돌렸다(다른 세션 pool과 GPU 공유).
+- driver.log:
+  - 11-28 23:53:25 시작.
+  - 11-29 00:05:03 pool 끝(RESULT 3, SKIP 0).
+  - 이어서 energy 재계산 → 평가 섞기 점검 → 요약 → 독립 재계산.
+  - 00:07:09 `driver end`.
+- run 시간은 696–698 s다. 예상(약 1,150 s)보다 짧았다.
+- 환경은 `snn_recall`, seed는 42 / 7 / 2026이다.
+
+**결과**(`results/check-iandmem-20261128/summary_memoffi.md` · `.json`)
+
+| arm(seed 평균) | macro-F1 % | 정확도 % | F1 N / S / V / F / Q % | energy µJ(syops) |
+|---|--:|--:|---|--:|
+| IAND 기준 | 92.21 | 98.59 | 99.27 / 86.42 / 96.31 / 80.23 / 98.83 | 9.00 |
+| **IAND 기억 없음(새 run)** | **91.08** | 98.22 | 99.05 / 81.20 / 95.36 / 81.05 / 98.75 | 8.03 |
+| IAND 섞음(23:33) | 90.34 | 98.17 | 99.03 / 81.07 / 95.65 / 77.39 / 98.56 | 8.50 |
+| ADD 기억 없음(14:36) | 90.13 | 98.03 | 98.94 / 78.59 / 95.14 / 79.42 / 98.58 | 36.15 |
+| SF-de PE 끔 | 91.27 | 98.33 | 99.11 / 82.07 / 95.93 / 80.57 / 98.68 | 7.62 |
+| SF-de PE 켬 | 91.94 | 98.53 | 99.23 / 85.14 / 96.09 / 80.23 / 99.03 | 7.80 |
+
+| 질문 | A vs B | d %p(42 / 7 / 2026) | 평균 | 판정 | energy A/B |
+|---|---|---|--:|---|--:|
+| **U1** | IAND 기억 없음 vs IAND 기준 | −1.27 / −1.16 / −0.96 | **−1.13** | **worse** | 0.892 |
+| **U2** | IAND 섞음 vs IAND 기억 없음 | −1.04 / −1.17 / −0.01 | **−0.74** | **worse** | 1.058 |
+| U3(보고) | IAND 기억 없음 vs ADD 기억 없음 | +0.82 / +1.05 / +0.97 | +0.95 | better | 0.222 |
+| U4(보고) | IAND 기억 없음 vs SF-de PE 끔 | −0.44 / +0.29 / −0.42 | −0.19 | no clear difference | 1.054 |
+| U5(보고) | IAND 기억 없음 vs SF-de PE 켬 | −0.76 / −1.10 / −0.72 | −0.86 | worse | 1.030 |
+
+- 분해(seed 42 / 7 / 2026, %p):
+  - 기억 없을 때의 손실 +1.27 / +1.16 / +0.96(평균 +1.13).
+  - = 순서 몫 +2.31 / +2.34 / +0.96(평균 **+1.87**)
+  - \+ 순서 없는 상호작용 몫 −1.04 / −1.17 / −0.01(평균 **−0.74**).
+  - 순서 몫 / 손실 = 1.655다(1보다 큼).
+- 점검: 학습된 IAND 기억 없는 model을 평가 때 섞어도 세 seed 모두 macro-F1 하락이 **정확히 0.000 %p**였다(mixer 입력 · 패치 token 모두; `order_iandoff.txt`). 기억이 없으면 model이 순서를 전혀 모르는 함수가 된다는 구현 의도와 맞는다. 항등 순열 점검도 통과했다.
+
+**사전 예상과 비교**
+- U1 worse: 맞았다. 크기는 ADD(−1.85 %p)보다 작다.
+- **U2 "no clear difference"는 틀렸다.** 결과는 worse(−0.74 %p)다. seed 2026만 거의 0(−0.01)이고, 나머지 둘은 −1.04 · −1.17이다.
+- "순서 몫이 손실의 대부분(약 90 %)": 방향은 맞았지만, 실제로는 순서 몫이 손실보다 크다(165 %).
+
+**해석(탐색 수준, seed 3)**
+- **IAND 기준에서 token 축 neuron 기억의 이득은 순서 사용이 전부다.** 순서를 쓰면 +1.87 %p를 얻는다. 순서 없이 기억만 있으면(token을 무작위 순서로 넣으면) 기억 없는 것보다 0.74 %p 낮다.
+  - 내 해석: 순서가 무작위이면 막전위가 다른 token의 정보를 무작위로 섞어 넣는다. 그 섞임이 IAND 잔차에서는 잡음으로 작용하는 것으로 보인다. 이 원인은 재지 않았다.
+- ADD 기준(20:41)에서는 상호작용 몫이 +0.19 %p(no clear difference)였다. 두 잔차에서 상호작용 몫의 부호가 다르지만, 둘 다 순서 몫보다 훨씬 작다. "SpkMixer의 이득 = token 순서 사용"이라는 결론은 두 잔차에서 같다.
+- 기억 없는 IAND(91.08)는 위치 정보 없는 SF-de(91.27)와 차이가 없다(U4). 순서를 모르는 두 body가 같은 수준이고, 순서를 쓰면 SpkMixer가 위치 bias를 쓰는 SF-de(91.94)보다 높아진다(92.21).
+- 기억이 없을 때는 IAND가 ADD보다 낫다(U3 +0.95 %p, energy 0.22배). 기억이 있을 때는 두 잔차가 차이 없다(20:41, +0.23 %p).
+
+**점검**
+- driver 안 점검: RESULT 3, SKIP 0이다.
+  - energy 재계산(`flif-v1-mitbih-memoff-iand/energy_recount.csv`): 재계산 macro-F1 = 기록, 0/1 run이라 두 규칙이 같다. "all checks passed".
+  - 평가 섞기 점검을 통과했다.
+- 요약기(fail closed)는 정상 종료했다.
+- 독립 재계산 `recheck_memoffi.py`(요약기를 import하지 않음; `recheck_memoffi.txt`): U1–U5, 분해, 순서 없음 점검이 요약과 모두 같다. "ALL CHECKS PASSED".
+
+**한계**
+- seed 3이다. U2의 seed 2026은 거의 0이다.
+- lr은 다시 고르지 않았다(기억 없는 model에 맞는 lr이 다를 수 있음; ADD 대조와 같은 방식).
+- 순서 몫과 상호작용 몫은 서로 다른 세 model(기준, 섞음, 기억 없음)의 차이다. 각 model이 따로 학습되었으므로 몫은 근사다.
+
+**다음(사용자 결정 필요; 23:57 분석과 함께)**
+1. AD를 논문에 P / R / F1로 보고할 경우의 방향을 정해야 한다(23:57 기록).
+   - point-adjusted F1에서 우리 model은 DNN 행보다 8–15 %p 낮다. 학습 없는 무작위 점수가 모든 행보다 높다.
+   - 가능한 방향:
+     - (가) AD 설정을 고친다(epoch, 창 정규화, 점수).
+     - (나) point-adjusted와 raw F1 · AUC-PR을 함께 보고하고 무작위 점수의 한계를 밝힌다.
+     - (다) DNN 숫자와 문턱값 규칙이 같은지 먼저 확인한다.
+2. MIT-BIH 문헌 다섯 행의 평가 조건(분할, F1 평균 방식, energy 측정)을 원 논문에서 확인한다.
+3. AD 잔차(G5 유지 vs IAND 통일)를 정한다(23:33 기록). F1로도 차이는 없다.
+
+**artifact**
+- commit:
+  - `NSMT/cinc_mixer_v1/results/flif-v1-mitbih-memoff-iand/{raw.txt(sha256 앞 16자리 13c03890412c4184), energy_recount.csv}`.
+  - `results/check-iandmem-20261128/`: summary_memoffi.{md,json}, order_iandoff.{json,txt}, recheck_memoffi.txt.
+  - 23:57 분석: `results/ad-f1-20261128/`, `results/mitbih-lit-20261128/`.
+- local: driver.log, pool_log.txt, queue(`scripts/queues/flif-v1-mitbih-memoff-iand-20261128.txt`), run 폴더 · checkpoint · TensorBoard(`NSMT/cinc_mixer_v1/log/flif-v1-mitbih-memoff-iand/`).
+
+**commit / tag:** 이 기록, 23:57 분석 기록과 결과를 `exp/f-lif-pop-v3`에 commit · push한다. annotated tag `exp/f-lif-pop-v3-iandmem-20261129`를 붙인다. 이 tag는 완료된 학습 run(MIT-BIH 3)이고 snapshot이 아니다. 23:57 분석(학습 없음)도 같은 commit에 들어간다. 이 기록이 들어간 commit은 이 tag로 가리킨다.
