@@ -18875,3 +18875,39 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
   - AD 과제의 잔차 확인.
 
 **commit:** 이 기록, `results/flif-v1-mitbih-res/{raw.txt, energy_recount.csv, selected_lr.json}`, `results/flif-v1-mitbih-tshuf/{raw.txt, energy_recount.csv}`, `results/check-mitres-20261128/{summary_mitres.md, summary_mitres.json, recheck_mitres.py, recheck_mitres.txt}`, `results/check-tshuf-20261128/{summary_tshuf.md, summary_tshuf.json, tshuf_spread.json, tshuf_spread.txt}`. tag `exp/f-lif-pop-v3-mitres-20261128`(완료된 학습 run). driver.log · pool_log_A / B.txt · mem_poll.txt · checkpoint · TensorBoard event는 local에 둔다.
+
+## 2026-11-28 21:28 KST — 사용자 결정(학습 없음): MIT-BIH 기준을 **IAND(lr 0.01)**로 바꾼다 + 세 과제 현황 다시 정리(기존 기록 값만, SF-de 대비 내부 비교)
+
+### 사용자 말(원문)
+- "ETT도 IAND를 선택하고 있다면 MIT-BIH도 IAND를 선택하는 게 맞지."
+
+### 적용
+- **MIT-BIH SpkMixer 기준:** `spkmx_lif_muxlin_iand_lr0.01_L2`(suite `flif-v1-mitbih-res`, 20:41 기록)다.
+  - LIF, muxlin, 방향별 층 2, patch 32, D 384, 30 epoch, cosine, bs 512, 마지막 epoch weight다.
+  - 재현 명령: `SUITE=flif-v1-mitbih-res COND=spkmx_lif_muxlin_iand LR=0.01 bash cinc_mixer_v1/scripts/run_mitbih_spk.sh <seed> <gpu>`.
+  - test macro-F1 92.21 %, syops energy 9.00 µJ(seed 42 / 7 / 2026 평균)다.
+- 이전 기준(ADD lr 0.02, 91.99 %, 37.06 µJ)은 비교 · 대조 실험(기억 없음, 순서 섞기, SF-de PE 끔 비교)의 짝으로 남는다. **그 대조들은 ADD model에서 한 것이다.** IAND 기준에서는 not run이다.
+- runner 기본값은 바꾸지 않았다. MIT-BIH runner는 COND · LR을 늘 명시적으로 받는다.
+
+### 세 과제 현황(SpkMixer 각 과제 기준 vs SF-de; syops energy; 값은 해당 기록 그대로)
+- SF-de는 11-24 사용자 결정에 따라 논문 표의 baseline이 아니다. 아래는 내부 비교다.
+- 논문 baseline은 따로 정해져 있다: ETT는 SpikF 논문 SNN 행 + DNN 행, AD는 DNN 행, MIT-BIH는 MIT-BIH용 SNN 분류 model이다.
+
+| 과제 | SpkMixer 기준(잔차) | SF-de 대비 정확도 | 판정 | energy(SpkMixer / SF-de) | 출처 |
+|---|---|---|---|--:|---|
+| ETTh2 · ETTm2(4칸) | 첫 튜닝 최종(IAND, patch 16) | MSE R +0.16 %(높을수록 나쁨) | no clear difference | 1.021(syops만) | 11-23 23:07, SF-de patch 16 |
+| ETTh1 · ETTm1(4칸) | retune 기준(IAND) | SF-de 쪽 MSE R −0.36 %(SF-de가 약간 낮음) | no clear difference | **0.53**(10.38 / 19.79 µJ) | 11-28 00:12 |
+| MIT-BIH | **IAND lr 0.01(새 기준)** | +0.27 %p(macro-F1) | no clear difference(채택 기준 +0.1 %p 통과) | 1.154(9.00 / 7.80 µJ) | 11-28 20:41 |
+| AD(MSL · SMAP · PSM) | G5: 방향별 층 1 + 0/1 잔차(**MSL · SMAP OR, PSM IAND**) | AUC-PR R +1.452 %(8/9 높음) | no clear difference | 0.988 | 11-19 21:05 |
+
+- **ETT와 MIT-BIH는 이제 같은 잔차(IAND)다.** AD만 dataset마다 잔차가 다르다. AD 11-19 선택에서 0/1 잔차 {OR, IAND} 중 MSL · SMAP은 OR, PSM은 IAND였다. AD를 IAND로 통일한 run은 없다(not run).
+- 세 과제 모두 SF-de와 정확도는 "차이 없음"이다.
+- energy는 ETTh1 · ETTm1에서 낮고(0.53배), ETTh2 · ETTm2와 AD에서 같은 수준(1.02 · 0.99배)이며, MIT-BIH에서 조금 높다(1.15배, 채택 기준 1.5배 안).
+- **아직 없는 것:** MIT-BIH의 논문 baseline(MIT-BIH용 SNN 분류 model) 문헌 표는 기록에 없다(not run).
+
+### 다음 후보(사용자 결정 필요)
+1. AD를 IAND로 통일하는 확인이다. G5 설정(방향별 층 1, lr 2e-3) + IAND를 MSL · SMAP × seed 3 = 6 run으로 돌린다. PSM IAND는 G5에 이미 있다. 비교 대상은 G5(OR)와 SF-de다.
+2. MIT-BIH용 SNN 분류 model 문헌 표를 만든다(학습 없음; 같은 분할 · 같은 지표인지 확인 필요).
+3. IAND 기준에서 순서 대조를 다시 한다(3 run).
+
+**commit:** 이 기록만.
