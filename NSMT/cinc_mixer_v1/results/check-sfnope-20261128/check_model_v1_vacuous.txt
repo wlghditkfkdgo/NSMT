@@ -1,0 +1,19 @@
+PASS MIT-BIH: one source run
+len of tokens in sequence >> 11
+len of tokens in sequence >> 11
+PASS MIT-BIH: ssa_pe 0 has no relative_bias_table (pe False), ssa_pe 1 has one
+PASS MIT-BIH: parameters 904488 - 904320 = (2N - 1) x heads = 168 (N 11, heads 8)
+PASS MIT-BIH: every SSA in the model is off
+FAIL MIT-BIH PE off, train mode: permuted SSA = SSA (mismatch 0.00e+00, output spike rate 0.000)
+FAIL MIT-BIH PE off, eval mode: permuted SSA = SSA (mismatch 0.00e+00, output spike rate 0.000)
+PASS MIT-BIH PE on with a random bias table: the test detects order use (mismatch 7.04e-02, rate 0.039)
+PASS ETTh1: one source run
+len of tokens in sequence >> 24
+len of tokens in sequence >> 24
+PASS ETTh1: ssa_pe 0 has no relative_bias_table (pe False), ssa_pe 1 has one
+PASS ETTh1: parameters 22264 - 21888 = (2N - 1) x heads = 376 (N 24, heads 8)
+PASS ETTh1: every SSA in the model is off
+FAIL ETTh1 PE off, train mode: permuted SSA = SSA (mismatch 0.00e+00, output spike rate 0.000)
+FAIL ETTh1 PE off, eval mode: permuted SSA = SSA (mismatch 0.00e+00, output spike rate 0.000)
+PASS ETTh1 PE on with a random bias table: the test detects order use (mismatch 7.20e-02, rate 0.039)
+4 FAIL

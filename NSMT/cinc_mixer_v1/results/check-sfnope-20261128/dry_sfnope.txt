@@ -1,0 +1,13 @@
+PASS (A) rc 0; M1 A worse (want A worse), mean -2.0000000000000018
+PASS (A) M2 A better (want A better), mean 2.042
+PASS (A) E1 no clear difference (want no clear difference), R 0.0000
+PASS (A) E1 energy ratio 1.0000 = 1
+PASS (B) rc 0; M1 no clear difference (want no clear difference)
+PASS (B) E1 A worse (want A worse), R 3.000, higher 12
+PASS stop on SKIP line: rc 2, "STOP: flif-v1-mitbih-sfde-nope: 1 SKIP line(s)"
+PASS stop on mixed commits: rc 2, "STOP: flif-v1-mitbih-sfde-nope: mixed training commits ['aaaaaaaaa', 'bbbbbbbbb']"
+PASS stop on MIT-BIH order drop 0.2: rc 2, "STOP: MIT-BIH PE-off seed 2026: mixer shuffle drop 0.2 %p (an order-blind model must give ~0)"
+PASS stop on ETT SSA shuffle 0.1 %: rc 2, "STOP: ETT PE-off ETTh1 H720 seed 42: SSA shuffle changes MSE by 0.1 % (an equivariant SSA must give ~0)"
+PASS stop on missing energy row: rc 2, "STOP: flif-v1-ett-sfde-nope: no energy recount row for ('ETTh1', '720', '42')"
+PASS stop on NaN MSE: rc 2, "STOP: mse not finite (flif-v1-ett-sfde-nope ('ETTh1', '720', '42'))"
+ALL PASS

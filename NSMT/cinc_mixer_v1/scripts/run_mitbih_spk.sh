@@ -11,6 +11,8 @@
 #         LR (0.01) MLAYERS (mixer layers per direction, --time_layers; 2) VAL_FOLD (unset = no validation split; k = stratified fold
 #         k of 5 of the training file as validation, train.py --val_fold) -- 2026-11-01 tuning; defaults = the original arguments
 #         TMEM (on | off) -- 2026-11-28 memoryless control: off -> --token_memory off, tag _tmoff; unset = the original arguments
+#         SSAPE (1 | 0) -- 2026-11-28 SF-de without position information: 0 -> --ssa_pe 0 (no relative bias in the SSA), tag _pe0;
+#         spk_ssa only; unset = the original arguments
 set -u
 S=${1:?}; GPU=${2:?}
 W="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # cinc_mixer_v1
@@ -83,6 +85,8 @@ HM=""; [ "${HEADMEM:-0}" = 1 ] && { HM="--head_mem"; TAGC="${TAGC}_hm"; }   # 20
 [ "${MS:-0}" = 1 ] && { [ "$COND" = spk_ssa ] || { echo "MS=1 is for spk_ssa (the SpkMixer uses cond spkmx_lif_<comb>_ms)"; exit 1; }; HM="$HM --ms_shortcut"; TAGC="${TAGC}_ms"; }   # 2026-11-08 membrane shortcut
 case ${NALL:-sj_lif} in sj_lif) ;; lif) { [ "$COND" = spk_ssa ] && [ "${MS:-0}" != 1 ]; } || { echo "NALL=lif is for spk_ssa without MS"; exit 1; }
   HM="$HM --neuron_all lif"; TAGC="${TAGC}_nalif" ;; *) echo "bad NALL"; exit 1 ;; esac   # 2026-11-18: Spikformer-style with the spikeDE LIF (neuron_all)
+case ${SSAPE:-1} in 1) ;; 0) [ "$COND" = spk_ssa ] || { echo "SSAPE: spk_ssa only"; exit 1; }; HM="$HM --ssa_pe 0"; TAGC="${TAGC}_pe0" ;;
+  *) echo "bad SSAPE"; exit 1 ;; esac   # 2026-11-28 SF-de without position information (user "SF-de의 위치 정보 끄기"): no relative bias in SSA
 case ${TMEM:-on} in on) ;; off) case $COND in spkmx_lif_*) HM="$HM --token_memory off"; TAGC="${TAGC}_tmoff" ;; *) echo "TMEM: LIF SpkMixer only"; exit 1 ;; esac ;;
   *) echo "bad TMEM"; exit 1 ;; esac   # 2026-11-28 memoryless control (user "분류 과제 통제"): every token-axis mixer neuron resets after each token
 OUT=$LOG/mitbih_${TAGC}_seed${S}_${TS}_${SHA}.stdout; t0=$(date +%s)

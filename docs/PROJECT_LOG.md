@@ -18466,3 +18466,97 @@ LIF SpkMixer와 각 원문 모델의 차이다. R은 칸별 상대 차이 %의 4
   - 기준과 새 구조를 같은 예산으로 튜닝하는 안(제안만 됨).
 
 **commit:** 이 기록, `results/flif-v1-mitbih-memoff/{raw.txt, energy_recount.csv}`, `results/check-mitmemoff-20261128/{summary_mitmemoff.md, summary_mitmemoff.json, recheck_mitmemoff.txt}`, `results/check-mitorder-20261128/{order_muxoff.txt, order_muxoff.json}`. tag `exp/f-lif-pop-v3-mitmemoff-20261128`(완료된 학습 run). driver.log · pool_log.txt · checkpoint · TensorBoard event는 local에 둔다.
+
+## 2026-11-28 17:44 KST — 사용자 결정 + 사전등록(학습 전): SF-de 위치 정보 끄기(`ssa_pe 0`), MIT-BIH 3 run + ETTh1 / ETTm1 12 run, 비교. 질문 답(학습 없음): "기억 없는 model"이 무엇인가
+
+### 사용자 요청(원문)
+- "1. SF-de의 위치 정보 끄기(ssa_pe 0): MIT-BIH 3 run, ETTh1/m1 12 run 수행하고 비교 2. 기억 없는 model이 무엇을 의미하는 거야?"
+
+### 질문 2 답: 기억 없는 model(`--token_memory off`, tag `_tmoff`)
+- SpkMixer의 mixer는 token 축(N개 patch를 순서대로)을 따라 LIF neuron을 돌린다. LIF 막전위 식은 spikeDE Euler 형태로, τ = 2, 문턱 θ = 1이다.
+  - **기억 있음(기본):** 미리 보는 막전위 ṽ_n = v_{n−1} + (I_n − v_{n−1})/τ다. ṽ_n ≥ θ이면 s_n = 1이고, reset은 막전위에서 θ·s_n/τ를 뺀다. 남은 v_n은 **다음 token으로 넘어간다**. 그래서 token n의 spike는 앞 token 1..n−1의 입력에 의존한다. 정방향 stack은 앞 token에, 역방향 stack은 뒤 token에 의존한다.
+  - **기억 없음:** 매 token 뒤 막전위를 0으로 만든다(`neurons.py` `_apply_reset`의 `'memoryless'`). 그러면 s_n = 1 ⇔ I_n/τ ≥ θ이고, token n의 spike는 **token n의 입력만으로** 정해진다.
+- 끄는 범위는 mixer 안의 token 축 neuron 전부다. 정 · 역방향 stack, s_d(차이 신호 neuron), fusion Linear 뒤 neuron이 해당한다(`spk_mixer.py` `SpkBlock`의 `tokn` · `fn`). 반복 축 T(= 4)를 따라 도는 embedding · MLP neuron은 그대로다.
+- 결과적으로 mixer가 token마다 따로 계산하는 함수가 된다. 두 방향 stack도 token 사이에 정보를 주고받지 못한다.
+  - MIT-BIH(head = token 평균): model 전체가 "patch 묶음 → 평균"이 되어 token 순서를 전혀 모른다. 14:36 기록에서 학습된 model의 섞기 drop이 정확히 0이었다.
+  - ETT(head = Linear(N·D→H)): 위치 정보는 head에만 남는다.
+- parameter · 구조 · 초기 weight는 기억 있는 model과 같다. 막전위가 token 사이로 넘어가는지만 다르다. 그래서 "token 축 시간 동역학이 성능에 기여하는가"를 재는 대조군으로 썼다.
+
+### 질문 1: 왜 SF-de의 위치 정보를 끄는가
+- SF-de(Spikformer식, SSA, 모든 neuron spikeDE LIF)가 body에서 위치를 아는 수단은 SSA의 **상대 위치 bias**(`relative_bias_table`, (2N−1) × head, `layers.py` `SSA_rel_scl`)뿐이다. embedding은 patch마다 따로 계산하고, SSA의 neuron은 반복 축 T를 따라 돈다. 11-28 MIT-BIH 순서 섞기에서 SSA 섞기 = full 섞기(−26.47 %p)였다.
+- `--ssa_pe 0`이면 SSA는 token 순서를 바꿔도 출력이 같이 바뀌기만 한다(순열 등변). 그래서 MIT-BIH에서는 model 전체가 순서를 모르고, ETT에서는 head만 위치를 안다.
+- SpkMixer에는 명시적 위치 정보(위치 embedding · bias)가 없다. 순서는 token 축 neuron 동역학으로만 들어온다.
+- 그래서 "위치 정보 없는 attention vs neuron 동역학"의 공정한 비교가 된다(14:36 기록의 "말하지 않는 것" 항목).
+
+### 바꾼 code(학습 경로의 기본값은 그대로)
+- `scripts/run_mitbih_spk.sh` · `scripts/run_ett_spk.sh`: `SSAPE=0` → `--ssa_pe 0`, tag `_pe0`(spk_ssa만; SpkMixer는 거부). config의 run 폴더 이름에는 기존 규칙대로 `_nope`가 붙는다. SSAPE가 없거나 1이면 명령이 글자까지 같다.
+- `results/check-mitorder-20261128/cls_order_eval.py`: arm `sfdenope`(flif-v1-mitbih-sfde-nope)를 추가했다.
+- `results/check-order-20261127/order_eval.py`: arm `sfde1n`(flif-v1-ett-sfde-nope)을 추가했다. 기존 arm은 그대로다.
+- 새 파일: `scripts/sfnope_driver.sh`, `results/check-sfnope-20261128/{summarize_sfnope.py, check_sfnope.py, dry_sfnope.py}`.
+
+### 실험
+| 과제 | suite | 설정(PE-on 기준 run과 같고 `SSAPE=0`만 다름) | run |
+|---|---|---|--:|
+| MIT-BIH | `flif-v1-mitbih-sfde-nope` | `COND=spk_ssa NALL=lif LR=0.01`(30 epoch, cosine, bs 512, patch 32 → token 11, D 384, head 8), seed 42 / 7 / 2026 | 3 |
+| ETTh1 | `flif-v1-ett-sfde-nope` | `LR=0.0005`(patch 8 → token 24), H96 / H720 × seed 3 | 6 |
+| ETTm1 | `flif-v1-ett-sfde-nope` | `LR=0.0001 PATCH=16`, H96 / H720 × seed 3 | 6 |
+- tag: MIT-BIH `spk_ssa_lr0.01_L2_nalif_pe0`, ETTh1 `spk_ssa_lr0.0005_L1_nalif_pe0`, ETTm1 `spk_ssa_lr0.0001_L2_pt16_nalif_pe0`.
+- 짝(같은 seed) 기준:
+  - MIT-BIH: SF-de PE-on `flif-v1-mitbih-sfde` `spk_ssa_lr0.01_L2_nalif`(91.94), SpkMixer muxlin ADD `spkmx_lif_muxlin_add_lr0.02_L2`(91.99), 기억 없는 SpkMixer `…_tmoff`(90.13).
+  - ETT: SF-de PE-on `flif-v1-ett-sfde-h1m1`, muxlin IAND one block(retune 기준 tag), 기억 없는 muxlin IAND(`flif-v1-ett-memoff`).
+
+### 비교와 판정(`summarize_sfnope.py` docstring에 고정)
+- **MIT-BIH:** d = 100(F1_A − F1_B) %p를 seed별로 구한다. 평균 ≥ +0.5이고 3 seed 중 2개 이상 양수면 "A better", 평균 ≤ −0.5이고 2 / 3 이상 음수면 "A worse", 그 밖은 no clear difference다.
+  - M1: SF-de PE 끔 vs SF-de PE 켬(SF-de가 위치 bias를 필요로 하는가)
+  - **M2(주):** SpkMixer(LIF 기억) vs SF-de PE 끔. 둘 다 body에 명시적 위치 정보가 없다.
+  - M3(보고): 기억 없는 SpkMixer vs SF-de PE 끔. 둘 다 순서를 모른다.
+  - M4(보고): SpkMixer vs SF-de PE 켬
+- **ETT:** r = 100(MSE_A − MSE_B)/MSE_B를 (칸, seed)마다 구하고, R = 4칸의 seed 평균 r의 평균이다. R ≤ −1 %이고 12쌍 중 8쌍 이상 낮으면 "A better", 대칭이면 "A worse"다. MAE도 같은 규칙으로 보고한다.
+  - E1: SF-de PE 끔 vs 켬
+  - **E2(주):** muxlin IAND vs SF-de PE 끔
+  - E3(보고): 기억 없는 muxlin IAND vs SF-de PE 끔
+- energy: syops(기록 `syn_energy_uJ`). seed 평균의 비율이고, ETT는 칸별 비율의 평균이다.
+- **fail closed(멈춤, exit 2):**
+  - 새 suite에 SKIP이나 다른 tag 행이 있음, 원하는 (칸, seed) 수가 아님, 중복, 유한하지 않은 값, 학습 commit 섞임
+  - energy 재계산 행이 없음, MIT-BIH macro-F1 재계산값 ≠ 기록값, ETT energy 항등식 어긋남
+  - 학습된 PE-off model의 순서 섞기에서 MIT-BIH SSA · full 섞기 |drop| ≥ 0.05 %p(순서를 모르는 model이므로 약 0이어야 한다), 또는 ETT SSA 섞기 |변화| ≥ 0.05 %
+- **사전 예상:**
+  - M1 **A worse**(0.5 %p 이상 하락), 확신 중간이다. PE-on SF-de는 섞기에 −26 %p로 무너지고, 순서를 모르는 SpkMixer는 −1.85 %p 낮았다.
+  - M2 **A better**, 확신 중간이다(M1이 맞으면 따라온다).
+  - M3 no clear difference, 확신 낮음이다.
+  - E1 no clear difference, 확신 중상이다. 이 칸에서 PE-on SSA 섞기는 +0.49 %였고, head가 순서를 실어 나른다.
+  - E2 no clear difference(PE-on 기준 −0.36 %), E3 no clear difference다.
+  - energy: PE-off ≈ PE-on이다(bias 덧셈은 syops가 세지 않고 발화만 바뀐다). MIT-BIH M2 energy 비는 약 4.7배다.
+
+### 시작 전 점검(모두 통과; 실패하고 고친 것 포함)
+- **runner**(`check_runner.txt`, 27 / 27): 수정 전 사본(scratchpad)과 비교했다.
+  - SSAPE가 없으면 SF-de · SpkMixer(MIT-BIH 3조건, ETT 4조건)의 학습 인자가 같고, SSAPE=1도 같다.
+  - SSAPE=0은 `--ssa_pe 0`과 `_pe0`만 더한다. SpkMixer에는 거부된다.
+- **model**(`check_model.txt`, v5 ALL PASS): 기존 MIT-BIH · ETTh1 SF-de run의 config와 학습된 weight를 썼다.
+  - PE-off에는 bias table이 없다. parameter는 정확히 (2N−1) × head만큼 줄었다(MIT-BIH 168: N 11, ETTh1 376: N 24).
+  - PE-off SSA에서 token별 random 순열 → 되돌림의 결과가 원래와 같다. SSA 안 모든 neuron 단계와 입력 밀도 0.3 / 0.6 / 0.9에서 확인했다. eval mode는 정확히 0이다. train mode는 MIT-BIH 밀도 0.9에서 q spike 108만 개 중 1개(9e-7)만 달랐다.
+  - 학습된 PE-on model은 같은 점검에서 불일치 1.66e-1(MIT-BIH) · 1.46e-2(ETTh1)로 잡혔다. 점검이 순서 사용을 검출할 수 있다는 뜻이다.
+- **model 점검에서 실패하고 고친 것(파일 보존):**
+  - **v1** `check_model_v1_vacuous.txt`: 초기 weight에서 SSA 출력 neuron이 한 번도 발화하지 않아(발화율 0.000) 점검이 비었다. 학습된 PE-on weight를 넣도록 바꿨다.
+  - **v2** `check_model_v2_ett_train_silent.txt`: ETTh1 train mode에서 입력 밀도 0.3일 때 출력이 0이었다. 입력 밀도를 3가지로 늘렸다.
+  - **v3** `check_model_v3_ett_train_silent.txt`: ETTh1 train mode는 밀도를 바꿔도 출력 neuron이 0이었다. SSA 안 모든 neuron 단계를 비교하고, BN 바로 뒤 q / k / v가 발화하도록 요구를 바꿨다.
+  - **v4** `check_model_v4_bn_rounding.txt`: MIT-BIH train mode의 q 1개 불일치(9e-7)로 실패했다. train mode BN의 batch 평균 · 분산은 덧셈 순서가 바뀌어 반올림이 달라지고, 문턱에 걸린 값 하나가 뒤집힌 것이다. train mode에만 허용치 1e-5를 두었다(순서 사용 검출값 1e-3보다 100배 작음).
+  - **결과를 본 뒤 정한 허용치**임을 밝힌다. eval mode는 정확히 0을 요구한다. 학습 뒤 판정에 쓰는 순서 점검은 eval mode다.
+- **smoke**(`check_smoke.txt`, 10 / 10; suite `check-sfnope-smoke-mitbih` · `-ett`, seed 42, 1 epoch):
+  - RESULT가 있고, tag가 `_pe0`, 저장 config가 `ssa_pe 0`, run 폴더에 `_nope`가 있다.
+  - parameter = PE-on − (2N−1) × head다(MIT-BIH 904,320 = 904,488 − 168; ETTh1 169,280 = 169,656 − 376).
+  - energy 재계산 "all checks passed"(`energy_recount_smoke.txt`)다. MIT-BIH 1 epoch macro-F1 65.18 %, ETTh1 H96 1 epoch MSE 0.3848이다.
+  - 최대 GPU 메모리는 프로세스당 814 MiB다(`mem_poll.txt`). GPU마다 약 45 GB가 비어 있다. GPU 사용률은 다른 세션 작업으로 92–96 %다.
+  - 처음 smoke 명령은 `cd`가 background job 안으로 들어가 runner를 찾지 못했다(exit 127, 학습 없음). script 파일로 다시 돌렸다.
+- **요약기 dry run**(`dry_sfnope.txt`, 13 / 13):
+  - 심은 값의 판정이 맞았다(M1 worse · M2 better · E1 no clear difference / M1 no clear difference · E1 worse).
+  - SKIP, commit 섞임, MIT-BIH 섞기 drop 0.2 %p, ETT SSA 섞기 0.1 %, energy 행 없음, NaN이면 멈춘다.
+- **queue:** stub python으로 15줄을 돌렸다. stdout 15개가 서로 다르다. H96 / H720은 tag가 같지만 run 폴더(p96 / p720)가 다르다. 15줄 모두 `--ssa_pe 0`이다.
+
+### 실행
+- `SLOTS=0,1,2,3,0,1,2,3 nohup bash cinc_mixer_v1/scripts/sfnope_driver.sh`(NSMT/에서)
+- 순서: queue `scripts/queues/flif-v1-sfde-nope-20261128.txt`(MIT-BIH, ETTm1 먼저) → pool → 개수 확인 → energy 재계산 2개 → 순서 평가 2개 → 요약 → driver end. log는 `results/flif-v1-ett-sfde-nope/driver.log`다.
+- 예상 시간: 이전 PE-on run은 MIT-BIH 926–1,119 s, ETTm1 717–967 s, ETTh1 186–224 s였다. GPU를 함께 쓰므로 더 느릴 수 있다. pool 약 30–60분에 순서 평가가 더해진다.
+- **pool이 도는 동안 commit하지 않는다.**
+
+**commit:** 이 기록, runner 2개, `cls_order_eval.py`, `order_eval.py`, `scripts/sfnope_driver.sh`, `results/check-sfnope-20261128/{summarize_sfnope.py, check_sfnope.py, dry_sfnope.py, check_runner.txt, check_model.txt, check_model_v1_vacuous.txt, check_model_v2_ett_train_silent.txt, check_model_v3_ett_train_silent.txt, check_model_v4_bn_rounding.txt, check_smoke.txt, energy_recount_smoke.txt, dry_sfnope.txt}`, `results/check-sfnope-smoke-{mitbih,ett}/{raw.txt, energy_recount.csv}`. `mem_poll.txt`는 local에 둔다.

@@ -4,6 +4,8 @@ use of token order has to happen in the body. Checkpoints = the last-epoch weigh
 30 % MIT-BIH test file, every RESULT row of the chosen arm (3 seeds):
   mux   LIF SpkMixer, muxlin fusion, ADD residual, lr 0.02, mixer layers 2 (flif-v1-mitbih-spkmux-tune, tag spkmx_lif_muxlin_add_lr0.02_L2)
   sfde  SF-de (Spikformer-style, SSA with relative position bias), lr 0.01 (flif-v1-mitbih-sfde, tag spk_ssa_lr0.01_L2_nalif)
+  muxoff   (2026-11-28) the memoryless SpkMixer (flif-v1-mitbih-memoff)
+  sfdenope (2026-11-28, user "SF-de의 위치 정보 끄기") SF-de with --ssa_pe 0 (flif-v1-mitbih-sfde-nope, tag spk_ssa_lr0.01_L2_nalif_pe0)
 Per sample a random permutation of the N = 11 tokens (generator seeded by permutation seed and batch index):
   none   no shuffle; macro-F1 must equal the logged one (1e-6), else stop (exit 2)
   mixer  the token-mixing module's input (SpkMixer: block mix; SF-de: SSA) is shuffled and its output put back in order
@@ -29,11 +31,12 @@ from load_model import LOAD_MODEL                               # noqa: E402
 from dataloader import create_loader                            # noqa: E402
 
 ap = argparse.ArgumentParser()
-ap.add_argument('--arm', choices=['mux', 'sfde', 'muxoff'], required=True)
+ap.add_argument('--arm', choices=['mux', 'sfde', 'muxoff', 'sfdenope'], required=True)
 ap.add_argument('--out', required=True)
 a = ap.parse_args()
 SRC = {'mux': ('flif-v1-mitbih-spkmux-tune', 'spkmx_lif_muxlin_add_lr0.02_L2'), 'sfde': ('flif-v1-mitbih-sfde', 'spk_ssa_lr0.01_L2_nalif'),
-       'muxoff': ('flif-v1-mitbih-memoff', 'spkmx_lif_muxlin_add_lr0.02_L2_tmoff')}
+       'muxoff': ('flif-v1-mitbih-memoff', 'spkmx_lif_muxlin_add_lr0.02_L2_tmoff'),
+       'sfdenope': ('flif-v1-mitbih-sfde-nope', 'spk_ssa_lr0.01_L2_nalif_pe0')}   # 2026-11-28 SF-de without the SSA position bias
 suite, tag = SRC[a.arm]
 rows = [dict(t.split('=', 1) for t in l.split()[1:] if '=' in t) for l in open(os.path.join(C, 'results', suite, 'raw.txt')) if l.startswith('RESULT')]
 rows = [r for r in rows if r.get('tag') == tag]

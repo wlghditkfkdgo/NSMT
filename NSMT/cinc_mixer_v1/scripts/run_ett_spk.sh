@@ -33,6 +33,9 @@
 #         (it takes the ETTh2 / ETTm2 per-dataset defaults, as the SpkMixer does); every earlier training line is unchanged
 #         2026-11-27 memoryless control (user "(a)도 진행해줘"): TMEM=off -> --token_memory off (every token-axis neuron resets after each
 #         token), tag _tmoff; LIF SpkMixer conditions only; without TMEM the training line and tag are unchanged
+#         2026-11-28 SF-de without position information (user "SF-de의 위치 정보 끄기"): SSAPE=0 -> --ssa_pe 0 (no relative position
+#         bias in the SSA; SF-de then has no position information in the body), tag _pe0; spk_ssa only; without SSAPE the training
+#         line and tag are unchanged
 set -u
 DS=${1:?}; PL=${2:?}; S=${3:?}; GPU=${4:?}
 TH=${TH:-4}; case $TH in 4|8|16) ;; *) echo "bad TH $TH (4|8|16)"; exit 1 ;; esac   # 2026-11-27 T test
@@ -135,6 +138,8 @@ HM=""; [ "${HEADMEM:-0}" = 1 ] && { HM="--head_mem"; TAGC="${TAGC}_hm"; }   # 20
 [ "${MS:-0}" = 1 ] && { [ "$COND" = spk_ssa ] || { echo "MS=1 is for spk_ssa (the SpkMixer uses cond spkmx_lif_<comb>_ms)"; exit 1; }; HM="$HM --ms_shortcut"; TAGC="${TAGC}_ms"; }   # 2026-11-08 membrane shortcut
 case ${NALL:-sj_lif} in sj_lif) ;; lif) { [ "$COND" = spk_ssa ] && [ "${MS:-0}" != 1 ]; } || { echo "NALL=lif is for spk_ssa without MS"; exit 1; }
   HM="$HM --neuron_all lif"; TAGC="${TAGC}_nalif" ;; *) echo "bad NALL"; exit 1 ;; esac   # 2026-11-18: Spikformer-style with the spikeDE LIF (neuron_all)
+case ${SSAPE:-1} in 1) ;; 0) [ "$COND" = spk_ssa ] || { echo "SSAPE: spk_ssa only"; exit 1; }; HM="$HM --ssa_pe 0"; TAGC="${TAGC}_pe0" ;;
+  *) echo "bad SSAPE"; exit 1 ;; esac   # 2026-11-28 SF-de without position information (user "SF-de의 위치 정보 끄기"): no relative bias in SSA
 TL="";[ "${LOSS:-l1}" = mse ] && { TL="--train_loss mse"; TAGC="${TAGC}_mse"; }   # 2026-11-07 L2 test: LOSS=mse -> --train_loss mse, tag _mse
 E=${EPOCHS:-$E}; P=${PATIENCE:-10}
 SUITE=${SUITE:-flif-v1-ett-spkmux-$(date +%Y%m%d)}

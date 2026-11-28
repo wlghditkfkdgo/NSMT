@@ -1,0 +1,17 @@
+PASS MIT-BIH: one source run
+PASS MIT-BIH: trained weights loaded (PE on: missing [], unexpected []; PE off: missing [], unexpected ['data_block.0.ssa.rel_pos_idx'])
+PASS MIT-BIH: ssa_pe 0 has no relative_bias_table (pe False), ssa_pe 1 has one
+PASS MIT-BIH: parameters 904488 - 904320 = (2N - 1) x heads = 168 (N 11, heads 8)
+PASS MIT-BIH: every SSA in the model is off
+PASS MIT-BIH PE off, train mode: permuted SSA = SSA (mismatch 0.00e+00, output spike rate 0.015)
+PASS MIT-BIH PE off, eval mode: permuted SSA = SSA (mismatch 0.00e+00, output spike rate 0.080)
+PASS MIT-BIH trained PE on (learned bias table), eval mode: the test detects order use (mismatch 1.66e-01, rate 0.189)
+PASS ETTh1: one source run
+PASS ETTh1: trained weights loaded (PE on: missing ['head.weight'], unexpected []; PE off: missing ['head.weight'], unexpected ['data_block.0.ssa.rel_pos_idx'])
+PASS ETTh1: ssa_pe 0 has no relative_bias_table (pe False), ssa_pe 1 has one
+PASS ETTh1: parameters 22264 - 21888 = (2N - 1) x heads = 376 (N 24, heads 8)
+PASS ETTh1: every SSA in the model is off
+FAIL ETTh1 PE off, train mode: permuted SSA = SSA (mismatch 0.00e+00, output spike rate 0.000)
+PASS ETTh1 PE off, eval mode: permuted SSA = SSA (mismatch 0.00e+00, output spike rate 0.010)
+PASS ETTh1 trained PE on (learned bias table), eval mode: the test detects order use (mismatch 1.46e-02, rate 0.067)
+1 FAIL

@@ -1,0 +1,17 @@
+PASS MIT-BIH: one source run
+PASS MIT-BIH: trained weights loaded (PE on: missing [], unexpected []; PE off: missing [], unexpected ['data_block.0.ssa.rel_pos_idx'])
+PASS MIT-BIH: ssa_pe 0 has no relative_bias_table (pe False), ssa_pe 1 has one
+PASS MIT-BIH: parameters 904488 - 904320 = (2N - 1) x heads = 168 (N 11, heads 8)
+PASS MIT-BIH: every SSA in the model is off
+FAIL MIT-BIH PE off, train mode: permuted SSA = SSA at every stage and density: density 0.3: q_lif 0e+00/0.143, k_lif 0e+00/0.087, v_lif 0e+00/0.049, attn_lif 0e+00/0.000, output 0e+00/0.015; density 0.6: q_lif 0e+00/0.143, k_lif 0e+00/0.086, v_lif 0e+00/0.049, attn_lif 0e+00/0.000, output 0e+00/0.019; density 0.9: q_lif 9e-07/0.142, k_lif 0e+00/0.085, v_lif 9e-07/0.049, attn_lif 0e+00/0.000, output 0e+00/0.015 (stage mismatch / spike rate)
+PASS MIT-BIH PE off, eval mode: permuted SSA = SSA at every stage and density: density 0.3: q_lif 0e+00/0.114, k_lif 0e+00/0.083, v_lif 0e+00/0.050, attn_lif 0e+00/0.003, output 0e+00/0.107; density 0.6: q_lif 0e+00/0.190, k_lif 0e+00/0.138, v_lif 0e+00/0.090, attn_lif 0e+00/0.018, output 0e+00/0.191; density 0.9: q_lif 0e+00/0.285, k_lif 0e+00/0.246, v_lif 0e+00/0.207, attn_lif 0e+00/0.079, output 0e+00/0.359 (stage mismatch / spike rate)
+PASS MIT-BIH trained PE on (learned bias table), eval mode: the test detects order use (mismatch 1.66e-01, rate 0.189)
+PASS ETTh1: one source run
+PASS ETTh1: trained weights loaded (PE on: missing ['head.weight'], unexpected []; PE off: missing ['head.weight'], unexpected ['data_block.0.ssa.rel_pos_idx'])
+PASS ETTh1: ssa_pe 0 has no relative_bias_table (pe False), ssa_pe 1 has one
+PASS ETTh1: parameters 22264 - 21888 = (2N - 1) x heads = 376 (N 24, heads 8)
+PASS ETTh1: every SSA in the model is off
+PASS ETTh1 PE off, train mode: permuted SSA = SSA at every stage and density: density 0.3: q_lif 0e+00/0.036, k_lif 0e+00/0.036, v_lif 0e+00/0.034, attn_lif 0e+00/0.000, output 0e+00/0.000; density 0.6: q_lif 0e+00/0.035, k_lif 0e+00/0.034, v_lif 0e+00/0.033, attn_lif 0e+00/0.000, output 0e+00/0.000; density 0.9: q_lif 0e+00/0.032, k_lif 0e+00/0.034, v_lif 0e+00/0.032, attn_lif 0e+00/0.000, output 0e+00/0.000 (stage mismatch / spike rate)
+PASS ETTh1 PE off, eval mode: permuted SSA = SSA at every stage and density: density 0.3: q_lif 0e+00/0.038, k_lif 0e+00/0.046, v_lif 0e+00/0.047, attn_lif 0e+00/0.000, output 0e+00/0.000; density 0.6: q_lif 0e+00/0.237, k_lif 0e+00/0.176, v_lif 0e+00/0.179, attn_lif 0e+00/0.050, output 0e+00/0.210; density 0.9: q_lif 0e+00/0.514, k_lif 0e+00/0.382, v_lif 0e+00/0.352, attn_lif 0e+00/0.361, output 0e+00/0.511 (stage mismatch / spike rate)
+PASS ETTh1 trained PE on (learned bias table), eval mode: the test detects order use (mismatch 1.46e-02, rate 0.067)
+1 FAIL
